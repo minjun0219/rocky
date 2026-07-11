@@ -1,5 +1,5 @@
-import type { OpenAPIV3 } from "openapi-types";
-import { joinBaseAndPath, syntheticOperationId } from "./url";
+import type { OpenAPIV3 } from 'openapi-types';
+import { joinBaseAndPath, syntheticOperationId } from './url';
 
 /**
  * dereferenced 된 OpenAPI 3.x document 를 받아서 endpoint 인덱스를 만든다.
@@ -8,25 +8,17 @@ import { joinBaseAndPath, syntheticOperationId } from "./url";
  * requestBody, responses, examples, fullUrl) 를 담는다.
  */
 
-export type HttpMethod =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "PATCH"
-  | "DELETE"
-  | "HEAD"
-  | "OPTIONS"
-  | "TRACE";
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | 'TRACE';
 
 export const HTTP_METHODS = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-  "TRACE",
+  'GET',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'HEAD',
+  'OPTIONS',
+  'TRACE',
 ] as const satisfies readonly HttpMethod[];
 
 export interface IndexedEndpoint {
@@ -43,7 +35,7 @@ export interface IndexedEndpoint {
 
 export interface ParameterDetail {
   name: string;
-  in: "query" | "header" | "path" | "cookie";
+  in: 'query' | 'header' | 'path' | 'cookie';
   required: boolean;
   description?: string;
   deprecated: boolean;
@@ -104,10 +96,7 @@ export interface TagSummary {
   endpointCount: number;
 }
 
-export function indexSpec(
-  specName: string,
-  document: OpenAPIV3.Document,
-): IndexedSpec {
+export function indexSpec(specName: string, document: OpenAPIV3.Document): IndexedSpec {
   const endpoints: IndexedEndpoint[] = [];
   const byOperationId = new Map<string, IndexedEndpoint>();
   const byMethodPath = new Map<string, IndexedEndpoint>();
@@ -115,12 +104,16 @@ export function indexSpec(
 
   const paths = document.paths ?? {};
   for (const [pathKey, pathItem] of Object.entries(paths)) {
-    if (!pathItem) continue;
+    if (!pathItem) {
+      continue;
+    }
     for (const method of HTTP_METHODS) {
       const op = (pathItem as Record<string, unknown>)[method.toLowerCase()] as
         | OpenAPIV3.OperationObject
         | undefined;
-      if (!op) continue;
+      if (!op) {
+        continue;
+      }
 
       const synthetic = syntheticOperationId(method, pathKey);
       const tags = Array.isArray(op.tags) ? op.tags.slice() : [];
@@ -152,7 +145,9 @@ export function indexSpec(
   const tagDescriptions = new Map<string, string | undefined>();
   for (const t of declaredTags) {
     tagDescriptions.set(t.name, t.description);
-    if (!tagCounts.has(t.name)) tagCounts.set(t.name, 0);
+    if (!tagCounts.has(t.name)) {
+      tagCounts.set(t.name, 0);
+    }
   }
   const tags: TagSummary[] = Array.from(tagCounts.entries())
     .map(([name, endpointCount]) => ({
@@ -177,9 +172,13 @@ export function resolveEndpoint(
 ): IndexedEndpoint | undefined {
   if (input.operationId) {
     const hit = spec.byOperationId.get(input.operationId);
-    if (hit) return hit;
+    if (hit) {
+      return hit;
+    }
     for (const ep of spec.endpoints) {
-      if (ep.syntheticOperationId === input.operationId) return ep;
+      if (ep.syntheticOperationId === input.operationId) {
+        return ep;
+      }
     }
     return undefined;
   }
@@ -194,24 +193,19 @@ export function buildEndpointDetail(
   endpoint: IndexedEndpoint,
   baseUrl: string,
 ): EndpointDetail {
-  const pathItem = spec.document.paths?.[endpoint.path] as
-    | OpenAPIV3.PathItemObject
+  const pathItem = spec.document.paths?.[endpoint.path] as OpenAPIV3.PathItemObject | undefined;
+  const op = pathItem?.[endpoint.method.toLowerCase() as Lowercase<HttpMethod>] as
+    | OpenAPIV3.OperationObject
     | undefined;
-  const op = pathItem?.[
-    endpoint.method.toLowerCase() as Lowercase<HttpMethod>
-  ] as OpenAPIV3.OperationObject | undefined;
   if (!op) {
     throw new Error(
       `internal: operation ${endpoint.method} ${endpoint.path} disappeared from indexed spec`,
     );
   }
 
-  const pathParams = (pathItem?.parameters ??
-    []) as OpenAPIV3.ParameterObject[];
+  const pathParams = (pathItem?.parameters ?? []) as OpenAPIV3.ParameterObject[];
   const opParams = (op.parameters ?? []) as OpenAPIV3.ParameterObject[];
-  const parameters = mergeParameters(pathParams, opParams).map(
-    toParameterDetail,
-  );
+  const parameters = mergeParameters(pathParams, opParams).map(toParameterDetail);
 
   const requestBody = op.requestBody
     ? toRequestBodyDetail(op.requestBody as OpenAPIV3.RequestBodyObject)
@@ -246,29 +240,29 @@ function mergeParameters(
   opParams: OpenAPIV3.ParameterObject[],
 ): OpenAPIV3.ParameterObject[] {
   const seen = new Map<string, OpenAPIV3.ParameterObject>();
-  for (const p of pathParams) seen.set(`${p.in}:${p.name}`, p);
-  for (const p of opParams) seen.set(`${p.in}:${p.name}`, p);
+  for (const p of pathParams) {
+    seen.set(`${p.in}:${p.name}`, p);
+  }
+  for (const p of opParams) {
+    seen.set(`${p.in}:${p.name}`, p);
+  }
   return Array.from(seen.values());
 }
 
 function toParameterDetail(p: OpenAPIV3.ParameterObject): ParameterDetail {
   return {
     name: p.name,
-    in: p.in as ParameterDetail["in"],
-    required: p.required === true || p.in === "path",
+    in: p.in as ParameterDetail['in'],
+    required: p.required === true || p.in === 'path',
     ...(p.description !== undefined ? { description: p.description } : {}),
     deprecated: p.deprecated === true,
     schema: p.schema,
     example: p.example,
-    examples: extractExamples(
-      p.examples as Record<string, OpenAPIV3.ExampleObject> | undefined,
-    ),
+    examples: extractExamples(p.examples as Record<string, OpenAPIV3.ExampleObject> | undefined),
   };
 }
 
-function toRequestBodyDetail(
-  rb: OpenAPIV3.RequestBodyObject,
-): RequestBodyDetail {
+function toRequestBodyDetail(rb: OpenAPIV3.RequestBodyObject): RequestBodyDetail {
   const content: Record<string, MediaTypeDetail> = {};
   for (const [mediaType, mt] of Object.entries(rb.content ?? {})) {
     content[mediaType] = toMediaTypeDetail(mt as OpenAPIV3.MediaTypeObject);
@@ -290,7 +284,7 @@ function toResponseDetail(r: OpenAPIV3.ResponseObject): ResponseDetail {
       )
     : undefined;
   return {
-    description: r.description ?? "",
+    description: r.description ?? '',
     headers: r.headers as Record<string, unknown> | undefined,
     ...(content !== undefined ? { content } : {}),
   };
@@ -300,16 +294,16 @@ function toMediaTypeDetail(mt: OpenAPIV3.MediaTypeObject): MediaTypeDetail {
   return {
     schema: mt.schema,
     example: mt.example,
-    examples: extractExamples(
-      mt.examples as Record<string, OpenAPIV3.ExampleObject> | undefined,
-    ),
+    examples: extractExamples(mt.examples as Record<string, OpenAPIV3.ExampleObject> | undefined),
   };
 }
 
 function extractExamples(
   examples: Record<string, OpenAPIV3.ExampleObject> | undefined,
 ): Record<string, unknown> | undefined {
-  if (!examples) return undefined;
+  if (!examples) {
+    return undefined;
+  }
   const out: Record<string, unknown> = {};
   for (const [name, ex] of Object.entries(examples)) {
     out[name] = ex.value;
@@ -331,22 +325,29 @@ function collectExamples(
         reqExamples[mt] = body;
       }
     }
-    if (Object.keys(reqExamples).length > 0) set.request = reqExamples;
+    if (Object.keys(reqExamples).length > 0) {
+      set.request = reqExamples;
+    }
   }
 
   const responseExamples: Record<string, Record<string, MediaTypeDetail>> = {};
   for (const [status, response] of Object.entries(responses)) {
-    if (!response.content) continue;
+    if (!response.content) {
+      continue;
+    }
     const perStatus: Record<string, MediaTypeDetail> = {};
     for (const [mt, body] of Object.entries(response.content)) {
       if (body.example !== undefined || body.examples) {
         perStatus[mt] = body;
       }
     }
-    if (Object.keys(perStatus).length > 0) responseExamples[status] = perStatus;
+    if (Object.keys(perStatus).length > 0) {
+      responseExamples[status] = perStatus;
+    }
   }
-  if (Object.keys(responseExamples).length > 0)
+  if (Object.keys(responseExamples).length > 0) {
     set.responses = responseExamples;
+  }
 
   // parameter examples 는 ParameterDetail 안에 그대로 보존된다 — examples 집합엔 따로 안 넣음.
   void parameters;

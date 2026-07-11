@@ -1,4 +1,4 @@
-import type { HttpMethod, IndexedEndpoint } from "./indexer";
+import type { HttpMethod, IndexedEndpoint } from './indexer';
 
 /**
  * `openapi_search` / `list_endpoints` 에서 쓰는 필터 + 점수화 검색.
@@ -32,16 +32,24 @@ export function filterEndpoints(
   const scored: ScoredEndpoint[] = [];
 
   for (const ep of endpoints) {
-    if (filter.spec && ep.specName !== filter.spec) continue;
-    if (filter.tag && !ep.tags.includes(filter.tag)) continue;
-    if (filter.method && ep.method !== filter.method) continue;
+    if (filter.spec && ep.specName !== filter.spec) {
+      continue;
+    }
+    if (filter.tag && !ep.tags.includes(filter.tag)) {
+      continue;
+    }
+    if (filter.method && ep.method !== filter.method) {
+      continue;
+    }
 
     if (!keyword) {
       scored.push({ endpoint: ep, score: 0 });
       continue;
     }
     const score = scoreKeyword(ep, keyword);
-    if (score > 0) scored.push({ endpoint: ep, score });
+    if (score > 0) {
+      scored.push({ endpoint: ep, score });
+    }
   }
 
   if (keyword) {
@@ -52,11 +60,17 @@ export function filterEndpoints(
 
 function scoreKeyword(ep: IndexedEndpoint, keyword: string): number {
   let score = 0;
-  if (ep.operationId?.toLowerCase().includes(keyword))
+  if (ep.operationId?.toLowerCase().includes(keyword)) {
     score += SCORE_OPERATION_ID;
-  if (ep.path.toLowerCase().includes(keyword)) score += SCORE_PATH;
-  if (ep.summary?.toLowerCase().includes(keyword)) score += SCORE_SUMMARY;
-  if (ep.description?.toLowerCase().includes(keyword))
+  }
+  if (ep.path.toLowerCase().includes(keyword)) {
+    score += SCORE_PATH;
+  }
+  if (ep.summary?.toLowerCase().includes(keyword)) {
+    score += SCORE_SUMMARY;
+  }
+  if (ep.description?.toLowerCase().includes(keyword)) {
     score += SCORE_DESCRIPTION;
+  }
   return score;
 }

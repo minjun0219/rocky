@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import type { SpecSource } from "./schema";
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { SpecSource } from './schema';
 
 /**
  * spec 소스 (URL 또는 file path) 에서 raw 본문을 가져온다. URL 모드에서는 etag /
@@ -32,7 +32,7 @@ export class SpecFetchError extends Error {
     public override readonly cause?: unknown,
   ) {
     super(message);
-    this.name = "SpecFetchError";
+    this.name = 'SpecFetchError';
   }
 }
 
@@ -65,10 +65,7 @@ export interface FetcherOptions {
 }
 
 export interface SpecFetcher {
-  fetch(
-    source: SpecSource,
-    conditional?: ConditionalHeaders,
-  ): Promise<FetchOutcome>;
+  fetch(source: SpecSource, conditional?: ConditionalHeaders): Promise<FetchOutcome>;
 }
 
 export function createFetcher(options: FetcherOptions = {}): SpecFetcher {
@@ -77,27 +74,22 @@ export function createFetcher(options: FetcherOptions = {}): SpecFetcher {
 
 class DefaultSpecFetcher implements SpecFetcher {
   /** TLS 옵션이 한 번 빌드되면 캐시 — extraCaCerts 의 파일 read 를 매 요청마다 하지 않음. */
-  private tlsInitCache: BunRequestInit["tls"] | undefined;
+  private tlsInitCache: BunRequestInit['tls'] | undefined;
   private tlsInitResolved = false;
 
   constructor(private readonly options: FetcherOptions) {}
 
-  async fetch(
-    source: SpecSource,
-    conditional?: ConditionalHeaders,
-  ): Promise<FetchOutcome> {
-    if (source.type === "file") {
+  async fetch(source: SpecSource, conditional?: ConditionalHeaders): Promise<FetchOutcome> {
+    if (source.type === 'file') {
       return this.fetchFile(source);
     }
     return this.fetchUrl(source, conditional);
   }
 
-  private async fetchFile(
-    source: Extract<SpecSource, { type: "file" }>,
-  ): Promise<FetchResult> {
+  private async fetchFile(source: Extract<SpecSource, { type: 'file' }>): Promise<FetchResult> {
     const absolute = path.resolve(source.path);
     try {
-      const body = await readFile(absolute, "utf8");
+      const body = await readFile(absolute, 'utf8');
       return {
         body,
         fetchedAt: new Date().toISOString(),
@@ -106,40 +98,35 @@ class DefaultSpecFetcher implements SpecFetcher {
       };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      throw new SpecFetchError(
-        `failed to read spec file ${absolute}: ${reason}`,
-        undefined,
-        err,
-      );
+      throw new SpecFetchError(`failed to read spec file ${absolute}: ${reason}`, undefined, err);
     }
   }
 
   private async fetchUrl(
-    source: Extract<SpecSource, { type: "url" }>,
+    source: Extract<SpecSource, { type: 'url' }>,
     conditional?: ConditionalHeaders,
   ): Promise<FetchOutcome> {
     const headers: Record<string, string> = {
-      Accept:
-        "application/json, application/yaml;q=0.9, text/yaml;q=0.9, */*;q=0.1",
+      Accept: 'application/json, application/yaml;q=0.9, text/yaml;q=0.9, */*;q=0.1',
     };
-    if (conditional?.etag) headers["If-None-Match"] = conditional.etag;
-    if (conditional?.lastModified)
-      headers["If-Modified-Since"] = conditional.lastModified;
+    if (conditional?.etag) {
+      headers['If-None-Match'] = conditional.etag;
+    }
+    if (conditional?.lastModified) {
+      headers['If-Modified-Since'] = conditional.lastModified;
+    }
 
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.options.timeoutMs ?? 10_000,
-    );
+    const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 10_000);
 
     try {
       const tls = await this.resolveTlsInit();
       const init: BunRequestInit = {
-        method: "GET",
+        method: 'GET',
         headers,
         signal: controller.signal,
         // redirect 는 follow (기본) — spec serve 가 흔히 redirect 를 끼므로.
-        redirect: "follow",
+        redirect: 'follow',
         ...(tls ? { tls } : {}),
       };
       const response = await fetch(source.url, init);
@@ -158,8 +145,8 @@ class DefaultSpecFetcher implements SpecFetcher {
       }
 
       const body = await response.text();
-      const etag = response.headers.get("etag") ?? undefined;
-      const lastModified = response.headers.get("last-modified") ?? undefined;
+      const etag = response.headers.get('etag') ?? undefined;
+      const lastModified = response.headers.get('last-modified') ?? undefined;
       return {
         body,
         ...(etag !== undefined ? { etag } : {}),
@@ -169,13 +156,11 @@ class DefaultSpecFetcher implements SpecFetcher {
         source,
       };
     } catch (err) {
-      if (err instanceof SpecFetchError) throw err;
+      if (err instanceof SpecFetchError) {
+        throw err;
+      }
       const reason = err instanceof Error ? err.message : String(err);
-      throw new SpecFetchError(
-        `failed to fetch ${source.url}: ${reason}`,
-        undefined,
-        err,
-      );
+      throw new SpecFetchError(`failed to fetch ${source.url}: ${reason}`, undefined, err);
     } finally {
       clearTimeout(timeout);
     }
@@ -189,18 +174,17 @@ class DefaultSpecFetcher implements SpecFetcher {
    *
    * `extraCaCerts` 의 파일 read 는 첫 호출에서만 일어나고 결과 객체를 캐시한다.
    */
-  private async resolveTlsInit(): Promise<BunRequestInit["tls"] | undefined> {
-    if (this.tlsInitResolved) return this.tlsInitCache;
+  private async resolveTlsInit(): Promise<BunRequestInit['tls'] | undefined> {
+    if (this.tlsInitResolved) {
+      return this.tlsInitCache;
+    }
     if (this.options.insecureTls === true) {
       this.tlsInitCache = { rejectUnauthorized: false };
-    } else if (
-      this.options.extraCaCerts !== undefined &&
-      this.options.extraCaCerts.length > 0
-    ) {
+    } else if (this.options.extraCaCerts !== undefined && this.options.extraCaCerts.length > 0) {
       const cas = await Promise.all(
         this.options.extraCaCerts.map(async (p) => {
           try {
-            return await readFile(p, "utf8");
+            return await readFile(p, 'utf8');
           } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
             throw new SpecFetchError(

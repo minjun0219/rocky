@@ -5,7 +5,7 @@ import {
   ID_BODY,
   type OpenapiRegistry,
   type ToolkitConfig,
-} from "./toolkit-config";
+} from './toolkit-config';
 
 /**
  * `agent-toolkit.json` 의 `openapi.registry` 트리를 다루는 helper 모음.
@@ -31,7 +31,7 @@ export interface OpenapiRegistryEntry {
   url: string;
   /** leaf 가 object 형태일 때만 채워진다. */
   baseUrl?: string;
-  format?: "openapi3" | "swagger2" | "auto";
+  format?: 'openapi3' | 'swagger2' | 'auto';
 }
 
 // 식별자 본문은 toolkit-config 의 ID_BODY 와 동일해야 한다 (스키마 / config 검증과 동기).
@@ -48,12 +48,10 @@ export function isFullHandle(s: string): boolean {
 
 /** `host`, `host:env`, `host:env:spec` 중 하나라도 맞는지. 16-hex 키와 URL 은 false. */
 export function isScope(s: string): boolean {
-  if (!s || HEX_KEY.test(s)) return false;
-  if (
-    s.startsWith("http://") ||
-    s.startsWith("https://") ||
-    s.startsWith("file://")
-  ) {
+  if (!s || HEX_KEY.test(s)) {
+    return false;
+  }
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://')) {
     return false;
   }
   return HANDLE_FULL.test(s) || HANDLE_HOST_ENV.test(s) || HANDLE_HOST.test(s);
@@ -63,10 +61,7 @@ export function isScope(s: string): boolean {
  * 정확한 `host:env:spec` handle 을 단일 URL 로 해석.
  * handle 이 형식에 맞지 않거나 등록 안 되어 있으면 throw — 메시지에 handle 을 포함.
  */
-export function resolveHandleToUrl(
-  handle: string,
-  registry: OpenapiRegistry | undefined,
-): string {
+export function resolveHandleToUrl(handle: string, registry: OpenapiRegistry | undefined): string {
   const m = HANDLE_FULL.exec(handle);
   if (!m) {
     throw new Error(
@@ -88,11 +83,10 @@ export function resolveHandleToUrl(
  * 매칭 0 건이면 빈 배열. handle 형식에 안 맞으면 빈 배열 — caller 가 의도하지 않은 스코프를
  * 안전하게 무시한다.
  */
-export function resolveScopeToUrls(
-  scope: string,
-  registry: OpenapiRegistry | undefined,
-): string[] {
-  if (!registry || !scope) return [];
+export function resolveScopeToUrls(scope: string, registry: OpenapiRegistry | undefined): string[] {
+  if (!registry || !scope) {
+    return [];
+  }
   if (HANDLE_FULL.test(scope)) {
     try {
       return [resolveHandleToUrl(scope, registry)];
@@ -108,10 +102,14 @@ export function resolveScopeToUrls(
   }
   if (HANDLE_HOST.test(scope)) {
     const envs = registry[scope];
-    if (!envs) return [];
+    if (!envs) {
+      return [];
+    }
     const out: string[] = [];
     for (const env of Object.values(envs)) {
-      for (const leaf of Object.values(env)) out.push(getRegistryUrl(leaf));
+      for (const leaf of Object.values(env)) {
+        out.push(getRegistryUrl(leaf));
+      }
     }
     return out;
   }
@@ -128,18 +126,13 @@ export function resolveScopeToHandles(
   scope: string,
   registry: OpenapiRegistry | undefined,
 ): string[] {
-  if (!registry || !scope) return [];
+  if (!registry || !scope) {
+    return [];
+  }
   if (HANDLE_FULL.test(scope)) {
-    const m = HANDLE_FULL.exec(scope) as unknown as [
-      string,
-      string,
-      string,
-      string,
-    ];
+    const m = HANDLE_FULL.exec(scope) as unknown as [string, string, string, string];
     const [, host, env, spec] = m;
-    return registry[host]?.[env]?.[spec] !== undefined
-      ? [`${host}:${env}:${spec}`]
-      : [];
+    return registry[host]?.[env]?.[spec] !== undefined ? [`${host}:${env}:${spec}`] : [];
   }
   const fullEnv = HANDLE_HOST_ENV.exec(scope);
   if (fullEnv) {
@@ -149,7 +142,9 @@ export function resolveScopeToHandles(
   }
   if (HANDLE_HOST.test(scope)) {
     const envs = registry[scope];
-    if (!envs) return [];
+    if (!envs) {
+      return [];
+    }
     const out: string[] = [];
     for (const [env, specs] of Object.entries(envs)) {
       for (const spec of Object.keys(specs)) {
@@ -176,8 +171,12 @@ export function listRegistry(config: ToolkitConfig): OpenapiRegistryEntry[] {
           spec,
           url: getRegistryUrl(leaf),
         };
-        if (baseUrl !== undefined) row.baseUrl = baseUrl;
-        if (format !== undefined) row.format = format;
+        if (baseUrl !== undefined) {
+          row.baseUrl = baseUrl;
+        }
+        if (format !== undefined) {
+          row.format = format;
+        }
         out.push(row);
       }
     }

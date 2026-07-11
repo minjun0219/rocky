@@ -1,21 +1,17 @@
-import path from "node:path";
-import {
-  createNoopDiskCache,
-  type DiskCache,
-  type DiskCacheEntry,
-} from "./cache";
-import { getLogger } from "./logger";
-import type { FetcherOptions, SpecFetcher } from "./fetcher";
-import type { OpenAPIV3 } from "openapi-types";
-import { indexSpec, type IndexedSpec } from "./indexer";
-import { parseSpecText } from "./parser";
+import path from 'node:path';
+import { createNoopDiskCache, type DiskCache, type DiskCacheEntry } from './cache';
+import { getLogger } from './logger';
+import type { FetcherOptions, SpecFetcher } from './fetcher';
+import type { OpenAPIV3 } from 'openapi-types';
+import { indexSpec, type IndexedSpec } from './indexer';
+import { parseSpecText } from './parser';
 import {
   DEFAULT_CACHE_TTL_SECONDS,
   type EnvironmentConfig,
   type OpenApiMcpConfig,
   type SpecConfig,
   type SpecSource,
-} from "./schema";
+} from './schema';
 
 /**
  * 메모리 + 디스크 캐시를 끼워둔 OpenAPI spec 레지스트리. SpecRegistry 가 caller (tool
@@ -54,7 +50,7 @@ interface CachedSpec {
   fetchedAt: string;
   source: SpecSource;
   document: object;
-  detectedFormat: "openapi3" | "swagger2";
+  detectedFormat: 'openapi3' | 'swagger2';
   etag?: string;
   lastModified?: string;
   ttlSeconds: number;
@@ -64,7 +60,7 @@ interface CachedSpec {
  * loadSpec 결과가 어디서 왔는지. handler 가 사용자에게 "remote 호출 발생 여부"
  * 를 정확히 보고하기 위해 필요 — 디스크 hydrate 도 cache hit 으로 친다.
  */
-export type LoadSource = "memory" | "disk" | "remote";
+export type LoadSource = 'memory' | 'disk' | 'remote';
 
 export interface DetailedLoadResult {
   indexed: IndexedSpec;
@@ -82,19 +78,13 @@ export interface SpecRegistry {
    * remote fetch 를 일으키지 않은 호출인지 (memory / disk hit) 또는 remote
    * 였는지 caller 가 그대로 사용자에게 노출할 수 있다.
    */
-  loadSpecDetailed(
-    specName: string,
-    environment?: string,
-  ): Promise<DetailedLoadResult>;
+  loadSpecDetailed(specName: string, environment?: string): Promise<DetailedLoadResult>;
   /**
    * 메모리 또는 디스크 캐시에서만 spec 을 로드. cache miss 면 null —
    * remote fetch 는 절대 일으키지 않는다. `openapi_search` 처럼 "remote 호출
    * 없음" 을 계약으로 보장해야 하는 경로에서 사용.
    */
-  loadSpecCachedOnly(
-    specName: string,
-    environment?: string,
-  ): Promise<IndexedSpec | null>;
+  loadSpecCachedOnly(specName: string, environment?: string): Promise<IndexedSpec | null>;
   getEnvironment(specName: string, environment: string): EnvironmentConfig;
   refresh(specName?: string): Promise<RefreshOutcome[]>;
   hasSpec(specName: string): boolean;
@@ -116,14 +106,14 @@ export interface RefreshOutcome {
 export class UnknownSpecError extends Error {
   constructor(specName: string) {
     super(`unknown spec '${specName}'`);
-    this.name = "UnknownSpecError";
+    this.name = 'UnknownSpecError';
   }
 }
 
 export class UnknownEnvironmentError extends Error {
   constructor(specName: string, environment: string) {
     super(`unknown environment '${environment}' for spec '${specName}'`);
-    this.name = "UnknownEnvironmentError";
+    this.name = 'UnknownEnvironmentError';
   }
 }
 
@@ -188,9 +178,7 @@ class InMemorySpecRegistry implements SpecRegistry {
   listSpecs(): SpecSummary[] {
     return Object.entries(this.config.specs).map(([name, spec]) => ({
       name,
-      ...(spec.description !== undefined
-        ? { description: spec.description }
-        : {}),
+      ...(spec.description !== undefined ? { description: spec.description } : {}),
       environments: Object.keys(spec.environments),
       cacheStatus: this.cacheStatus(name, spec),
     }));
@@ -201,16 +189,16 @@ class InMemorySpecRegistry implements SpecRegistry {
     return Object.entries(spec.environments).map(([name, env]) => ({
       name,
       baseUrl: env.baseUrl,
-      ...(env.description !== undefined
-        ? { description: env.description }
-        : {}),
+      ...(env.description !== undefined ? { description: env.description } : {}),
     }));
   }
 
   getEnvironment(specName: string, environment: string): EnvironmentConfig {
     const spec = this.requireSpec(specName);
     const env = spec.environments[environment];
-    if (!env) throw new UnknownEnvironmentError(specName, environment);
+    if (!env) {
+      throw new UnknownEnvironmentError(specName, environment);
+    }
     return env;
   }
 
@@ -218,10 +206,7 @@ class InMemorySpecRegistry implements SpecRegistry {
     return (await this.loadSpecDetailed(specName, environment)).indexed;
   }
 
-  async loadSpecDetailed(
-    specName: string,
-    environment?: string,
-  ): Promise<DetailedLoadResult> {
+  async loadSpecDetailed(specName: string, environment?: string): Promise<DetailedLoadResult> {
     const spec = this.requireSpec(specName);
     const source = this.resolveSource(specName, spec, environment);
     const ttlSeconds = spec.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS;
@@ -229,34 +214,34 @@ class InMemorySpecRegistry implements SpecRegistry {
 
     const memHit = this.cache.get(key);
     if (memHit) {
-      if (this.isStale(memHit))
+      if (this.isStale(memHit)) {
         this.scheduleBackgroundRefresh(specName, source, ttlSeconds);
-      return { indexed: memHit.indexed, source: "memory", fromCache: true };
+      }
+      return { indexed: memHit.indexed, source: 'memory', fromCache: true };
     }
 
     const inFlight = this.inFlight.get(key);
-    if (inFlight) return inFlight;
+    if (inFlight) {
+      return inFlight;
+    }
 
-    const promise = this.hydrateOrFetch(specName, source, ttlSeconds).finally(
-      () => {
-        this.inFlight.delete(key);
-      },
-    );
+    const promise = this.hydrateOrFetch(specName, source, ttlSeconds).finally(() => {
+      this.inFlight.delete(key);
+    });
     this.inFlight.set(key, promise);
     return promise;
   }
 
-  async loadSpecCachedOnly(
-    specName: string,
-    environment?: string,
-  ): Promise<IndexedSpec | null> {
+  async loadSpecCachedOnly(specName: string, environment?: string): Promise<IndexedSpec | null> {
     const spec = this.requireSpec(specName);
     const source = this.resolveSource(specName, spec, environment);
     const ttlSeconds = spec.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS;
     const key = this.cacheKey(specName, source);
 
     const memHit = this.cache.get(key);
-    if (memHit) return memHit.indexed;
+    if (memHit) {
+      return memHit.indexed;
+    }
 
     const hydrated = await this.hydrateFromDisk(specName, source, ttlSeconds);
     return hydrated?.indexed ?? null;
@@ -268,9 +253,7 @@ class InMemorySpecRegistry implements SpecRegistry {
     // source (default + env override) 도 같이 병렬 — 한 spec 의 source 하나가
     // 실패해도 같은 spec 의 다른 source 까지 끌어내리지 않게 try/catch 는 spec
     // 단위로 둔다.
-    const settled = await Promise.all(
-      targets.map((name) => this.refreshOne(name)),
-    );
+    const settled = await Promise.all(targets.map((name) => this.refreshOne(name)));
     return settled;
   }
 
@@ -304,8 +287,7 @@ class InMemorySpecRegistry implements SpecRegistry {
       // fetchedAt 는 sourcesByKey 의 첫 entry 기준 — 보고 용도라 정확성보다 일관성 우선.
       const firstKey = sourcesByKey.keys().next().value;
       const fetchedAt =
-        (firstKey ? this.cache.get(firstKey)?.fetchedAt : undefined) ??
-        new Date().toISOString();
+        (firstKey ? this.cache.get(firstKey)?.fetchedAt : undefined) ?? new Date().toISOString();
       return { spec: name, success: true, fetchedAt };
     } catch (err) {
       return {
@@ -322,10 +304,11 @@ class InMemorySpecRegistry implements SpecRegistry {
     ttlSeconds: number,
   ): Promise<DetailedLoadResult> {
     const hydrated = await this.hydrateFromDisk(specName, source, ttlSeconds);
-    if (hydrated)
-      return { indexed: hydrated.indexed, source: "disk", fromCache: true };
+    if (hydrated) {
+      return { indexed: hydrated.indexed, source: 'disk', fromCache: true };
+    }
     const indexed = await this.fetchAndStore(specName, source, ttlSeconds);
-    return { indexed, source: "remote", fromCache: false };
+    return { indexed, source: 'remote', fromCache: false };
   }
 
   /**
@@ -340,7 +323,9 @@ class InMemorySpecRegistry implements SpecRegistry {
   ): Promise<{ indexed: IndexedSpec } | null> {
     const key = this.cacheKey(specName, source);
     const disk = await this.diskCache.read(key);
-    if (!disk) return null;
+    if (!disk) {
+      return null;
+    }
     try {
       // 디스크 캐시는 이미 deref 된 OpenAPI 3.x document 를 보관하므로, 다시
       // SwaggerParser.dereference 를 돌리지 않고 곧장 indexSpec 으로 넘긴다 —
@@ -354,19 +339,18 @@ class InMemorySpecRegistry implements SpecRegistry {
         document,
         detectedFormat: disk.detectedFormat,
         ...(disk.etag !== undefined ? { etag: disk.etag } : {}),
-        ...(disk.lastModified !== undefined
-          ? { lastModified: disk.lastModified }
-          : {}),
+        ...(disk.lastModified !== undefined ? { lastModified: disk.lastModified } : {}),
         ttlSeconds,
       };
       this.cache.set(key, cached);
-      if (this.isStale(cached))
+      if (this.isStale(cached)) {
         this.scheduleBackgroundRefresh(specName, source, ttlSeconds);
+      }
       return { indexed };
     } catch (err) {
       getLogger().warn(
         { err, spec: specName },
-        "disk cache hydrate failed; falling back to fresh fetch",
+        'disk cache hydrate failed; falling back to fresh fetch',
       );
       await this.diskCache.delete(key);
       return null;
@@ -381,15 +365,11 @@ class InMemorySpecRegistry implements SpecRegistry {
     const key = this.cacheKey(specName, source);
     const fetched = await this.fetcher.fetch(source);
     if (fetched.notModified) {
-      throw new Error(
-        `unexpected 304 response for spec '${specName}' on initial load`,
-      );
+      throw new Error(`unexpected 304 response for spec '${specName}' on initial load`);
     }
     const parsed = await parseSpecText(fetched.body, source.format, {
       sourceLocation: this.sourceLocationOf(source),
-      ...(this.parseFetcherOptions
-        ? { fetcherOptions: this.parseFetcherOptions }
-        : {}),
+      ...(this.parseFetcherOptions ? { fetcherOptions: this.parseFetcherOptions } : {}),
     });
     const indexed = indexSpec(specName, parsed.document);
     const cached: CachedSpec = {
@@ -399,9 +379,7 @@ class InMemorySpecRegistry implements SpecRegistry {
       document: parsed.document,
       detectedFormat: parsed.detectedFormat,
       ...(fetched.etag !== undefined ? { etag: fetched.etag } : {}),
-      ...(fetched.lastModified !== undefined
-        ? { lastModified: fetched.lastModified }
-        : {}),
+      ...(fetched.lastModified !== undefined ? { lastModified: fetched.lastModified } : {}),
       ttlSeconds,
     };
     this.cache.set(key, cached);
@@ -415,13 +393,13 @@ class InMemorySpecRegistry implements SpecRegistry {
     ttlSeconds: number,
   ): void {
     const key = this.cacheKey(specName, source);
-    if (this.backgroundRefreshes.has(key)) return;
+    if (this.backgroundRefreshes.has(key)) {
+      return;
+    }
     this.backgroundRefreshes.add(key);
-    void this.runBackgroundRefresh(specName, source, ttlSeconds, key).finally(
-      () => {
-        this.backgroundRefreshes.delete(key);
-      },
-    );
+    void this.runBackgroundRefresh(specName, source, ttlSeconds, key).finally(() => {
+      this.backgroundRefreshes.delete(key);
+    });
   }
 
   private async runBackgroundRefresh(
@@ -431,15 +409,22 @@ class InMemorySpecRegistry implements SpecRegistry {
     key: string,
   ): Promise<void> {
     const existing = this.cache.get(key);
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
     try {
       const conditional: { etag?: string; lastModified?: string } = {};
-      if (existing.etag) conditional.etag = existing.etag;
-      if (existing.lastModified)
+      if (existing.etag) {
+        conditional.etag = existing.etag;
+      }
+      if (existing.lastModified) {
         conditional.lastModified = existing.lastModified;
+      }
       const fetched = await this.fetcher.fetch(source, conditional);
       const current = this.cache.get(key);
-      if (!current) return;
+      if (!current) {
+        return;
+      }
       if (fetched.notModified) {
         const refreshed: CachedSpec = {
           ...current,
@@ -464,18 +449,13 @@ class InMemorySpecRegistry implements SpecRegistry {
         document: parsed.document,
         detectedFormat: parsed.detectedFormat,
         ...(fetched.etag !== undefined ? { etag: fetched.etag } : {}),
-        ...(fetched.lastModified !== undefined
-          ? { lastModified: fetched.lastModified }
-          : {}),
+        ...(fetched.lastModified !== undefined ? { lastModified: fetched.lastModified } : {}),
         ttlSeconds,
       };
       this.cache.set(key, refreshed);
       await this.diskCache.write(key, this.toDiskEntry(refreshed));
     } catch (err) {
-      getLogger().warn(
-        { err, spec: specName },
-        "background refresh failed; serving stale cache",
-      );
+      getLogger().warn({ err, spec: specName }, 'background refresh failed; serving stale cache');
     }
   }
 
@@ -484,9 +464,7 @@ class InMemorySpecRegistry implements SpecRegistry {
       schemaVersion: 1,
       cachedAt: cached.fetchedAt,
       ...(cached.etag !== undefined ? { etag: cached.etag } : {}),
-      ...(cached.lastModified !== undefined
-        ? { lastModified: cached.lastModified }
-        : {}),
+      ...(cached.lastModified !== undefined ? { lastModified: cached.lastModified } : {}),
       source: cached.source,
       detectedFormat: cached.detectedFormat,
       document: cached.document,
@@ -508,22 +486,24 @@ class InMemorySpecRegistry implements SpecRegistry {
     return { cached: false, ttlSeconds };
   }
 
-  private resolveSource(
-    specName: string,
-    spec: SpecConfig,
-    environment?: string,
-  ): SpecSource {
+  private resolveSource(specName: string, spec: SpecConfig, environment?: string): SpecSource {
     let source: SpecSource = spec.source;
     if (environment) {
       const env = spec.environments[environment];
-      if (!env) throw new UnknownEnvironmentError(specName, environment);
-      if (env.source) source = env.source;
+      if (!env) {
+        throw new UnknownEnvironmentError(specName, environment);
+      }
+      if (env.source) {
+        source = env.source;
+      }
     }
     return this.resolveFilePath(source);
   }
 
   private resolveFilePath(source: SpecSource): SpecSource {
-    if (source.type !== "file" || path.isAbsolute(source.path)) return source;
+    if (source.type !== 'file' || path.isAbsolute(source.path)) {
+      return source;
+    }
     const baseDir = this.configDir ?? process.cwd();
     return { ...source, path: path.resolve(baseDir, source.path) };
   }
@@ -535,18 +515,20 @@ class InMemorySpecRegistry implements SpecRegistry {
    * 정확한 base 위에서 동작하도록.
    */
   private sourceLocationOf(source: SpecSource): string {
-    return source.type === "file" ? source.path : source.url;
+    return source.type === 'file' ? source.path : source.url;
   }
 
   private cacheKey(specName: string, source: SpecSource): string {
-    const target = source.type === "url" ? source.url : source.path;
-    const format = source.format ?? "auto";
+    const target = source.type === 'url' ? source.url : source.path;
+    const format = source.format ?? 'auto';
     return `${specName}::${source.type}::${target}::${format}`;
   }
 
   private requireSpec(specName: string): SpecConfig {
     const spec = this.config.specs[specName];
-    if (!spec) throw new UnknownSpecError(specName);
+    if (!spec) {
+      throw new UnknownSpecError(specName);
+    }
     return spec;
   }
 }

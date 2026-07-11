@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 /**
  * `openapi-mcp` 단독 진입점 (`bin/openapi-mcp`) 이 받는 config 파일의 스키마.
@@ -10,16 +10,16 @@ import { z } from "zod";
  * zod v4 (agent-toolkit 의 prod dep) 기준으로 작성되어 있으므로 v3 호환 API 는 쓰지 않는다.
  */
 
-const SpecFormatSchema = z.enum(["openapi3", "swagger2", "auto"]);
+const SpecFormatSchema = z.enum(['openapi3', 'swagger2', 'auto']);
 
-const SpecSourceSchema = z.discriminatedUnion("type", [
+const SpecSourceSchema = z.discriminatedUnion('type', [
   z.object({
-    type: z.literal("url"),
+    type: z.literal('url'),
     url: z.string().url(),
     format: SpecFormatSchema.optional(),
   }),
   z.object({
-    type: z.literal("file"),
+    type: z.literal('file'),
     path: z.string().min(1),
     format: SpecFormatSchema.optional(),
   }),
@@ -37,7 +37,7 @@ const SpecConfigSchema = z.object({
   environments: z
     .record(z.string().min(1), EnvironmentConfigSchema)
     .refine((envs) => Object.keys(envs).length > 0, {
-      message: "each spec must declare at least one environment",
+      message: 'each spec must declare at least one environment',
     }),
   cacheTtlSeconds: z.number().int().positive().optional(),
 });
@@ -57,7 +57,7 @@ export const OpenApiMcpConfigSchema = z.object({
   specs: z
     .record(z.string().min(1), SpecConfigSchema)
     .refine((specs) => Object.keys(specs).length > 0, {
-      message: "config.specs must contain at least one entry",
+      message: 'config.specs must contain at least one entry',
     }),
   cache: GlobalCacheConfigSchema.optional(),
   http: GlobalHttpConfigSchema.optional(),

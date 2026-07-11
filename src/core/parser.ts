@@ -1,8 +1,8 @@
-import SwaggerParser from "@apidevtools/swagger-parser";
-import yaml from "js-yaml";
-import type { OpenAPIV3 } from "openapi-types";
-import { type FetcherOptions, createFetcher } from "./fetcher";
-import type { SpecFormat } from "./schema";
+import SwaggerParser from '@apidevtools/swagger-parser';
+import yaml from 'js-yaml';
+import type { OpenAPIV3 } from 'openapi-types';
+import { type FetcherOptions, createFetcher } from './fetcher';
+import type { SpecFormat } from './schema';
 
 /**
  * spec 본문 (raw text 또는 이미 parse 된 object) 을 받아서:
@@ -21,13 +21,13 @@ export class SpecParseError extends Error {
     public override readonly cause?: unknown,
   ) {
     super(message);
-    this.name = "SpecParseError";
+    this.name = 'SpecParseError';
   }
 }
 
 export interface ParsedSpec {
   document: OpenAPIV3.Document;
-  detectedFormat: "openapi3" | "swagger2";
+  detectedFormat: 'openapi3' | 'swagger2';
 }
 
 /**
@@ -53,7 +53,7 @@ export interface ParseSpecOptions {
 
 export async function parseSpecText(
   raw: string,
-  hint: SpecFormat = "auto",
+  hint: SpecFormat = 'auto',
   options: ParseSpecOptions = {},
 ): Promise<ParsedSpec> {
   const parsed = parseStructured(raw);
@@ -62,16 +62,16 @@ export async function parseSpecText(
 
 export async function parseSpecObject(
   input: unknown,
-  hint: SpecFormat = "auto",
+  hint: SpecFormat = 'auto',
   options: ParseSpecOptions = {},
 ): Promise<ParsedSpec> {
-  if (input === null || typeof input !== "object") {
-    throw new SpecParseError("spec root must be an object");
+  if (input === null || typeof input !== 'object') {
+    throw new SpecParseError('spec root must be an object');
   }
   const detected = detectFormat(input, hint);
 
   let openapi3: object;
-  if (detected === "swagger2") {
+  if (detected === 'swagger2') {
     openapi3 = await convertSwagger2(input);
   } else {
     openapi3 = input;
@@ -107,7 +107,7 @@ export async function parseSpecObject(
 
 function parseStructured(raw: string): unknown {
   const trimmed = raw.trimStart();
-  const looksJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+  const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[');
   if (looksJson) {
     try {
       return JSON.parse(raw);
@@ -115,44 +115,44 @@ function parseStructured(raw: string): unknown {
       try {
         return yaml.load(raw);
       } catch {
-        throw new SpecParseError("spec is neither valid JSON nor YAML", err);
+        throw new SpecParseError('spec is neither valid JSON nor YAML', err);
       }
     }
   }
   try {
     return yaml.load(raw);
   } catch (err) {
-    throw new SpecParseError("failed to parse spec as YAML", err);
+    throw new SpecParseError('failed to parse spec as YAML', err);
   }
 }
 
-function detectFormat(doc: object, hint: SpecFormat): "openapi3" | "swagger2" {
+function detectFormat(doc: object, hint: SpecFormat): 'openapi3' | 'swagger2' {
   const hasOpenApi3 =
-    hasStringField(doc, "openapi") &&
+    hasStringField(doc, 'openapi') &&
     /^3\./.test((doc as Record<string, unknown>).openapi as string);
   const hasSwagger2 =
-    hasStringField(doc, "swagger") &&
+    hasStringField(doc, 'swagger') &&
     /^2\./.test((doc as Record<string, unknown>).swagger as string);
 
-  if (hint === "openapi3") {
+  if (hint === 'openapi3') {
     if (!hasOpenApi3) {
-      throw new SpecParseError(
-        "format=openapi3 declared but document is not OpenAPI 3.x",
-      );
+      throw new SpecParseError('format=openapi3 declared but document is not OpenAPI 3.x');
     }
-    return "openapi3";
+    return 'openapi3';
   }
-  if (hint === "swagger2") {
+  if (hint === 'swagger2') {
     if (!hasSwagger2) {
-      throw new SpecParseError(
-        "format=swagger2 declared but document is not Swagger 2.x",
-      );
+      throw new SpecParseError('format=swagger2 declared but document is not Swagger 2.x');
     }
-    return "swagger2";
+    return 'swagger2';
   }
 
-  if (hasOpenApi3) return "openapi3";
-  if (hasSwagger2) return "swagger2";
+  if (hasOpenApi3) {
+    return 'openapi3';
+  }
+  if (hasSwagger2) {
+    return 'swagger2';
+  }
   throw new SpecParseError(
     "spec is missing both 'openapi' and 'swagger' version fields; cannot detect format",
   );
@@ -160,7 +160,7 @@ function detectFormat(doc: object, hint: SpecFormat): "openapi3" | "swagger2" {
 
 function hasStringField(doc: object, field: string): boolean {
   const value = (doc as Record<string, unknown>)[field];
-  return typeof value === "string";
+  return typeof value === 'string';
 }
 
 /**
@@ -174,11 +174,11 @@ function hasStringField(doc: object, field: string): boolean {
  */
 type SwaggerParserOptions = Parameters<typeof SwaggerParser.dereference>[2];
 
-function buildSwaggerParserOptions(
-  options: ParseSpecOptions,
-): SwaggerParserOptions {
+function buildSwaggerParserOptions(options: ParseSpecOptions): SwaggerParserOptions {
   const fetcherOpts = options.fetcherOptions;
-  if (!fetcherOpts) return {} as SwaggerParserOptions;
+  if (!fetcherOpts) {
+    return {} as SwaggerParserOptions;
+  }
   // 한 parse 호출 안에서만 쓰는 fetcher — TLS dispatcher 를 그 호출 범위에 가둔다.
   const fetcher = createFetcher(fetcherOpts);
   return {
@@ -186,7 +186,7 @@ function buildSwaggerParserOptions(
       http: {
         // SwaggerParser 의 read 콜백 — file.url 로 들어오는 외부 ref 를 동일 fetcher 로.
         read: async (file: { url: string }): Promise<string> => {
-          const result = await fetcher.fetch({ type: "url", url: file.url });
+          const result = await fetcher.fetch({ type: 'url', url: file.url });
           if (result.notModified) {
             throw new Error(
               `unexpected 304 fetching external $ref ${file.url} — fetcher should not pass conditional headers here`,
@@ -200,19 +200,14 @@ function buildSwaggerParserOptions(
 }
 
 async function convertSwagger2(input: object): Promise<object> {
-  const { default: converter } = await import("swagger2openapi");
+  const { default: converter } = await import('swagger2openapi');
   return new Promise((resolve, reject) => {
     converter.convertObj(
       input as Parameters<typeof converter.convertObj>[0],
       { patch: true, warnOnly: true },
       (err, result) => {
         if (err) {
-          reject(
-            new SpecParseError(
-              `swagger 2.0 → 3.0 conversion failed: ${err.message}`,
-              err,
-            ),
-          );
+          reject(new SpecParseError(`swagger 2.0 → 3.0 conversion failed: ${err.message}`, err));
           return;
         }
         resolve(result.openapi as object);

@@ -11,10 +11,10 @@
  * phase 단위로 재추가된다.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import pkg from "../package.json" with { type: "json" };
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import pkg from '../package.json' with { type: 'json' };
 import {
   createAgentToolkitRegistry,
   HTTP_METHODS,
@@ -26,7 +26,7 @@ import {
   handleSwaggerSearch,
   handleSwaggerStatus,
   handleSwaggerTags,
-} from "./core";
+} from './core';
 
 /**
  * MCP `tools/call` results must be a `CallToolResult`. We always serialize the
@@ -36,7 +36,7 @@ function jsonResult(value: unknown) {
   return {
     content: [
       {
-        type: "text" as const,
+        type: 'text' as const,
         text: JSON.stringify(value, null, 2),
       },
     ],
@@ -60,48 +60,44 @@ export async function buildServer() {
   });
 
   const server = new McpServer({
-    name: "agent-toolkit",
+    name: 'agent-toolkit',
     version: pkg.version,
   });
 
   server.registerTool(
-    "openapi_get",
+    'openapi_get',
     {
       description:
-        "OpenAPI / Swagger spec 을 캐시 우선 정책으로 가져온다. swagger 2.0 은 자동으로 OpenAPI 3.0 으로 변환되고 $ref 는 모두 deref 된다. fresh hit 은 remote 호출 없음. stale hit (TTL 경과) 은 즉시 stale 데이터로 응답하고 백그라운드 conditional GET (If-None-Match / If-Modified-Since) 으로 재검증. miss 면 fetch + parse + index. (input: spec URL 또는 agent-toolkit.json 의 host:env:spec handle)",
+        'OpenAPI / Swagger spec 을 캐시 우선 정책으로 가져온다. swagger 2.0 은 자동으로 OpenAPI 3.0 으로 변환되고 $ref 는 모두 deref 된다. fresh hit 은 remote 호출 없음. stale hit (TTL 경과) 은 즉시 stale 데이터로 응답하고 백그라운드 conditional GET (If-None-Match / If-Modified-Since) 으로 재검증. miss 면 fetch + parse + index. (input: spec URL 또는 agent-toolkit.json 의 host:env:spec handle)',
       inputSchema: { input: z.string() },
     },
-    async ({ input }) =>
-      jsonResult(await handleSwaggerGet(openapiRegistry, input, registry)),
+    async ({ input }) => jsonResult(await handleSwaggerGet(openapiRegistry, input, registry)),
   );
 
   server.registerTool(
-    "openapi_refresh",
+    'openapi_refresh',
     {
-      description:
-        "캐시 (메모리 + 디스크) 를 무시하고 OpenAPI spec 을 강제 재다운로드한다.",
+      description: '캐시 (메모리 + 디스크) 를 무시하고 OpenAPI spec 을 강제 재다운로드한다.',
       inputSchema: { input: z.string() },
     },
-    async ({ input }) =>
-      jsonResult(await handleSwaggerRefresh(openapiRegistry, input, registry)),
+    async ({ input }) => jsonResult(await handleSwaggerRefresh(openapiRegistry, input, registry)),
   );
 
   server.registerTool(
-    "openapi_status",
+    'openapi_status',
     {
       description:
-        "캐시된 OpenAPI spec 의 메타 (cached / fetchedAt / ttlSeconds / environments) 만 조회. remote 호출 없음.",
+        '캐시된 OpenAPI spec 의 메타 (cached / fetchedAt / ttlSeconds / environments) 만 조회. remote 호출 없음.',
       inputSchema: { input: z.string() },
     },
-    async ({ input }) =>
-      jsonResult(await handleSwaggerStatus(openapiRegistry, input, registry)),
+    async ({ input }) => jsonResult(await handleSwaggerStatus(openapiRegistry, input, registry)),
   );
 
   server.registerTool(
-    "openapi_search",
+    'openapi_search',
     {
       description:
-        "캐시 (메모리 또는 디스크) 에 있는 OpenAPI spec 들을 가로질러 endpoint 를 점수화 검색한다 (operationId>path>summary>description). remote 호출 없음 — 미캐시 spec 은 결과에 포함되지 않으니 먼저 `openapi_get` 으로 받아둬야 한다.",
+        '캐시 (메모리 또는 디스크) 에 있는 OpenAPI spec 들을 가로질러 endpoint 를 점수화 검색한다 (operationId>path>summary>description). remote 호출 없음 — 미캐시 spec 은 결과에 포함되지 않으니 먼저 `openapi_get` 으로 받아둬야 한다.',
       inputSchema: {
         query: z.string(),
         limit: z.number().int().positive().optional(),
@@ -109,31 +105,24 @@ export async function buildServer() {
       },
     },
     async ({ query, limit, scope }) =>
-      jsonResult(
-        await handleSwaggerSearch(
-          openapiRegistry,
-          query,
-          { limit, scope },
-          registry,
-        ),
-      ),
+      jsonResult(await handleSwaggerSearch(openapiRegistry, query, { limit, scope }, registry)),
   );
 
   server.registerTool(
-    "openapi_envs",
+    'openapi_envs',
     {
       description:
-        "agent-toolkit.json 의 openapi.registry 를 host:env:spec 평면 리스트로 반환한다. baseUrl / format 이 있으면 함께 반환. remote 호출 없음.",
+        'agent-toolkit.json 의 openapi.registry 를 host:env:spec 평면 리스트로 반환한다. baseUrl / format 이 있으면 함께 반환. remote 호출 없음.',
       inputSchema: {},
     },
     async () => jsonResult(handleSwaggerEnvs(toolkitConfig)),
   );
 
   server.registerTool(
-    "openapi_endpoint",
+    'openapi_endpoint',
     {
       description:
-        "단일 endpoint 의 풍부한 정보 (parameters / requestBody / responses / examples / fullUrl) 를 반환한다. baseUrl 합성된 fullUrl 은 leaf 의 baseUrl 이 비어 있으면 path 자체.",
+        '단일 endpoint 의 풍부한 정보 (parameters / requestBody / responses / examples / fullUrl) 를 반환한다. baseUrl 합성된 fullUrl 은 leaf 의 baseUrl 이 비어 있으면 path 자체.',
       inputSchema: {
         input: z.string(),
         operationId: z.string().optional(),
@@ -153,14 +142,12 @@ export async function buildServer() {
   );
 
   server.registerTool(
-    "openapi_tags",
+    'openapi_tags',
     {
-      description:
-        "spec 의 OpenAPI tag 목록 + 각 tag 의 endpoint 개수를 반환한다.",
+      description: 'spec 의 OpenAPI tag 목록 + 각 tag 의 endpoint 개수를 반환한다.',
       inputSchema: { input: z.string() },
     },
-    async ({ input }) =>
-      jsonResult(await handleSwaggerTags(openapiRegistry, input, registry)),
+    async ({ input }) => jsonResult(await handleSwaggerTags(openapiRegistry, input, registry)),
   );
 
   return server;
@@ -178,9 +165,7 @@ async function main() {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(
-      `agent-toolkit MCP server failed: ${(err as Error).stack ?? err}`,
-    );
+    console.error(`agent-toolkit MCP server failed: ${(err as Error).stack ?? err}`);
     process.exit(1);
   });
 }

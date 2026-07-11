@@ -1,31 +1,27 @@
-import type { OpenAPIV3 } from "openapi-types";
-import {
-  buildEphemeralSpec,
-  DEFAULT_ENVIRONMENT,
-  ephemeralSpecName,
-} from "./adapter";
+import type { OpenAPIV3 } from 'openapi-types';
+import { buildEphemeralSpec, DEFAULT_ENVIRONMENT, ephemeralSpecName } from './adapter';
 import {
   buildEndpointDetail,
   resolveEndpoint,
   type EndpointDetail,
   type IndexedSpec,
   type TagSummary,
-} from "./indexer";
-import { filterEndpoints } from "./filter";
+} from './indexer';
+import { filterEndpoints } from './filter';
 import {
   type RefreshOutcome,
   type SpecRegistry,
   type SpecSummary,
   UnknownSpecError,
-} from "./registry";
+} from './registry';
 import {
   isFullHandle,
   listRegistry,
   resolveHandleToUrl,
   resolveScopeToHandles,
   type OpenapiRegistryEntry,
-} from "./openapi-registry";
-import type { OpenapiRegistry, ToolkitConfig } from "./toolkit-config";
+} from './openapi-registry';
+import type { OpenapiRegistry, ToolkitConfig } from './toolkit-config';
 
 /**
  * agent-toolkit 의 openapi_* tool 들이 공유하는 handler 묶음.
@@ -59,8 +55,8 @@ function resolveSwaggerInput(
     if (!registry.hasSpec(flat)) {
       // registry 가 toolkit-config 로 만들어지지 않은 (단독 진입점) 경우 ad-hoc 등록.
       registry.registerSpec(flat, {
-        source: { type: "url", url },
-        environments: { [DEFAULT_ENVIRONMENT]: { baseUrl: "" } },
+        source: { type: 'url', url },
+        environments: { [DEFAULT_ENVIRONMENT]: { baseUrl: '' } },
       });
     }
     const baseUrlMaybe = registry
@@ -86,11 +82,7 @@ function resolveSwaggerInput(
 }
 
 function looksLikeUrl(s: string): boolean {
-  return (
-    s.startsWith("http://") ||
-    s.startsWith("https://") ||
-    s.startsWith("file://")
-  );
+  return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('file://');
 }
 
 /** openapi_search 옵션 — `scope` 는 host / host:env / host:env:spec 중 하나. */
@@ -117,11 +109,7 @@ export async function handleSwaggerGet(
   input: string,
   toolkitRegistry?: OpenapiRegistry,
 ): Promise<SwaggerGetResult> {
-  const { specName, environment, baseUrl } = resolveSwaggerInput(
-    registry,
-    input,
-    toolkitRegistry,
-  );
+  const { specName, environment, baseUrl } = resolveSwaggerInput(registry, input, toolkitRegistry);
   // loadSpecDetailed 가 memory / disk / remote 중 어디서 왔는지 알려준다.
   const detailed = await registry.loadSpecDetailed(specName, environment);
   const result: SwaggerGetResult = {
@@ -130,7 +118,9 @@ export async function handleSwaggerGet(
     fromCache: detailed.fromCache,
     document: detailed.indexed.document,
   };
-  if (baseUrl) result.baseUrl = baseUrl;
+  if (baseUrl) {
+    result.baseUrl = baseUrl;
+  }
   return result;
 }
 
@@ -177,8 +167,7 @@ export async function handleSwaggerSearch(
   toolkitRegistry?: OpenapiRegistry,
 ): Promise<SwaggerSearchMatch[]> {
   const { limit, scope } = options;
-  const cap =
-    Number.isFinite(limit) && (limit as number) > 0 ? (limit as number) : 20;
+  const cap = Number.isFinite(limit) && (limit as number) > 0 ? (limit as number) : 20;
 
   const allSpecs = registry.listSpecs();
   let candidates = allSpecs.map((s) => s.name);
@@ -205,10 +194,7 @@ export async function handleSwaggerSearch(
     candidates.map((name) => registry.loadSpecCachedOnly(name)),
   );
   const indexedSpecs: IndexedSpec[] = settled
-    .filter(
-      (r): r is PromiseFulfilledResult<IndexedSpec | null> =>
-        r.status === "fulfilled",
-    )
+    .filter((r): r is PromiseFulfilledResult<IndexedSpec | null> => r.status === 'fulfilled')
     .map((r) => r.value)
     .filter((v): v is IndexedSpec => v !== null);
 
@@ -240,9 +226,7 @@ export interface SwaggerSearchMatch {
 }
 
 /** registry 트리를 평면 (host, env, spec, url, baseUrl?, format?) 리스트로 반환. */
-export function handleSwaggerEnvs(
-  config: ToolkitConfig,
-): OpenapiRegistryEntry[] {
+export function handleSwaggerEnvs(config: ToolkitConfig): OpenapiRegistryEntry[] {
   return listRegistry(config);
 }
 
@@ -271,15 +255,9 @@ export async function handleSwaggerEndpoint(
   toolkitRegistry?: OpenapiRegistry,
 ): Promise<SwaggerEndpointResult> {
   if (!locator.operationId && !(locator.method && locator.path)) {
-    throw new Error(
-      "openapi_endpoint requires either operationId or both method and path",
-    );
+    throw new Error('openapi_endpoint requires either operationId or both method and path');
   }
-  const { specName, environment } = resolveSwaggerInput(
-    registry,
-    input,
-    toolkitRegistry,
-  );
+  const { specName, environment } = resolveSwaggerInput(registry, input, toolkitRegistry);
   const env = registry.getEnvironment(specName, environment);
   const indexed = await registry.loadSpec(specName, environment);
   const ep = resolveEndpoint(indexed, locator);
@@ -306,11 +284,7 @@ export async function handleSwaggerTags(
   input: string,
   toolkitRegistry?: OpenapiRegistry,
 ): Promise<SwaggerTagsResult> {
-  const { specName, environment } = resolveSwaggerInput(
-    registry,
-    input,
-    toolkitRegistry,
-  );
+  const { specName, environment } = resolveSwaggerInput(registry, input, toolkitRegistry);
   const indexed = await registry.loadSpec(specName, environment);
   return { spec: specName, environment, tags: indexed.tags };
 }
