@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "agent-toolkit": {
-      "type": "stdio",
-      "command": "bun",
-      "args": ["run", "${CLAUDE_PLUGIN_ROOT}/src/index.ts"]
-    }
-  }
-}

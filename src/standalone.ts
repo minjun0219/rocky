@@ -1,13 +1,12 @@
 /**
- * openapi-mcp 단독 진입점.
+ * openapi-mcp 단독(standalone) 진입점 로직. `bin/openapi-mcp` 가 이 모듈을 띄운다.
  *
- * agent-toolkit 의 다른 lib (mysql / journal / pr / spec-pact / notion) 를 import
- * 하지 않고 `lib/openapi/` 만으로 stdio MCP 서버를 띄운다. config 형태는
- * `openapi-mcp.json` (`specs.<name>.environments.<env>.baseUrl`) 그대로 — adapter 도
- * 거치지 않는다.
+ * Claude Code 플러그인 진입점(`./index`)과 달리 config 형태가 `openapi-mcp.json`
+ * (`specs.<name>.environments.<env>.baseUrl`) 그대로다 — `agent-toolkit.json` adapter 를
+ * 거치지 않고 `SpecRegistry` 에 직접 등록한다.
  *
- * tool 표면은 agent-toolkit MCP 와 동일한 7 개 (`openapi_*`) — 코드 한 곳에서 정의해
- * 두 진입점이 똑같이 노출한다.
+ * tool 표면은 플러그인과 동일한 7 개 (`openapi_*`) — handler 코어(`./core`)를 공유해
+ * 두 진입점이 같은 surface 를 노출한다.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -18,23 +17,23 @@ import {
   createDiskCache,
   createNoopDiskCache,
   type DiskCache,
-} from "@minjun0219/openapi-core/cache";
-import { defaultDiskCacheDir } from "@minjun0219/openapi-core/config-loader";
-import { createFetcher } from "@minjun0219/openapi-core/fetcher";
+} from "./core/cache";
+import { defaultDiskCacheDir } from "./core/config-loader";
+import { createFetcher } from "./core/fetcher";
 import {
   buildEndpointDetail,
   HTTP_METHODS,
   resolveEndpoint,
-} from "@minjun0219/openapi-core/indexer";
-import { filterEndpoints } from "@minjun0219/openapi-core/filter";
+} from "./core/indexer";
+import { filterEndpoints } from "./core/filter";
 import {
   createSpecRegistry,
   UnknownEnvironmentError,
   UnknownSpecError,
   type SpecRegistry,
-} from "@minjun0219/openapi-core/registry";
-import type { OpenApiMcpConfig } from "@minjun0219/openapi-core/schema";
-import { getLogger } from "@minjun0219/openapi-core/logger";
+} from "./core/registry";
+import type { OpenApiMcpConfig } from "./core/schema";
+import { getLogger } from "./core/logger";
 
 export const SERVER_NAME = "openapi-mcp";
 /** package.json 의 version 을 단일 source 로 사용 — `bin/openapi-mcp -V` 와 동기. */

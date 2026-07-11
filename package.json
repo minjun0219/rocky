@@ -1,25 +1,58 @@
 {
-  "name": "agent-toolkit",
-  "version": "0.3.0",
-  "description": "Monorepo for the agent-toolkit set — three distribution targets share one OpenAPI core: standalone openapi-mcp CLI (npm), agent-toolkit Claude Code plugin (marketplace), agent-toolkit opencode plugin (git URL or npm). v0.3 surface is openapi-only; journal / mysql / notion / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim.",
+  "name": "@minjun0219/agent-toolkit",
+  "version": "0.4.0",
+  "description": "Single-package agent-toolkit — a Claude Code plugin (marketplace) plus a host-agnostic openapi-mcp stdio CLI (npm), sharing one OpenAPI / Swagger core. 7 openapi_* tools: cache-first spec inspection, endpoint search, tag list. journal / mysql / notion / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim; the opencode plugin is archived in-tree under .archive/agent-toolkit-opencode/.",
   "license": "MIT",
   "author": "Minjun Kim",
-  "private": true,
+  "homepage": "https://github.com/minjun0219/agent-toolkit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minjun0219/agent-toolkit.git"
+  },
   "type": "module",
-  "workspaces": [
-    "packages/*"
+  "main": "./src/index.ts",
+  "bin": {
+    "openapi-mcp": "./bin/openapi-mcp"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./standalone": "./src/standalone.ts"
+  },
+  "files": [
+    "src",
+    "bin",
+    ".claude-plugin",
+    "README.md"
   ],
   "engines": {
     "bun": ">=1.0.0"
   },
+  "keywords": [
+    "openapi",
+    "swagger",
+    "claude-code",
+    "mcp",
+    "stdio",
+    "agent-toolkit",
+    "bun"
+  ],
   "scripts": {
     "check": "biome check .",
     "fix": "biome check --write .",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
-    "test": "bun test ./packages",
+    "test": "bun test ./src",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^10.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "js-yaml": "^4.1.0",
+    "openapi-types": "^12.1.3",
+    "pino": "^9.5.0",
+    "swagger2openapi": "^7.0.8",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",

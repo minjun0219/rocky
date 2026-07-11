@@ -1,26 +1,19 @@
 # openapi-mcp 단독 진입점
 
-agent-toolkit 의 다른 도메인 없이 OpenAPI / Swagger spec MCP 만 띄우고 싶을 때 쓰는 패키지. 구 [`openapi-mcp-server`](https://github.com/minjun0219/openapi-mcp-server) 와 동일한 config 형태와 7 tool 표면을 그대로 받는다.
+agent-toolkit 의 다른 도메인 없이 OpenAPI / Swagger spec MCP 만 띄우고 싶을 때 쓰는 단독 CLI 진입점. 구 [`openapi-mcp-server`](https://github.com/minjun0219/openapi-mcp-server) 와 동일한 config 형태와 7 tool 표면을 그대로 받는다.
 
-> v0.3 부터 이 패키지는 [`packages/openapi-mcp`](../packages/openapi-mcp) 에 자리한다. 패키지 자체의 README 는 [`packages/openapi-mcp/README.md`](../packages/openapi-mcp/README.md), 모노레포 구조는 루트 [`AGENTS.md`](../AGENTS.md).
+> v0.4 부터 이 CLI 는 단일 패키지 안의 `bin/openapi-mcp` (→ `src/standalone.ts`) 에 자리한다. 공유 core 는 `src/core/`. 저장소 구조는 루트 [`AGENTS.md`](../AGENTS.md).
 
 ## 설치
 
-npm 으로 publish 된 뒤:
-
-```bash
-npm i -g openapi-mcp           # 또는 bun add -g openapi-mcp
-openapi-mcp --config ~/.config/openapi-mcp/openapi-mcp.json
-```
-
-로컬 체크아웃:
+npm publish 는 별도 PR 이라 현재는 로컬 체크아웃 + `bun link`:
 
 ```bash
 git clone https://github.com/minjun0219/agent-toolkit.git
 cd agent-toolkit
 bun install
-cd packages/openapi-mcp
-bun link                       # 한 번만 — `openapi-mcp` 명령어가 PATH 에 등록된다.
+bun link                       # 한 번만 — repo root 에서 `openapi-mcp` 명령어가 PATH 에 등록된다.
+openapi-mcp --config ~/.config/openapi-mcp/openapi-mcp.json
 ```
 
 ## 설정 파일
@@ -128,11 +121,11 @@ npx @modelcontextprotocol/inspector openapi-mcp --config /path/to/config.json
 - 재검증 실패 시 stale 캐시 유지하고 stderr 에 경고 로그.
 - `openapi_refresh` 는 캐시 (메모리 + 디스크) 를 모두 비우고 무조건적으로 재다운로드.
 
-## agent-toolkit plugin 의 7 tool 과의 차이
+## Claude Code plugin 의 7 tool 과의 차이
 
-두 plugin (`@minjun0219/agent-toolkit-claude-code`, `@minjun0219/agent-toolkit-opencode`) 은 같은 7 tool 을 같은 라이브러리 (`@minjun0219/openapi-core`) 위에서 노출하지만, **입력 형태**가 다르다:
+이 저장소는 한 패키지에서 두 진입점을 노출한다 — Claude Code plugin (`src/index.ts`) 과 standalone CLI (`src/standalone.ts`). 둘 다 같은 7 tool 을 같은 core (`src/core/`) 위에서 노출하지만, **입력 형태**가 다르다:
 
-- 두 plugin: `input` = spec URL **또는** `host:env:spec` 핸들. baseUrl 은 `agent-toolkit.json` 의 `openapi.registry` leaf 에 옵션으로 선언.
-- `openapi-mcp` 단독: `input` = `specs.<name>` 의 spec name + `environment` 가 별도 파라미터. baseUrl 은 `environments.<env>.baseUrl` 에 필수로 선언.
+- Claude Code plugin: `input` = spec URL **또는** `host:env:spec` 핸들. `agent-toolkit.json` 의 `openapi.registry` 를 adapter 로 평탄화. baseUrl 은 leaf 에 옵션으로 선언.
+- `openapi-mcp` 단독: `input` = `specs.<name>` 의 spec name + `environment` 가 별도 파라미터. `openapi-mcp.json` 을 평탄화 없이 그대로 SpecRegistry 에 적재. baseUrl 은 `environments.<env>.baseUrl` 에 필수로 선언.
 
-코어 동작 (deref / swagger2 변환 / TTL / conditional GET / 디스크 캐시) 은 세 host 모두 동일 — handler 한 곳에서 정의 (`packages/openapi-core/src/handlers.ts`) 되거나 (두 plugin), 같은 SpecRegistry 위에서 자체 정의 (`openapi-mcp` 단독) 된다.
+코어 동작 (deref / swagger2 변환 / TTL / conditional GET / 디스크 캐시) 은 두 진입점 모두 동일 — handler 한 곳에서 정의 (`src/core/handlers.ts`) 되고 (plugin), standalone 은 같은 SpecRegistry 위에서 자체 tool 을 정의한다.
