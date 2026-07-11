@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 /**
  * openapi-core 의 단일 config 로더 + 검증.
@@ -33,7 +33,7 @@ export interface OpenapiRegistryLeafObject {
   /** 환경의 실제 API base URL — `openapi_endpoint` 의 fullUrl 합성에 사용. */
   baseUrl?: string;
   /** 형식 hint. 미지정이면 본문의 `openapi` / `swagger` 필드로 자동 감지. */
-  format?: "openapi3" | "swagger2" | "auto";
+  format?: 'openapi3' | 'swagger2' | 'auto';
 }
 
 export type OpenapiRegistryLeaf = string | OpenapiRegistryLeafObject;
@@ -48,22 +48,24 @@ export interface OpenapiRegistry {
 
 /** leaf 가 string 이든 object 이든 spec URL 을 꺼낸다. */
 export function getRegistryUrl(leaf: OpenapiRegistryLeaf): string {
-  return typeof leaf === "string" ? leaf : leaf.url;
+  return typeof leaf === 'string' ? leaf : leaf.url;
 }
 
 /** leaf 의 baseUrl. string leaf 또는 baseUrl 미선언 object 면 undefined. */
-export function getRegistryBaseUrl(
-  leaf: OpenapiRegistryLeaf,
-): string | undefined {
-  if (typeof leaf === "string") return undefined;
+export function getRegistryBaseUrl(leaf: OpenapiRegistryLeaf): string | undefined {
+  if (typeof leaf === 'string') {
+    return undefined;
+  }
   return leaf.baseUrl;
 }
 
 /** leaf 의 format hint. string leaf 또는 format 미선언 object 면 undefined. */
 export function getRegistryFormat(
   leaf: OpenapiRegistryLeaf,
-): "openapi3" | "swagger2" | "auto" | undefined {
-  if (typeof leaf === "string") return undefined;
+): 'openapi3' | 'swagger2' | 'auto' | undefined {
+  if (typeof leaf === 'string') {
+    return undefined;
+  }
   return leaf.format;
 }
 
@@ -98,47 +100,47 @@ export interface LoadConfigResult {
 /** user-level config 기본 경로. `AGENT_TOOLKIT_CONFIG` 로 오버라이드. */
 export const USER_CONFIG_PATH = join(
   homedir(),
-  ".config",
-  "opencode",
-  "agent-toolkit",
-  "agent-toolkit.json",
+  '.config',
+  'opencode',
+  'agent-toolkit',
+  'agent-toolkit.json',
 );
 
 /** project-level config 의 상대 경로. */
-export const PROJECT_CONFIG_RELATIVE = ".opencode/agent-toolkit.json";
+export const PROJECT_CONFIG_RELATIVE = '.opencode/agent-toolkit.json';
 
 /**
  * host / env / spec 식별자 본문 (anchor 없음).
  * 다른 모듈 (`openapi-registry.ts`) 이 핸들 / 스코프 정규식을 합성할 때 재사용한다 —
  * 이 한 군데만 바꾸면 schema / registry 둘 다 같이 따라간다.
  */
-export const ID_BODY = "[a-zA-Z0-9_-]+";
+export const ID_BODY = '[a-zA-Z0-9_-]+';
 
 /** host / env / spec 식별자 정규식 (앵커 포함). 콜론은 handle separator 로 예약. */
 export const ID_PATTERN = new RegExp(`^${ID_BODY}$`);
 
 /** 레지스트리 leaf URL 에 허용되는 스킴. spec 다운로드 단이 받는 종류와 동일. */
-const URL_SCHEMES = new Set(["http:", "https:", "file:"]);
+const URL_SCHEMES = new Set(['http:', 'https:', 'file:']);
 
 /** registry leaf object 에서 허용하는 키 (오타 가드, 스키마 lockstep). */
-const ALLOWED_REGISTRY_LEAF_KEYS = new Set(["url", "baseUrl", "format"]);
+const ALLOWED_REGISTRY_LEAF_KEYS = new Set(['url', 'baseUrl', 'format']);
 
 /** registry leaf object 의 format 필드에 허용되는 값. */
-const ALLOWED_REGISTRY_LEAF_FORMATS = new Set(["openapi3", "swagger2", "auto"]);
+const ALLOWED_REGISTRY_LEAF_FORMATS = new Set(['openapi3', 'swagger2', 'auto']);
 
 /**
  * 파싱된 JSON 값이 ToolkitConfig 인지 검증한다. 어긋나면 throw — 메시지에 source(path) 포함.
  * 부분 적합도 OK (모든 필드 optional). registry 가 있으면 깊이 끝까지 식별자 / URL 검증.
  */
 export function validateConfig(input: unknown, source: string): ToolkitConfig {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error(`${source}: config must be a JSON object`);
   }
   const config = input as Record<string, unknown>;
   if (config.openapi !== undefined) {
     if (
       config.openapi === null ||
-      typeof config.openapi !== "object" ||
+      typeof config.openapi !== 'object' ||
       Array.isArray(config.openapi)
     ) {
       throw new Error(`${source}: openapi must be an object`);
@@ -151,11 +153,8 @@ export function validateConfig(input: unknown, source: string): ToolkitConfig {
   return config as ToolkitConfig;
 }
 
-function validateRegistry(
-  reg: unknown,
-  source: string,
-): asserts reg is OpenapiRegistry {
-  if (reg === null || typeof reg !== "object" || Array.isArray(reg)) {
+function validateRegistry(reg: unknown, source: string): asserts reg is OpenapiRegistry {
+  if (reg === null || typeof reg !== 'object' || Array.isArray(reg)) {
     throw new Error(`${source}: openapi.registry must be an object`);
   }
   for (const [host, envs] of Object.entries(reg as Record<string, unknown>)) {
@@ -164,36 +163,23 @@ function validateRegistry(
         `${source}: host name "${host}" must match ${ID_PATTERN} (alphanumeric, "_" or "-" only — colons are reserved for handle separators)`,
       );
     }
-    if (envs === null || typeof envs !== "object" || Array.isArray(envs)) {
-      throw new Error(
-        `${source}: openapi.registry["${host}"] must be an object of environments`,
-      );
+    if (envs === null || typeof envs !== 'object' || Array.isArray(envs)) {
+      throw new Error(`${source}: openapi.registry["${host}"] must be an object of environments`);
     }
-    for (const [env, specs] of Object.entries(
-      envs as Record<string, unknown>,
-    )) {
+    for (const [env, specs] of Object.entries(envs as Record<string, unknown>)) {
       if (!ID_PATTERN.test(env)) {
-        throw new Error(
-          `${source}: env name "${host}:${env}" must match ${ID_PATTERN}`,
-        );
+        throw new Error(`${source}: env name "${host}:${env}" must match ${ID_PATTERN}`);
       }
-      if (specs === null || typeof specs !== "object" || Array.isArray(specs)) {
+      if (specs === null || typeof specs !== 'object' || Array.isArray(specs)) {
         throw new Error(
           `${source}: openapi.registry["${host}"]["${env}"] must be an object of specs`,
         );
       }
-      for (const [spec, leaf] of Object.entries(
-        specs as Record<string, unknown>,
-      )) {
+      for (const [spec, leaf] of Object.entries(specs as Record<string, unknown>)) {
         if (!ID_PATTERN.test(spec)) {
-          throw new Error(
-            `${source}: spec name "${host}:${env}:${spec}" must match ${ID_PATTERN}`,
-          );
+          throw new Error(`${source}: spec name "${host}:${env}:${spec}" must match ${ID_PATTERN}`);
         }
-        validateRegistryLeaf(
-          leaf,
-          `${source}: openapi.registry["${host}"]["${env}"]["${spec}"]`,
-        );
+        validateRegistryLeaf(leaf, `${source}: openapi.registry["${host}"]["${env}"]["${spec}"]`);
       }
     }
   }
@@ -204,55 +190,48 @@ function validateRegistry(
  * 모두 받는다. URL 은 둘 다 같은 스킴 / non-empty 검증을 통과해야 한다.
  */
 function validateRegistryLeaf(leaf: unknown, where: string): void {
-  if (typeof leaf === "string") {
+  if (typeof leaf === 'string') {
     if (leaf.trim().length === 0) {
       throw new Error(`${where} must be a non-empty URL string`);
     }
     validateRegistryUrlString(leaf, where);
     return;
   }
-  if (leaf === null || typeof leaf !== "object" || Array.isArray(leaf)) {
-    throw new Error(
-      `${where} must be a non-empty URL string or object { url, baseUrl?, format? }`,
-    );
+  if (leaf === null || typeof leaf !== 'object' || Array.isArray(leaf)) {
+    throw new Error(`${where} must be a non-empty URL string or object { url, baseUrl?, format? }`);
   }
   const obj = leaf as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_REGISTRY_LEAF_KEYS.has(key)) {
       throw new Error(
-        `${where} has unsupported key "${key}" — allowed: ${[...ALLOWED_REGISTRY_LEAF_KEYS].join(", ")}`,
+        `${where} has unsupported key "${key}" — allowed: ${[...ALLOWED_REGISTRY_LEAF_KEYS].join(', ')}`,
       );
     }
   }
-  if (typeof obj.url !== "string" || obj.url.trim().length === 0) {
+  if (typeof obj.url !== 'string' || obj.url.trim().length === 0) {
     throw new Error(`${where}.url must be a non-empty URL string`);
   }
   validateRegistryUrlString(obj.url, `${where}.url`);
   if (obj.baseUrl !== undefined) {
-    if (typeof obj.baseUrl !== "string" || obj.baseUrl.trim().length === 0) {
+    if (typeof obj.baseUrl !== 'string' || obj.baseUrl.trim().length === 0) {
       throw new Error(`${where}.baseUrl must be a non-empty string`);
     }
     let parsed: URL;
     try {
       parsed = new URL(obj.baseUrl);
     } catch {
-      throw new Error(
-        `${where}.baseUrl is not a valid URL — got "${obj.baseUrl}"`,
-      );
+      throw new Error(`${where}.baseUrl is not a valid URL — got "${obj.baseUrl}"`);
     }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(
         `${where}.baseUrl uses unsupported scheme "${parsed.protocol}" — only http / https are accepted`,
       );
     }
   }
   if (obj.format !== undefined) {
-    if (
-      typeof obj.format !== "string" ||
-      !ALLOWED_REGISTRY_LEAF_FORMATS.has(obj.format)
-    ) {
+    if (typeof obj.format !== 'string' || !ALLOWED_REGISTRY_LEAF_FORMATS.has(obj.format)) {
       throw new Error(
-        `${where}.format must be one of ${[...ALLOWED_REGISTRY_LEAF_FORMATS].join(" / ")}`,
+        `${where}.format must be one of ${[...ALLOWED_REGISTRY_LEAF_FORMATS].join(' / ')}`,
       );
     }
   }
@@ -273,15 +252,15 @@ function validateRegistryUrlString(url: string, where: string): void {
 }
 
 async function loadOne(path: string): Promise<ToolkitConfig | null> {
-  if (!existsSync(path)) return null;
-  const raw = await readFile(path, "utf8");
+  if (!existsSync(path)) {
+    return null;
+  }
+  const raw = await readFile(path, 'utf8');
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    throw new Error(
-      `Failed to parse ${path} as JSON: ${(err as Error).message}`,
-    );
+    throw new Error(`Failed to parse ${path} as JSON: ${(err as Error).message}`);
   }
   return validateConfig(parsed, path);
 }
@@ -290,10 +269,7 @@ async function loadOne(path: string): Promise<ToolkitConfig | null> {
  * user → project 순서로 깊이 병합. 같은 leaf (host:env:spec) 는 project 가 이긴다.
  * 새 host / env / spec 은 project 쪽에서 추가 가능.
  */
-export function mergeConfigs(
-  user: ToolkitConfig,
-  project: ToolkitConfig,
-): ToolkitConfig {
+export function mergeConfigs(user: ToolkitConfig, project: ToolkitConfig): ToolkitConfig {
   // Bun ≥ 1.0 / Node ≥ 17 모두 structuredClone 표준 지원. JSON round-trip 보다 성능과
   // 의도가 명확 — 입력은 plain JSON 모양이라 Date / Map / Set 호환은 신경 쓰지 않아도 된다.
   const out = structuredClone(user) as ToolkitConfig;
@@ -324,11 +300,8 @@ export function mergeConfigs(
  * 두 파일 모두 없으면 `{ config: {}, errors: [] }`. `AGENT_TOOLKIT_CONFIG` 환경변수가
  * 있으면 user 경로를 그 값으로 덮어쓴다.
  */
-export async function loadConfig(
-  options: LoadConfigOptions = {},
-): Promise<LoadConfigResult> {
-  const userPath =
-    options.userPath ?? process.env.AGENT_TOOLKIT_CONFIG ?? USER_CONFIG_PATH;
+export async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadConfigResult> {
+  const userPath = options.userPath ?? process.env.AGENT_TOOLKIT_CONFIG ?? USER_CONFIG_PATH;
   const projectRoot = options.projectRoot ?? process.cwd();
   const projectPath = resolve(projectRoot, PROJECT_CONFIG_RELATIVE);
   const errors: LoadConfigError[] = [];

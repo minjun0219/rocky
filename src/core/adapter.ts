@@ -1,17 +1,17 @@
-import { createHash } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   type OpenapiRegistry,
   type OpenapiRegistryLeaf,
   getRegistryUrl,
   getRegistryBaseUrl,
   getRegistryFormat,
-} from "./toolkit-config";
-import type { EnvironmentConfig, OpenApiMcpConfig, SpecConfig } from "./schema";
-import { createDiskCache, createNoopDiskCache, type DiskCache } from "./cache";
-import { createFetcher, type FetcherOptions } from "./fetcher";
-import { createSpecRegistry, type SpecRegistry } from "./registry";
+} from './toolkit-config';
+import type { EnvironmentConfig, OpenApiMcpConfig, SpecConfig } from './schema';
+import { createDiskCache, createNoopDiskCache, type DiskCache } from './cache';
+import { createFetcher, type FetcherOptions } from './fetcher';
+import { createSpecRegistry, type SpecRegistry } from './registry';
 
 /**
  * agent-toolkit 의 `openapi.registry` 트리를 SpecRegistry 가 받는 `OpenApiMcpConfig`
@@ -35,7 +35,7 @@ import { createSpecRegistry, type SpecRegistry } from "./registry";
  */
 
 /** flat handle (`host:env:spec`) 과 원래 host/env/spec 을 양방향 변환. */
-export const HANDLE_SEPARATOR = ":";
+export const HANDLE_SEPARATOR = ':';
 
 export function flattenHandle(host: string, env: string, spec: string): string {
   return `${host}${HANDLE_SEPARATOR}${env}${HANDLE_SEPARATOR}${spec}`;
@@ -49,13 +49,17 @@ export interface ParsedFlatHandle {
 
 export function parseFlatHandle(flat: string): ParsedFlatHandle | null {
   const parts = flat.split(HANDLE_SEPARATOR);
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) {
+    return null;
+  }
   const [host, env, spec] = parts as [string, string, string];
-  if (!host || !env || !spec) return null;
+  if (!host || !env || !spec) {
+    return null;
+  }
   return { host, env, spec };
 }
 
-export const DEFAULT_ENVIRONMENT = "default";
+export const DEFAULT_ENVIRONMENT = 'default';
 
 /**
  * registry 트리 → OpenApiMcpConfig.specs 변환. registry 가 비어 있거나 undefined 면
@@ -82,11 +86,11 @@ export function registryToOpenApiMcpConfig(
         const format = getRegistryFormat(leaf);
         const name = flattenHandle(host, env, spec);
         const environment: EnvironmentConfig = {
-          baseUrl: baseUrl ?? "",
+          baseUrl: baseUrl ?? '',
         };
         const source = format
-          ? { type: "url" as const, url, format }
-          : { type: "url" as const, url };
+          ? { type: 'url' as const, url, format }
+          : { type: 'url' as const, url };
         specs[name] = {
           source,
           environments: { [DEFAULT_ENVIRONMENT]: environment },
@@ -109,7 +113,7 @@ export function registryToOpenApiMcpConfig(
  * 달라서 (2 vs 3) 충돌하지 않는다.
  */
 export function ephemeralSpecName(url: string): string {
-  const hash = createHash("sha1").update(url).digest("hex").slice(0, 16);
+  const hash = createHash('sha1').update(url).digest('hex').slice(0, 16);
   return `url${HANDLE_SEPARATOR}${hash}`;
 }
 
@@ -122,13 +126,11 @@ export function buildEphemeralSpec(
 } {
   const name = ephemeralSpecName(url);
   const spec: SpecConfig = {
-    source: { type: "url", url },
+    source: { type: 'url', url },
     environments: {
-      [DEFAULT_ENVIRONMENT]: { baseUrl: "" },
+      [DEFAULT_ENVIRONMENT]: { baseUrl: '' },
     },
-    ...(defaultCacheTtlSeconds !== undefined
-      ? { cacheTtlSeconds: defaultCacheTtlSeconds }
-      : {}),
+    ...(defaultCacheTtlSeconds !== undefined ? { cacheTtlSeconds: defaultCacheTtlSeconds } : {}),
   };
   return { name, spec };
 }
@@ -152,22 +154,16 @@ export interface CombinedConfigOptions {
   defaultCacheTtlSeconds?: number;
 }
 
-export function buildCombinedConfig(
-  options: CombinedConfigOptions,
-): OpenApiMcpConfig {
-  const base = registryToOpenApiMcpConfig(
-    options.registry,
-    options.defaultCacheTtlSeconds,
-  );
+export function buildCombinedConfig(options: CombinedConfigOptions): OpenApiMcpConfig {
+  const base = registryToOpenApiMcpConfig(options.registry, options.defaultCacheTtlSeconds);
   if (options.ephemeralUrls) {
     const seen = new Set<string>();
     for (const url of options.ephemeralUrls) {
-      if (seen.has(url)) continue;
+      if (seen.has(url)) {
+        continue;
+      }
       seen.add(url);
-      const { name, spec } = buildEphemeralSpec(
-        url,
-        options.defaultCacheTtlSeconds,
-      );
+      const { name, spec } = buildEphemeralSpec(url, options.defaultCacheTtlSeconds);
       base.specs[name] = spec;
     }
   }
@@ -200,9 +196,7 @@ export function createAgentToolkitRegistry(
   const ttl = resolveOpenapiTtlSecondsFromEnv();
   const config = buildCombinedConfig({
     ...(options.registry !== undefined ? { registry: options.registry } : {}),
-    ...(options.ephemeralUrls !== undefined
-      ? { ephemeralUrls: options.ephemeralUrls }
-      : {}),
+    ...(options.ephemeralUrls !== undefined ? { ephemeralUrls: options.ephemeralUrls } : {}),
     ...(ttl !== undefined ? { defaultCacheTtlSeconds: ttl } : {}),
   });
   // SpecRegistry 의 zod 스키마는 specs 가 1개 이상이어야 통과하지만, 우린 zod 검증을
@@ -225,16 +219,12 @@ export function createAgentToolkitRegistry(
 
 function resolveOpenapiCacheDir(): string {
   const override = process.env.AGENT_TOOLKIT_OPENAPI_CACHE_DIR;
-  if (override && override.trim().length > 0) return override;
+  if (override && override.trim().length > 0) {
+    return override;
+  }
   // 구 `lib/openapi-context.ts` 의 default 와 동일한 위치로 통일.
   // (.config/opencode/agent-toolkit/openapi-specs)
-  return join(
-    homedir(),
-    ".config",
-    "opencode",
-    "agent-toolkit",
-    "openapi-specs",
-  );
+  return join(homedir(), '.config', 'opencode', 'agent-toolkit', 'openapi-specs');
 }
 
 /**
@@ -245,9 +235,13 @@ function resolveOpenapiCacheDir(): string {
  */
 export function resolveOpenapiTtlSecondsFromEnv(): number | undefined {
   const raw = process.env.AGENT_TOOLKIT_OPENAPI_CACHE_TTL;
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
   return parsed;
 }
 
@@ -268,16 +262,18 @@ export function resolveFetcherOptionsFromEnv(): FetcherOptions {
   const timeoutRaw = process.env.AGENT_TOOLKIT_OPENAPI_DOWNLOAD_TIMEOUT_MS;
   if (timeoutRaw !== undefined) {
     const parsed = Number.parseInt(timeoutRaw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) out.timeoutMs = parsed;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      out.timeoutMs = parsed;
+    }
   }
   const insecureRaw = process.env.AGENT_TOOLKIT_OPENAPI_INSECURE_TLS;
-  if (insecureRaw === "1" || insecureRaw === "true") {
+  if (insecureRaw === '1' || insecureRaw === 'true') {
     out.insecureTls = true;
   }
   const cas = process.env.AGENT_TOOLKIT_OPENAPI_EXTRA_CA_CERTS;
   if (cas !== undefined && cas.trim().length > 0) {
     out.extraCaCerts = cas
-      .split(":")
+      .split(':')
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }
@@ -291,16 +287,16 @@ export interface FlatRegistryRow {
   spec: string;
   url: string;
   baseUrl?: string;
-  format?: "openapi3" | "swagger2" | "auto";
+  format?: 'openapi3' | 'swagger2' | 'auto';
   /** flatten 된 SpecRegistry 등록 이름 (`host:env:spec`). 디버깅용. */
   registryName: string;
 }
 
-export function flattenRegistry(
-  registry: OpenapiRegistry | undefined,
-): FlatRegistryRow[] {
+export function flattenRegistry(registry: OpenapiRegistry | undefined): FlatRegistryRow[] {
   const out: FlatRegistryRow[] = [];
-  if (!registry) return out;
+  if (!registry) {
+    return out;
+  }
   for (const [host, envs] of Object.entries(registry)) {
     for (const [env, leafSpecs] of Object.entries(envs)) {
       for (const [spec, leaf] of Object.entries(leafSpecs)) {
@@ -314,8 +310,12 @@ export function flattenRegistry(
           url,
           registryName: flattenHandle(host, env, spec),
         };
-        if (baseUrl !== undefined) row.baseUrl = baseUrl;
-        if (format !== undefined) row.format = format;
+        if (baseUrl !== undefined) {
+          row.baseUrl = baseUrl;
+        }
+        if (format !== undefined) {
+          row.format = format;
+        }
         out.push(row);
       }
     }
