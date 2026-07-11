@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "agent-toolkit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "agent-toolkit Claude Code plugin (Bun runtime). 7 openapi_* tools — cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list. Archived domains (journal / mysql / notion / spec-pact / pr-watch) re-enter as separate PRs.",
   "author": {
     "name": "Minjun Kim"

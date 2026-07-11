@@ -107,7 +107,10 @@ describe("agent-toolkit Claude Code MCP server", () => {
     }
   });
 
-  test("required fields match the standalone CLI contract", async () => {
+  // NOTE: 이 required 필드는 플러그인(handle 기반) contract 이다. standalone CLI
+  // (`src/standalone.ts`) 는 openapi_endpoint 가 spec+environment 를 요구하는 등
+  // 형태가 다르다 — 그쪽 계약은 이 테스트 대상이 아니다.
+  test("advertises the expected required fields per openapi tool", async () => {
     const { tools } = await client.listTools();
     const byName = new Map(tools.map((t) => [t.name, t]));
 
