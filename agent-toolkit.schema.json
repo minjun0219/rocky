@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/minjun0219/agent-toolkit/main/agent-toolkit.schema.json",
   "title": "agent-toolkit config",
-  "description": "Plugin-wide configuration for the agent-toolkit plugins (Claude Code + opencode) — `agent-toolkit.json`. Project config (./.opencode/agent-toolkit.json) overrides user config (~/.config/opencode/agent-toolkit/agent-toolkit.json) at the leaf level. The standalone openapi-mcp CLI uses a separate file (`openapi-mcp.json`) with a different shape — see packages/openapi-core/src/schema.ts and packages/openapi-mcp/README.md.",
+  "description": "Plugin-wide configuration for the agent-toolkit Claude Code plugin — `agent-toolkit.json`. Project config (./.opencode/agent-toolkit.json) overrides user config (~/.config/opencode/agent-toolkit/agent-toolkit.json) at the leaf level. The standalone openapi-mcp CLI uses a separate file (`openapi-mcp.json`) with a different shape — see src/core/schema.ts and docs/openapi-mcp.md.",
   "type": "object",
   "properties": {
     "$schema": {

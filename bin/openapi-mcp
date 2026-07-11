@@ -15,16 +15,13 @@ import {
   ConfigError,
   defaultConfigPath,
   loadConfig,
-} from "@minjun0219/openapi-core/config-loader";
-import {
-  initLogger,
-  type LogLevel,
-} from "@minjun0219/openapi-core/logger";
+} from "../src/core/config-loader";
+import { initLogger, type LogLevel } from "../src/core/logger";
 import {
   SERVER_NAME,
   SERVER_VERSION,
   startStdioServer,
-} from "../src/index";
+} from "../src/standalone";
 
 interface CliOptions {
   config?: string;

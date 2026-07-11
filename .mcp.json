@@ -7,10 +7,7 @@
     "agent-toolkit": {
       "type": "stdio",
       "command": "bun",
-      "args": [
-        "run",
-        "${CLAUDE_PLUGIN_ROOT}/packages/agent-toolkit-claude-code/src/index.ts"
-      ]
+      "args": ["run", "${CLAUDE_PROJECT_DIR}/src/index.ts"]
     }
   }
 }

@@ -5,7 +5,7 @@
     "indentWidth": 2
   },
   "files": {
-    "includes": ["**", "!.sisyphus"]
+    "includes": ["**", "!.sisyphus", "!.claude", "!.archive"]
   },
   "assist": {
     "enabled": false

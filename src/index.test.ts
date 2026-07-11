@@ -107,7 +107,7 @@ describe("agent-toolkit Claude Code MCP server", () => {
     }
   });
 
-  test("required fields match the opencode plugin contract", async () => {
+  test("required fields match the standalone CLI contract", async () => {
     const { tools } = await client.listTools();
     const byName = new Map(tools.map((t) => [t.name, t]));
 

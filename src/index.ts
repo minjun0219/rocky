@@ -1,15 +1,14 @@
 /**
  * Claude Code MCP server entrypoint for agent-toolkit.
  *
- * stdio JSON-RPC server that exposes the 7 `openapi_*` tools — identical surface
- * to the opencode plugin (`@minjun0219/agent-toolkit-opencode`) and to the
- * standalone `openapi-mcp` CLI. Handler implementations are shared through
- * `@minjun0219/openapi-core/handlers` so all three hosts stay in lockstep.
+ * stdio JSON-RPC server that exposes the 7 `openapi_*` tools. Handler
+ * implementations are shared through `./core` (`handleSwagger*`) with the
+ * standalone `openapi-mcp` CLI (`./standalone` + `bin/openapi-mcp`).
  *
  * v0.3 부터 toolkit 은 OpenAPI 도메인만 다룬다. 이전 surface 의 journal / mysql / spec-pact /
- * pr-watch / notion 도메인은 `archive/pre-openapi-only-slim` 브랜치에 박제되어 있고, 활용 패턴이
- * 잡히면 ROADMAP 에 정의된 phase 단위로 (a) 두 plugin 에 다시 합류 (b) subset MCP 패키지로 분리
- * 셋 중 하나로 재추가된다.
+ * pr-watch / notion 도메인은 `archive/pre-openapi-only-slim` 브랜치에, opencode plugin 은
+ * in-tree `.archive/agent-toolkit-opencode/` 에 박제되어 있다. 활용 패턴이 잡히면 ROADMAP 의
+ * phase 단위로 재추가된다.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -27,7 +26,7 @@ import {
   handleSwaggerSearch,
   handleSwaggerStatus,
   handleSwaggerTags,
-} from "@minjun0219/openapi-core";
+} from "./core";
 
 /**
  * MCP `tools/call` results must be a `CallToolResult`. We always serialize the
