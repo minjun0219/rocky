@@ -9,6 +9,8 @@ OpenAPI / Swagger 명세를 캐시-우선으로 둘러보는 MCP toolkit — 이
 
 둘 다 **동일한 7 tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`) 를 노출한다. 공유 core 는 [`src/core/`](./src/core) — spec 다운로드 / 디스크 캐시 / `$ref` deref / swagger 2.0 → OpenAPI 3 변환 / endpoint 점수화 검색 / handler 함수.
 
+MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 도 노출한다 (`gh` CLI 기반) — `/finish` (게이트→커밋→푸시→PR 생성) 와 `/pr-watch` (그 PR 을 머지 가능 상태까지 감시·알림) 가 한 쌍. 자세한 건 [`FEATURES.md`](./FEATURES.md#claude-code-커맨드).
+
 > - v0.2 까지의 journal / mysql / notion / spec-pact / pr-watch 도메인은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있다.
 > - opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제되어 있다 (게이트에서 제외).
 >
