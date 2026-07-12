@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  createBunNotionCli,
   detectNotionCli,
   type NotionCliExecutor,
   NotionCliCommandError,
@@ -100,5 +101,35 @@ describe('notionCliFetch', () => {
   it('throws NotionCliCommandError on non-zero exit', async () => {
     const exec = fakeExec(() => ({ stderr: 'page not found', exitCode: 1 }));
     await expect(notionCliFetch(exec, PAGE)).rejects.toBeInstanceOf(NotionCliCommandError);
+  });
+});
+
+// 실제 Bun.spawn 백엔드로 hang 엣지를 재현한다 (gemini 지적 → 어드바이저 검증 → 수정 확정).
+// hard-timeout race + SIGKILL 이 없으면 아래 두 케이스는 timeoutMs 를 훨씬 넘겨 매달린다.
+describe('createBunNotionCli hard timeout', () => {
+  it('times out (124) even when the child ignores SIGTERM', async () => {
+    const exec = createBunNotionCli('sh');
+    const t0 = Date.now();
+    const err = await exec.run(['-c', 'trap "" TERM; sleep 3'], { timeoutMs: 200 }).catch((e) => e);
+    expect(err).toBeInstanceOf(NotionCliCommandError);
+    expect((err as NotionCliCommandError).exitCode).toBe(124);
+    expect(Date.now() - t0).toBeLessThan(1500);
+  });
+
+  it('times out (124) even when a grandchild keeps the stdout pipe open', async () => {
+    const exec = createBunNotionCli('sh');
+    const t0 = Date.now();
+    // sh 는 즉시 종료하지만 백그라운드 손자 sleep 이 stdout 파이프를 상속해 EOF 를 막는다.
+    const err = await exec.run(['-c', 'sleep 3 &'], { timeoutMs: 200 }).catch((e) => e);
+    expect(err).toBeInstanceOf(NotionCliCommandError);
+    expect((err as NotionCliCommandError).exitCode).toBe(124);
+    expect(Date.now() - t0).toBeLessThan(1500);
+  });
+
+  it('returns normally well within the timeout for a fast command', async () => {
+    const exec = createBunNotionCli('sh');
+    const result = await exec.run(['-c', 'printf hello'], { timeoutMs: 2000 });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('hello');
   });
 });

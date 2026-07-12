@@ -60,46 +60,59 @@ function notionCliTimeout(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : NOTION_CLI_DEFAULT_TIMEOUT_MS;
 }
 
+/** timeout race 의 승자 판별용 sentinel. */
+const TIMED_OUT = Symbol('notion-cli-timeout');
+
 /**
  * Bun.spawn 백엔드. 바이너리가 없으면 (ENOENT) `NotionCliNotInstalledError` 로 매핑한다 —
  * 그래야 detect 단계가 "미설치" 를 깨끗하게 판정한다.
+ *
+ * timeout 은 AbortSignal 이 아니라 **hard-timeout race** 로 건다: `signal` 은 자식에 SIGTERM 만
+ * 보내므로 (1) 자식이 SIGTERM 을 무시하거나 (2) 손자 프로세스가 stdout 파이프를 상속하면
+ * `new Response(proc.stdout).text()` 가 EOF 를 못 받아 `timeoutMs` 를 넘겨 매달릴 수 있다.
+ * 따라서 stream+exit collect 전체를 timeout 과 race 시키고, 타임아웃이 이기면 `SIGKILL` 로
+ * 확실히 죽인 뒤 124 로 표면화한다 — 어떤 CLI 오작동에도 timeoutMs 근처에서 확정 반환한다.
  */
 export function createBunNotionCli(bin: string = notionCliBin()): NotionCliExecutor {
   return {
     async run(args, options): Promise<NotionCliRunResult> {
       const timeoutMs = options?.timeoutMs ?? notionCliTimeout();
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
       let proc: ReturnType<typeof Bun.spawn>;
       try {
-        proc = Bun.spawn([bin, ...args], {
-          stdout: 'pipe',
-          stderr: 'pipe',
-          stdin: 'ignore',
-          // Bun.spawn 은 signal 을 존중한다 — abort 시 자식 프로세스를 SIGTERM 으로 종료하고
-          // proc.exited 가 resolve 되어 아래 catch 에서 timeout 에러로 표면화된다 (Bun 1.3 검증).
-          // 따라서 hung CLI 로 인한 무한 대기는 발생하지 않는다.
-          signal: controller.signal,
-        });
+        proc = Bun.spawn([bin, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' });
       } catch (err) {
-        clearTimeout(timer);
         // Bun 은 바이너리 부재 시 spawn 단계에서 던진다.
         if (isEnoent(err)) {
           throw new NotionCliNotInstalledError(bin);
         }
         throw err;
       }
-      try {
+
+      const collected: Promise<NotionCliRunResult> = (async () => {
         const [stdout, stderr, exitCode] = await Promise.all([
           new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
           new Response(proc.stderr as ReadableStream<Uint8Array>).text(),
           proc.exited,
         ]);
         return { stdout, stderr, exitCode };
-      } catch (err) {
-        if (controller.signal.aborted) {
+      })();
+      // timeout 이 race 를 이기면 collected 는 계속 pending 일 수 있다 (손자가 파이프 점유).
+      // 그 늦은 결과/에러가 unhandled rejection 으로 새지 않도록 삼킨다.
+      collected.catch(() => undefined);
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+      });
+
+      try {
+        const winner = await Promise.race([collected, timeout]);
+        if (winner === TIMED_OUT) {
+          proc.kill('SIGKILL');
           throw new NotionCliCommandError(args, 124, `Notion CLI timed out after ${timeoutMs}ms`);
         }
+        return winner;
+      } catch (err) {
         if (isEnoent(err)) {
           throw new NotionCliNotInstalledError(bin);
         }
