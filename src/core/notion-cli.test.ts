@@ -120,6 +120,9 @@ describe('createBunNotionCli hard timeout', () => {
     expect(err).toBeInstanceOf(NotionCliCommandError);
     expect((err as NotionCliCommandError).exitCode).toBe(124);
     expect(Date.now() - t0).toBeLessThan(1500);
+    // 에러 메시지는 실제 실행 인자만 담고 env 기본 bin(ntn)을 거짓으로 찍지 않는다.
+    expect((err as Error).message).not.toContain('ntn');
+    expect((err as Error).message).toContain('sleep 3');
   });
 
   it('times out (124) even when a grandchild keeps the stdout pipe open', async () => {

@@ -39,6 +39,15 @@ describe('chunkNotionMarkdown', () => {
     expect(chunks.some((chunk) => chunk.headingPath.includes('Real'))).toBe(true);
   });
 
+  it('does not treat an info-string line (```ts) inside a fence as a closing fence', () => {
+    // 여는 ``` 뒤의 `# a`, ` ```ts `, `# b` 는 모두 fence 안 — heading 이 아니어야 한다.
+    // 닫는 fence 는 info string 을 못 가지므로 ` ```ts ` 는 fence 를 닫지 않는다.
+    const chunks = chunkNotionMarkdown('# Top\n```\n# a\n```ts\n# b\n```\n\n## Real\nbody');
+    expect(chunks.some((chunk) => chunk.headingPath.includes('a'))).toBe(false);
+    expect(chunks.some((chunk) => chunk.headingPath.includes('b'))).toBe(false);
+    expect(chunks.some((chunk) => chunk.headingPath.includes('Real'))).toBe(true);
+  });
+
   it('ignores headings inside ~~~ / longer-marker fences (not just ```)', () => {
     // 틸드 fence + 길이 4 backtick fence 안의 `#` 라인은 heading 이 아니어야 한다.
     const chunks = chunkNotionMarkdown(

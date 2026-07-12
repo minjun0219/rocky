@@ -38,8 +38,10 @@ export class NotionCliCommandError extends Error {
     readonly exitCode: number,
     readonly stderr: string,
   ) {
+    // bin 이름은 메시지에 넣지 않는다 — 주입/오버라이드(예: 테스트의 `sh`)로 실제 실행 바이너리가
+    // env 기본값과 다를 수 있어 거짓이 될 여지가 있다. 실행 인자만 노출한다.
     super(
-      `Notion CLI failed (exit ${exitCode}): ${notionCliBin()} ${args.join(' ')}\n${stderr.trim().slice(0, 500)}`,
+      `Notion CLI failed (exit ${exitCode}): ${args.join(' ')}\n${stderr.trim().slice(0, 500)}`,
     );
     this.name = 'NotionCliCommandError';
   }

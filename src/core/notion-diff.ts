@@ -60,10 +60,18 @@ export function parseFenceMarker(line: string): string | null {
   return match?.[1] ?? null;
 }
 
-/** 열린 fence 와 같은 문자 종류 + 같거나 더 긴 길이일 때만 닫는 fence 로 본다 (CommonMark 규칙). */
+/**
+ * 열린 fence 와 같은 문자 종류 + 같거나 더 긴 길이 + **marker 뒤가 공백뿐**일 때만 닫는 fence 로
+ * 본다 (CommonMark 규칙). 닫는 fence 는 info string 을 가질 수 없으므로 ` ```ts ` 처럼 언어
+ * 지정자가 붙은 라인은 (여는 fence 일 수는 있어도) 닫는 fence 로 오인하지 않는다.
+ */
 export function isClosingFence(line: string, fenceMarker: string): boolean {
-  const marker = parseFenceMarker(line);
-  return !!marker && marker[0] === fenceMarker[0] && marker.length >= fenceMarker.length;
+  const match = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+  if (!match) {
+    return false;
+  }
+  const marker = match[1]!;
+  return marker[0] === fenceMarker[0] && marker.length >= fenceMarker.length;
 }
 
 function assignStableDuplicatePaths(sections: MarkdownSection[]): MarkdownSection[] {
