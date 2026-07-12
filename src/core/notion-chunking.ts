@@ -6,6 +6,8 @@
  * - 구현 가능한 TODO / API 의존성 / 확인 필요 사항을 재사용 가능한 JSON으로 고정
  */
 
+import { isClosingFence, parseFenceMarker } from './notion-diff';
+
 export interface NotionChunk {
   id: string;
   headingPath: string[];
@@ -121,15 +123,21 @@ export function chunkNotionMarkdown(markdown: string, options: ChunkOptions = {}
   let currentStart = 1;
   let currentPath: string[] = [];
   let stack: Array<{ level: number; title: string }> = [];
-  let inFence = false;
+  // fence 안에서는 heading 매칭을 끈다. 여는 marker(백틱/틸드 + 길이) 를 기억해 같은 종류 +
+  // 같거나 더 긴 fence 에서만 닫아 `~~~` / ````` 같은 변형도 안정적으로 무시한다 (notion-diff 와 동일).
+  let fenceMarker: string | null = null;
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? '';
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
+    if (fenceMarker) {
+      if (isClosingFence(line, fenceMarker)) {
+        fenceMarker = null;
+      }
       continue;
     }
-    if (inFence) {
+    const openingFence = parseFenceMarker(line);
+    if (openingFence) {
+      fenceMarker = openingFence;
       continue;
     }
 
@@ -257,15 +265,22 @@ function extractBullets(text: string): string[] {
 
 function stripFencedCode(text: string): string {
   const out: string[] = [];
-  let inFence = false;
+  // chunkNotionMarkdown 과 동일한 fence 추적 — `~~~` / 길이 변형 fence 안의 예시 코드(TODO / API
+  // 경로 등) 가 실제 문서 내용처럼 추출되지 않도록 fence marker 를 기억해 확실히 제거한다.
+  let fenceMarker: string | null = null;
   for (const line of text.split('\n')) {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
+    if (fenceMarker) {
+      if (isClosingFence(line, fenceMarker)) {
+        fenceMarker = null;
+      }
       continue;
     }
-    if (!inFence) {
-      out.push(line);
+    const openingFence = parseFenceMarker(line);
+    if (openingFence) {
+      fenceMarker = openingFence;
+      continue;
     }
+    out.push(line);
   }
   return out.join('\n');
 }

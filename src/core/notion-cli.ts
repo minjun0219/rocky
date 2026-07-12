@@ -76,6 +76,9 @@ export function createBunNotionCli(bin: string = notionCliBin()): NotionCliExecu
           stdout: 'pipe',
           stderr: 'pipe',
           stdin: 'ignore',
+          // Bun.spawn 은 signal 을 존중한다 — abort 시 자식 프로세스를 SIGTERM 으로 종료하고
+          // proc.exited 가 resolve 되어 아래 catch 에서 timeout 에러로 표면화된다 (Bun 1.3 검증).
+          // 따라서 hung CLI 로 인한 무한 대기는 발생하지 않는다.
           signal: controller.signal,
         });
       } catch (err) {
@@ -117,8 +120,10 @@ function isEnoent(err: unknown): boolean {
 }
 
 /**
- * CLI 가 설치 + 로그인되어 있는지 가볍게 확인한다. `--version` 이 0 으로 끝나면 true.
- * 미설치 / 오류는 전부 false 로 흡수 — detect 는 절대 던지지 않는다 (도구 등록 게이트용).
+ * CLI 가 **설치되어 있는지** 가볍게 확인한다 (설치 탐지 — 로그인 여부는 판정하지 않는다).
+ * `--version` 이 0 으로 끝나면 true. 실제 로그인은 `ntn pages get` 호출 시 지연 검증되어
+ * 미로그인이면 `NotionCliCommandError` 로 표면화된다. 미설치 / 오류는 전부 false 로 흡수 —
+ * detect 는 절대 던지지 않는다 (도구 등록 게이트용).
  */
 export async function detectNotionCli(exec: NotionCliExecutor): Promise<boolean> {
   try {

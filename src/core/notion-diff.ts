@@ -50,12 +50,18 @@ function trimPreview(text: string): string {
   return `${trimmed.slice(0, MAX_PREVIEW_CHARS).trimEnd()}\n…`;
 }
 
-function parseFenceMarker(line: string): string | null {
+/**
+ * 줄이 fenced code block 을 여는(또는 닫는 후보) marker 면 그 marker 토큰을 반환한다.
+ * ` ``` ` (backtick) 과 `~~~` (tilde) 를 모두 지원하고 길이 3 이상을 받는다. notion-chunking
+ * 도 같은 fence 규칙을 쓰도록 이 헬퍼를 공유한다.
+ */
+export function parseFenceMarker(line: string): string | null {
   const match = line.match(/^\s*(`{3,}|~{3,})/);
   return match?.[1] ?? null;
 }
 
-function isClosingFence(line: string, fenceMarker: string): boolean {
+/** 열린 fence 와 같은 문자 종류 + 같거나 더 긴 길이일 때만 닫는 fence 로 본다 (CommonMark 규칙). */
+export function isClosingFence(line: string, fenceMarker: string): boolean {
   const marker = parseFenceMarker(line);
   return !!marker && marker[0] === fenceMarker[0] && marker.length >= fenceMarker.length;
 }

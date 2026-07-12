@@ -39,6 +39,16 @@ describe('chunkNotionMarkdown', () => {
     expect(chunks.some((chunk) => chunk.headingPath.includes('Real'))).toBe(true);
   });
 
+  it('ignores headings inside ~~~ / longer-marker fences (not just ```)', () => {
+    // 틸드 fence + 길이 4 backtick fence 안의 `#` 라인은 heading 이 아니어야 한다.
+    const chunks = chunkNotionMarkdown(
+      '# Top\n\n~~~\n# tilde not heading\n~~~\n\n````\n# long not heading\n````\n\n## Real\nbody',
+    );
+    expect(chunks.some((chunk) => chunk.headingPath.includes('tilde not heading'))).toBe(false);
+    expect(chunks.some((chunk) => chunk.headingPath.includes('long not heading'))).toBe(false);
+    expect(chunks.some((chunk) => chunk.headingPath.includes('Real'))).toBe(true);
+  });
+
   it('hard-slices single lines longer than maxChars', () => {
     const chunks = chunkNotionMarkdown(`# Top\n${'x'.repeat(25)}`, {
       maxCharsPerChunk: 10,
@@ -86,5 +96,15 @@ describe('extractActionItems', () => {
     expect(extracted.todos.some((x) => x.text.includes('예시 코드만 수정'))).toBe(false);
     expect(extracted.apis.some((x) => x.text === 'GET /api/orders')).toBe(true);
     expect(extracted.todos.some((x) => x.text.includes('주문 목록 API 연동'))).toBe(true);
+  });
+
+  it('strips ~~~ fenced code from extraction too (not just ```)', () => {
+    const chunks = chunkNotionMarkdown(
+      `## API\n\n~~~ts\n// TODO: 틸드 fence 예시\nfetch("GET /api/tilde")\n~~~\n\n- GET /api/orders`,
+    );
+    const extracted = extractActionItems(chunks);
+    expect(extracted.apis.some((x) => x.text === 'GET /api/tilde')).toBe(false);
+    expect(extracted.todos.some((x) => x.text.includes('틸드 fence 예시'))).toBe(false);
+    expect(extracted.apis.some((x) => x.text === 'GET /api/orders')).toBe(true);
   });
 });
