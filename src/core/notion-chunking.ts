@@ -110,7 +110,7 @@ function summarizeChunk(chunk: NotionChunk): NotionChunkSummary {
  */
 export function chunkNotionMarkdown(markdown: string, options: ChunkOptions = {}): NotionChunk[] {
   const maxChars = resolveMaxChars(options.maxCharsPerChunk);
-  const lines = markdown.split('\n');
+  const lines = markdown.split(/\r?\n/);
 
   interface Block {
     headingPath: string[];

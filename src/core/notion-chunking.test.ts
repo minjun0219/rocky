@@ -49,6 +49,12 @@ describe('chunkNotionMarkdown', () => {
     expect(chunks.some((chunk) => chunk.headingPath.includes('Real'))).toBe(true);
   });
 
+  it('normalizes CRLF input — no stray \\r in chunk text', () => {
+    const chunks = chunkNotionMarkdown('# Top\r\n\r\n본문 한 줄\r\n둘째 줄\r\n');
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.every((chunk) => !chunk.text.includes('\r'))).toBe(true);
+  });
+
   it('hard-slices single lines longer than maxChars', () => {
     const chunks = chunkNotionMarkdown(`# Top\n${'x'.repeat(25)}`, {
       maxCharsPerChunk: 10,

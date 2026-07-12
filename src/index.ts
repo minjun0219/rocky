@@ -56,7 +56,8 @@ function jsonResult(value: unknown) {
 export interface BuildServerOptions {
   /**
    * Notion CLI executor 주입. 미지정이면 `ntn` 을 spawn 하는 Bun 백엔드를 만든다.
-   * detect 가 실패하면 (미설치 / 미로그인) notion_* 도구는 등록되지 않는다.
+   * detect 는 `ntn --version` 성공(= 설치/실행 가능) 여부만 본다 — 실패하면 (미설치 / 실행 불가)
+   * notion_* 도구는 등록되지 않는다. 로그인/권한은 여기서 판정하지 않고 호출 시 에러로 표면화된다.
    */
   notionCli?: NotionCliExecutor;
 }
@@ -169,8 +170,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     async ({ input }) => jsonResult(await handleSwaggerTags(openapiRegistry, input, registry)),
   );
 
-  // notion_* 는 외부 Notion CLI (`ntn`) 위임 도메인 — 인증된 CLI 가 있을 때만 노출한다.
-  // gh CLI 위임 (`/finish`, `/pr-watch`) 과 동일 정책: 토큰 / OAuth 를 rocky 가 직접 다루지 않는다.
+  // notion_* 는 외부 Notion CLI (`ntn`) 위임 도메인 — 설치가 탐지된 CLI 가 있을 때만 노출한다
+  // (로그인/권한은 호출 시점에 에러로 표면화). gh CLI 위임 (`/finish`, `/pr-watch`) 과 동일
+  // 정책: 토큰 / OAuth 를 rocky 가 직접 다루지 않는다.
   const notionCli = options.notionCli ?? createBunNotionCli();
   if (await detectNotionCli(notionCli)) {
     const notionCache = createNotionCacheFromEnv();

@@ -76,6 +76,12 @@ describe('parseNtnPayload', () => {
     );
     expect(raw.title).toBe('Prop Title');
   });
+  it('falls back to raw stdout when JSON has no known body key (no silent content loss)', () => {
+    const stdout = JSON.stringify({ unexpected_schema: true, note: '내용 있음' });
+    const raw = parseNtnPayload(stdout, PAGE, PAGE_DASHED);
+    expect(raw.markdown).toBe(stdout);
+    expect(raw.id).toBe(PAGE_DASHED);
+  });
   it('falls back to plain markdown when stdout is not JSON', () => {
     const raw = parseNtnPayload('---\ntitle: x\n---\n# Heading\n\ntext', PAGE, PAGE_DASHED);
     expect(raw.markdown).toContain('# Heading');

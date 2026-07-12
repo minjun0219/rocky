@@ -188,7 +188,9 @@ export function parseNtnPayload(stdout: string, input: string, pageId: string): 
   }
 
   const obj = parsed as Record<string, unknown>;
-  const markdown = firstString(obj, ['markdown', 'content', 'body', 'text']) ?? '';
+  // 알려진 본문 키가 없으면(=`ntn --json` 스키마가 예상과 다르면) 빈 문자열 대신 stdout 전체를
+  // fallback markdown 으로 쓴다 — 내용이 있는데 빈 캐시가 박히는 silent loss 를 막는다.
+  const markdown = firstString(obj, ['markdown', 'content', 'body', 'text']) ?? text;
   const remoteId = firstString(obj, ['id', 'page_id', 'pageId']);
   const title =
     firstString(obj, ['title', 'name']) ??
