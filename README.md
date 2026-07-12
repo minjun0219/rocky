@@ -7,7 +7,9 @@ OpenAPI / Swagger 명세를 캐시-우선으로 둘러보는 MCP toolkit — 이
 | **Claude Code plugin** | `.claude-plugin/plugin.json` 의 `mcpServers` 로 stdio MCP 서버를 등록. marketplace 배포. | Claude Code plugin marketplace |
 | **`openapi-mcp` 단독 CLI** | 어떤 stdio MCP host (Cursor / Continue / Claude Desktop / …) 든 등록해 쓰는 host-agnostic CLI. `bin/openapi-mcp`. | `bun link` (npm publish 는 별도 PR) |
 
-둘 다 **동일한 7 tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`) 를 노출한다. 공유 core 는 [`src/core/`](./src/core) — spec 다운로드 / 디스크 캐시 / `$ref` deref / swagger 2.0 → OpenAPI 3 변환 / endpoint 점수화 검색 / handler 함수.
+둘 다 **동일한 7 openapi tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`) 를 노출한다. 공유 core 는 [`src/core/`](./src/core) — spec 다운로드 / 디스크 캐시 / `$ref` deref / swagger 2.0 → OpenAPI 3 변환 / endpoint 점수화 검색 / handler 함수.
+
+추가로 **Claude Code plugin 에만** `seo_validate` 도구가 붙는다 — 단일 URL 의 OG / Twitter Card / JSON-LD / favicon 메타를 [`ogpeek`](https://www.npmjs.com/package/ogpeek) 으로 fetch + parse 해 검증한다 (기본 SSRF 가드로 private / loopback 호스트 차단). 단독 `openapi-mcp` CLI 는 OpenAPI 도메인만 다루므로 이 도구는 노출하지 않는다.
 
 MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 도 노출한다 (`gh` CLI 기반) — `/finish` (게이트→커밋→푸시→PR 생성) 와 `/pr-watch` (그 PR 을 머지 가능 상태까지 감시·알림) 가 한 쌍. 자세한 건 [`FEATURES.md`](./FEATURES.md#claude-code-커맨드).
 

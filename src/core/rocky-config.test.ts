@@ -174,6 +174,55 @@ describe('mergeConfigs', () => {
     merged.openapi!.registry!.acme!.dev!.users = 'MUTATED';
     expect(user.openapi?.registry?.acme?.dev?.users).toBe('https://u/u.json');
   });
+
+  it('project seo fields override user seo, field by field', () => {
+    const user: RockyConfig = { seo: { allowPrivateHosts: true, timeoutMs: 5000 } };
+    const project: RockyConfig = { seo: { timeoutMs: 9000 } };
+    const merged = mergeConfigs(user, project);
+    // timeoutMs 는 project 값, allowPrivateHosts 는 user 값 유지.
+    expect(merged.seo?.timeoutMs).toBe(9000);
+    expect(merged.seo?.allowPrivateHosts).toBe(true);
+  });
+});
+
+describe('validateConfig — seo', () => {
+  it('accepts a well-formed seo block', () => {
+    const config = { seo: { allowPrivateHosts: true, timeoutMs: 8000 } };
+    expect(validateConfig(config, 'test')).toEqual(config);
+  });
+
+  it('accepts an empty / omitted seo block', () => {
+    expect(() => validateConfig({ seo: {} }, 'test')).not.toThrow();
+  });
+
+  it('rejects a non-object seo', () => {
+    expect(() => validateConfig({ seo: 'nope' } as any, 'p')).toThrow(/seo must be an object/);
+    expect(() => validateConfig({ seo: [] } as any, 'p')).toThrow(/seo must be an object/);
+  });
+
+  it('rejects unknown seo keys', () => {
+    expect(() => validateConfig({ seo: { retries: 3 } } as any, 'p')).toThrow(
+      /unknown key "retries"/,
+    );
+  });
+
+  it('rejects a non-boolean allowPrivateHosts', () => {
+    expect(() => validateConfig({ seo: { allowPrivateHosts: 'yes' } } as any, 'p')).toThrow(
+      /seo.allowPrivateHosts must be a boolean/,
+    );
+  });
+
+  it('rejects out-of-range / non-integer timeoutMs', () => {
+    expect(() => validateConfig({ seo: { timeoutMs: 0 } } as any, 'p')).toThrow(
+      /between 1 and 30000/,
+    );
+    expect(() => validateConfig({ seo: { timeoutMs: 30001 } } as any, 'p')).toThrow(
+      /between 1 and 30000/,
+    );
+    expect(() => validateConfig({ seo: { timeoutMs: 12.5 } } as any, 'p')).toThrow(
+      /between 1 and 30000/,
+    );
+  });
 });
 
 describe('loadConfig', () => {

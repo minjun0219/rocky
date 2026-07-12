@@ -27,6 +27,7 @@ const EXPECTED_TOOLS = [
   'openapi_envs',
   'openapi_endpoint',
   'openapi_tags',
+  'seo_validate',
 ] as const;
 
 /** v0.3 부터 surface 에서 빠진 tool — 누수 회귀 가드. archive/pre-openapi-only-slim 참조. */
@@ -89,7 +90,7 @@ afterAll(async () => {
 });
 
 describe('rocky Claude Code MCP server', () => {
-  test('exposes exactly the 7 openapi tools', async () => {
+  test('exposes exactly the 7 openapi tools + seo_validate', async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();
     expect(names).toEqual([...EXPECTED_TOOLS].sort());

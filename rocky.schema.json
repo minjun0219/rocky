@@ -74,6 +74,23 @@
           "additionalProperties": false
         }
       }
+    },
+    "seo": {
+      "type": "object",
+      "description": "Defaults for the seo_validate tool. Every field is overridden by the tool call arguments.",
+      "properties": {
+        "allowPrivateHosts": {
+          "type": "boolean",
+          "description": "When true, allow fetching private / loopback / link-local hosts (SSRF guard off). Default false. The tool arg `allowPrivateHosts` wins."
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000,
+          "description": "Fetch timeout in ms (1..30000). The tool arg `timeoutMs` wins. ogpeek default is 8000."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }
