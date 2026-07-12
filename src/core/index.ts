@@ -19,6 +19,8 @@ export * from './fetcher';
 export * from './filter';
 export * from './handlers';
 export * from './indexer';
+export * from './journal';
+export * from './journal-handlers';
 export * from './logger';
 export * from './notion-cache';
 export * from './notion-chunking';

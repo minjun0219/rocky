@@ -91,6 +91,23 @@
         }
       },
       "additionalProperties": false
+    },
+    "journal": {
+      "type": "object",
+      "description": "Settings for the journal_* tools (append-only agent journal) and the /rocky:curate skill. Every field is overridden by env vars (ROCKY_JOURNAL_DIR / ROCKY_JOURNAL_WIKI_DIR win).",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory for the journal JSONL file. Defaults to a per-project path under ~/.config/rocky/journal/<project-key>. ROCKY_JOURNAL_DIR wins."
+        },
+        "wikiDir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Compile target for /curate — an Obsidian-style markdown location. Point it at a dedicated subfolder of your vault (e.g. ~/vault/rocky), NOT the vault root: /curate writes per-project under <wikiDir>/<projectKey>/ and marks its pages with `source: rocky-curate` so personal notes are never overwritten. Leading ~ is expanded. rocky never writes here itself; the skill (host LLM) does. Surfaced by journal_status. ROCKY_JOURNAL_WIKI_DIR wins."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }
