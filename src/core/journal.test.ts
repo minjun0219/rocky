@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -325,6 +325,15 @@ describe('graceful degradation', () => {
     const s = await journal.status();
     expect(s.exists).toBe(true);
     expect(s.totalEntries).toBe(0);
+  });
+
+  it('rethrows non-ENOENT IO errors instead of silently returning [] (Copilot)', async () => {
+    // journal.jsonl 경로를 디렉터리로 만들어 readFile 이 EISDIR(비-ENOENT)로 실패하게 한다.
+    // 실제 권한/IO 오류를 [] 로 삼키면 저널이 사라진 것처럼 보이므로 표면화되어야 한다.
+    mkdirSync(join(dir, JOURNAL_FILE));
+    await expect(journal.read()).rejects.toThrow();
+    await expect(journal.search('x')).rejects.toThrow();
+    await expect(journal.status()).rejects.toThrow();
   });
 });
 

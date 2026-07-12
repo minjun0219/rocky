@@ -361,8 +361,16 @@ export class AgentJournal {
   }
 
   /**
-   * 모든 valid entry 를 append 순(시간 오름차순) 으로 반환. 손상 / 부분 쓰기 라인은
-   * 건너뛴다 — 호출자가 throw 를 받지 않게.
+   * 모든 valid entry 를 append 순(시간 오름차순) 으로 반환.
+   *
+   * 두 종류의 실패를 구분한다:
+   *   - **컨텐츠 손상 / 부분 쓰기 라인** → per-line graceful skip (아래 for 루프). 저널이
+   *     비어 보이지 않게 정상 라인은 살린다.
+   *   - **파일 부재(ENOENT) / 경쟁적 삭제** → 빈 배열. 아직 아무것도 안 쓴 정상 상태.
+   *   - **그 외 IO 오류(EACCES / EPERM / EIO …)** → rethrow. 실제 오류를 `[]` 로 삼키면
+   *     read/search/status 가 조용히 비어 데이터가 사라진 것처럼 보이고 `/curate` 의
+   *     증분 기준(`lastCurateAt`)이 오산된다. `append` 가 같은 상황에서 throw 하는 것과
+   *     대칭을 맞춘다.
    */
   private async readAll(): Promise<JournalEntry[]> {
     if (!existsSync(this.file)) {
@@ -371,8 +379,12 @@ export class AgentJournal {
     let raw: string;
     try {
       raw = await readFile(this.file, 'utf8');
-    } catch {
-      return [];
+    } catch (err) {
+      // existsSync 와 readFile 사이의 경쟁적 삭제만 [] 로 흡수하고, 나머지는 표면화.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+      throw err;
     }
     if (!raw) {
       return [];
