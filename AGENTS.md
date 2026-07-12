@@ -10,6 +10,8 @@ Shared guide for AI coding agents (Claude Code, opencode, codex, etc.) working i
 
 Previous toolkit surfaces (journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time.
 
+> **Scope framing (read this before treating a feature request as out-of-scope).** rocky is the owner's **personal Claude Code plugin**, not an OpenAPI-scoped product. The current openapi-only surface is today's **slim baseline, not a ceiling** — the owner grows rocky by adding whatever domains / features they need. So when the owner asks for a domain or feature (notion, journal, a brand-new capability, …), the answer is to **build it** — follow *Reintroduction strategy* for an archived domain, or just add a new one — not to shelve it as "out of scope". The "hold the line" discipline in *MVP scope* only guards against **unrequested** scope creep; it never overrides an explicit owner request.
+
 ## Layout
 
 ```
