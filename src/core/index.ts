@@ -24,5 +24,6 @@ export * from './openapi-registry';
 export * from './parser';
 export * from './registry';
 export * from './schema';
+export * from './seo-validate';
 export * from './rocky-config';
 export * from './url';

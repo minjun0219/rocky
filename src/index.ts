@@ -24,6 +24,7 @@ import {
   handleSwaggerGet,
   handleSwaggerRefresh,
   handleSwaggerSearch,
+  handleSeoValidate,
   handleSwaggerStatus,
   handleSwaggerTags,
 } from './core';
@@ -148,6 +149,21 @@ export async function buildServer() {
       inputSchema: { input: z.string() },
     },
     async ({ input }) => jsonResult(await handleSwaggerTags(openapiRegistry, input, registry)),
+  );
+
+  server.registerTool(
+    'seo_validate',
+    {
+      description:
+        '단일 URL 의 OG / Twitter Card / JSON-LD / favicon 메타를 ogpeek 으로 fetch + parse 해서 검증한다. summary (finalUrl / redirects / og:title / og:description / og:image / og:type / og:url / canonical / errors / warnings / info / hasJsonLd / hasFavicon / iconCount) + raw OgDebugResult 둘 다 반환. errors 는 ogpeek warnings 중 severity=error (`OG_TITLE_MISSING` / `OG_TYPE_MISSING` / `OG_IMAGE_MISSING` / `OG_URL_MISSING`) 만 추린 것. 기본 SSRF 가드는 private / loopback / link-local / IPv6 ULA 호스트 차단 — rocky.json 의 `seo.allowPrivateHosts:true` 또는 도구 호출 인자 `allowPrivateHosts:true` 로 끈다. (url: 검증할 http/https URL, timeoutMs?: fetch timeout (1..30000, 기본 8000), allowPrivateHosts?: SSRF 가드 비활성, 기본 config.seo.allowPrivateHosts ?? false)',
+      inputSchema: {
+        url: z.string(),
+        timeoutMs: z.number().int().positive().optional(),
+        allowPrivateHosts: z.boolean().optional(),
+      },
+    },
+    async ({ url, timeoutMs, allowPrivateHosts }) =>
+      jsonResult(await handleSeoValidate(toolkitConfig.seo, { url, timeoutMs, allowPrivateHosts })),
   );
 
   return server;

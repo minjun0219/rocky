@@ -69,11 +69,25 @@ export function getRegistryFormat(
   return leaf.format;
 }
 
+/**
+ * `seo_validate` 도구 기본값. 모든 필드는 도구 호출 인자로 override 된다.
+ */
+export interface SeoConfig {
+  /**
+   * true 면 private / loopback / link-local 호스트 fetch 를 허용. 기본 false.
+   * `seo_validate` 도구 호출 인자 (`allowPrivateHosts`) 가 우선.
+   */
+  allowPrivateHosts?: boolean;
+  /** fetch timeout (ms). 1..30000. 도구 호출 인자 (`timeoutMs`) 가 우선. */
+  timeoutMs?: number;
+}
+
 export interface RockyConfig {
   $schema?: string;
   openapi?: {
     registry?: OpenapiRegistry;
   };
+  seo?: SeoConfig;
 }
 
 export interface LoadConfigOptions {
@@ -144,7 +158,41 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
       validateRegistry(oapi.registry, source);
     }
   }
+  if (config.seo !== undefined) {
+    validateSeo(config.seo, source);
+  }
   return config as RockyConfig;
+}
+
+/** `seo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
+const ALLOWED_SEO_KEYS = new Set(['allowPrivateHosts', 'timeoutMs']);
+
+/**
+ * `seo` 객체 모양 검증. `seo_validate` 도구 기본값을 받는다 — 미지원 key 는 reject.
+ */
+function validateSeo(seo: unknown, source: string): void {
+  if (seo === null || typeof seo !== 'object' || Array.isArray(seo)) {
+    throw new Error(`${source}: seo must be an object`);
+  }
+  const obj = seo as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!ALLOWED_SEO_KEYS.has(key)) {
+      throw new Error(`${source}: seo: unknown key "${key}"`);
+    }
+  }
+  if (obj.allowPrivateHosts !== undefined && typeof obj.allowPrivateHosts !== 'boolean') {
+    throw new Error(`${source}: seo.allowPrivateHosts must be a boolean`);
+  }
+  if (obj.timeoutMs !== undefined) {
+    if (
+      typeof obj.timeoutMs !== 'number' ||
+      !Number.isInteger(obj.timeoutMs) ||
+      obj.timeoutMs < 1 ||
+      obj.timeoutMs > 30_000
+    ) {
+      throw new Error(`${source}: seo.timeoutMs must be an integer between 1 and 30000`);
+    }
+  }
 }
 
 function validateRegistry(reg: unknown, source: string): asserts reg is OpenapiRegistry {
@@ -280,6 +328,10 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
         }
       }
     }
+  }
+  // seo 는 leaf 별 병합이 아니라 필드 단위로 project 가 user 를 덮어쓴다.
+  if (project.seo) {
+    out.seo = { ...out.seo, ...project.seo };
   }
   return out;
 }

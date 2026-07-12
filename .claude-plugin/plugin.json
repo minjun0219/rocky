@@ -2,12 +2,12 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "rocky",
   "version": "0.4.0",
-  "description": "rocky Claude Code plugin (Bun runtime). 7 openapi_* tools — cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list. Archived domains (journal / mysql / notion / spec-pact / pr-watch) re-enter as separate PRs.",
+  "description": "rocky Claude Code plugin (Bun runtime). 7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate (OG / Twitter Card / JSON-LD / favicon meta validation via ogpeek). Archived domains (journal / mysql / notion / spec-pact / pr-watch) re-enter as separate PRs.",
   "author": {
     "name": "Minjun Kim"
   },
   "license": "MIT",
-  "keywords": ["openapi", "swagger", "rocky", "bun", "mcp"],
+  "keywords": ["openapi", "swagger", "seo", "ogp", "rocky", "bun", "mcp"],
   "mcpServers": {
     "rocky": {
       "type": "stdio",

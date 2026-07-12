@@ -6,7 +6,7 @@ Shared guide for AI coding agents (Claude Code, opencode, codex, etc.) working i
 
 ## Project in one line
 
-**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7-tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
+**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7 openapi tools** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`); the Claude Code plugin adds one plugin-only tool, `seo_validate` (OG / Twitter Card / JSON-LD / favicon meta validation via `ogpeek`, `src/core/seo-validate.ts`). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
 
 Previous toolkit surfaces (journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time.
 
@@ -25,9 +25,9 @@ rocky/                                      single package — @minjun0219/rocky
 ├── bin/
 │   └── openapi-mcp                         `#!/usr/bin/env bun` shebang, arg 파싱 → src/standalone
 └── src/
-    ├── index.ts                            ★ Claude Code plugin 진입점 — MCP 등록만, handler 호출은 ./core
-    ├── index.test.ts                       in-memory MCP smoke (7 tool, 누수 가드)
-    ├── standalone.ts                       standalone stdio MCP 로직 — 7 tool 등록 + `SpecRegistry`
+    ├── index.ts                            ★ Claude Code plugin 진입점 — MCP 등록만 (7 openapi + seo_validate), handler 호출은 ./core
+    ├── index.test.ts                       in-memory MCP smoke (8 tool, 누수 가드)
+    ├── standalone.ts                       standalone stdio MCP 로직 — 7 tool 등록 + `SpecRegistry` (seo_validate 미포함)
     └── core/                               ← 구 @minjun0219/openapi-core
         ├── index.ts                        barrel (플러그인이 `./core` 로 소비)
         ├── adapter.ts                      `rocky.json` registry → SpecRegistry + 핸들 평탄화
@@ -42,7 +42,8 @@ rocky/                                      single package — @minjun0219/rocky
         ├── parser.ts                       yaml + swagger2→3 + `$ref` deref (swagger-parser)
         ├── registry.ts                     메모리 + 디스크 registry + TTL + 백그라운드 revalidate
         ├── schema.ts                       `openapi-mcp.json` zod schema
-        ├── rocky-config.ts                 `rocky.json` 로더 (project > user, openapi-only)
+        ├── rocky-config.ts                 `rocky.json` 로더 (project > user, openapi + seo)
+        ├── seo-validate.ts                 `seo_validate` 코어 + handler (ogpeek, SSRF 가드) — plugin 전용
         ├── url.ts                          URL join / synthetic operationId
         ├── __fixtures__/                   petstore 2.0 / 3.0 (JSON + YAML)
         └── *.test.ts                       unit tests + handlers.test.ts
@@ -52,7 +53,7 @@ rocky/                                      single package — @minjun0219/rocky
 
 ## MVP scope (hold the line)
 
-**In**: OpenAPI / Swagger spec 캐시 + endpoint search + tag list + cross-spec scoped search + `host:env:spec` registry (`rocky.json`, project > user precedence), 단일 7-tool surface 를 2 배포 타깃 (Claude Code plugin + standalone CLI) 에 공유, 단일 Bun 패키지. 모든 handler 는 `src/core/handlers.ts` 한 곳에 정의 — 두 진입점 간 drift 방지.
+**In**: OpenAPI / Swagger spec 캐시 + endpoint search + tag list + cross-spec scoped search + `host:env:spec` registry (`rocky.json`, project > user precedence), 공유 7 openapi tool 을 2 배포 타깃 (Claude Code plugin + standalone CLI) 에 공유, 단일 Bun 패키지. 모든 openapi handler 는 `src/core/handlers.ts` 한 곳에 정의 — 두 진입점 간 drift 방지. 추가로 **`seo_validate`** (단일 URL 의 OG / Twitter Card / JSON-LD / favicon 메타를 `ogpeek` 으로 검증, 기본 SSRF 가드 — IP literal 기준 private/loopback 차단, `rocky.json` 의 `seo.allowPrivateHosts` / `seo.timeoutMs` 기본값, 도구 인자 우선) 는 Claude Code plugin 에만 등록 (handler `src/core/seo-validate.ts`, standalone CLI 미포함).
 
 **Out**: journal / mysql / notion / spec-pact / pr-watch / agents / skills (전부 archive 브랜치 박제), opencode plugin (`.archive/agent-toolkit-opencode/` 박제), 도메인 재추가 (별도 PR), npm publish 자동화 (별도 PR). OpenAPI YAML stream parsing, full SDK code generation, multi-spec merge, mock servers, UI 도 모두 out.
 
@@ -87,7 +88,7 @@ bun test            # 모든 src/**/*.test.ts
 - **ESM safety**: never use `__dirname`. Use `import.meta.url` + `fileURLToPath`, or Bun's `import.meta.dir`.
 - **Repo-local JSDoc**: write JSDoc on exported functions / classes when touching this repository, but do not treat it as a custom hard-lint gate. Korean comments are fine for tricky logic.
 - **Errors**: include context in messages (input value, timeout, status code, handle mismatch, …).
-- **Dependencies**: avoid adding any if possible. Prefer the standard library and Bun built-ins. **Explicit prod-dep exceptions:** `@modelcontextprotocol/sdk` + `zod` (MCP wire protocol + blessed schema dialect), `@apidevtools/swagger-parser` + `swagger2openapi` + `js-yaml` + `openapi-types` + `pino` (OpenAPI parsing / conversion / structured stderr logging). HTTP transport는 Bun의 native `fetch` (with `tls` option) 직접 사용. Dev-only tooling (linters / formatters) 는 OK. New runtime deps 는 별도 scope 논의. (`@opencode-ai/plugin` 은 opencode plugin 아카이브와 함께 제거됨.)
+- **Dependencies**: avoid adding any if possible. Prefer the standard library and Bun built-ins. **Explicit prod-dep exceptions:** `@modelcontextprotocol/sdk` + `zod` (MCP wire protocol + blessed schema dialect), `@apidevtools/swagger-parser` + `swagger2openapi` + `js-yaml` + `openapi-types` + `pino` (OpenAPI parsing / conversion / structured stderr logging), `ogpeek` (`seo_validate` 의 HTML fetch + OG / Twitter Card / JSON-LD / favicon 파싱 — 손으로 유지할 표면이 아님). HTTP transport는 Bun의 native `fetch` (with `tls` option) 직접 사용. Dev-only tooling (linters / formatters) 는 OK. New runtime deps 는 별도 scope 논의. (`@opencode-ai/plugin` 은 opencode plugin 아카이브와 함께 제거됨.)
 - **Tests**: keep `*.test.ts` next to the source and run with `bun test`. Isolate fs-dependent tests with `mkdtempSync`. 핸들러 동작 자체는 `src/core/handlers.test.ts` 에서 검증, 플러그인 진입점의 `src/index.test.ts` 는 surface (tool 개수 / 누수 회귀) 만 검증.
 
 ## Runtime project comment guidance

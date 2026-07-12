@@ -6,13 +6,13 @@
 
 ## 한 눈에
 
-- **단일 패키지 (`@minjun0219/rocky`) — 두 배포 타깃, 동일한 7-tool surface**:
+- **단일 패키지 (`@minjun0219/rocky`) — 두 배포 타깃, 공유 7 openapi tool + plugin 전용 `seo_validate`**:
   | 배포 타깃 | 역할 | 설치 |
   | --- | --- | --- |
   | **Claude Code plugin** (`src/index.ts`) | `.claude-plugin/plugin.json` 의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 로 stdio MCP 서버를 등록. marketplace 배포. | Claude Code plugin marketplace |
   | **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp` → `src/standalone.ts`) | host-agnostic subset MCP. 어떤 stdio MCP host (Cursor / Continue / Claude Desktop / …) 든 등록해 쓰는 단독 CLI. | `bun link` (npm publish 는 별도 PR) |
 - **공유 core**: [`src/core/`](./src/core) — 두 타깃 모두 이 디렉토리의 `handlers.ts` / `registry.ts` / `adapter.ts` 등을 import. plugin 진입점은 barrel (`./core`) 로, standalone 은 `./core/<file>` subpath 로 가져온다.
-- **Surface (7 tool, 두 타깃 동일)**: `openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`.
+- **Surface**: 공유 7 openapi tool (두 타깃 동일) — `openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags` — 에 더해 Claude Code plugin 전용 `seo_validate` (OG / Twitter Card / JSON-LD / favicon 메타 검증, `ogpeek` 기반). 단독 `openapi-mcp` CLI 는 OpenAPI 도메인만 다뤄 `seo_validate` 를 노출하지 않는다.
 - **설정 파일**:
   - `rocky.json` — plugin 이 읽는다 (project 의 `./rocky.json` 이 user 의 `~/.config/rocky/rocky.json` 을 leaf 단위로 덮어쓴다). v0.3 부터 `openapi.registry` 한 키만 존재.
   - `openapi-mcp.json` — 단독 CLI 가 읽는다. config 형태 (`specs.<name>.environments.<env>.baseUrl`) 가 다르고 평탄화 없이 그대로 SpecRegistry 에 들어간다.
@@ -31,12 +31,12 @@ Input          — 필수 + 선택 파라미터
 Output         — 반환값의 최상위 shape
 Side effects   — 디스크 / 네트워크 영향 (없으면 "none")
 Related config — 이 도구가 읽는 env 변수 + rocky.json 키
-Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CLI — 항상 둘 다)
+Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CLI — openapi_* 는 둘 다, seo_validate 는 plugin 만)
 ```
 
 ## 도구
 
-두 배포 타깃 모두 동일한 7개를 노출한다. handler 구현은 `src/core/handlers.ts` 한 곳에 정의되어 있고, Claude Code plugin (`src/index.ts`) 은 그걸 호출만 한다. 단독 CLI (`openapi-mcp`, `src/standalone.ts`) 는 자체 tool 정의를 가지되 같은 `SpecRegistry` 를 사용한다.
+두 배포 타깃 모두 동일한 7 개 openapi 도구를 노출한다. handler 구현은 `src/core/handlers.ts` 한 곳에 정의되어 있고, Claude Code plugin (`src/index.ts`) 은 그걸 호출만 한다. 단독 CLI (`openapi-mcp`, `src/standalone.ts`) 는 자체 tool 정의를 가지되 같은 `SpecRegistry` 를 사용한다. 여기에 더해 `seo_validate` 는 Claude Code plugin 에만 등록된다 (handler 는 `src/core/seo-validate.ts`).
 
 ### `openapi_get`
 
@@ -101,6 +101,15 @@ Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CL
 - **Related config**: 동일.
 - **Hosts**: 둘 다.
 
+### `seo_validate`
+
+- **What**: 단일 URL 의 OG / Twitter Card / JSON-LD / favicon 메타를 `ogpeek` 으로 fetch + parse 해 검증한다. redirect 를 끝까지 추적하고, ogpeek warnings 를 severity 별 (`errors` / `warnings` / `info`) 로 분리한다. 기본 SSRF 가드가 private / loopback / link-local / IPv6 ULA 호스트를 차단한다 (IP literal 기준 — DNS rebinding 은 범위 밖).
+- **Input**: `url` — 검증할 `http` / `https` URL (필수). `timeoutMs?` — fetch timeout (1..30000, 기본 8000). `allowPrivateHosts?` — SSRF 가드 비활성 (기본 `config.seo.allowPrivateHosts ?? false`).
+- **Output**: `{ summary, raw }`. `summary` 는 finalUrl / redirects / og:title / og:description / og:image / og:type / og:url / canonical / errors / warnings / info / hasJsonLd / hasFavicon / iconCount. `raw` 는 ogpeek 의 원본 `OgDebugResult`.
+- **Side effects**: 대상 URL 로 outbound HTTP GET (SSRF 가드 통과 시). 디스크 캐시 없음.
+- **Related config**: `rocky.json` 의 `seo` (`allowPrivateHosts` / `timeoutMs`) — 도구 인자가 우선. env 변수 없음.
+- **Hosts**: Claude Code plugin 만 (단독 CLI 미노출).
+
 ## 환경 변수
 
 `ROCKY_*` 변수는 **Claude Code plugin 진입점 (`src/index.ts`) 전용** — standalone `openapi-mcp` CLI 는 인지하지 않는다 (CLI 는 `openapi-mcp.json` config 파일 + XDG 표준 변수만 본다).
@@ -135,11 +144,16 @@ standalone CLI 는 위 XDG 변수에 추가로 `openapi-mcp` CLI flag (`--config
         }
       }
     }
+  },
+  "seo": {
+    "allowPrivateHosts": false,
+    "timeoutMs": 8000
   }
 }
 ```
 
 - 핸들 규칙: `host:env:spec`. 각 식별자는 `^[a-zA-Z0-9_-]+$` — 콜론은 separator 예약.
+- `seo` (옵션): `seo_validate` 도구 기본값. `allowPrivateHosts` (boolean, 기본 false) / `timeoutMs` (1..30000). 두 값 모두 도구 호출 인자가 우선. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
 - leaf 는 string (URL only) 또는 object (`{ url, baseUrl?, format? }`). `baseUrl` 은 `openapi_endpoint` 의 `fullUrl` 합성에 사용. `format` 은 `openapi3` / `swagger2` / `auto` (기본 auto).
 - project (`./rocky.json`) 가 user (`~/.config/rocky/rocky.json`) 를 leaf 단위로 덮어쓴다.
 
