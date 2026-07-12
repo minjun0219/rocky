@@ -6,19 +6,19 @@ Shared guide for AI coding agents (Claude Code, opencode, codex, etc.) working i
 
 ## Project in one line
 
-**Single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7-tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
+**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7-tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
 
-Previous toolkit surfaces (journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/agent-toolkit/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time.
+Previous toolkit surfaces (journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time.
 
 ## Layout
 
 ```
-agent-toolkit/                             single package — @minjun0219/agent-toolkit
+rocky/                                      single package — @minjun0219/rocky
 ├── package.json                            { bin: { "openapi-mcp": "./bin/openapi-mcp" }, exports: { ".", "./standalone" } }
 ├── tsconfig.json                           단일 컴파일러 옵션 + include ["src/**/*.ts"]
 ├── biome.json                              lint / format (!.sisyphus, !.claude 제외)
-├── agent-toolkit.schema.json               `agent-toolkit.json` JSON Schema (IDE autocomplete)
-├── .mcp.json                               ★ dev-only Claude Code trust (context7 + agent-toolkit via ${CLAUDE_PROJECT_DIR}). 배포 X.
+├── rocky.schema.json                       `rocky.json` JSON Schema (IDE autocomplete)
+├── .mcp.json                               ★ dev-only Claude Code trust (context7 + rocky via ${CLAUDE_PROJECT_DIR}). 배포 X.
 ├── .claude-plugin/plugin.json              ★ marketplace metadata + mcpServers (via ${CLAUDE_PLUGIN_ROOT}/src/index.ts)
 ├── README.md / FEATURES.md / AGENTS.md / ROADMAP.md / REVIEW.md / LICENSE
 ├── docs/openapi-mcp.md                     standalone CLI 보조 문서
@@ -30,7 +30,7 @@ agent-toolkit/                             single package — @minjun0219/agent-
     ├── standalone.ts                       standalone stdio MCP 로직 — 7 tool 등록 + `SpecRegistry`
     └── core/                               ← 구 @minjun0219/openapi-core
         ├── index.ts                        barrel (플러그인이 `./core` 로 소비)
-        ├── adapter.ts                      `agent-toolkit.json` registry → SpecRegistry + 핸들 평탄화
+        ├── adapter.ts                      `rocky.json` registry → SpecRegistry + 핸들 평탄화
         ├── cache.ts                        sha1-keyed disk cache (`schemaVersion: 1`, TTL, conditional GET)
         ├── config-loader.ts                standalone `openapi-mcp.json` 로더 (XDG, YAML/JSON)
         ├── fetcher.ts                      Bun `fetch` 기반 HTTP + conditional GET + TLS opt
@@ -42,7 +42,7 @@ agent-toolkit/                             single package — @minjun0219/agent-
         ├── parser.ts                       yaml + swagger2→3 + `$ref` deref (swagger-parser)
         ├── registry.ts                     메모리 + 디스크 registry + TTL + 백그라운드 revalidate
         ├── schema.ts                       `openapi-mcp.json` zod schema
-        ├── toolkit-config.ts               `agent-toolkit.json` 로더 (project > user, openapi-only)
+        ├── rocky-config.ts                 `rocky.json` 로더 (project > user, openapi-only)
         ├── url.ts                          URL join / synthetic operationId
         ├── __fixtures__/                   petstore 2.0 / 3.0 (JSON + YAML)
         └── *.test.ts                       unit tests + handlers.test.ts
@@ -52,9 +52,9 @@ agent-toolkit/                             single package — @minjun0219/agent-
 
 ## MVP scope (hold the line)
 
-**In**: OpenAPI / Swagger spec 캐시 + endpoint search + tag list + cross-spec scoped search + `host:env:spec` registry (`agent-toolkit.json`, project > user precedence), 단일 7-tool surface 를 2 배포 타깃 (Claude Code plugin + standalone CLI) 에 공유, 단일 Bun 패키지. 모든 handler 는 `src/core/handlers.ts` 한 곳에 정의 — 두 진입점 간 drift 방지.
+**In**: OpenAPI / Swagger spec 캐시 + endpoint search + tag list + cross-spec scoped search + `host:env:spec` registry (`rocky.json`, project > user precedence), 단일 7-tool surface 를 2 배포 타깃 (Claude Code plugin + standalone CLI) 에 공유, 단일 Bun 패키지. 모든 handler 는 `src/core/handlers.ts` 한 곳에 정의 — 두 진입점 간 drift 방지.
 
-**Out**: journal / mysql / notion / spec-pact / pr-watch / agents / skills (전부 archive 브랜치 박제), opencode plugin (`.archive/agent-toolkit-opencode/` 박제), 도메인 재추가 (별도 PR), npm publish 자동화 (별도 PR), repo rename (보류 — `agent-toolkit` 정체성 유지). OpenAPI YAML stream parsing, full SDK code generation, multi-spec merge, mock servers, UI 도 모두 out.
+**Out**: journal / mysql / notion / spec-pact / pr-watch / agents / skills (전부 archive 브랜치 박제), opencode plugin (`.archive/agent-toolkit-opencode/` 박제), 도메인 재추가 (별도 PR), npm publish 자동화 (별도 PR). OpenAPI YAML stream parsing, full SDK code generation, multi-spec merge, mock servers, UI 도 모두 out.
 
 ## Reintroduction strategy (archive → main)
 
@@ -63,7 +63,7 @@ Re-adding a domain (journal / mysql / notion / spec-pact / pr-watch) is **always
 1. **Decision**: 도메인을 (a) Claude Code plugin 에 직접 합류 (`src/core/` 에 코드 + `src/index.ts` 에 tool 등록) (b) `openapi-mcp` 옆에 별도 CLI 진입점 (`bin/<domain>-mcp` + `src/<domain>.ts`, host 독립성이 높을 때) 둘 중 하나로 정한다. 결정 기록은 PR description 에 한 줄.
 2. **Port from archive**: `git checkout archive/pre-openapi-only-slim -- <files>` 로 lib / skill / agent 가져온다. 이전 `lib/<domain>.ts` 는 `src/core/<domain>.ts` 로 옮긴다.
 3. **Shared handler 자리**: `src/core/handlers.ts` 옆에 도메인 handler 를 둔다 (openapi 와 동일 패턴) — 진입점은 등록만.
-4. **Config shape**: `agent-toolkit.json` 에 도메인 키를 다시 넣는다면 `src/core/toolkit-config.ts` 의 `ToolkitConfig` 와 `agent-toolkit.schema.json` 을 lockstep 으로 갱신.
+4. **Config shape**: `rocky.json` 에 도메인 키를 다시 넣는다면 `src/core/rocky-config.ts` 의 `RockyConfig` 와 `rocky.schema.json` 을 lockstep 으로 갱신.
 5. **Surface**: 도메인이 plugin 에 합류하면 `src/index.ts` 에서 도구를 등록한다 — 누수 회귀 가드 (`src/index.test.ts` 의 `REMOVED_TOOLS` 배열) 도 함께 갱신.
 6. **Docs**: `FEATURES.md` 의 tool 표 / config 표 갱신. `README.md` 의 surface 카운트 갱신. `AGENTS.md` (이 파일) 의 Layout / *Project in one line* 갱신.
 
@@ -105,9 +105,9 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 2. `bun run typecheck` passes
 3. `bun test` passes
 4. If the user-facing surface (tools / env vars / handles) changes, sync the **two single sources** — `FEATURES.md` (Korean, humans) and `AGENTS.md` (English, agents — this file's *Project in one line* + *Layout*) — and the entry pages: `README.md` always, `docs/openapi-mcp.md` when the standalone CLI surface changes, `.claude-plugin/plugin.json` when the Claude Code surface (tools or MCP server declaration) changes.
-5. If a new env var is added, update the env-reading site that consumes it (`src/core/cache.ts` / `config-loader.ts` / `toolkit-config.ts`). Update the `FEATURES.md` env-var table on every addition.
+5. If a new env var is added, update the env-reading site that consumes it (`src/core/cache.ts` / `config-loader.ts` / `rocky-config.ts`). Update the `FEATURES.md` env-var table on every addition.
 6. If a tool contract changes, update the registration in `src/index.ts` (plugin) and/or `src/standalone.ts` (CLI) as appropriate, and the shared handler in `src/core/handlers.ts` (implementation).
-7. If `agent-toolkit.json` shape changes, update **both** `agent-toolkit.schema.json` (IDE autocomplete) **and** `src/core/toolkit-config.ts` (runtime validation) — they must stay in lockstep.
+7. If `rocky.json` shape changes, update **both** `rocky.schema.json` (IDE autocomplete) **and** `src/core/rocky-config.ts` (runtime validation) — they must stay in lockstep.
 8. If a removed-domain tool name needs to surface again, update the `REMOVED_TOOLS` array in `src/index.test.ts` — it currently guards against journal / mysql / notion / spec-pact / pr-watch leakage.
 
 ## MCP servers
@@ -115,7 +115,7 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 The **dev-only** repo-root `.mcp.json` (project scope; `${CLAUDE_PROJECT_DIR}` expands, `${CLAUDE_PLUGIN_ROOT}` does **not**) registers two MCP servers for working against this repo. Approve both on first trust prompt:
 
 - [`context7`](https://github.com/upstash/context7) — up-to-date documentation for external libraries.
-- `agent-toolkit` — `bun run ${CLAUDE_PROJECT_DIR}/src/index.ts`. Exposes the 7-tool plugin surface.
+- `rocky` — `bun run ${CLAUDE_PROJECT_DIR}/src/index.ts`. Exposes the 7-tool plugin surface.
 
 End users install the plugin via marketplace; the server they get is declared in `.claude-plugin/plugin.json`'s `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`), **not** the repo-root `.mcp.json` — so the dev-only `context7` entry never leaks to installs. The `.mcp.json` file is not part of the published `files`.
 

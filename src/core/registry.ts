@@ -89,7 +89,7 @@ export interface SpecRegistry {
   refresh(specName?: string): Promise<RefreshOutcome[]>;
   hasSpec(specName: string): boolean;
   /**
-   * 런타임에 spec entry 를 추가한다. agent-toolkit 의 `openapi_get(URL)` 처럼
+   * 런타임에 spec entry 를 추가한다. rocky 의 `openapi_get(URL)` 처럼
    * config 에 없는 ad-hoc URL 을 받았을 때 사용. 이미 같은 이름이 등록돼 있으면
    * 새 entry 로 통째로 교체한다 (이름 단위 idempotent).
    */

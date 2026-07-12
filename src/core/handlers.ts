@@ -21,14 +21,14 @@ import {
   resolveScopeToHandles,
   type OpenapiRegistryEntry,
 } from './openapi-registry';
-import type { OpenapiRegistry, ToolkitConfig } from './toolkit-config';
+import type { OpenapiRegistry, RockyConfig } from './rocky-config';
 
 /**
- * agent-toolkit 의 openapi_* tool 들이 공유하는 handler 묶음.
+ * rocky 의 openapi_* tool 들이 공유하는 handler 묶음.
  *
- * 두 plugin host (Claude Code MCP, opencode plugin) 가 동일 함수를 호출하고 자기 host
- * 의 RPC 모양으로 wrap 한다. standalone `openapi-mcp` CLI 는 config shape (`openapi-mcp.json`)
- * 이 다르고 toolkit-config 의 registry 평탄화 단계를 거치지 않으므로, 자체 tool 정의를
+ * Claude Code plugin 진입점 (`src/index.ts`) 이 이 함수들을 호출해 MCP RPC 모양으로
+ * wrap 한다. standalone `openapi-mcp` CLI 는 config shape (`openapi-mcp.json`)
+ * 이 다르고 rocky-config 의 registry 평탄화 단계를 거치지 않으므로, 자체 tool 정의를
  * 가진 채로 `SpecRegistry` 만 공유한다.
  */
 
@@ -53,7 +53,7 @@ function resolveSwaggerInput(
     // 같은 `:` 조인이라 trimmed 자체를 그대로 SpecRegistry key 로 쓴다 (split + flatten 왕복 제거).
     const flat = trimmed;
     if (!registry.hasSpec(flat)) {
-      // registry 가 toolkit-config 로 만들어지지 않은 (단독 진입점) 경우 ad-hoc 등록.
+      // registry 가 rocky-config 로 만들어지지 않은 (단독 진입점) 경우 ad-hoc 등록.
       registry.registerSpec(flat, {
         source: { type: 'url', url },
         environments: { [DEFAULT_ENVIRONMENT]: { baseUrl: '' } },
@@ -178,7 +178,7 @@ export async function handleSwaggerSearch(
     const handles = resolveScopeToHandles(scope, toolkitRegistry);
     if (handles.length === 0) {
       throw new Error(
-        `openapi_search: scope "${scope}" matched no entries in openapi.registry — check ./.opencode/agent-toolkit.json or ~/.config/opencode/agent-toolkit/agent-toolkit.json`,
+        `openapi_search: scope "${scope}" matched no entries in openapi.registry — check ./rocky.json or ~/.config/rocky/rocky.json`,
       );
     }
     // resolveScopeToHandles 가 이미 `host:env:spec` 형태의 canonical handle 을 반환하므로
@@ -226,7 +226,7 @@ export interface SwaggerSearchMatch {
 }
 
 /** registry 트리를 평면 (host, env, spec, url, baseUrl?, format?) 리스트로 반환. */
-export function handleSwaggerEnvs(config: ToolkitConfig): OpenapiRegistryEntry[] {
+export function handleSwaggerEnvs(config: RockyConfig): OpenapiRegistryEntry[] {
   return listRegistry(config);
 }
 

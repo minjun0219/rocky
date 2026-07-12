@@ -6,9 +6,9 @@ import {
   resolveHandleToUrl,
   resolveScopeToUrls,
 } from './openapi-registry';
-import type { ToolkitConfig } from './toolkit-config';
+import type { RockyConfig } from './rocky-config';
 
-const CONFIG: ToolkitConfig = {
+const CONFIG: RockyConfig = {
   openapi: {
     registry: {
       acme: {

@@ -7,14 +7,14 @@ import {
   getRegistryUrl,
   getRegistryBaseUrl,
   getRegistryFormat,
-} from './toolkit-config';
+} from './rocky-config';
 import type { EnvironmentConfig, OpenApiMcpConfig, SpecConfig } from './schema';
 import { createDiskCache, createNoopDiskCache, type DiskCache } from './cache';
 import { createFetcher, type FetcherOptions } from './fetcher';
 import { createSpecRegistry, type SpecRegistry } from './registry';
 
 /**
- * agent-toolkit 의 `openapi.registry` 트리를 SpecRegistry 가 받는 `OpenApiMcpConfig`
+ * rocky 의 `openapi.registry` 트리를 SpecRegistry 가 받는 `OpenApiMcpConfig`
  * 형태로 변환한다.
  *
  * 평탄화 규칙:
@@ -67,7 +67,7 @@ export const DEFAULT_ENVIRONMENT = 'default';
  * 호출 측에서 leaf 0 개 케이스를 분기한다.
  *
  * `defaultCacheTtlSeconds` 가 주어지면 각 SpecConfig 의 `cacheTtlSeconds` 기본값으로
- * 주입된다 — agent-toolkit 진입점이 `AGENT_TOOLKIT_OPENAPI_CACHE_TTL` 을 읽어
+ * 주입된다 — rocky 진입점이 `ROCKY_OPENAPI_CACHE_TTL` 을 읽어
  * 넘기면 SpecRegistry 의 stale 판정 / background revalidation 이 그 값으로 동작한다.
  */
 export function registryToOpenApiMcpConfig(
@@ -146,7 +146,7 @@ export function buildEphemeralSpec(
  * 합칠지는 호출 측 결정.
  */
 export interface CombinedConfigOptions {
-  /** agent-toolkit.json 의 openapi.registry 트리. */
+  /** rocky.json 의 openapi.registry 트리. */
   registry?: OpenapiRegistry;
   /** registry 외 추가로 받을 ad-hoc URL 목록 (중복은 deduplicate). */
   ephemeralUrls?: string[];
@@ -171,17 +171,17 @@ export function buildCombinedConfig(options: CombinedConfigOptions): OpenApiMcpC
 }
 
 /**
- * agent-toolkit MCP 진입점이 사용하는 SpecRegistry factory.
+ * rocky MCP 진입점이 사용하는 SpecRegistry factory.
  *
- * `AGENT_TOOLKIT_OPENAPI_CACHE_DIR` / `AGENT_TOOLKIT_OPENAPI_CACHE_TTL` /
- * `AGENT_TOOLKIT_OPENAPI_DOWNLOAD_TIMEOUT_MS` /
- * `AGENT_TOOLKIT_OPENAPI_INSECURE_TLS` /
- * `AGENT_TOOLKIT_OPENAPI_EXTRA_CA_CERTS` 환경변수를 인지해 디스크 캐시 dir,
+ * `ROCKY_OPENAPI_CACHE_DIR` / `ROCKY_OPENAPI_CACHE_TTL` /
+ * `ROCKY_OPENAPI_DOWNLOAD_TIMEOUT_MS` /
+ * `ROCKY_OPENAPI_INSECURE_TLS` /
+ * `ROCKY_OPENAPI_EXTRA_CA_CERTS` 환경변수를 인지해 디스크 캐시 dir,
  * TTL 기본값, HTTP timeout / TLS 옵션을 잡는다 (구 `lib/openapi-context.ts`
  * 와 호환). registry leaf 가 0 개여도 SpecRegistry 는 정상 생성 — caller 가
  * ad-hoc URL 을 넘겨 동적으로 spec 을 등록할 수 있어야 한다.
  */
-export interface CreateAgentToolkitRegistryOptions {
+export interface CreateRockyRegistryOptions {
   registry?: OpenapiRegistry;
   ephemeralUrls?: string[];
   /** 디스크 캐시 강제 비활성화 (테스트). */
@@ -190,9 +190,7 @@ export interface CreateAgentToolkitRegistryOptions {
   fetcherOverrides?: FetcherOptions;
 }
 
-export function createAgentToolkitRegistry(
-  options: CreateAgentToolkitRegistryOptions,
-): SpecRegistry {
+export function createRockyRegistry(options: CreateRockyRegistryOptions): SpecRegistry {
   const ttl = resolveOpenapiTtlSecondsFromEnv();
   const config = buildCombinedConfig({
     ...(options.registry !== undefined ? { registry: options.registry } : {}),
@@ -218,23 +216,22 @@ export function createAgentToolkitRegistry(
 }
 
 function resolveOpenapiCacheDir(): string {
-  const override = process.env.AGENT_TOOLKIT_OPENAPI_CACHE_DIR;
+  const override = process.env.ROCKY_OPENAPI_CACHE_DIR;
   if (override && override.trim().length > 0) {
     return override;
   }
-  // 구 `lib/openapi-context.ts` 의 default 와 동일한 위치로 통일.
-  // (.config/opencode/agent-toolkit/openapi-specs)
-  return join(homedir(), '.config', 'opencode', 'agent-toolkit', 'openapi-specs');
+  // rocky user config 와 같은 루트 아래로 통일. (.config/rocky/openapi-specs)
+  return join(homedir(), '.config', 'rocky', 'openapi-specs');
 }
 
 /**
- * `AGENT_TOOLKIT_OPENAPI_CACHE_TTL` 을 양수 정수로 파싱. 미설정 / 비양수 / 파싱 실패는
+ * `ROCKY_OPENAPI_CACHE_TTL` 을 양수 정수로 파싱. 미설정 / 비양수 / 파싱 실패는
  * undefined → SpecRegistry 의 schema 기본값 (300초) 적용.
  *
  * 구 `lib/openapi-context.ts` 의 `createOpenapiCacheFromEnv` 와 동일한 시맨틱.
  */
 export function resolveOpenapiTtlSecondsFromEnv(): number | undefined {
-  const raw = process.env.AGENT_TOOLKIT_OPENAPI_CACHE_TTL;
+  const raw = process.env.ROCKY_OPENAPI_CACHE_TTL;
   if (raw === undefined) {
     return undefined;
   }
@@ -246,31 +243,31 @@ export function resolveOpenapiTtlSecondsFromEnv(): number | undefined {
 }
 
 /**
- * agent-toolkit 진입점 (Claude Code MCP / opencode plugin) 의 OpenAPI fetcher
- * 옵션을 환경변수에서 읽어 조합. 단독 진입점 (`server/openapi-mcp`) 은
+ * rocky 진입점 (Claude Code MCP plugin) 의 OpenAPI fetcher
+ * 옵션을 환경변수에서 읽어 조합. 단독 진입점 (`bin/openapi-mcp`) 은
  * `openapi-mcp.json` 의 `http.*` 를 쓰므로 이 함수를 거치지 않는다.
  *
- *   - `AGENT_TOOLKIT_OPENAPI_DOWNLOAD_TIMEOUT_MS` — HTTP 요청 timeout (ms,
+ *   - `ROCKY_OPENAPI_DOWNLOAD_TIMEOUT_MS` — HTTP 요청 timeout (ms,
  *     양수 정수). 미지정 시 fetcher 기본 (10s).
- *   - `AGENT_TOOLKIT_OPENAPI_INSECURE_TLS` — `1` / `true` 면 TLS 검증 비활성화.
+ *   - `ROCKY_OPENAPI_INSECURE_TLS` — `1` / `true` 면 TLS 검증 비활성화.
  *     사내 self-signed 인증서 환경 / 개발용. **production 에선 사용 금지.**
- *   - `AGENT_TOOLKIT_OPENAPI_EXTRA_CA_CERTS` — 추가 CA pem 파일 경로. 콜론(`:`)
+ *   - `ROCKY_OPENAPI_EXTRA_CA_CERTS` — 추가 CA pem 파일 경로. 콜론(`:`)
  *     으로 여러 개 구분 (Unix `PATH` 형식). insecureTls 보다 안전한 사내 CA 옵션.
  */
 export function resolveFetcherOptionsFromEnv(): FetcherOptions {
   const out: FetcherOptions = {};
-  const timeoutRaw = process.env.AGENT_TOOLKIT_OPENAPI_DOWNLOAD_TIMEOUT_MS;
+  const timeoutRaw = process.env.ROCKY_OPENAPI_DOWNLOAD_TIMEOUT_MS;
   if (timeoutRaw !== undefined) {
     const parsed = Number.parseInt(timeoutRaw, 10);
     if (Number.isFinite(parsed) && parsed > 0) {
       out.timeoutMs = parsed;
     }
   }
-  const insecureRaw = process.env.AGENT_TOOLKIT_OPENAPI_INSECURE_TLS;
+  const insecureRaw = process.env.ROCKY_OPENAPI_INSECURE_TLS;
   if (insecureRaw === '1' || insecureRaw === 'true') {
     out.insecureTls = true;
   }
-  const cas = process.env.AGENT_TOOLKIT_OPENAPI_EXTRA_CA_CERTS;
+  const cas = process.env.ROCKY_OPENAPI_EXTRA_CA_CERTS;
   if (cas !== undefined && cas.trim().length > 0) {
     out.extraCaCerts = cas
       .split(':')

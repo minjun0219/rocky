@@ -2,7 +2,7 @@
  * openapi-mcp 단독(standalone) 진입점 로직. `bin/openapi-mcp` 가 이 모듈을 띄운다.
  *
  * Claude Code 플러그인 진입점(`./index`)과 달리 config 형태가 `openapi-mcp.json`
- * (`specs.<name>.environments.<env>.baseUrl`) 그대로다 — `agent-toolkit.json` adapter 를
+ * (`specs.<name>.environments.<env>.baseUrl`) 그대로다 — `rocky.json` adapter 를
  * 거치지 않고 `SpecRegistry` 에 직접 등록한다.
  *
  * tool 표면은 플러그인과 동일한 7 개 (`openapi_*`) — handler 코어(`./core`)를 공유해
@@ -100,7 +100,7 @@ export function buildServer(
     },
   );
 
-  // openapi_envs (단독 entry 에는 toolkit-config registry 가 없으므로 specs.* 를 그대로 평탄화)
+  // openapi_envs (단독 entry 에는 rocky-config registry 가 없으므로 specs.* 를 그대로 평탄화)
   server.registerTool(
     'openapi_envs',
     {

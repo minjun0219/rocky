@@ -9,8 +9,8 @@
  * tools directly against `SpecRegistry`. The Claude Code plugin shares the
  * 7 `openapi_*` tool handlers via `./handlers`.
  */
-// The plugin host consumes this barrel — it wants the agent-toolkit.json
-// `loadConfig` from `./toolkit-config`. The standalone openapi-mcp CLI loads the
+// The plugin host consumes this barrel — it wants the rocky.json
+// `loadConfig` from `./rocky-config`. The standalone openapi-mcp CLI loads the
 // openapi-mcp.json `loadConfig` directly via `./config-loader`, so the barrel
 // intentionally hides that file's same-named symbol to avoid an ambiguous re-export.
 export * from './adapter';
@@ -24,5 +24,5 @@ export * from './openapi-registry';
 export * from './parser';
 export * from './registry';
 export * from './schema';
-export * from './toolkit-config';
+export * from './rocky-config';
 export * from './url';

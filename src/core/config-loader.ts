@@ -7,7 +7,7 @@ import { OpenApiMcpConfigSchema, type OpenApiMcpConfig } from './schema';
 
 /**
  * `bin/openapi-mcp` 단독 진입점이 받는 config 파일 (`openapi-mcp.json` /
- * `.yaml` / `.yml`) 을 읽어 검증한다. agent-toolkit 의 `openapi.registry` 와는
+ * `.yaml` / `.yml`) 을 읽어 검증한다. rocky 의 `openapi.registry` 와는
  * 별도 — 이쪽은 `specs.<name>.environments.<env>.baseUrl` 트리를 그대로 받는다.
  */
 

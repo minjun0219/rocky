@@ -53,23 +53,23 @@ const REMOVED_TOOLS = [
   'pr_event_resolve',
 ] as const;
 
-const ENV_KEYS_TO_RESTORE = ['AGENT_TOOLKIT_OPENAPI_CACHE_DIR'] as const;
+const ENV_KEYS_TO_RESTORE = ['ROCKY_OPENAPI_CACHE_DIR'] as const;
 
 let client: Client;
 let tmpHome: string;
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
-  tmpHome = mkdtempSync(join(tmpdir(), 'agent-toolkit-server-test-'));
+  tmpHome = mkdtempSync(join(tmpdir(), 'rocky-server-test-'));
   for (const key of ENV_KEYS_TO_RESTORE) {
     savedEnv[key] = process.env[key];
   }
-  process.env.AGENT_TOOLKIT_OPENAPI_CACHE_DIR = join(tmpHome, 'openapi-cache');
+  process.env.ROCKY_OPENAPI_CACHE_DIR = join(tmpHome, 'openapi-cache');
 
   const server = await buildServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-  client = new Client({ name: 'agent-toolkit-test', version: '0' });
+  client = new Client({ name: 'rocky-test', version: '0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 });
 
@@ -88,7 +88,7 @@ afterAll(async () => {
   }
 });
 
-describe('agent-toolkit Claude Code MCP server', () => {
+describe('rocky Claude Code MCP server', () => {
   test('exposes exactly the 7 openapi tools', async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();

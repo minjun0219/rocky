@@ -1,5 +1,5 @@
 /**
- * Claude Code MCP server entrypoint for agent-toolkit.
+ * Claude Code MCP server entrypoint for rocky.
  *
  * stdio JSON-RPC server that exposes the 7 `openapi_*` tools. Handler
  * implementations are shared through `./core` (`handleSwagger*`) with the
@@ -16,7 +16,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import pkg from '../package.json' with { type: 'json' };
 import {
-  createAgentToolkitRegistry,
+  createRockyRegistry,
   HTTP_METHODS,
   loadConfig,
   handleSwaggerEndpoint,
@@ -51,16 +51,16 @@ export async function buildServer() {
   const { config: toolkitConfig, errors: configErrors } = await loadConfig();
   for (const e of configErrors) {
     console.error(
-      `agent-toolkit: skipped config file ${e.source} — ${e.message}. Other config sources still apply.`,
+      `rocky: skipped config file ${e.source} — ${e.message}. Other config sources still apply.`,
     );
   }
   const registry = toolkitConfig.openapi?.registry;
-  const openapiRegistry = createAgentToolkitRegistry({
+  const openapiRegistry = createRockyRegistry({
     ...(registry !== undefined ? { registry } : {}),
   });
 
   const server = new McpServer({
-    name: 'agent-toolkit',
+    name: 'rocky',
     version: pkg.version,
   });
 
@@ -68,7 +68,7 @@ export async function buildServer() {
     'openapi_get',
     {
       description:
-        'OpenAPI / Swagger spec 을 캐시 우선 정책으로 가져온다. swagger 2.0 은 자동으로 OpenAPI 3.0 으로 변환되고 $ref 는 모두 deref 된다. fresh hit 은 remote 호출 없음. stale hit (TTL 경과) 은 즉시 stale 데이터로 응답하고 백그라운드 conditional GET (If-None-Match / If-Modified-Since) 으로 재검증. miss 면 fetch + parse + index. (input: spec URL 또는 agent-toolkit.json 의 host:env:spec handle)',
+        'OpenAPI / Swagger spec 을 캐시 우선 정책으로 가져온다. swagger 2.0 은 자동으로 OpenAPI 3.0 으로 변환되고 $ref 는 모두 deref 된다. fresh hit 은 remote 호출 없음. stale hit (TTL 경과) 은 즉시 stale 데이터로 응답하고 백그라운드 conditional GET (If-None-Match / If-Modified-Since) 으로 재검증. miss 면 fetch + parse + index. (input: spec URL 또는 rocky.json 의 host:env:spec handle)',
       inputSchema: { input: z.string() },
     },
     async ({ input }) => jsonResult(await handleSwaggerGet(openapiRegistry, input, registry)),
@@ -112,7 +112,7 @@ export async function buildServer() {
     'openapi_envs',
     {
       description:
-        'agent-toolkit.json 의 openapi.registry 를 host:env:spec 평면 리스트로 반환한다. baseUrl / format 이 있으면 함께 반환. remote 호출 없음.',
+        'rocky.json 의 openapi.registry 를 host:env:spec 평면 리스트로 반환한다. baseUrl / format 이 있으면 함께 반환. remote 호출 없음.',
       inputSchema: {},
     },
     async () => jsonResult(handleSwaggerEnvs(toolkitConfig)),
@@ -165,7 +165,7 @@ async function main() {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(`agent-toolkit MCP server failed: ${(err as Error).stack ?? err}`);
+    console.error(`rocky MCP server failed: ${(err as Error).stack ?? err}`);
     process.exit(1);
   });
 }

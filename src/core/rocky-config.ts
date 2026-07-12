@@ -7,10 +7,10 @@ import { join, resolve } from 'node:path';
  * openapi-core 의 단일 config 로더 + 검증.
  *
  * 두 위치를 병합한다 (project 가 leaf 단위로 user 를 덮어쓴다):
- *   1. user:    ~/.config/opencode/agent-toolkit/agent-toolkit.json
- *   2. project: <projectRoot>/.opencode/agent-toolkit.json
+ *   1. user:    ~/.config/rocky/rocky.json
+ *   2. project: <projectRoot>/rocky.json
  *
- * 스키마는 repo 루트의 `agent-toolkit.schema.json` 에 동일 모양으로 박혀 있다 — IDE 자동완성용.
+ * 스키마는 repo 루트의 `rocky.schema.json` 에 동일 모양으로 박혀 있다 — IDE 자동완성용.
  * 런타임은 외부 JSON Schema 라이브러리에 의존하지 않고 직접 검증한다 (의존성 0 유지).
  *
  * v0.3 부터는 OpenAPI 도메인만 다룬다. 이전 버전의 `mysql` / `spec` / `github` 필드는
@@ -69,7 +69,7 @@ export function getRegistryFormat(
   return leaf.format;
 }
 
-export interface ToolkitConfig {
+export interface RockyConfig {
   $schema?: string;
   openapi?: {
     registry?: OpenapiRegistry;
@@ -92,22 +92,16 @@ export interface LoadConfigError {
 
 export interface LoadConfigResult {
   /** user + project 를 leaf 단위로 merge 한 결과. 둘 다 실패 / 둘 다 부재면 빈 객체. */
-  config: ToolkitConfig;
+  config: RockyConfig;
   /** 파싱 / 검증에 실패한 파일별 에러. caller 가 logging / surfacing 결정. */
   errors: LoadConfigError[];
 }
 
-/** user-level config 기본 경로. `AGENT_TOOLKIT_CONFIG` 로 오버라이드. */
-export const USER_CONFIG_PATH = join(
-  homedir(),
-  '.config',
-  'opencode',
-  'agent-toolkit',
-  'agent-toolkit.json',
-);
+/** user-level config 기본 경로. `ROCKY_CONFIG` 로 오버라이드. */
+export const USER_CONFIG_PATH = join(homedir(), '.config', 'rocky', 'rocky.json');
 
 /** project-level config 의 상대 경로. */
-export const PROJECT_CONFIG_RELATIVE = '.opencode/agent-toolkit.json';
+export const PROJECT_CONFIG_RELATIVE = 'rocky.json';
 
 /**
  * host / env / spec 식별자 본문 (anchor 없음).
@@ -129,10 +123,10 @@ const ALLOWED_REGISTRY_LEAF_KEYS = new Set(['url', 'baseUrl', 'format']);
 const ALLOWED_REGISTRY_LEAF_FORMATS = new Set(['openapi3', 'swagger2', 'auto']);
 
 /**
- * 파싱된 JSON 값이 ToolkitConfig 인지 검증한다. 어긋나면 throw — 메시지에 source(path) 포함.
+ * 파싱된 JSON 값이 RockyConfig 인지 검증한다. 어긋나면 throw — 메시지에 source(path) 포함.
  * 부분 적합도 OK (모든 필드 optional). registry 가 있으면 깊이 끝까지 식별자 / URL 검증.
  */
-export function validateConfig(input: unknown, source: string): ToolkitConfig {
+export function validateConfig(input: unknown, source: string): RockyConfig {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error(`${source}: config must be a JSON object`);
   }
@@ -150,7 +144,7 @@ export function validateConfig(input: unknown, source: string): ToolkitConfig {
       validateRegistry(oapi.registry, source);
     }
   }
-  return config as ToolkitConfig;
+  return config as RockyConfig;
 }
 
 function validateRegistry(reg: unknown, source: string): asserts reg is OpenapiRegistry {
@@ -251,7 +245,7 @@ function validateRegistryUrlString(url: string, where: string): void {
   }
 }
 
-async function loadOne(path: string): Promise<ToolkitConfig | null> {
+async function loadOne(path: string): Promise<RockyConfig | null> {
   if (!existsSync(path)) {
     return null;
   }
@@ -269,10 +263,10 @@ async function loadOne(path: string): Promise<ToolkitConfig | null> {
  * user → project 순서로 깊이 병합. 같은 leaf (host:env:spec) 는 project 가 이긴다.
  * 새 host / env / spec 은 project 쪽에서 추가 가능.
  */
-export function mergeConfigs(user: ToolkitConfig, project: ToolkitConfig): ToolkitConfig {
+export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConfig {
   // Bun ≥ 1.0 / Node ≥ 17 모두 structuredClone 표준 지원. JSON round-trip 보다 성능과
   // 의도가 명확 — 입력은 plain JSON 모양이라 Date / Map / Set 호환은 신경 쓰지 않아도 된다.
-  const out = structuredClone(user) as ToolkitConfig;
+  const out = structuredClone(user) as RockyConfig;
   if (project.openapi?.registry) {
     out.openapi ??= {};
     out.openapi.registry ??= {};
@@ -297,16 +291,16 @@ export function mergeConfigs(user: ToolkitConfig, project: ToolkitConfig): Toolk
  * registry 를 무력화하지 않는다 (반대도 마찬가지). caller 는 `errors` 를 보고 logging /
  * surfacing 을 결정한다.
  *
- * 두 파일 모두 없으면 `{ config: {}, errors: [] }`. `AGENT_TOOLKIT_CONFIG` 환경변수가
+ * 두 파일 모두 없으면 `{ config: {}, errors: [] }`. `ROCKY_CONFIG` 환경변수가
  * 있으면 user 경로를 그 값으로 덮어쓴다.
  */
 export async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadConfigResult> {
-  const userPath = options.userPath ?? process.env.AGENT_TOOLKIT_CONFIG ?? USER_CONFIG_PATH;
+  const userPath = options.userPath ?? process.env.ROCKY_CONFIG ?? USER_CONFIG_PATH;
   const projectRoot = options.projectRoot ?? process.cwd();
   const projectPath = resolve(projectRoot, PROJECT_CONFIG_RELATIVE);
   const errors: LoadConfigError[] = [];
 
-  let user: ToolkitConfig = {};
+  let user: RockyConfig = {};
   try {
     user = (await loadOne(userPath)) ?? {};
   } catch (err) {
@@ -316,7 +310,7 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadC
     });
   }
 
-  let project: ToolkitConfig = {};
+  let project: RockyConfig = {};
   try {
     project = (await loadOne(projectPath)) ?? {};
   } catch (err) {

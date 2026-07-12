@@ -4,12 +4,12 @@
 
 ## 현재 (v0.4, openapi-only)
 
-- 단일 패키지 (`@minjun0219/agent-toolkit`) — 두 배포 타깃이 동일 7-tool surface 공유:
+- 단일 패키지 (`@minjun0219/rocky`) — 두 배포 타깃이 동일 7-tool surface 공유:
   - **Claude Code plugin** (`src/index.ts`, marketplace) — `.claude-plugin/plugin.json` 의 `mcpServers` 로 stdio MCP 등록.
   - **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm publish 는 별도 PR) — host-agnostic stdio MCP.
   - **공유 core** (`src/core/` — handlers / registry / cache / fetcher / parser / indexer / filter / adapter / config / schema). plugin 은 barrel (`./core`), standalone 은 `./core/<file>` subpath 로 import.
 - archive 브랜치:
-  - [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/agent-toolkit/tree/archive/pre-openapi-only-slim) — v0.2 의 journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy + 5 skills 박제. 도메인 재추가 작업의 포팅 기준.
+  - [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) — v0.2 의 journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy + 5 skills 박제. 도메인 재추가 작업의 포팅 기준.
   - [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) — 제거된 opencode plugin 배포 타깃 in-tree 박제 (게이트 제외).
 
 ## 도메인 재추가 후보
@@ -24,8 +24,8 @@
 | 도메인 | archive 위치 (v0.2 경로) | 후보 shape | 비고 |
 | --- | --- | --- | --- |
 | `journal` (agent journal — append-only JSONL) | `lib/agent-journal.ts` + 4 tool (`journal_*`) | (a) plugin 합류 우선. 다른 host 에 노출 필요 없음. | turn-spanning memory; 재추가 우선순위 높음. |
-| `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | (b) 별도 CLI 진입점 강력 후보 — DB inspector 는 host 독립적. | `mysql2` prod-dep 부활. `agent-toolkit.json` 의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
-| `notion-context` (single-page cache) | `lib/notion-context.ts` + `lib/notion-chunking.ts` + 4 tool (`notion_*`) + `skills/notion-context/` | (a) plugin 합류. 외부 Notion MCP OAuth 의존성 때문에 합류는 인증 경로 정리 후. | `AGENT_TOOLKIT_NOTION_MCP_URL` 등 env 5 종 부활. |
+| `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | (b) 별도 CLI 진입점 강력 후보 — DB inspector 는 host 독립적. | `mysql2` prod-dep 부활. `rocky.json` 의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
+| `notion-context` (single-page cache) | `lib/notion-context.ts` + `lib/notion-chunking.ts` + 4 tool (`notion_*`) + `skills/notion-context/` | (a) plugin 합류. 외부 Notion MCP OAuth 의존성 때문에 합류는 인증 경로 정리 후. | `ROCKY_NOTION_MCP_URL` 등 env 5 종 부활. |
 | `spec-pact` (DRAFT / VERIFY / DRIFT-CHECK / AMEND lifecycle) | `lib/spec-pact-fragments.ts` + 1 tool (`spec_pact_fragment`) + `skills/spec-pact/` + `agents/grace.md` | (a) plugin 합류. fragment loader 자체는 가벼움. | INDEX / SPEC 파일 lifecycle 은 `grace` sub-agent 책임. |
 | `pr-review-watch` (polling-only, journal-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | journal 도메인 재추가 후에. |
 
@@ -38,7 +38,7 @@
 3. 주석 / 설명을 **한글** 로 작성 — 동일.
 4. **Notion MCP** 를 활용해 노션 문서를 캐싱하고, 일정 시간 내 같은 문서를 참고할 때 캐싱 사용 — notion-context 도메인 재추가 후.
 5. 개발 기획 문서를 바탕으로 **명확한 개발 스펙으로 분해** — spec-pact 도메인 재추가 후.
-6. 분해된 스펙을 **GitHub Issue / Project** 로 관리 / 추적 — agent-toolkit 안에서 GitHub 쓰기 surface 를 두지 않는다는 v0.2 결정 유지. 사용자 / Claude Code / 외부 GitHub MCP 책임.
+6. 분해된 스펙을 **GitHub Issue / Project** 로 관리 / 추적 — rocky 안에서 GitHub 쓰기 surface 를 두지 않는다는 v0.2 결정 유지. 사용자 / Claude Code / 외부 GitHub MCP 책임.
 7. 공유된 **Swagger / OpenAPI JSON** 을 로컬 캐시 → 빠르게 탐색 → `fetch` / `axios` 같은 API client 로 작성 — **이미 출하 (v0.3 main surface)**.
 
 ## 비전 (도메인 재추가 이후)
@@ -55,7 +55,7 @@
 
 - **npm publish 자동화** — `openapi-mcp` CLI 를 npm 에 올릴 시점에 changeset (`@changesets/cli`) 도입 + GitHub Actions release workflow. 첫 publish 필요 시점에 시작.
 - **Project references 도입** — 현재 단일 패키지 (`tsconfig.json` 하나) 라 `tsc -b` project references 는 N/A. 도메인 재추가로 별도 CLI 진입점이 늘어나 빌드 그래프가 복잡해지면 재검토.
-- **Repo rename** (`agent-toolkit` → `openapi-mcp-server` 등) — 보류. `agent-toolkit` umbrella 정체성이 살아있는 한 유지.
+- **Repo rename** — ✅ 완료 (2026-07): `agent-toolkit` → `rocky` (Project Hail Mary 의 Rocky). GitHub repo / npm 패키지명 / plugin 명 / config (`rocky.json`, `~/.config/rocky/`) / env prefix (`ROCKY_*`) 일괄 전환.
 
 ## Out of scope
 

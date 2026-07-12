@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createAgentToolkitRegistry } from './adapter';
+import { createRockyRegistry } from './adapter';
 import {
   handleSwaggerEndpoint,
   handleSwaggerEnvs,
@@ -11,7 +11,7 @@ import {
   handleSwaggerStatus,
   handleSwaggerTags,
 } from './handlers';
-import type { OpenapiRegistry } from './toolkit-config';
+import type { OpenapiRegistry } from './rocky-config';
 
 const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__');
 const PETSTORE_3 = `file://${join(FIXTURE_DIR, 'petstore-3.0.json')}`;
@@ -19,7 +19,7 @@ const PETSTORE_2 = `file://${join(FIXTURE_DIR, 'petstore-2.0.json')}`;
 
 describe('openapi handlers — file URL inputs', () => {
   it('openapi_get: file URL input gets parsed + dereferenced + cached', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     const r = await handleSwaggerGet(reg, PETSTORE_3);
     expect(r.fromCache).toBe(false);
     expect(r.document.openapi?.startsWith('3.')).toBe(true);
@@ -30,7 +30,7 @@ describe('openapi handlers — file URL inputs', () => {
   });
 
   it('openapi_get: swagger 2.0 fixture is auto-converted to OpenAPI 3', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     const r = await handleSwaggerGet(reg, PETSTORE_2);
     expect(r.document.openapi?.startsWith('3.')).toBe(true);
     // swagger 본문엔 swagger 필드가 있었지만 변환 후엔 openapi 만 있어야 한다.
@@ -38,7 +38,7 @@ describe('openapi handlers — file URL inputs', () => {
   });
 
   it('openapi_status / openapi_refresh: cache lifecycle', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     const before = await handleSwaggerStatus(reg, PETSTORE_3);
     expect(before.cacheStatus.cached).toBe(false);
 
@@ -52,7 +52,7 @@ describe('openapi handlers — file URL inputs', () => {
   });
 
   it('openapi_search: scored keyword across loaded specs', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     await handleSwaggerGet(reg, PETSTORE_3);
     const matches = await handleSwaggerSearch(reg, 'pet');
     expect(matches.length).toBeGreaterThan(0);
@@ -70,7 +70,7 @@ describe('openapi handlers — file URL inputs', () => {
   });
 
   it('openapi_endpoint: returns full detail with fullUrl', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     const detail = await handleSwaggerEndpoint(reg, PETSTORE_3, {
       method: 'GET',
       path: '/pet/{petId}',
@@ -83,14 +83,14 @@ describe('openapi handlers — file URL inputs', () => {
   });
 
   it('openapi_tags: returns tag summaries', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     const r = await handleSwaggerTags(reg, PETSTORE_3);
     expect(r.tags.length).toBeGreaterThan(0);
     expect(r.tags[0]).toHaveProperty('endpointCount');
   });
 
   it('rejects non-URL non-handle inputs clearly', async () => {
-    const reg = createAgentToolkitRegistry({ diskCacheDisabled: true });
+    const reg = createRockyRegistry({ diskCacheDisabled: true });
     await expect(handleSwaggerGet(reg, 'not-a-url')).rejects.toThrow(
       /not a host:env:spec handle or http\(s\)\/file URL/,
     );
@@ -117,7 +117,7 @@ describe('openapi handlers — registry handles', () => {
   });
 
   it('openapi_get accepts a host:env:spec handle and returns flat spec name', async () => {
-    const reg = createAgentToolkitRegistry({
+    const reg = createRockyRegistry({
       registry,
       diskCacheDisabled: true,
     });
@@ -127,7 +127,7 @@ describe('openapi handlers — registry handles', () => {
   });
 
   it('openapi_endpoint with a baseUrl-bearing leaf returns a synthesized fullUrl', async () => {
-    const reg = createAgentToolkitRegistry({
+    const reg = createRockyRegistry({
       registry,
       diskCacheDisabled: true,
     });
@@ -141,7 +141,7 @@ describe('openapi handlers — registry handles', () => {
   });
 
   it('openapi_get throws on unregistered handle', async () => {
-    const reg = createAgentToolkitRegistry({
+    const reg = createRockyRegistry({
       registry,
       diskCacheDisabled: true,
     });
