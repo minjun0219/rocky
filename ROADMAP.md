@@ -2,15 +2,19 @@
 
 본 toolkit 의 장기 비전 메모. 현재 출하된 MVP 는 [`AGENTS.md`](./AGENTS.md) 의 *MVP scope* 에 한정한다 — 이 문서는 그 너머의 목표를 정리한다. 새 기능은 항상 별도 PR 로, 한 번에 한 항목씩.
 
-## 현재 (v0.4, openapi-only)
+## 현재 (v0.5, openapi + seo + notion)
 
-- 단일 패키지 (`@minjun0219/rocky`) — 두 배포 타깃이 동일 7-tool surface 공유:
+- 단일 패키지 (`@minjun0219/rocky`) — 두 배포 타깃이 동일 7-tool openapi surface 공유 (+ plugin 전용 `seo_validate`, `ntn` 탐지 시 `notion_*` 4 도구):
   - **Claude Code plugin** (`src/index.ts`, marketplace) — `.claude-plugin/plugin.json` 의 `mcpServers` 로 stdio MCP 등록.
   - **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm publish 는 별도 PR) — host-agnostic stdio MCP.
   - **공유 core** (`src/core/` — handlers / registry / cache / fetcher / parser / indexer / filter / adapter / config / schema). plugin 은 barrel (`./core`), standalone 은 `./core/<file>` subpath 로 import.
 - archive 브랜치:
   - [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) — v0.2 의 journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy + 5 skills 박제. 도메인 재추가 작업의 포팅 기준.
   - [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) — 제거된 opencode plugin 배포 타깃 in-tree 박제 (게이트 제외).
+
+## 재추가 완료
+
+- **`notion-context` → v0.5 (2026-07)**: `ntn` (공식 Notion CLI) 위임으로 재추가. shape (a) plugin 직접 합류 + **CLI-gate** (`ntn` 탐지 시에만 도구 등록). 아카이브의 원안 (외부 Notion MCP OAuth 직접 호출) 대신 CLI 위임으로 인증 경로를 우회 — rocky 는 토큰 / OAuth 를 직접 다루지 않는다. `lib/notion-context.ts` → `src/core/notion-cache.ts`, `lib/notion-chunking.ts` → `src/core/notion-chunking.ts`, 신규 `src/core/notion-cli.ts` (executor + `pages get --json` 파서) + `src/core/notion-handlers.ts` + PR #60 의 `notion-diff.ts` POC 포팅. env 는 `ROCKY_NOTION_CLI` / `ROCKY_NOTION_CLI_TIMEOUT_MS` / `ROCKY_NOTION_CACHE_DIR` / `ROCKY_NOTION_CACHE_TTL`. 토큰/OAuth env (`ROCKY_NOTION_MCP_*`) 는 부활하지 않았다. 이 CLI 위임 shape 가 이후 auth-bearing 도메인의 참고 템플릿.
 
 ## 도메인 재추가 후보
 
@@ -25,7 +29,6 @@
 | --- | --- | --- | --- |
 | `journal` (agent journal — append-only JSONL) | `lib/agent-journal.ts` + 4 tool (`journal_*`) | (a) plugin 합류 우선. 다른 host 에 노출 필요 없음. | turn-spanning memory; 재추가 우선순위 높음. |
 | `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | (b) 별도 CLI 진입점 강력 후보 — DB inspector 는 host 독립적. | `mysql2` prod-dep 부활. `rocky.json` 의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
-| `notion-context` (single-page cache) | `lib/notion-context.ts` + `lib/notion-chunking.ts` + 4 tool (`notion_*`) + `skills/notion-context/` | (a) plugin 합류. 외부 Notion MCP OAuth 의존성 때문에 합류는 인증 경로 정리 후. | `ROCKY_NOTION_MCP_URL` 등 env 5 종 부활. |
 | `spec-pact` (DRAFT / VERIFY / DRIFT-CHECK / AMEND lifecycle) | `lib/spec-pact-fragments.ts` + 1 tool (`spec_pact_fragment`) + `skills/spec-pact/` + `agents/grace.md` | (a) plugin 합류. fragment loader 자체는 가벼움. | INDEX / SPEC 파일 lifecycle 은 `grace` sub-agent 책임. |
 | `pr-review-watch` (polling-only, journal-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | journal 도메인 재추가 후에. |
 
