@@ -6,9 +6,9 @@ Shared guide for AI coding agents (Claude Code, opencode, codex, etc.) working i
 
 ## Project in one line
 
-**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7 openapi tools** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`); the Claude Code plugin adds one plugin-only tool, `seo_validate` (OG / Twitter Card / JSON-LD / favicon meta validation via `ogpeek`, `src/core/seo-validate.ts`). Separately, the Claude Code plugin ships **slash commands** in `commands/` (`/finish`, `/pr-watch` — `gh` CLI based, not MCP tools). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
+**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7 openapi tools** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`); the Claude Code plugin adds one plugin-only tool, `seo_validate` (OG / Twitter Card / JSON-LD / favicon meta validation via `ogpeek`, `src/core/seo-validate.ts`). From v0.5 the Claude Code plugin also adds **four CLI-gated `notion_*` tools** (`notion_get` / `notion_refresh` / `notion_status` / `notion_extract`, `src/core/notion-handlers.ts`) — registered only when the official Notion CLI (`ntn`) is detected at startup; rocky never touches Notion tokens / OAuth itself, all page access is delegated to `ntn pages get` (`src/core/notion-cli.ts`), same policy as the `gh`-based slash commands. Separately, the Claude Code plugin ships **slash commands** in `commands/` (`/finish`, `/pr-watch` — `gh` CLI based, not MCP tools). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
 
-Previous toolkit surfaces (journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time.
+Previous toolkit surfaces (journal / mysql / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time. **notion was the first re-added domain (v0.5, plugin-bound + `ntn` CLI-gated)** — its shape (external CLI delegation, no tokens in rocky) is the template for future auth-bearing domains.
 
 ## Layout
 
@@ -41,6 +41,11 @@ rocky/                                      single package — @minjun0219/rocky
         ├── handlers.ts                     ★ 7 plugin handler 공유 (`handleSwagger*`)
         ├── indexer.ts                      IndexedSpec / EndpointDetail / TagSummary
         ├── logger.ts                       pino → stderr only
+        ├── notion-cache.ts                 Notion 페이지 TTL 파일 캐시 + resolveCacheKey + notionToMarkdown (plugin, CLI-gated)
+        ├── notion-cli.ts                   `ntn` CLI 위임 (fakeable NotionCliExecutor + detect + `pages get --json` 파서)
+        ├── notion-chunking.ts              긴 페이지 heading chunk + 규칙 기반 액션 추출
+        ├── notion-diff.ts                  refresh 시 heading-section 단위 markdown diff (자체 LCS, dep 0)
+        ├── notion-handlers.ts              notion_* 4 handler (get / refresh / status / extract) — 진입점은 등록만
         ├── openapi-registry.ts             host:env:spec 핸들 / 스코프 / 평탄화
         ├── parser.ts                       yaml + swagger2→3 + `$ref` deref (swagger-parser)
         ├── registry.ts                     메모리 + 디스크 registry + TTL + 백그라운드 revalidate
@@ -56,13 +61,13 @@ rocky/                                      single package — @minjun0219/rocky
 
 ## MVP scope (hold the line)
 
-**In**: OpenAPI / Swagger spec 캐시 + endpoint search + tag list + cross-spec scoped search + `host:env:spec` registry (`rocky.json`, project > user precedence), 공유 7 openapi tool 을 2 배포 타깃 (Claude Code plugin + standalone CLI) 에 공유, 단일 Bun 패키지. 모든 openapi handler 는 `src/core/handlers.ts` 한 곳에 정의 — 두 진입점 간 drift 방지. 추가로 **`seo_validate`** (단일 URL 의 OG / Twitter Card / JSON-LD / favicon 메타를 `ogpeek` 으로 검증, 기본 SSRF 가드 — IP literal 기준 private/loopback 차단, `rocky.json` 의 `seo.allowPrivateHosts` / `seo.timeoutMs` 기본값, 도구 인자 우선) 는 Claude Code plugin 에만 등록 (handler `src/core/seo-validate.ts`, standalone CLI 미포함).
+**In**: OpenAPI / Swagger spec 캐시 + endpoint search + tag list + cross-spec scoped search + `host:env:spec` registry (`rocky.json`, project > user precedence), 공유 7 openapi tool 을 2 배포 타깃 (Claude Code plugin + standalone CLI) 에 공유, 단일 Bun 패키지. 모든 openapi handler 는 `src/core/handlers.ts` 한 곳에 정의 — 두 진입점 간 drift 방지. 추가로 **`seo_validate`** (단일 URL 의 OG / Twitter Card / JSON-LD / favicon 메타를 `ogpeek` 으로 검증, 기본 SSRF 가드 — IP literal 기준 private/loopback 차단, `rocky.json` 의 `seo.allowPrivateHosts` / `seo.timeoutMs` 기본값, 도구 인자 우선) 는 Claude Code plugin 에만 등록 (handler `src/core/seo-validate.ts`, standalone CLI 미포함). 그리고 **`notion_*` 4 도구** (`notion_get` / `notion_refresh` / `notion_status` / `notion_extract`) 는 Claude Code plugin 에만, 그리고 **공식 Notion CLI (`ntn`) 가 기동 시 탐지될 때만** 등록 — 페이지 접근은 전부 `ntn pages get <id> --json` 위임 (rocky 는 토큰 / OAuth 를 직접 다루지 않음), 캐시는 `ROCKY_NOTION_CACHE_DIR` 아래 page 당 `.json` + `.md` 두 파일, `notion_refresh` 는 기존 캐시 대비 heading-section diff (자체 LCS, 외부 dep 0) 를 함께 반환. `buildServer({ notionCli })` 로 executor 를 주입해 테스트에서 fake 로 대체.
 
-**Out**: journal / mysql / notion / spec-pact / pr-watch / agents / skills (전부 archive 브랜치 박제), opencode plugin (`.archive/agent-toolkit-opencode/` 박제), 도메인 재추가 (별도 PR), npm publish 자동화 (별도 PR). OpenAPI YAML stream parsing, full SDK code generation, multi-spec merge, mock servers, UI 도 모두 out.
+**Out**: journal / mysql / spec-pact / pr-watch / agents / skills (전부 archive 브랜치 박제), opencode plugin (`.archive/agent-toolkit-opencode/` 박제), 나머지 도메인 재추가 (별도 PR), npm publish 자동화 (별도 PR). notion 은 재추가 완료 (v0.5). **Notion DB / child-page 재귀 · YAML frontmatter 파싱 · `ntn` 외 다른 Notion 접근 경로 (직접 API / MCP)** 는 out — 단일 페이지 캐시 + `ntn` 위임만. OpenAPI YAML stream parsing, full SDK code generation, multi-spec merge, mock servers, UI 도 모두 out.
 
 ## Reintroduction strategy (archive → main)
 
-Re-adding a domain (journal / mysql / notion / spec-pact / pr-watch) is **always a separate PR** that follows this template:
+Re-adding a domain (journal / mysql / spec-pact / pr-watch — notion already re-added in v0.5 as the reference shape) is **always a separate PR** that follows this template:
 
 1. **Decision**: 도메인을 (a) Claude Code plugin 에 직접 합류 (`src/core/` 에 코드 + `src/index.ts` 에 tool 등록) (b) `openapi-mcp` 옆에 별도 CLI 진입점 (`bin/<domain>-mcp` + `src/<domain>.ts`, host 독립성이 높을 때) 둘 중 하나로 정한다. 결정 기록은 PR description 에 한 줄.
 2. **Port from archive**: `git checkout archive/pre-openapi-only-slim -- <files>` 로 lib / skill / agent 가져온다. 이전 `lib/<domain>.ts` 는 `src/core/<domain>.ts` 로 옮긴다.

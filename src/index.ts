@@ -16,9 +16,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import pkg from '../package.json' with { type: 'json' };
 import {
+  createBunNotionCli,
+  createNotionCacheFromEnv,
   createRockyRegistry,
+  detectNotionCli,
   HTTP_METHODS,
   loadConfig,
+  handleNotionExtract,
+  handleNotionGet,
+  handleNotionRefresh,
+  handleNotionStatus,
   handleSwaggerEndpoint,
   handleSwaggerEnvs,
   handleSwaggerGet,
@@ -27,6 +34,7 @@ import {
   handleSeoValidate,
   handleSwaggerStatus,
   handleSwaggerTags,
+  type NotionCliExecutor,
 } from './core';
 
 /**
@@ -44,11 +52,21 @@ function jsonResult(value: unknown) {
   };
 }
 
+/** `buildServer` 주입 옵션. 테스트가 CLI executor 를 fake 로 대체할 때 쓴다. */
+export interface BuildServerOptions {
+  /**
+   * Notion CLI executor 주입. 미지정이면 `ntn` 을 spawn 하는 Bun 백엔드를 만든다.
+   * detect 가 실패하면 (미설치 / 미로그인) notion_* 도구는 등록되지 않는다.
+   */
+  notionCli?: NotionCliExecutor;
+}
+
 /**
- * Build the MCP server with all 7 openapi tools wired up. Exported for tests so
- * they can register tools against an in-process server without spawning a child.
+ * Build the MCP server with all openapi tools wired up, plus notion_* tools when
+ * a Notion CLI (`ntn`) is detected. Exported for tests so they can register tools
+ * against an in-process server without spawning a child.
  */
-export async function buildServer() {
+export async function buildServer(options: BuildServerOptions = {}) {
   const { config: toolkitConfig, errors: configErrors } = await loadConfig();
   for (const e of configErrors) {
     console.error(
@@ -150,6 +168,53 @@ export async function buildServer() {
     },
     async ({ input }) => jsonResult(await handleSwaggerTags(openapiRegistry, input, registry)),
   );
+
+  // notion_* 는 외부 Notion CLI (`ntn`) 위임 도메인 — 인증된 CLI 가 있을 때만 노출한다.
+  // gh CLI 위임 (`/finish`, `/pr-watch`) 과 동일 정책: 토큰 / OAuth 를 rocky 가 직접 다루지 않는다.
+  const notionCli = options.notionCli ?? createBunNotionCli();
+  if (await detectNotionCli(notionCli)) {
+    const notionCache = createNotionCacheFromEnv();
+    server.registerTool(
+      'notion_get',
+      {
+        description:
+          'Notion 페이지를 캐시 우선 정책으로 가져온다. 캐시 hit (TTL 이내) 이면 `ntn` CLI 미호출, miss / 만료면 `ntn pages get` 으로 1회 fetch 후 캐시. (input: pageId 또는 Notion URL)',
+        inputSchema: { input: z.string() },
+      },
+      async ({ input }) => jsonResult(await handleNotionGet(notionCache, notionCli, input)),
+    );
+    server.registerTool(
+      'notion_refresh',
+      {
+        description:
+          '캐시를 무시하고 Notion 페이지를 강제 재fetch 한다. 기존 캐시가 있으면 heading-section 단위 diff (added / removed / modified + line 수 + compact preview) 를 함께 반환해 긴 기획서의 변경 위치를 위에서부터 확인할 수 있다. (input: pageId 또는 Notion URL)',
+        inputSchema: { input: z.string() },
+      },
+      async ({ input }) => jsonResult(await handleNotionRefresh(notionCache, notionCli, input)),
+    );
+    server.registerTool(
+      'notion_status',
+      {
+        description:
+          '캐시된 Notion 페이지의 메타 (exists / expired / cachedAt / ttlSeconds / ageSeconds / title) 만 조회한다. `ntn` CLI 미호출.',
+        inputSchema: { input: z.string() },
+      },
+      async ({ input }) => jsonResult(await handleNotionStatus(notionCache, input)),
+    );
+    server.registerTool(
+      'notion_extract',
+      {
+        description:
+          '긴 Notion 페이지를 캐시 우선으로 읽고 heading 기반 chunk 와 구현 액션 후보 (requirements / screens / apis / todos / questions) 를 반환한다. remote 호출 정책은 notion_get 과 동일. (input: pageId 또는 URL, maxCharsPerChunk?: chunk 최대 문자 수 기본 1400)',
+        inputSchema: {
+          input: z.string(),
+          maxCharsPerChunk: z.number().int().positive().optional(),
+        },
+      },
+      async ({ input, maxCharsPerChunk }) =>
+        jsonResult(await handleNotionExtract(notionCache, notionCli, input, { maxCharsPerChunk })),
+    );
+  }
 
   server.registerTool(
     'seo_validate',
