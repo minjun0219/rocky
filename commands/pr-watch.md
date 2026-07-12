@@ -1,7 +1,7 @@
 ---
 description: PR 상태(CI 체크·리뷰·머지 가능성)를 점검하고, 열린 리뷰 코멘트를 코드와 대조해 정리한 뒤, 머지 가능한 상태가 되면 알려준다. 머지는 하지 않는다.
 argument-hint: "[PR 번호 | URL | owner/repo#123] (생략 시 현재 브랜치의 PR)"
-allowed-tools: Bash(gh:*), Bash(git:*), Read, Grep, Glob
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(printf:*), Read, Grep, Glob
 ---
 
 # pr-watch — PR 머지 대기 감시
@@ -74,6 +74,8 @@ gh pr view <PR> --json number,title,url,state,isDraft,mergeable,mergeStateStatus
   gh pr view <PR> --json reviews
   gh api repos/{owner}/{repo}/pulls/<number>/comments   # 인라인 리뷰 코멘트
   ```
+  `{owner}` / `{repo}` 는 현재 저장소 컨텍스트에서 gh 가 자동 치환한다 — 직접 채우지 마라.
+  `<number>` 만 PR 번호로 치환한다 (1단계에서 `gh pr view <PR> --json number` 로 확보).
 - 각 미해결 코멘트에 대해 `Read` / `Grep` / `Glob` 으로 해당 파일·라인을 확인하고,
   다음 셋 중 하나로 **분류 + 한 줄 근거**를 제시한다:
   - **타당** — 지적이 코드와 일치. 어떻게 고치면 되는지 `file:line` 인용과 함께 권고.

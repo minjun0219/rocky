@@ -58,7 +58,7 @@ bun test            # 단위 + smoke
 - 승인 흐름상 그대로 커밋한다. 커밋 메시지 말미에 아래 trailer 를 반드시 붙인다:
 
   ```
-  Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+  Co-Authored-By: Claude <noreply@anthropic.com>
   ```
 
 - 관련 없는 파일까지 싸잡아 `git add -A` 하지 말고, 이번 작업에 해당하는 변경만 스테이지한다.
