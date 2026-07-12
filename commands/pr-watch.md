@@ -69,14 +69,22 @@ gh pr view <PR> --json number,title,url,state,isDraft,mergeable,mergeStateStatus
 
 리뷰/코멘트가 있으면 코드와 대조해 사용자의 대응을 돕는다.
 
-- 리뷰 본문 / 인라인 코멘트를 가져온다:
+- 리뷰 본문과 **미해결 리뷰 스레드**를 가져온다. REST(`/pulls/<n>/comments`)는 스레드의
+  `isResolved` 를 주지 않으므로, 미해결만 정확히 거르려면 GraphQL `reviewThreads` 를 쓴다:
   ```bash
-  gh pr view <PR> --json reviews
-  gh api repos/{owner}/{repo}/pulls/<number>/comments   # 인라인 리뷰 코멘트
+  gh pr view <PR> --json reviews          # 리뷰 본문 (approve / changes / comment)
+  gh api graphql -F owner=<owner> -F repo=<repo> -F num=<number> -f query='
+  query($owner:String!,$repo:String!,$num:Int!){
+    repository(owner:$owner, name:$repo){ pullRequest(number:$num){
+      reviewThreads(first:50){ nodes {
+        isResolved isOutdated
+        comments(first:1){ nodes { author{login} path line body } } } } } } }'
+  # → isResolved==false 인 스레드만 아래에서 다룬다 (resolved 는 이미 처리됨)
   ```
-  `{owner}` / `{repo}` 는 현재 저장소 컨텍스트에서 gh 가 자동 치환한다 — 직접 채우지 마라.
-  `<number>` 만 PR 번호로 치환한다 (1단계에서 `gh pr view <PR> --json number` 로 확보).
-- 각 미해결 코멘트에 대해 `Read` / `Grep` / `Glob` 으로 해당 파일·라인을 확인하고,
+  주의: `{owner}`/`{repo}` 자동 치환은 gh 의 **REST 엔드포인트** 기능이라 GraphQL query 문자열엔
+  적용되지 않는다. GraphQL 은 위처럼 `$owner`/`$repo`/`$num` **변수**로 넘겨라 —
+  값은 `gh repo view --json owner,name` 과 1단계의 `gh pr view <PR> --json number` 로 확보한다.
+- 각 **미해결(isResolved==false)** 코멘트에 대해 `Read` / `Grep` / `Glob` 으로 해당 파일·라인을 확인하고,
   다음 셋 중 하나로 **분류 + 한 줄 근거**를 제시한다:
   - **타당** — 지적이 코드와 일치. 어떻게 고치면 되는지 `file:line` 인용과 함께 권고.
   - **반박** — 지적이 사실과 다르거나 scope 밖. 근거(코드 라인 / 기존 합의)를 들어 반박안 제시.
