@@ -81,15 +81,8 @@ export function isPrivateHost(hostname: string): boolean {
   }
   const ipVersion = isIP(host);
   if (ipVersion === 4) {
-    const parts = host.split('.');
-    if (parts.length !== 4) {
-      return false;
-    }
-    const octets = parts.map((p) => Number.parseInt(p, 10));
-    if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
-      return false;
-    }
-    const [a, b] = octets as [number, number, number, number];
+    // isIP === 4 는 유효한 dotted-quad 를 보장하므로 octet 재검증은 불필요.
+    const [a, b] = host.split('.').map(Number) as [number, number, number, number];
     if (a === 0) {
       return true;
     }
@@ -114,20 +107,64 @@ export function isPrivateHost(hostname: string): boolean {
     if (host === '::' || host === '::1') {
       return true;
     }
-    if (host.startsWith('fe80:') || host.startsWith('fe80::')) {
+    // IPv4-mapped IPv6 (`::ffff:127.0.0.1`, WHATWG 정규화 시 `::ffff:7f00:1` hex 형태) 는
+    // 임베디드 IPv4 를 꺼내 IPv4 규칙으로 재검사 — 그렇지 않으면 loopback / RFC1918 이
+    // mapped 리터럴로 가드를 우회한다.
+    const mappedIpv4 = extractMappedIpv4(host);
+    if (mappedIpv4 !== null && isPrivateHost(mappedIpv4)) {
       return true;
     }
-    // fc00::/7 → 첫 byte 의 상위 7 bit 가 1111110.
     const firstHextet = host.split(':')[0] ?? '';
     if (firstHextet.length > 0) {
       const value = Number.parseInt(firstHextet, 16);
-      if (Number.isFinite(value) && (value & 0xfe00) === 0xfc00) {
-        return true;
+      if (Number.isFinite(value)) {
+        // link-local fe80::/10 → 첫 hextet 의 상위 10 bit 가 1111111010.
+        if ((value & 0xffc0) === 0xfe80) {
+          return true;
+        }
+        // ULA fc00::/7 → 첫 hextet 의 상위 7 bit 가 1111110.
+        if ((value & 0xfe00) === 0xfc00) {
+          return true;
+        }
       }
     }
     return false;
   }
   return false;
+}
+
+/**
+ * IPv4-mapped IPv6 리터럴에서 임베디드 IPv4 (`a.b.c.d`) 를 추출한다. mapped 가 아니면 null.
+ * WHATWG URL 파서는 `::ffff:127.0.0.1` 을 hex 형태 `::ffff:7f00:1` 로 정규화하므로 두 표현
+ * (dotted `::ffff:a.b.c.d`, hex `::ffff:HHHH:HHHH`) 을 모두 받는다.
+ */
+function extractMappedIpv4(host: string): string | null {
+  const rest = /^::ffff:(.+)$/.exec(host)?.[1];
+  if (rest === undefined) {
+    return null;
+  }
+  // dotted 형태면 그대로 IPv4.
+  if (isIP(rest) === 4) {
+    return rest;
+  }
+  // hex 형태 `HHHH:HHHH` — 두 hextet 을 32bit 로 합쳐 4 octet 으로 분해.
+  const parts = rest.split(':');
+  if (parts.length !== 2) {
+    return null;
+  }
+  const hi = Number.parseInt(parts[0] as string, 16);
+  const lo = Number.parseInt(parts[1] as string, 16);
+  if (
+    !Number.isInteger(hi) ||
+    !Number.isInteger(lo) ||
+    hi < 0 ||
+    hi > 0xffff ||
+    lo < 0 ||
+    lo > 0xffff
+  ) {
+    return null;
+  }
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
 }
 
 /**

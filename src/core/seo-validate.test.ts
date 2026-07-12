@@ -44,9 +44,34 @@ describe('isPrivateHost', () => {
     expect(isPrivateHost('fd12:3456::1')).toBe(true);
   });
 
+  it('recognizes the full fe80::/10 link-local range (not just fe80::/16)', () => {
+    // fe80–febf 는 모두 link-local. 이전 구현은 fe80: prefix 만 잡아 fe90+ 를 뚫었다.
+    expect(isPrivateHost('fe80::1')).toBe(true);
+    expect(isPrivateHost('fe90::1')).toBe(true);
+    expect(isPrivateHost('fea0::1')).toBe(true);
+    expect(isPrivateHost('feb0::1')).toBe(true);
+    expect(isPrivateHost('febf::1')).toBe(true);
+    // fec0:: 는 link-local 이 아니다 (deprecated site-local) — 차단 대상 아님.
+    expect(isPrivateHost('fec0::1')).toBe(false);
+  });
+
+  it('blocks IPv4-mapped IPv6 that embeds a private / loopback IPv4', () => {
+    // WHATWG URL 은 [::ffff:127.0.0.1] 을 ::ffff:7f00:1 로 정규화한다. dotted / hex 양쪽 검증.
+    expect(isPrivateHost('::ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateHost('::ffff:7f00:1')).toBe(true); // 127.0.0.1
+    expect(isPrivateHost('::ffff:a00:1')).toBe(true); // 10.0.0.1
+    expect(isPrivateHost('::ffff:c0a8:101')).toBe(true); // 192.168.1.1
+    // URL 파서를 거친 실제 hostname 형태도 확인.
+    expect(isPrivateHost(new URL('http://[::ffff:127.0.0.1]/').hostname)).toBe(true);
+    expect(isPrivateHost(new URL('http://[::ffff:10.0.0.1]/').hostname)).toBe(true);
+  });
+
   it('does not flag public IPv6', () => {
     expect(isPrivateHost('2001:4860:4860::8888')).toBe(false);
     expect(isPrivateHost('2606:4700:4700::1111')).toBe(false);
+    // 공인 IPv4 를 담은 mapped 는 통과시켜야 한다.
+    expect(isPrivateHost('::ffff:8.8.8.8')).toBe(false);
+    expect(isPrivateHost('::ffff:808:808')).toBe(false); // 8.8.8.8
   });
 
   it('does not flag external hostnames', () => {
