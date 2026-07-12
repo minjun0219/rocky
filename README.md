@@ -13,9 +13,11 @@ OpenAPI / Swagger 명세를 캐시-우선으로 둘러보는 MCP toolkit — 이
 
 v0.5 부터 **Claude Code plugin 에만**, 그리고 **공식 Notion CLI (`ntn`) 가 설치되어 있을 때만** (기동 시 `ntn --version` 탐지) `notion_*` 4 도구 (`notion_get` / `notion_refresh` / `notion_status` / `notion_extract`) 가 붙는다 — Notion 페이지를 캐시-우선으로 읽고 (TTL 이내면 CLI 미호출), `notion_refresh` 는 기존 캐시 대비 heading-section 단위 diff 를 함께 반환한다. rocky 는 Notion 토큰 / OAuth 를 직접 다루지 않는다 — 접근은 전부 `ntn` 위임 (`gh` CLI 위임과 동일 정책). `ntn` 이 없으면 이 도구들은 애초에 등록되지 않고, 설치는 됐지만 미로그인/권한 문제면 도구 호출 시점에 `NotionCliCommandError` 로 표면화된다.
 
-MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 도 노출한다 (`gh` CLI 기반) — `/finish` (게이트→커밋→푸시→PR 생성) 와 `/pr-watch` (그 PR 을 머지 가능 상태까지 감시·알림) 가 한 쌍. 자세한 건 [`FEATURES.md`](./FEATURES.md#claude-code-커맨드).
+v0.6 부터 **Claude Code plugin 에만** `journal_*` 4 도구 (`journal_append` / `journal_read` / `journal_search` / `journal_status`) 가 붙는다 — **기록(記錄)** 레이어. append-only 로컬 JSONL 에 결정 / blocker / 답변 / 메모를 turn 을 넘겨 남긴다. 외부 의존이 없어(순수 파일시스템) `notion` 처럼 CLI-gate 하지 않고 항상 등록된다. 저장은 프로젝트별 (`~/.config/rocky/journal/<project-key>`, `ROCKY_JOURNAL_DIR` 로 변경). 짝이 되는 **정리(整理)** 레이어는 `/curate` 슬래시 커맨드가 담당한다 — 저널을 읽어 설정된 wiki 위치(Obsidian vault 등, `journal.wikiDir`)로 markdown 을 증류한다. rocky 는 기록·저장만 하고, 증류는 호스트 LLM 의 몫이라 Claude Code 네이티브 메모리와 역할이 겹치지 않는다.
 
-> - v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있다 (notion 은 v0.5 에서 `ntn` CLI 위임으로 재추가됨).
+MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 도 노출한다 — `/finish` (게이트→커밋→푸시→PR 생성) 와 `/pr-watch` (그 PR 을 머지 가능 상태까지 감시·알림) 는 `gh` CLI 기반 한 쌍이고, `/curate` 는 `journal_*` 를 읽어 wiki 로 정리한다. 자세한 건 [`FEATURES.md`](./FEATURES.md#claude-code-커맨드).
+
+> - v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있다 (notion 은 v0.5, journal 은 v0.6 에서 재추가됨).
 > - opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제되어 있다 (게이트에서 제외).
 >
 > 활용 패턴이 잡히면 ROADMAP 의 phase 별로 도메인을 재추가한다.

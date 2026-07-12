@@ -1,6 +1,6 @@
 {
   "name": "@minjun0219/rocky",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "rocky (named after Project Hail Mary) — a single Bun package shipping a Claude Code plugin (marketplace) plus a host-agnostic openapi-mcp stdio CLI (npm), sharing one OpenAPI / Swagger core. 7 openapi_* tools (cache-first spec inspection, endpoint search, tag list) + 1 seo_validate tool (OG / Twitter Card / JSON-LD / favicon meta validation via ogpeek) + 4 notion_* tools (cache-first Notion page read + refresh diff, delegated to the ntn CLI, plugin-only and registered only when ntn is detected). journal / mysql / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim; the opencode plugin is archived in-tree under .archive/agent-toolkit-opencode/.",
   "license": "MIT",
   "author": "Minjun Kim",

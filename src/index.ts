@@ -16,12 +16,18 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import pkg from '../package.json' with { type: 'json' };
 import {
+  type AgentJournal,
   createBunNotionCli,
+  createJournalFromEnv,
   createNotionCacheFromEnv,
   createRockyRegistry,
   detectNotionCli,
   HTTP_METHODS,
   loadConfig,
+  handleJournalAppend,
+  handleJournalRead,
+  handleJournalSearch,
+  handleJournalStatus,
   handleNotionExtract,
   handleNotionGet,
   handleNotionRefresh,
@@ -60,6 +66,12 @@ export interface BuildServerOptions {
    * notion_* 도구는 등록되지 않는다. 로그인/권한은 여기서 판정하지 않고 호출 시 에러로 표면화된다.
    */
   notionCli?: NotionCliExecutor;
+  /**
+   * 저널 인스턴스 주입. 미지정이면 `createJournalFromEnv(config.journal)` 로 만든다
+   * (env `ROCKY_JOURNAL_DIR` / `ROCKY_JOURNAL_WIKI_DIR` > `rocky.json` 의 journal 키
+   * > 프로젝트별 기본 경로). 테스트가 tmpdir 저널로 대체할 때 쓴다.
+   */
+  journal?: AgentJournal;
 }
 
 /**
@@ -231,6 +243,65 @@ export async function buildServer(options: BuildServerOptions = {}) {
     },
     async ({ url, timeoutMs, allowPrivateHosts }) =>
       jsonResult(await handleSeoValidate(toolkitConfig.seo, { url, timeoutMs, allowPrivateHosts })),
+  );
+
+  // journal_* 는 기록(記錄) 레이어 — append-only 로컬 JSONL. 외부 의존이 없어(순수 파일
+  // 시스템) notion 처럼 CLI-gate 하지 않고 무조건 등록한다. 정리(整理: journal → wiki 컴파일)
+  // 는 rocky 가 아니라 `/rocky:curate` 슬래시커맨드(호스트 LLM)의 몫이다.
+  const journal = options.journal ?? createJournalFromEnv(toolkitConfig.journal);
+  server.registerTool(
+    'journal_append',
+    {
+      description:
+        '에이전트 저널에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)',
+      inputSchema: {
+        content: z.string(),
+        kind: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+        pageId: z.string().optional(),
+      },
+    },
+    async ({ content, kind, tags, pageId }) =>
+      jsonResult(await handleJournalAppend(journal, { content, kind, tags, pageId })),
+  );
+  server.registerTool(
+    'journal_read',
+    {
+      description:
+        '저널을 가장 최근 항목부터 필터 / limit 적용해 반환한다. 손상된 라인은 자동 skip. remote 호출 없음. (limit?: 기본 20, kind?: 정확 일치, tag?: 태그 포함, pageId?: 정규화 후 일치, since?: 해당 시각 이후 ISO8601)',
+      inputSchema: {
+        limit: z.number().int().positive().optional(),
+        kind: z.string().optional(),
+        tag: z.string().optional(),
+        pageId: z.string().optional(),
+        since: z.string().optional(),
+      },
+    },
+    async ({ limit, kind, tag, pageId, since }) =>
+      jsonResult(await handleJournalRead(journal, { limit, kind, tag, pageId, since })),
+  );
+  server.registerTool(
+    'journal_search',
+    {
+      description:
+        '저널을 substring (case-insensitive) 으로 검색한다. content / kind / tags / pageId 를 매칭. remote 호출 없음. (query: 검색어, limit?: 기본 20, kind?: 풀 스코프 필터)',
+      inputSchema: {
+        query: z.string(),
+        limit: z.number().int().positive().optional(),
+        kind: z.string().optional(),
+      },
+    },
+    async ({ query, limit, kind }) =>
+      jsonResult(await handleJournalSearch(journal, query, { limit, kind })),
+  );
+  server.registerTool(
+    'journal_status',
+    {
+      description:
+        '저널 메타(파일 경로, 존재 여부, 유효 항목 수 — 손상 라인 skip, 바이트 크기, 마지막 항목 시각) + 정리 대상 wikiDir + 마지막 curate watermark 를 조회한다. `/rocky:curate` 가 정리 시작 시 이걸로 wikiDir 과 증분 기준점을 확인한다. remote 호출 없음.',
+      inputSchema: {},
+    },
+    async () => jsonResult(await handleJournalStatus(journal)),
   );
 
   return server;

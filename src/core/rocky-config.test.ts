@@ -225,6 +225,47 @@ describe('validateConfig — seo', () => {
   });
 });
 
+describe('validateConfig — journal', () => {
+  it('accepts a well-formed journal block', () => {
+    const config = { journal: { dir: '~/notes/j', wikiDir: '~/Obsidian/v' } };
+    expect(validateConfig(config, 'test')).toEqual(config);
+  });
+
+  it('accepts an empty / omitted journal block', () => {
+    expect(() => validateConfig({ journal: {} }, 'test')).not.toThrow();
+  });
+
+  it('rejects a non-object journal', () => {
+    expect(() => validateConfig({ journal: 'nope' } as any, 'p')).toThrow(
+      /journal must be an object/,
+    );
+    expect(() => validateConfig({ journal: [] } as any, 'p')).toThrow(/journal must be an object/);
+  });
+
+  it('rejects unknown journal keys', () => {
+    expect(() => validateConfig({ journal: { ttl: 10 } } as any, 'p')).toThrow(/unknown key "ttl"/);
+  });
+
+  it('rejects empty / non-string dir / wikiDir', () => {
+    expect(() => validateConfig({ journal: { dir: '' } } as any, 'p')).toThrow(
+      /journal.dir must be a non-empty string/,
+    );
+    expect(() => validateConfig({ journal: { wikiDir: 42 } } as any, 'p')).toThrow(
+      /journal.wikiDir must be a non-empty string/,
+    );
+  });
+});
+
+describe('mergeConfigs — journal', () => {
+  it('project journal fields override user journal, field by field', () => {
+    const user: RockyConfig = { journal: { dir: '/u/j', wikiDir: '/u/v' } };
+    const project: RockyConfig = { journal: { wikiDir: '/p/v' } };
+    const merged = mergeConfigs(user, project);
+    expect(merged.journal?.dir).toBe('/u/j');
+    expect(merged.journal?.wikiDir).toBe('/p/v');
+  });
+});
+
 describe('loadConfig', () => {
   it('returns {} with no errors when neither file exists', async () => {
     const r = await loadConfig({ userPath, projectRoot });

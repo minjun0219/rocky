@@ -34,12 +34,16 @@ const OPENAPI_TOOLS = [
 
 const NOTION_TOOLS = ['notion_get', 'notion_refresh', 'notion_status', 'notion_extract'] as const;
 
-/** v0.3 부터 surface 에서 빠진 tool — 누수 회귀 가드. archive/pre-openapi-only-slim 참조. */
-const REMOVED_TOOLS = [
+/** journal_* 는 기록 레이어 — CLI-gate 없이 항상 등록 (openapi + seo 와 함께 base surface). */
+const JOURNAL_TOOLS = [
   'journal_append',
   'journal_read',
   'journal_search',
   'journal_status',
+] as const;
+
+/** 아직 재추가되지 않아 surface 에서 빠져 있어야 하는 tool — 누수 회귀 가드. */
+const REMOVED_TOOLS = [
   'mysql_envs',
   'mysql_status',
   'mysql_tables',
@@ -84,7 +88,11 @@ const presentNotionCli: NotionCliExecutor = {
   },
 };
 
-const ENV_KEYS_TO_RESTORE = ['ROCKY_OPENAPI_CACHE_DIR', 'ROCKY_NOTION_CACHE_DIR'] as const;
+const ENV_KEYS_TO_RESTORE = [
+  'ROCKY_OPENAPI_CACHE_DIR',
+  'ROCKY_NOTION_CACHE_DIR',
+  'ROCKY_JOURNAL_DIR',
+] as const;
 
 let tmpHome: string;
 const savedEnv: Record<string, string | undefined> = {};
@@ -109,6 +117,7 @@ beforeAll(() => {
   }
   process.env.ROCKY_OPENAPI_CACHE_DIR = join(tmpHome, 'openapi-cache');
   process.env.ROCKY_NOTION_CACHE_DIR = join(tmpHome, 'notion-cache');
+  process.env.ROCKY_JOURNAL_DIR = join(tmpHome, 'journal');
 });
 
 afterAll(() => {
@@ -126,11 +135,66 @@ afterAll(() => {
 });
 
 describe('rocky Claude Code MCP server', () => {
-  test('without a Notion CLI, exposes exactly the openapi tools + seo_validate', async () => {
+  test('without a Notion CLI, exposes exactly openapi + seo_validate + journal', async () => {
     const client = await connect({ notionCli: absentNotionCli });
     try {
       const names = [...(await toolNames(client))].sort();
-      expect(names).toEqual([...OPENAPI_TOOLS].sort());
+      expect(names).toEqual([...OPENAPI_TOOLS, ...JOURNAL_TOOLS].sort());
+    } finally {
+      await client.close().catch(() => undefined);
+    }
+  });
+
+  test('registers journal_* regardless of Notion CLI presence (no gate)', async () => {
+    for (const notionCli of [absentNotionCli, presentNotionCli]) {
+      const client = await connect({ notionCli });
+      try {
+        const names = await toolNames(client);
+        for (const tool of JOURNAL_TOOLS) {
+          expect(names.has(tool)).toBe(true);
+        }
+      } finally {
+        await client.close().catch(() => undefined);
+      }
+    }
+  });
+
+  test('journal_status reports exists=false and surfaces wikiDir (no writes)', async () => {
+    const prevWiki = process.env.ROCKY_JOURNAL_WIKI_DIR;
+    process.env.ROCKY_JOURNAL_WIKI_DIR = join(tmpHome, 'vault');
+    const client = await connect({ notionCli: absentNotionCli });
+    try {
+      const result = await client.callTool({ name: 'journal_status', arguments: {} });
+      const content = (result.content as Array<{ type: string; text: string }>)[0];
+      const parsed = JSON.parse(content!.text);
+      expect(parsed.exists).toBe(false);
+      expect(parsed.totalEntries).toBe(0);
+      expect(parsed.wikiDir).toBe(join(tmpHome, 'vault'));
+    } finally {
+      await client.close().catch(() => undefined);
+      if (prevWiki === undefined) {
+        delete process.env.ROCKY_JOURNAL_WIKI_DIR;
+      } else {
+        process.env.ROCKY_JOURNAL_WIKI_DIR = prevWiki;
+      }
+    }
+  });
+
+  test('journal_append then journal_read round-trips through the tool surface', async () => {
+    const client = await connect({ notionCli: absentNotionCli });
+    try {
+      await client.callTool({
+        name: 'journal_append',
+        arguments: { content: 'decided on 2-layer design', kind: 'decision', tags: ['journal'] },
+      });
+      const read = await client.callTool({
+        name: 'journal_read',
+        arguments: { kind: 'decision' },
+      });
+      const content = (read.content as Array<{ type: string; text: string }>)[0];
+      const parsed = JSON.parse(content!.text) as Array<{ content: string; kind: string }>;
+      expect(parsed[0]?.content).toBe('decided on 2-layer design');
+      expect(parsed[0]?.kind).toBe('decision');
     } finally {
       await client.close().catch(() => undefined);
     }

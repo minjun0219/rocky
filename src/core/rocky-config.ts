@@ -82,12 +82,27 @@ export interface SeoConfig {
   timeoutMs?: number;
 }
 
+/**
+ * `journal_*` 도구 + `/rocky:curate` 정리 스킬 설정. 모든 필드는 env 로 override 된다
+ * (`ROCKY_JOURNAL_DIR` / `ROCKY_JOURNAL_WIKI_DIR` 가 우선).
+ */
+export interface JournalConfig {
+  /** 저널 JSONL 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/journal/<key>`). */
+  dir?: string;
+  /**
+   * 정리(整理) 대상 wiki 위치 (Obsidian vault 등). rocky 는 여기에 쓰지 않는다 —
+   * `/rocky:curate` 가 저널을 읽어 이 위치로 markdown 을 컴파일한다. `journal_status` 로 노출.
+   */
+  wikiDir?: string;
+}
+
 export interface RockyConfig {
   $schema?: string;
   openapi?: {
     registry?: OpenapiRegistry;
   };
   seo?: SeoConfig;
+  journal?: JournalConfig;
 }
 
 export interface LoadConfigOptions {
@@ -161,6 +176,9 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.seo !== undefined) {
     validateSeo(config.seo, source);
   }
+  if (config.journal !== undefined) {
+    validateJournal(config.journal, source);
+  }
   return config as RockyConfig;
 }
 
@@ -191,6 +209,30 @@ function validateSeo(seo: unknown, source: string): void {
       obj.timeoutMs > 30_000
     ) {
       throw new Error(`${source}: seo.timeoutMs must be an integer between 1 and 30000`);
+    }
+  }
+}
+
+/** `journal` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
+const ALLOWED_JOURNAL_KEYS = new Set(['dir', 'wikiDir']);
+
+/**
+ * `journal` 객체 모양 검증. `journal_*` 도구 + `/rocky:curate` 설정을 받는다 — 미지원
+ * key 는 reject. dir / wikiDir 은 비어 있지 않은 문자열이어야 한다.
+ */
+function validateJournal(journal: unknown, source: string): void {
+  if (journal === null || typeof journal !== 'object' || Array.isArray(journal)) {
+    throw new Error(`${source}: journal must be an object`);
+  }
+  const obj = journal as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!ALLOWED_JOURNAL_KEYS.has(key)) {
+      throw new Error(`${source}: journal: unknown key "${key}"`);
+    }
+  }
+  for (const key of ['dir', 'wikiDir'] as const) {
+    if (obj[key] !== undefined && (typeof obj[key] !== 'string' || obj[key].trim().length === 0)) {
+      throw new Error(`${source}: journal.${key} must be a non-empty string`);
     }
   }
 }
@@ -332,6 +374,10 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   // seo 는 leaf 별 병합이 아니라 필드 단위로 project 가 user 를 덮어쓴다.
   if (project.seo) {
     out.seo = { ...out.seo, ...project.seo };
+  }
+  // journal 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
+  if (project.journal) {
+    out.journal = { ...out.journal, ...project.journal };
   }
   return out;
 }
