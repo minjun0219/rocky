@@ -1,13 +1,13 @@
 {
-  "name": "@minjun0219/agent-toolkit",
+  "name": "@minjun0219/rocky",
   "version": "0.4.0",
-  "description": "Single-package agent-toolkit — a Claude Code plugin (marketplace) plus a host-agnostic openapi-mcp stdio CLI (npm), sharing one OpenAPI / Swagger core. 7 openapi_* tools: cache-first spec inspection, endpoint search, tag list. journal / mysql / notion / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim; the opencode plugin is archived in-tree under .archive/agent-toolkit-opencode/.",
+  "description": "rocky (named after Project Hail Mary) — a single Bun package shipping a Claude Code plugin (marketplace) plus a host-agnostic openapi-mcp stdio CLI (npm), sharing one OpenAPI / Swagger core. 7 openapi_* tools: cache-first spec inspection, endpoint search, tag list. journal / mysql / notion / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim; the opencode plugin is archived in-tree under .archive/agent-toolkit-opencode/.",
   "license": "MIT",
   "author": "Minjun Kim",
-  "homepage": "https://github.com/minjun0219/agent-toolkit",
+  "homepage": "https://github.com/minjun0219/rocky",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/minjun0219/agent-toolkit.git"
+    "url": "git+https://github.com/minjun0219/rocky.git"
   },
   "type": "module",
   "main": "./src/index.ts",
@@ -33,7 +33,7 @@
     "claude-code",
     "mcp",
     "stdio",
-    "agent-toolkit",
+    "rocky",
     "bun"
   ],
   "scripts": {

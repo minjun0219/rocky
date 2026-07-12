@@ -3,11 +3,11 @@ import { z } from 'zod';
 /**
  * `openapi-mcp` 단독 진입점 (`bin/openapi-mcp`) 이 받는 config 파일의 스키마.
  *
- * agent-toolkit 의 `openapi.registry` (host:env:spec → URL leaf) 와는 다른 모양이며,
+ * rocky 의 `openapi.registry` (host:env:spec → URL leaf) 와는 다른 모양이며,
  * 이쪽은 `specs.<name>.environments.<env>.baseUrl` 트리를 그대로 받는다 — 두 형태
  * 모두 `lib/openapi/adapter.ts` 가 SpecRegistry 입력으로 변환한다.
  *
- * zod v4 (agent-toolkit 의 prod dep) 기준으로 작성되어 있으므로 v3 호환 API 는 쓰지 않는다.
+ * zod v4 (rocky 의 prod dep) 기준으로 작성되어 있으므로 v3 호환 API 는 쓰지 않는다.
  */
 
 const SpecFormatSchema = z.enum(['openapi3', 'swagger2', 'auto']);

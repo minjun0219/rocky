@@ -2,28 +2,26 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig, mergeConfigs, validateConfig, type ToolkitConfig } from './toolkit-config';
+import { loadConfig, mergeConfigs, validateConfig, type RockyConfig } from './rocky-config';
 
 let userDir: string;
 let userPath: string;
 let projectRoot: string;
 
 beforeEach(() => {
-  const root = mkdtempSync(join(tmpdir(), 'agent-toolkit-config-'));
+  const root = mkdtempSync(join(tmpdir(), 'rocky-config-'));
   userDir = join(root, 'user');
   mkdirSync(userDir, { recursive: true });
-  userPath = join(userDir, 'agent-toolkit.json');
-  projectRoot = mkdtempSync(join(tmpdir(), 'agent-toolkit-project-'));
+  userPath = join(userDir, 'rocky.json');
+  projectRoot = mkdtempSync(join(tmpdir(), 'rocky-project-'));
 });
 
-const writeUser = (config: ToolkitConfig) => {
+const writeUser = (config: RockyConfig) => {
   writeFileSync(userPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 };
 
-const writeProject = (config: ToolkitConfig) => {
-  const dir = join(projectRoot, '.opencode');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'agent-toolkit.json'), `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+const writeProject = (config: RockyConfig) => {
+  writeFileSync(join(projectRoot, 'rocky.json'), `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 };
 
 describe('validateConfig', () => {
@@ -32,7 +30,7 @@ describe('validateConfig', () => {
   });
 
   it('accepts a registry with valid identifiers', () => {
-    const config: ToolkitConfig = {
+    const config: RockyConfig = {
       openapi: {
         registry: {
           acme: { dev: { users: 'https://example.com/users.json' } },
@@ -123,7 +121,7 @@ describe('validateConfig', () => {
 
 describe('mergeConfigs', () => {
   it('project overrides user at the leaf', () => {
-    const user: ToolkitConfig = {
+    const user: RockyConfig = {
       openapi: {
         registry: {
           acme: {
@@ -135,7 +133,7 @@ describe('mergeConfigs', () => {
         },
       },
     };
-    const project: ToolkitConfig = {
+    const project: RockyConfig = {
       openapi: {
         registry: {
           acme: { dev: { users: 'https://project/u.json' } },
@@ -149,12 +147,12 @@ describe('mergeConfigs', () => {
   });
 
   it('project can introduce new host / env / spec', () => {
-    const user: ToolkitConfig = {
+    const user: RockyConfig = {
       openapi: {
         registry: { acme: { dev: { users: 'https://u.example/u.json' } } },
       },
     };
-    const project: ToolkitConfig = {
+    const project: RockyConfig = {
       openapi: {
         registry: {
           acme: { prod: { users: 'https://p.example/u.json' } },
@@ -169,7 +167,7 @@ describe('mergeConfigs', () => {
   });
 
   it('returns a deep clone — mutating the result does not touch input', () => {
-    const user: ToolkitConfig = {
+    const user: RockyConfig = {
       openapi: { registry: { acme: { dev: { users: 'https://u/u.json' } } } },
     };
     const merged = mergeConfigs(user, {});
@@ -255,8 +253,7 @@ describe('loadConfig', () => {
         registry: { acme: { dev: { users: 'https://dev.acme/u.json' } } },
       },
     });
-    const projectFile = join(projectRoot, '.opencode', 'agent-toolkit.json');
-    mkdirSync(join(projectRoot, '.opencode'), { recursive: true });
+    const projectFile = join(projectRoot, 'rocky.json');
     writeFileSync(projectFile, '{ also broken', 'utf8');
     const r = await loadConfig({ userPath, projectRoot });
     expect(r.errors.length).toBe(1);
@@ -266,8 +263,7 @@ describe('loadConfig', () => {
 
   it('collects errors from both files when both are malformed', async () => {
     writeFileSync(userPath, '{ user broken', 'utf8');
-    mkdirSync(join(projectRoot, '.opencode'), { recursive: true });
-    writeFileSync(join(projectRoot, '.opencode', 'agent-toolkit.json'), '{ project broken', 'utf8');
+    writeFileSync(join(projectRoot, 'rocky.json'), '{ project broken', 'utf8');
     const r = await loadConfig({ userPath, projectRoot });
     expect(r.errors.length).toBe(2);
     expect(r.config).toEqual({});

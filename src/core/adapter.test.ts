@@ -8,7 +8,7 @@ import {
   parseFlatHandle,
   registryToOpenApiMcpConfig,
 } from './adapter';
-import type { OpenapiRegistry } from './toolkit-config';
+import type { OpenapiRegistry } from './rocky-config';
 
 describe('flatten / parse handle', () => {
   it("round-trips host:env:spec via ':' separator", () => {

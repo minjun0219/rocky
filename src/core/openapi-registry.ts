@@ -4,18 +4,18 @@ import {
   getRegistryUrl,
   ID_BODY,
   type OpenapiRegistry,
-  type ToolkitConfig,
-} from './toolkit-config';
+  type RockyConfig,
+} from './rocky-config';
 
 /**
- * `agent-toolkit.json` 의 `openapi.registry` 트리를 다루는 helper 모음.
+ * `rocky.json` 의 `openapi.registry` 트리를 다루는 helper 모음.
  *
  * 입력 표기:
  *   - `host`            — 한 host 아래의 모든 spec
  *   - `host:env`        — 한 host 의 한 env 아래의 모든 spec
  *   - `host:env:spec`   — 정확히 한 spec
  *
- * 식별자는 `agent-toolkit.schema.json` 의 패턴(`^[a-zA-Z0-9_-]+$`)을 따라야 한다 — 콜론은
+ * 식별자는 `rocky.schema.json` 의 패턴(`^[a-zA-Z0-9_-]+$`)을 따라야 한다 — 콜론은
  * separator 로 예약. 등록되지 않은 handle 은 lookup 실패 시 명확한 에러로 거부한다.
  *
  * leaf 는 string (URL only) 또는 object (`{ url, baseUrl?, format? }`) — 두 모양 모두
@@ -34,7 +34,7 @@ export interface OpenapiRegistryEntry {
   format?: 'openapi3' | 'swagger2' | 'auto';
 }
 
-// 식별자 본문은 toolkit-config 의 ID_BODY 와 동일해야 한다 (스키마 / config 검증과 동기).
+// 식별자 본문은 rocky-config 의 ID_BODY 와 동일해야 한다 (스키마 / config 검증과 동기).
 // drift 방지를 위해 한 곳 (`ID_BODY`) 만 두고 여기서는 그걸로 핸들 / 스코프 정규식을 합성.
 const HANDLE_FULL = new RegExp(`^(${ID_BODY}):(${ID_BODY}):(${ID_BODY})$`);
 const HANDLE_HOST_ENV = new RegExp(`^(${ID_BODY}):(${ID_BODY})$`);
@@ -72,7 +72,7 @@ export function resolveHandleToUrl(handle: string, registry: OpenapiRegistry | u
   const leaf = registry?.[host]?.[env]?.[spec];
   if (leaf === undefined) {
     throw new Error(
-      `Handle "${handle}" not found in openapi.registry. Check ./.opencode/agent-toolkit.json or ~/.config/opencode/agent-toolkit/agent-toolkit.json.`,
+      `Handle "${handle}" not found in openapi.registry. Check ./rocky.json or ~/.config/rocky/rocky.json.`,
     );
   }
   return getRegistryUrl(leaf);
@@ -157,7 +157,7 @@ export function resolveScopeToHandles(
 }
 
 /** registry 트리를 평면 (host, env, spec, url, baseUrl?, format?) 리스트로 펼친다. */
-export function listRegistry(config: ToolkitConfig): OpenapiRegistryEntry[] {
+export function listRegistry(config: RockyConfig): OpenapiRegistryEntry[] {
   const reg = config.openapi?.registry ?? {};
   const out: OpenapiRegistryEntry[] = [];
   for (const [host, envs] of Object.entries(reg)) {
