@@ -6,7 +6,7 @@ Shared guide for AI coding agents (Claude Code, opencode, codex, etc.) working i
 
 ## Project in one line
 
-**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7-tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
+**rocky** (named after Project Hail Mary's Rocky) — a **single Bun package** whose `src/core/` OpenAPI core backs two distribution targets — a **Claude Code plugin** (marketplace; MCP server declared in `.claude-plugin/plugin.json`'s `mcpServers`, entry `src/index.ts`) and a host-agnostic **`openapi-mcp` standalone stdio CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm). Both expose the **same 7-tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`). Separately, the Claude Code plugin ships **slash commands** in `commands/` (`/finish`, `/pr-watch` — `gh` CLI based, not MCP tools). No workspaces, no `packages/` — one `package.json`, one `tsconfig.json`.
 
 Previous toolkit surfaces (journal / mysql / notion / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills) live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim); the former opencode plugin is archived in-tree at [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) (excluded from all gates). Domains re-enter in follow-up PRs via one of two shapes (plugin-bound handlers, or a separate CLI entry alongside `openapi-mcp`). The shape is decided per domain at re-introduction time.
 
@@ -22,6 +22,9 @@ rocky/                                      single package — @minjun0219/rocky
 ├── .claude-plugin/plugin.json              ★ marketplace metadata + mcpServers (via ${CLAUDE_PLUGIN_ROOT}/src/index.ts)
 ├── README.md / FEATURES.md / AGENTS.md / ROADMAP.md / REVIEW.md / LICENSE
 ├── docs/openapi-mcp.md                     standalone CLI 보조 문서
+├── commands/                               ★ Claude Code plugin 슬래시 커맨드 (자동 발견, gh CLI 기반, MCP tool surface 와 별개)
+│   ├── finish.md                           `/finish` — 게이트 → 커밋 → 푸시 → PR 생성
+│   └── pr-watch.md                         `/pr-watch` — 열린 PR 을 머지 가능 상태까지 감시·알림 (자동 머지 X)
 ├── bin/
 │   └── openapi-mcp                         `#!/usr/bin/env bun` shebang, arg 파싱 → src/standalone
 └── src/

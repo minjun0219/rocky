@@ -101,6 +101,26 @@ Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CL
 - **Related config**: 동일.
 - **Hosts**: 둘 다.
 
+## Claude Code 커맨드
+
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다 (`gh` CLI 기반, MCP tool surface 와 무관). `/finish` → `/pr-watch` 가 한 쌍 — 마무리로 PR 을 만들고, 그 PR 을 머지까지 감시한다.
+
+### `/finish [힌트]`
+
+- **What**: 현재 변경을 마무리한다 — 게이트(`bun run check` / `typecheck` / `test`) 통과 확인 → 변경 요약 → 브랜치 → 커밋 → 푸시 → PR 생성.
+- **Input**: (옵션) 커밋/PR 요약에 참고할 힌트.
+- **하지 않는 것**: 게이트 실패 시 커밋 금지(우회 X), `main` 직접 커밋 금지(먼저 브랜치), 무관한 파일 싸잡아 스테이지 금지.
+- **규칙**: Conventional Commits 한국어 제목, 커밋 `Co-Authored-By` / PR 본문 서명 trailer 부착, 리뷰 요청 시 한국어 코멘트 요청.
+- **의존성**: 인증된 `gh` CLI.
+
+### `/pr-watch [PR]`
+
+- **What**: 열린 GitHub PR 하나의 상태(CI 체크 · 리뷰 · 머지 가능성)를 점검하고, 열린 리뷰 코멘트를 코드와 대조해 타당/반박/보류로 정리한 뒤, **머지 가능한 상태가 되면 알려준다.**
+- **Input**: PR 번호 / URL / `owner/repo#123`. 생략하면 현재 브랜치에 연결된 PR 을 자동으로 찾는다.
+- **동작**: CI 진행 중이면 `gh pr checks --watch` 로 한 턴 안에서 완료까지 대기 후 재판정. 사람 리뷰 대기로 막히면 재실행 / `/loop 5m /pr-watch <PR>` 폴링을 안내.
+- **하지 않는 것**: **자동 머지 금지** (`gh pr merge` 실행 X — 머지 가능 알림까지만), 코드 수정 · 리뷰 답글 자동 게시 금지 (권고까지만).
+- **의존성**: 인증된 `gh` CLI. GitHub MCP 는 쓰지 않는다.
+
 ## 환경 변수
 
 `ROCKY_*` 변수는 **Claude Code plugin 진입점 (`src/index.ts`) 전용** — standalone `openapi-mcp` CLI 는 인지하지 않는다 (CLI 는 `openapi-mcp.json` config 파일 + XDG 표준 변수만 본다).
