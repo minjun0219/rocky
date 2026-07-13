@@ -181,7 +181,7 @@ Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CL
 
 #### `journal_status`
 
-- **What**: 저널 메타(`path` / `exists` / `totalEntries` — 손상 라인 제외 / `sizeBytes` / `lastEntryAt`) + 정리 대상 `wikiDir` + 프로젝트 키 `projectKey` (`<basename>-<hash8>`) + 마지막 curate watermark(`lastCurateAt`)를 조회. `/curate` 가 정리 시작 시 이걸로 정리 루트(`<wikiDir>/<projectKey>/`)와 증분 기준점을 확인한다.
+- **What**: 저널 메타(`path` / `exists` / `totalEntries` — 손상 라인 제외 / `sizeBytes` / `lastEntryAt`) + 정리 대상 `wikiDir` + 프로젝트 키 `projectKey` (`<basename>-<hash8>`) + 마지막 curate watermark(`lastCurateAt`) + 경로 출처 힌트 `dirSource`(`env` / `config` / `default`) · `wikiDirSource`(`env` / `config` / `unset`)를 조회. `dirSource` / `wikiDirSource` 는 소스를 안 읽어도 저장 위치 / curate 위치가 어디서 왔는지 · env / `rocky.json` 으로 바꿀 수 있는지 발견하게 하는 힌트 (`wikiDirSource:"unset"` 이면 curate 대상 미설정). 출처와 경로는 항상 일관된다 — `wikiDirSource:"unset" ⟺ wikiDir` 없음, `dirSource:"default" ⟺` 기본 경로. `/curate` 가 정리 시작 시 이걸로 정리 루트(`<wikiDir>/<projectKey>/`)와 증분 기준점을 확인한다.
 - **Input**: 없음.
 - **Output**: `JournalStatus`.
 - **Side effects**: 없음.
