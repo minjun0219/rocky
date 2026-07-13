@@ -51,11 +51,11 @@ gh pr view <PR> --json number,title,url,state,isDraft,mergeable,mergeStateStatus
 gh api graphql -F owner=<owner> -F repo=<repo> -F num=<number> -f query='
 query($owner:String!,$repo:String!,$num:Int!){
   repository(owner:$owner, name:$repo){ pullRequest(number:$num){
-    reviewThreads(first:100){ nodes {
+    reviewThreads(first:100){ pageInfo{ hasNextPage endCursor } nodes {
       id isResolved isOutdated
       comments(first:1){ nodes { databaseId author{login} path line body } } } } } } }'
 # → isResolved==false 인 스레드만 아래 4단계에서 다룬다.
-# (스레드 100개 초과 PR 은 pageInfo.endCursor + after 로 페이지네이션 필요 — 드묾)
+# (스레드 100개 초과 시 pageInfo.hasNextPage==true → endCursor 로 after 페이지네이션 — 드묾)
 ```
 
 주의: `{owner}`/`{repo}` 자동 치환은 gh 의 **REST 엔드포인트** 기능이라 GraphQL query
