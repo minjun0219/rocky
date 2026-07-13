@@ -26,7 +26,7 @@ rocky/                                      single package — @minjun0219/rocky
 ├── docs/openapi-mcp.md                     standalone CLI 보조 문서
 ├── commands/                               ★ Claude Code plugin 슬래시 커맨드 (자동 발견, gh CLI 기반, MCP tool surface 와 별개)
 │   ├── finish.md                           `/finish` — 게이트 → 커밋 → 푸시 → PR 생성
-│   ├── pr-watch.md                         `/pr-watch` — 열린 PR 을 머지 가능 상태까지 감시·알림 (자동 머지 X)
+│   ├── pr-watch.md                         `/pr-watch` — 열린 PR 감시: 리뷰 자율 처리(게이트 통과시 수정·푸시) + 애매 건 어드바이저/호출자 에스컬레이션, 머지 가능 알림 (자동 머지 X)
 │   └── curate.md                           `/curate` — journal_* 기록을 설정된 wiki(Obsidian 등)로 증분 증류 (정리 레이어, gh 불필요)
 ├── bin/
 │   └── openapi-mcp                         `#!/usr/bin/env bun` shebang, arg 파싱 → src/standalone
