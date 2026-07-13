@@ -190,7 +190,7 @@ Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CL
 
 ## Claude Code 커맨드
 
-MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` → `/pr-watch` 는 `gh` CLI 기반 한 쌍 — 마무리로 PR 을 만들고, 그 PR 을 머지까지 감시한다. `/curate` 는 `journal_*` 를 읽어 wiki 로 정리하는 짝 커맨드다.
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` → `/pr-watch` 는 `gh` CLI 기반 한 쌍 — 마무리로 PR 을 만들고, 그 PR 을 감시하며 리뷰를 자율 처리하고 머지 가능해지면 알린다 (자동 머지 X). `/curate` 는 `journal_*` 를 읽어 wiki 로 정리하는 짝 커맨드다.
 
 ### `/finish [힌트]`
 
