@@ -554,19 +554,19 @@ export interface JournalEnvOptions {
  * 저널 인스턴스를 만든다. env 가 명시적 per-process override 라 config 를 이긴다.
  */
 export function createJournalFromEnv(config: JournalEnvOptions = {}): AgentJournal {
-  const baseDir = firstNonEmpty(process.env.ROCKY_JOURNAL_DIR, config.dir);
-  const wikiDir = firstNonEmpty(process.env.ROCKY_JOURNAL_WIKI_DIR, config.wikiDir);
-  // 해석 출처는 baseDir/wikiDir 계산과 동일한 우선순위로 판정해 status 로 노출한다.
-  const dirSource: JournalDirSource = firstNonEmpty(process.env.ROCKY_JOURNAL_DIR)
-    ? 'env'
-    : firstNonEmpty(config.dir)
-      ? 'config'
-      : 'default';
-  const wikiDirSource: JournalWikiDirSource = firstNonEmpty(process.env.ROCKY_JOURNAL_WIKI_DIR)
-    ? 'env'
-    : firstNonEmpty(config.wikiDir)
-      ? 'config'
-      : 'unset';
+  // 소스별 값을 한 번만 추출해 baseDir/dirSource, wikiDir/wikiDirSource 를 파생한다.
+  // firstNonEmpty 가 trim + 빈문자 처리를 하므로 `envDir ?? configDir` 는 기존
+  // `firstNonEmpty(env, config)` 와 동치 — env 우선, 없으면 config, 둘 다 없으면 undefined.
+  const envDir = firstNonEmpty(process.env.ROCKY_JOURNAL_DIR);
+  const configDir = firstNonEmpty(config.dir);
+  const baseDir = envDir ?? configDir;
+  const dirSource: JournalDirSource = envDir ? 'env' : configDir ? 'config' : 'default';
+
+  const envWiki = firstNonEmpty(process.env.ROCKY_JOURNAL_WIKI_DIR);
+  const configWiki = firstNonEmpty(config.wikiDir);
+  const wikiDir = envWiki ?? configWiki;
+  const wikiDirSource: JournalWikiDirSource = envWiki ? 'env' : configWiki ? 'config' : 'unset';
+
   return new AgentJournal({ baseDir, wikiDir, dirSource, wikiDirSource });
 }
 
