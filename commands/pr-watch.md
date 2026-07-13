@@ -51,10 +51,11 @@ gh pr view <PR> --json number,title,url,state,isDraft,mergeable,mergeStateStatus
 gh api graphql -F owner=<owner> -F repo=<repo> -F num=<number> -f query='
 query($owner:String!,$repo:String!,$num:Int!){
   repository(owner:$owner, name:$repo){ pullRequest(number:$num){
-    reviewThreads(first:50){ nodes {
+    reviewThreads(first:100){ nodes {
       id isResolved isOutdated
       comments(first:1){ nodes { databaseId author{login} path line body } } } } } } }'
 # → isResolved==false 인 스레드만 아래 4단계에서 다룬다.
+# (스레드 100개 초과 PR 은 pageInfo.endCursor + after 로 페이지네이션 필요 — 드묾)
 ```
 
 주의: `{owner}`/`{repo}` 자동 치환은 gh 의 **REST 엔드포인트** 기능이라 GraphQL query
@@ -106,9 +107,14 @@ resolved 상태를 그대로 큐로 쓴다 — 이미 resolve 한 건 다시 보
 **답글 / resolve 방법:**
 
 ```bash
-# 답글 (in_reply_to = 스레드 첫 comment 의 databaseId)
-gh api -X POST /repos/<owner>/<repo>/pulls/<num>/comments \
-  -f body='<한국어 답글>' -F in_reply_to=<comment_databaseId>
+# 답글 (in_reply_to = 스레드 첫 comment 의 databaseId).
+# {owner}/{repo} 는 gh 가 현재 repo 로 자동 치환 — cwd 가 대상 PR 의 체크아웃일 때만 맞다
+# (다른 repo 에서 돌리면 엉뚱하게 해석되니 그땐 실제 owner/repo 를 박아라).
+# body 는 stdin(@-) heredoc 으로 넘겨 줄바꿈·따옴표에 안전 (셸 재해석 없음).
+gh api -X POST repos/{owner}/{repo}/pulls/<num>/comments \
+  -F in_reply_to=<comment_databaseId> -F body=@- <<'EOF'
+<한국어 답글 — 여러 줄·따옴표 OK>
+EOF
 
 # resolve (threadId = reviewThreads 노드의 id)
 gh api graphql -f query='mutation($id:ID!){
