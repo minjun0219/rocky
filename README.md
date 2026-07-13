@@ -32,7 +32,7 @@ MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 
 저장소 root 에서 직접 trust 해 개발할 때:
 
 1. `bun install`
-2. Claude Code 가 `.mcp.json` 의 `rocky` stdio 서버 (`bun run ${CLAUDE_PROJECT_DIR}/src/index.ts`) + `context7` 두 서버를 처음 로드할 때 trust prompt 가 뜬다 — 둘 다 승인.
+2. Claude Code 가 `.mcp.json` 의 `rocky` stdio 서버 (`bun run ./src/index.ts`) + `context7` 두 서버를 처음 로드할 때 trust prompt 가 뜬다 — 둘 다 승인.
 3. `openapi_envs` / `openapi_get` 등 호출.
 
 marketplace 설치 시에는 `.claude-plugin/plugin.json` 의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 가 그대로 등록된다 — dev 전용 `context7` 는 딸려가지 않는다.

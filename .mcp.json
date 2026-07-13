@@ -7,7 +7,7 @@
     "rocky": {
       "type": "stdio",
       "command": "bun",
-      "args": ["run", "${CLAUDE_PROJECT_DIR}/src/index.ts"]
+      "args": ["run", "./src/index.ts"]
     }
   }
 }

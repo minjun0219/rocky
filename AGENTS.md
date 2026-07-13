@@ -20,7 +20,7 @@ rocky/                                      single package — @minjun0219/rocky
 ├── tsconfig.json                           단일 컴파일러 옵션 + include ["src/**/*.ts"]
 ├── biome.json                              lint / format (!.sisyphus, !.claude 제외)
 ├── rocky.schema.json                       `rocky.json` JSON Schema (IDE autocomplete)
-├── .mcp.json                               ★ dev-only Claude Code trust (context7 + rocky via ${CLAUDE_PROJECT_DIR}). 배포 X.
+├── .mcp.json                               ★ dev-only Claude Code trust (context7 + rocky via 상대경로 ./src/index.ts). 배포 X.
 ├── .claude-plugin/plugin.json              ★ marketplace metadata + mcpServers (via ${CLAUDE_PLUGIN_ROOT}/src/index.ts)
 ├── README.md / FEATURES.md / AGENTS.md / ROADMAP.md / REVIEW.md / LICENSE
 ├── docs/openapi-mcp.md                     standalone CLI 보조 문서
@@ -126,10 +126,10 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 
 ## MCP servers
 
-The **dev-only** repo-root `.mcp.json` (project scope; `${CLAUDE_PROJECT_DIR}` expands, `${CLAUDE_PLUGIN_ROOT}` does **not**) registers two MCP servers for working against this repo. Approve both on first trust prompt:
+The **dev-only** repo-root `.mcp.json` (project scope; stdio paths are **relative to the repo root** — `${CLAUDE_PROJECT_DIR}` is NOT expanded in `.mcp.json` and breaks the server) registers two MCP servers for working against this repo. Approve both on first trust prompt:
 
 - [`context7`](https://github.com/upstash/context7) — up-to-date documentation for external libraries.
-- `rocky` — `bun run ${CLAUDE_PROJECT_DIR}/src/index.ts`. Exposes the 7-tool plugin surface.
+- `rocky` — `bun run ./src/index.ts`. Exposes the 7-tool plugin surface.
 
 End users install the plugin via marketplace; the server they get is declared in `.claude-plugin/plugin.json`'s `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`), **not** the repo-root `.mcp.json` — so the dev-only `context7` entry never leaks to installs. The `.mcp.json` file is not part of the published `files`.
 
