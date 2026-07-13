@@ -232,6 +232,41 @@ describe('AgentJournal.status', () => {
     expect(s.wikiDirSource).toBe('unset');
     expect(s.wikiDir).toBeUndefined();
   });
+
+  it('clamps wikiDirSource=unset to config when wikiDir is present (invariant)', async () => {
+    const j = new AgentJournal({ baseDir: dir, wikiDir: '/tmp/vault', wikiDirSource: 'unset' });
+    const s = await j.status();
+    expect(s.wikiDir).toBe(resolve('/tmp/vault'));
+    // wikiDir 이 있으면 'unset' 은 불가능 — 'config' 로 교정된다.
+    expect(s.wikiDirSource).toBe('config');
+  });
+
+  it('clamps wikiDirSource=env to unset when wikiDir is absent (invariant)', async () => {
+    const j = new AgentJournal({ baseDir: dir, wikiDirSource: 'env' });
+    const s = await j.status();
+    expect(s.wikiDir).toBeUndefined();
+    // wikiDir 이 없으면 넘어온 값 무시하고 항상 'unset'.
+    expect(s.wikiDirSource).toBe('unset');
+  });
+
+  it('clamps dirSource=default to config when baseDir is present (invariant)', async () => {
+    const j = new AgentJournal({ baseDir: dir, dirSource: 'default' });
+    const s = await j.status();
+    // baseDir 이 있으면 'default' 는 불가능 — 'config' 로 교정된다.
+    expect(s.dirSource).toBe('config');
+  });
+
+  it('preserves a valid explicit env source (no over-clamping)', async () => {
+    const j = new AgentJournal({
+      baseDir: dir,
+      wikiDir: '/tmp/vault',
+      dirSource: 'env',
+      wikiDirSource: 'env',
+    });
+    const s = await j.status();
+    expect(s.dirSource).toBe('env');
+    expect(s.wikiDirSource).toBe('env');
+  });
 });
 
 describe('expandTilde', () => {

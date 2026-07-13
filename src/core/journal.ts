@@ -176,13 +176,16 @@ export interface AgentJournalOptions {
   projectKey?: string;
   /**
    * 저널 dir 의 해석 출처 (status 노출용). `createJournalFromEnv` 가 env/config/기본값
-   * 판정을 넘겨준다. 미지정이면 `baseDir` 유무로 추정한다 — 주어졌으면 `'config'`,
-   * 없으면 `'default'` (직접 생성하는 테스트가 명시 없이도 합리적 값을 얻도록).
+   * 판정을 넘겨준다. 생성자가 불변식(`dirSource === 'default' ⟺ baseDir 미제공`)을
+   * 강제하므로 모순되는 값은 클램프된다 — `baseDir` 없으면 항상 `'default'`,
+   * 있는데 미지정/`'default'` 면 `'config'` 로 교정.
    */
   dirSource?: JournalDirSource;
   /**
-   * wikiDir 의 해석 출처 (status 노출용). 미지정이면 `wikiDir` 유무로 추정한다 —
-   * 주어졌으면 `'config'`, 없으면 `'unset'`.
+   * wikiDir 의 해석 출처 (status 노출용). 생성자가 불변식
+   * (`wikiDirSource === 'unset' ⟺ wikiDir === undefined`)을 강제하므로 모순되는 값은
+   * 클램프된다 — `wikiDir` 없으면 항상 `'unset'`, 있는데 미지정/`'unset'` 이면
+   * `'config'` 로 교정.
    */
   wikiDirSource?: JournalWikiDirSource;
 }
@@ -211,10 +214,25 @@ export class AgentJournal {
         ? resolve(expandTilde(options.wikiDir.trim()))
         : undefined;
     this.projectKey = options.projectKey ?? defaultProjectKey();
-    // 출처가 명시되지 않으면 baseDir / wikiDir 유무로 추정한다 (직접 생성 경로용).
-    // createJournalFromEnv 는 env/config/기본값 판정을 명시적으로 넘겨준다.
-    this.dirSource = options.dirSource ?? (options.baseDir ? 'config' : 'default');
-    this.wikiDirSource = options.wikiDirSource ?? (this.wikiDir ? 'config' : 'unset');
+    // 출처 힌트의 불변식을 생성자에서 강제해 invalid state 를 배제한다 — status 의
+    // discoverability 힌트가 항상 실제 경로 상태와 일치하도록. 유일한 팩토리
+    // createJournalFromEnv 는 이미 일관된 값을 넘기므로 그 경로에선 클램프가 no-op.
+    //
+    // dir: 항상 값이 있으니 `dirSource === 'default' ⟺ baseDir 미제공`.
+    //   baseDir 있으면 'env'|'config' 만 허용 (없거나 'default' 면 'config' 로 클램프).
+    this.dirSource = options.baseDir
+      ? options.dirSource && options.dirSource !== 'default'
+        ? options.dirSource
+        : 'config'
+      : 'default';
+    // wikiDir: `wikiDirSource === 'unset' ⟺ wikiDir === undefined`.
+    //   wikiDir 있으면 'env'|'config' 만 허용 (없거나 'unset' 이면 'config' 로 클램프),
+    //   없으면 항상 'unset'.
+    this.wikiDirSource = this.wikiDir
+      ? options.wikiDirSource && options.wikiDirSource !== 'unset'
+        ? options.wikiDirSource
+        : 'config'
+      : 'unset';
   }
 
   getDir(): string {
