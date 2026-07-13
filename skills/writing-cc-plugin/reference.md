@@ -2,7 +2,7 @@
 
 Distilled from https://code.claude.com/docs/ko/plugins-reference (§1–9, the schema/spec)
 and https://code.claude.com/docs/ko/plugins (§10, the authoring/publishing workflow).
-**`marketplace.json` structure lives on a third page** (`/ko/plugin-marketplaces`) — this
+**`marketplace.json` structure lives on a third page** (`https://code.claude.com/docs/ko/plugin-marketplaces`) — this
 reference only touches marketplace where it interacts with the plugin manifest.
 
 A **plugin** is a self-contained directory of components: skills, agents, hooks, MCP
@@ -347,7 +347,7 @@ Recommended path: start standalone in `.claude/` for fast iteration → convert 
 ### Share & publish
 1. Add a `README.md` (install + usage).
 2. Choose versioning (explicit `version` vs git SHA — §9).
-3. Distribute via a marketplace (`/ko/plugin-marketplaces`); private repo for team-only.
+3. Distribute via a marketplace (`https://code.claude.com/docs/ko/plugin-marketplaces`); private repo for team-only.
 4. Test with others before wide rollout. Run `claude plugin validate` before submitting.
 
 Community marketplaces (Anthropic-maintained):

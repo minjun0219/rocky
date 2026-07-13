@@ -1,6 +1,6 @@
 ---
 name: writing-cc-plugin
-description: Use when creating, authoring, hardening, debugging, packaging, publishing, or reviewing a Claude Code plugin — anything touching plugin.json / the manifest, hooks/hooks.json, plugin-bundled MCP or LSP servers, monitors, agents, commands, skills, skills-directory (@skills-dir) plugins, local testing (--plugin-dir / --plugin-url / reload-plugins), converting .claude/ config into a plugin, marketplace publishing, install scopes, version management, or `claude plugin` CLI commands. Covers non-obvious rules (component dir placement, hook→MCP tool scoping, version fallback) that are easy to get wrong from memory.
+description: Use when creating, authoring, hardening, debugging, packaging, publishing, or reviewing a Claude Code plugin — anything touching plugin.json / the manifest, hooks/hooks.json, plugin-bundled MCP or LSP servers, monitors, agents, commands, skills, skills-directory (@skills-dir) plugins, local testing (--plugin-dir / --plugin-url / /reload-plugins), converting .claude/ config into a plugin, marketplace publishing, install scopes, version management, or `claude plugin` CLI commands. Covers non-obvious rules (component dir placement, hook→MCP tool scoping, version fallback) that are easy to get wrong from memory.
 ---
 
 # Writing Claude Code Plugins
@@ -27,7 +27,7 @@ detail (§1–9 spec, §10 authoring/publishing); the tables here are the fast p
 2. **Scaffold**: `.claude-plugin/plugin.json` (only `name` required) + components at plugin **root** (`skills/<name>/SKILL.md`, `commands/`, `agents/`, `hooks/hooks.json`, `.mcp.json`, `.lsp.json`, `monitors/monitors.json`). Or `claude plugin init <name>` for a `@skills-dir` plugin under `~/.claude/skills/`.
 3. **Test locally**: `claude --plugin-dir ./my-plugin` (loads without installing; overrides an installed same-named plugin for the session; accepts `.zip`). Edit → `/reload-plugins` to apply without restart. Verify skills via `/plugin:skill`, agents in `/context`, hooks by triggering.
 4. **Validate**: `claude plugin validate ./my-plugin --strict` (warnings → errors; use in CI).
-5. **Publish**: add `README.md`, pick versioning (§9), distribute via a marketplace (`/ko/plugin-marketplaces`); submit to `claude-community` via the in-app forms. — reference.md §10
+5. **Publish**: add `README.md`, pick versioning (§9), distribute via a marketplace (`https://code.claude.com/docs/ko/plugin-marketplaces`); submit to `claude-community` via the in-app forms. — reference.md §10
 
 ## Gotchas that bite (verify against reference.md, don't guess)
 
@@ -59,7 +59,7 @@ detail (§1–9 spec, §10 authoring/publishing); the tables here are the fast p
 - **Authoring & publishing**: standalone↔plugin, quickstart, dev/test loop, config→plugin migration, community marketplaces. — §10
 
 > `marketplace.json` structure (entries, `strict`, sources) lives on a separate docs page
-> (`/ko/plugin-marketplaces`), not covered here beyond manifest overlap.
+> (`https://code.claude.com/docs/ko/plugin-marketplaces`), not covered here beyond manifest overlap.
 
 ## Source
 Distilled from https://code.claude.com/docs/ko/plugins-reference (§1–9) and
