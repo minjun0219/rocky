@@ -170,6 +170,9 @@ describe('AgentJournal.status', () => {
     expect(s.totalEntries).toBe(0);
     expect(s.sizeBytes).toBe(0);
     expect(s.lastEntryAt).toBeUndefined();
+    // 출처 힌트는 write 전에도 항상 노출된다.
+    expect(s.dirSource).toBe('config');
+    expect(s.wikiDirSource).toBe('unset');
   });
 
   it('reports totalEntries / lastEntryAt after writes', async () => {
@@ -205,6 +208,30 @@ describe('AgentJournal.status', () => {
     expect(s.exists).toBe(false);
     expect(s.projectKey).toBe('x-12345678');
   });
+
+  it('surfaces explicit dirSource / wikiDirSource unchanged before and after writes', async () => {
+    const j = new AgentJournal({
+      baseDir: dir,
+      wikiDir: '/tmp/vault',
+      dirSource: 'env',
+      wikiDirSource: 'config',
+    });
+    const before = await j.status();
+    expect(before.dirSource).toBe('env');
+    expect(before.wikiDirSource).toBe('config');
+    await j.append({ content: 'a' });
+    const after = await j.status();
+    expect(after.dirSource).toBe('env');
+    expect(after.wikiDirSource).toBe('config');
+  });
+
+  it('infers dirSource=default / wikiDirSource=unset when neither is provided', async () => {
+    const j = new AgentJournal({ projectKey: 'x-12345678' });
+    const s = await j.status();
+    expect(s.dirSource).toBe('default');
+    expect(s.wikiDirSource).toBe('unset');
+    expect(s.wikiDir).toBeUndefined();
+  });
 });
 
 describe('expandTilde', () => {
@@ -227,7 +254,7 @@ describe('expandTilde', () => {
 });
 
 describe('createJournalFromEnv', () => {
-  it('lets ROCKY_JOURNAL_DIR / ROCKY_JOURNAL_WIKI_DIR win over config', () => {
+  it('lets ROCKY_JOURNAL_DIR / ROCKY_JOURNAL_WIKI_DIR win over config', async () => {
     const prevDir = process.env.ROCKY_JOURNAL_DIR;
     const prevWiki = process.env.ROCKY_JOURNAL_WIKI_DIR;
     try {
@@ -236,20 +263,46 @@ describe('createJournalFromEnv', () => {
       const j = createJournalFromEnv({ dir: '/tmp/config-dir', wikiDir: '/tmp/config-vault' });
       expect(j.getDir()).toBe(resolve(dir));
       expect(j.getWikiDir()).toBe(resolve('/tmp/env-vault'));
+      const s = await j.status();
+      expect(s.dirSource).toBe('env');
+      expect(s.wikiDirSource).toBe('env');
     } finally {
       restoreEnv('ROCKY_JOURNAL_DIR', prevDir);
       restoreEnv('ROCKY_JOURNAL_WIKI_DIR', prevWiki);
     }
   });
 
-  it('falls back to config when env is unset', () => {
+  it('falls back to config when env is unset', async () => {
     const prevDir = process.env.ROCKY_JOURNAL_DIR;
+    const prevWiki = process.env.ROCKY_JOURNAL_WIKI_DIR;
     try {
       delete process.env.ROCKY_JOURNAL_DIR;
+      delete process.env.ROCKY_JOURNAL_WIKI_DIR;
       const j = createJournalFromEnv({ dir });
       expect(j.getDir()).toBe(resolve(dir));
+      const s = await j.status();
+      expect(s.dirSource).toBe('config');
+      // wikiDir 은 config 에도 없으니 unset.
+      expect(s.wikiDirSource).toBe('unset');
     } finally {
       restoreEnv('ROCKY_JOURNAL_DIR', prevDir);
+      restoreEnv('ROCKY_JOURNAL_WIKI_DIR', prevWiki);
+    }
+  });
+
+  it('reports dirSource=default when neither env nor config is set', async () => {
+    const prevDir = process.env.ROCKY_JOURNAL_DIR;
+    const prevWiki = process.env.ROCKY_JOURNAL_WIKI_DIR;
+    try {
+      delete process.env.ROCKY_JOURNAL_DIR;
+      delete process.env.ROCKY_JOURNAL_WIKI_DIR;
+      const j = createJournalFromEnv();
+      const s = await j.status();
+      expect(s.dirSource).toBe('default');
+      expect(s.wikiDirSource).toBe('unset');
+    } finally {
+      restoreEnv('ROCKY_JOURNAL_DIR', prevDir);
+      restoreEnv('ROCKY_JOURNAL_WIKI_DIR', prevWiki);
     }
   });
 });

@@ -253,7 +253,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     'journal_append',
     {
       description:
-        '에이전트 저널에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)',
+        '에이전트 저널에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. 저장 위치는 `journal.dir`(rocky.json) 또는 `ROCKY_JOURNAL_DIR`(env 우선)로 변경 가능(journal_status 로 확인). (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)',
       inputSchema: {
         content: z.string(),
         kind: z.string().optional(),
@@ -298,7 +298,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     'journal_status',
     {
       description:
-        '저널 메타(파일 경로, 존재 여부, 유효 항목 수 — 손상 라인 skip, 바이트 크기, 마지막 항목 시각) + 정리 대상 wikiDir + 마지막 curate watermark 를 조회한다. `/rocky:curate` 가 정리 시작 시 이걸로 wikiDir 과 증분 기준점을 확인한다. remote 호출 없음.',
+        '저널 메타(파일 경로, 존재 여부, 유효 항목 수 — 손상 라인 skip, 바이트 크기, 마지막 항목 시각) + 정리 대상 wikiDir + 마지막 curate watermark + 경로 출처(dirSource / wikiDirSource)를 조회한다. `/rocky:curate` 가 정리 시작 시 이걸로 wikiDir 과 증분 기준점을 확인한다. remote 호출 없음. 저널 저장 위치는 `journal.dir`(rocky.json) 또는 `ROCKY_JOURNAL_DIR`(env 우선)로, curate 정리 위치는 `journal.wikiDir` 또는 `ROCKY_JOURNAL_WIKI_DIR`(env 우선)로 변경 가능하다 — 현재 어디서 왔는지는 dirSource / wikiDirSource 로 확인.',
       inputSchema: {},
     },
     async () => jsonResult(await handleJournalStatus(journal)),

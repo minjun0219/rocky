@@ -119,6 +119,21 @@ export interface JournalSearchOptions {
   kind?: string;
 }
 
+/**
+ * 저널 dir 의 해석 출처. `createJournalFromEnv` 의 우선순위와 1:1 로 대응한다:
+ * env(`ROCKY_JOURNAL_DIR`) 있으면 `'env'`, 없고 config(`journal.dir`) 있으면 `'config'`,
+ * 둘 다 없으면 계산된 프로젝트별 기본 경로라 `'default'`. 이 값을 status 로 노출해,
+ * 소스를 안 읽어도 저장 위치가 어디서 왔는지 / 바꿀 수 있는지 발견 가능하게 한다.
+ */
+export type JournalDirSource = 'env' | 'config' | 'default';
+
+/**
+ * 저널 wikiDir 의 해석 출처. env(`ROCKY_JOURNAL_WIKI_DIR`) 있으면 `'env'`, 없고
+ * config(`journal.wikiDir`) 있으면 `'config'`, 둘 다 없으면 `'unset'` — 미설정이라
+ * `wikiDir` 필드 자체는 빠져도 이 힌트로 curate 대상이 미설정임을 발견 가능하게 한다.
+ */
+export type JournalWikiDirSource = 'env' | 'config' | 'unset';
+
 export interface JournalStatus {
   path: string;
   exists: boolean;
@@ -131,6 +146,18 @@ export interface JournalStatus {
    * 가 journal 을 읽어 이 위치로 markdown 을 컴파일한다. 미설정이면 undefined.
    */
   wikiDir?: string;
+  /**
+   * 저널 저장 dir(`path` 의 부모)이 어디서 왔는지. `'env'` = `ROCKY_JOURNAL_DIR`,
+   * `'config'` = `rocky.json` 의 `journal.dir`, `'default'` = 프로젝트별 기본 경로.
+   * 소스를 안 읽어도 저장 위치가 변경 가능함을 status 만으로 발견하게 하는 힌트.
+   */
+  dirSource: JournalDirSource;
+  /**
+   * 정리 대상 wikiDir 의 출처. `'env'` = `ROCKY_JOURNAL_WIKI_DIR`, `'config'` =
+   * `rocky.json` 의 `journal.wikiDir`, `'unset'` = 미설정(그래서 `wikiDir` 필드도 없음).
+   * `'unset'` 이면 curate 대상을 아직 지정하지 않았고 위 두 방법으로 설정할 수 있다는 뜻.
+   */
+  wikiDirSource: JournalWikiDirSource;
   /** 마지막 `kind:"curate"` watermark 의 timestamp (있으면). 증분 정리의 기준점. */
   lastCurateAt?: string;
   /**
@@ -147,6 +174,17 @@ export interface AgentJournalOptions {
   wikiDir?: string;
   /** 프로젝트 키 override (기본 `defaultProjectKey()`). 테스트에서 고정할 때 쓴다. */
   projectKey?: string;
+  /**
+   * 저널 dir 의 해석 출처 (status 노출용). `createJournalFromEnv` 가 env/config/기본값
+   * 판정을 넘겨준다. 미지정이면 `baseDir` 유무로 추정한다 — 주어졌으면 `'config'`,
+   * 없으면 `'default'` (직접 생성하는 테스트가 명시 없이도 합리적 값을 얻도록).
+   */
+  dirSource?: JournalDirSource;
+  /**
+   * wikiDir 의 해석 출처 (status 노출용). 미지정이면 `wikiDir` 유무로 추정한다 —
+   * 주어졌으면 `'config'`, 없으면 `'unset'`.
+   */
+  wikiDirSource?: JournalWikiDirSource;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -162,6 +200,8 @@ export class AgentJournal {
   private readonly file: string;
   private readonly wikiDir?: string;
   private readonly projectKey: string;
+  private readonly dirSource: JournalDirSource;
+  private readonly wikiDirSource: JournalWikiDirSource;
 
   constructor(options: AgentJournalOptions = {}) {
     this.dir = resolve(options.baseDir ? expandTilde(options.baseDir) : resolveDefaultJournalDir());
@@ -171,6 +211,10 @@ export class AgentJournal {
         ? resolve(expandTilde(options.wikiDir.trim()))
         : undefined;
     this.projectKey = options.projectKey ?? defaultProjectKey();
+    // 출처가 명시되지 않으면 baseDir / wikiDir 유무로 추정한다 (직접 생성 경로용).
+    // createJournalFromEnv 는 env/config/기본값 판정을 명시적으로 넘겨준다.
+    this.dirSource = options.dirSource ?? (options.baseDir ? 'config' : 'default');
+    this.wikiDirSource = options.wikiDirSource ?? (this.wikiDir ? 'config' : 'unset');
   }
 
   getDir(): string {
@@ -335,6 +379,8 @@ export class AgentJournal {
         totalEntries: 0,
         sizeBytes: 0,
         projectKey: this.projectKey,
+        dirSource: this.dirSource,
+        wikiDirSource: this.wikiDirSource,
         ...(this.wikiDir ? { wikiDir: this.wikiDir } : {}),
       };
     }
@@ -354,6 +400,8 @@ export class AgentJournal {
       totalEntries: all.length,
       sizeBytes,
       projectKey: this.projectKey,
+      dirSource: this.dirSource,
+      wikiDirSource: this.wikiDirSource,
       lastEntryAt: last?.timestamp,
       ...(this.wikiDir ? { wikiDir: this.wikiDir } : {}),
       ...(lastCurate ? { lastCurateAt: lastCurate.timestamp } : {}),
@@ -508,7 +556,18 @@ export interface JournalEnvOptions {
 export function createJournalFromEnv(config: JournalEnvOptions = {}): AgentJournal {
   const baseDir = firstNonEmpty(process.env.ROCKY_JOURNAL_DIR, config.dir);
   const wikiDir = firstNonEmpty(process.env.ROCKY_JOURNAL_WIKI_DIR, config.wikiDir);
-  return new AgentJournal({ baseDir, wikiDir });
+  // 해석 출처는 baseDir/wikiDir 계산과 동일한 우선순위로 판정해 status 로 노출한다.
+  const dirSource: JournalDirSource = firstNonEmpty(process.env.ROCKY_JOURNAL_DIR)
+    ? 'env'
+    : firstNonEmpty(config.dir)
+      ? 'config'
+      : 'default';
+  const wikiDirSource: JournalWikiDirSource = firstNonEmpty(process.env.ROCKY_JOURNAL_WIKI_DIR)
+    ? 'env'
+    : firstNonEmpty(config.wikiDir)
+      ? 'config'
+      : 'unset';
+  return new AgentJournal({ baseDir, wikiDir, dirSource, wikiDirSource });
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
