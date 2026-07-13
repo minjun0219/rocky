@@ -2,8 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "rocky-local",
   "owner": {
-    "name": "Minjun Kim",
-    "email": "eutrue@gmail.com"
+    "name": "Minjun Kim"
   },
   "description": "Local marketplace serving the rocky Claude Code plugin straight from this dev repo (directory source, read in place — no façade).",
   "plugins": [

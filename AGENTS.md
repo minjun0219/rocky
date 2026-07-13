@@ -131,7 +131,7 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 Install for personal use (once):
 
 ```bash
-claude plugin marketplace add /Users/minjun/dev/workspaces/agent-toolkit-rocky
+claude plugin marketplace add .          # 저장소 루트에서 실행
 claude plugin install rocky@rocky-local
 ```
 

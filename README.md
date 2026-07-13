@@ -33,7 +33,7 @@ MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 
 
 ```bash
 bun install
-claude plugin marketplace add /Users/minjun/dev/workspaces/agent-toolkit-rocky
+claude plugin marketplace add .          # 저장소 루트에서 실행
 claude plugin install rocky@rocky-local
 ```
 
