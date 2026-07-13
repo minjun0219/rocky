@@ -29,13 +29,19 @@ MCP tool 외에, Claude Code plugin 은 `commands/` 의 **슬래시 커맨드** 
 
 ### Claude Code plugin
 
-저장소 root 에서 직접 trust 해 개발할 때:
+이 저장소 자체가 플러그인 소스이자 로컬 마켓플레이스다 (`.claude-plugin/marketplace.json`, 별도 파사드 없음). 개인용으로 한 번 설치:
 
-1. `bun install`
-2. Claude Code 가 `.mcp.json` 의 `rocky` stdio 서버 (`bun run ./src/index.ts`) + `context7` 두 서버를 처음 로드할 때 trust prompt 가 뜬다 — 둘 다 승인.
-3. `openapi_envs` / `openapi_get` 등 호출.
+```bash
+bun install
+claude plugin marketplace add /Users/minjun/dev/workspaces/agent-toolkit-rocky
+claude plugin install rocky@rocky-local
+```
 
-marketplace 설치 시에는 `.claude-plugin/plugin.json` 의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 가 그대로 등록된다 — dev 전용 `context7` 는 딸려가지 않는다.
+`directory` 소스 마켓플레이스라 CC 는 저장소를 **제자리에서** 읽는다 (사본 X). 코드나 메타데이터를 고친 뒤 `/reload-plugins` 하면 재시작 없이 반영되고, `openapi_envs` / `openapi_get` 등을 호출한다. 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json` 의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json` 을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다. 개발 중 쓰는 `context7` 은 대신 유저 스코프에 둔다:
+
+```bash
+claude mcp add --scope user --transport http context7 https://mcp.context7.com/mcp
+```
 
 ### `openapi-mcp` 단독 CLI
 
