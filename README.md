@@ -1,10 +1,10 @@
 # Rocky
 
-OpenAPI / Swagger 명세를 캐시-우선으로 둘러보는 MCP toolkit — 이름은 *Project Hail Mary* 의 Rocky (스펙을 번역해 주는 엔지니어) 에서. v0.4 부터 **단일 패키지** 로 정리되어, 한 저장소가 두 배포 타깃을 노출한다:
+OpenAPI / Swagger 명세를 캐시-우선으로 둘러보는 MCP toolkit — 이름은 *Project Hail Mary* 의 Rocky (스펙을 번역해 주는 엔지니어) 에서. v0.4 부터 **단일 패키지** 로 정리되어, 한 저장소가 전체 표면 MCP 서버와 단독 OpenAPI CLI 를 노출한다:
 
-| 배포 타깃 | 역할 | 설치 |
+| 진입점 / 소비 호스트 | 역할 | 설치 |
 | --- | --- | --- |
-| **Claude Code plugin** | `.claude-plugin/plugin.json` 의 `mcpServers` 로 stdio MCP 서버를 등록. marketplace 배포. | Claude Code plugin marketplace |
+| **전체 표면 MCP 서버** (`src/index.ts`) | Claude Code plugin 이 `.claude-plugin/plugin.json` 의 `mcpServers` 로 실행하고, OpenAI Codex CLI 도 `~/.codex/config.toml` 로 같은 서버를 실행. | Claude Code plugin marketplace 또는 Codex MCP 설정 |
 | **`openapi-mcp` 단독 CLI** | 어떤 stdio MCP host (Cursor / Continue / Claude Desktop / …) 든 등록해 쓰는 host-agnostic CLI. `bin/openapi-mcp`. | `bun link` (npm publish 는 별도 PR) |
 
 둘 다 **동일한 7 openapi tool surface** (`openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`) 를 노출한다. 공유 core 는 [`src/core/`](./src/core) — spec 다운로드 / 디스크 캐시 / `$ref` deref / swagger 2.0 → OpenAPI 3 변환 / endpoint 점수화 검색 / handler 함수.
@@ -52,6 +52,10 @@ openapi-mcp --config ~/.config/openapi-mcp/openapi-mcp.json
 ```
 
 config 형태와 host 별 등록 예시는 [`docs/openapi-mcp.md`](./docs/openapi-mcp.md).
+
+### OpenAI Codex CLI
+
+Codex 에서는 `~/.codex/config.toml` 의 `[mcp_servers.rocky]` 로 `bun run /abs/path/to/rocky/src/index.ts` 를 등록하면 Claude Code plugin 과 같은 전체 MCP 도구를 쓴다. 자세한 설정은 [`docs/codex.md`](./docs/codex.md).
 
 ## 개발
 
