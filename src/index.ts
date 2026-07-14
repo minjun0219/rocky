@@ -5,10 +5,11 @@
  * implementations are shared through `./core` (`handleSwagger*`) with the
  * standalone `openapi-mcp` CLI (`./standalone` + `bin/openapi-mcp`).
  *
- * v0.3 부터 toolkit 은 OpenAPI 도메인만 다룬다. 이전 surface 의 journal / mysql / spec-pact /
- * pr-watch / notion 도메인은 `archive/pre-openapi-only-slim` 브랜치에, opencode plugin 은
- * in-tree `.archive/agent-toolkit-opencode/` 에 박제되어 있다. 활용 패턴이 잡히면 ROADMAP 의
- * phase 단위로 재추가된다.
+ * v0.3 부터 toolkit 은 OpenAPI 도메인만 다뤘다. notion (v0.5) 과 worklog (v0.6, 구 journal —
+ * v0.9 에서 개명) 는 이미 재추가되어 활성 도메인이다. 아직 재추가되지 않은 mysql / spec-pact /
+ * pr-watch 도메인은 `archive/pre-openapi-only-slim` 브랜치에, opencode plugin 은 in-tree
+ * `.archive/agent-toolkit-opencode/` 에 박제되어 있다. 활용 패턴이 잡히면 ROADMAP 의 phase
+ * 단위로 재추가된다.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -67,9 +68,9 @@ export interface BuildServerOptions {
    */
   notionCli?: NotionCliExecutor;
   /**
-   * 저널 인스턴스 주입. 미지정이면 `createWorklogFromEnv(config.worklog)` 로 만든다
+   * 워크로그 인스턴스 주입. 미지정이면 `createWorklogFromEnv(config.worklog)` 로 만든다
    * (env `ROCKY_WORKLOG_DIR` > `rocky.json` 의 worklog 키
-   * > 프로젝트별 기본 경로). 테스트가 tmpdir 저널로 대체할 때 쓴다.
+   * > 프로젝트별 기본 경로). 테스트가 tmpdir 워크로그로 대체할 때 쓴다.
    */
   worklog?: Worklog;
 }
@@ -246,14 +247,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
   );
 
   // worklog_* 는 기록(記錄) 레이어 — append-only 로컬 JSONL. 외부 의존이 없어(순수 파일
-  // 시스템) notion 처럼 CLI-gate 하지 않고 무조건 등록한다. 정리(整理: worklog → wiki 컴파일)
-  // 는 rocky 가 아니라 `/rocky:curate` 슬래시커맨드(호스트 LLM)의 몫이다.
+  // 시스템) notion 처럼 CLI-gate 하지 않고 무조건 등록한다. `Stop` hook (src/hooks/log-turn.ts)
+  // 이 매 턴 종료 시 kind:"turn" 을 자동으로 남기고, 정리(整理: 앵커 히스토리 다이제스트)는
+  // rocky 가 아니라 `/recall` 슬래시커맨드(호스트 LLM)의 몫이다.
   const worklog = options.worklog ?? createWorklogFromEnv(toolkitConfig.worklog);
   server.registerTool(
     'worklog_append',
     {
       description:
-        '에이전트 저널에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. 저장 위치는 `journal.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능(worklog_status 로 확인). (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)',
+        '워크로그에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. 저장 위치는 `worklog.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능(worklog_status 로 확인). (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)',
       inputSchema: {
         content: z.string(),
         kind: z.string().optional(),
@@ -298,7 +300,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     'worklog_status',
     {
       description:
-        '저널 메타(파일 경로, 존재 여부, 유효 항목 수 — 손상 라인 skip, 바이트 크기, 마지막 항목 시각) + 정리 대상 wikiDir + 마지막 curate watermark + 경로 출처(dirSource / wikiDirSource)를 조회한다. `/rocky:curate` 가 정리 시작 시 이걸로 wikiDir 과 증분 기준점을 확인한다. remote 호출 없음. 저널 저장 위치는 `journal.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로, curate 정리 위치는 `journal.wikiDir` 또는 `ROCKY_WORKLOG_WIKI_DIR`(env 우선)로 변경 가능하다 — 현재 어디서 왔는지는 dirSource / wikiDirSource 로 확인.',
+        '워크로그 메타(파일 경로, 존재 여부, 유효 항목 수 — 손상 라인 skip, 바이트 크기, 마지막 항목 시각) + 마지막 digest watermark(lastDigestAt) + 경로 출처(dirSource)를 조회한다. `/recall` 이 정리 시작 시 이걸로 증분 기준점을 확인한다. remote 호출 없음. 저장 위치는 `worklog.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능하다.',
       inputSchema: {},
     },
     async () => jsonResult(await handleWorklogStatus(worklog)),

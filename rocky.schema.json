@@ -4,6 +4,7 @@
   "title": "rocky config",
   "description": "Plugin-wide configuration for the rocky Claude Code plugin — `rocky.json`. Project config (./rocky.json) overrides user config (~/.config/rocky/rocky.json) at the leaf level. The standalone openapi-mcp CLI uses a separate file (`openapi-mcp.json`) with a different shape — see src/core/schema.ts and docs/openapi-mcp.md.",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",

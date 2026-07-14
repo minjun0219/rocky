@@ -56,8 +56,8 @@ export function resolveDefaultWorklogDir(): string {
 }
 
 /**
- * 앞머리 `~` / `~/` 를 홈 디렉터리로 확장한다. 사용자가 `rocky.json` 의 `journal.dir` /
- * `journal.wikiDir` 나 env 에 `~/...` 를 적어도 동작하게 — `node:path` 의 `resolve` 는
+ * 앞머리 `~` / `~/` 를 홈 디렉터리로 확장한다. 사용자가 `rocky.json` 의 `worklog.dir` 나
+ * env 에 `~/...` 를 적어도 동작하게 — `node:path` 의 `resolve` 는
  * tilde 를 확장하지 않아 그대로 두면 `<cwd>/~/...` 가 되어버린다.
  */
 export function expandTilde(input: string): string {
@@ -389,8 +389,8 @@ export class Worklog {
    *     비어 보이지 않게 정상 라인은 살린다.
    *   - **파일 부재(ENOENT) / 경쟁적 삭제** → 빈 배열. 아직 아무것도 안 쓴 정상 상태.
    *   - **그 외 IO 오류(EACCES / EPERM / EIO …)** → rethrow. 실제 오류를 `[]` 로 삼키면
-   *     read/search/status 가 조용히 비어 데이터가 사라진 것처럼 보이고 `/curate` 의
-   *     증분 기준(`lastCurateAt`)이 오산된다. `append` 가 같은 상황에서 throw 하는 것과
+   *     read/search/status 가 조용히 비어 데이터가 사라진 것처럼 보이고 `/recall` 의
+   *     증분 기준(`lastDigestAt`)이 오산된다. `append` 가 같은 상황에서 throw 하는 것과
    *     대칭을 맞춘다.
    */
   private async readAll(): Promise<WorklogEntry[]> {
