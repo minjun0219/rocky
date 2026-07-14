@@ -37,7 +37,7 @@ export function handleWorklogSearch(
   return worklog.search(query, options);
 }
 
-/** 도구 핸들러: 저널 메타 + wikiDir + 마지막 curate watermark. */
+/** 도구 핸들러: worklog 메타 + 마지막 digest watermark(lastDigestAt). */
 export function handleWorklogStatus(worklog: Worklog): Promise<WorklogStatus> {
   return worklog.status();
 }

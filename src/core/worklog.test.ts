@@ -172,7 +172,6 @@ describe('Worklog.status', () => {
     expect(s.lastEntryAt).toBeUndefined();
     // 출처 힌트는 write 전에도 항상 노출된다.
     expect(s.dirSource).toBe('config');
-    expect(s.wikiDirSource).toBe('unset');
   });
 
   it('reports totalEntries / lastEntryAt after writes', async () => {
@@ -185,68 +184,11 @@ describe('Worklog.status', () => {
     expect(s.lastEntryAt).toBe(last.timestamp);
   });
 
-  it('surfaces wikiDir / projectKey / lastCurateAt for the curate workflow', async () => {
-    const withWiki = new Worklog({
-      baseDir: dir,
-      wikiDir: '/tmp/vault',
-      projectKey: 'myproj-deadbeef',
-    });
-    await withWiki.append({ content: 'a decision', kind: 'decision' });
-    const before = await withWiki.status();
-    expect(before.wikiDir).toBe(resolve('/tmp/vault'));
-    expect(before.projectKey).toBe('myproj-deadbeef');
-    expect(before.lastCurateAt).toBeUndefined();
-
-    const mark = await withWiki.append({ content: 'curated 1 page', kind: 'curate' });
-    const after = await withWiki.status();
-    expect(after.lastCurateAt).toBe(mark.timestamp);
-  });
-
   it('includes projectKey even before any writes', async () => {
     const j = new Worklog({ baseDir: dir, projectKey: 'x-12345678' });
     const s = await j.status();
     expect(s.exists).toBe(false);
     expect(s.projectKey).toBe('x-12345678');
-  });
-
-  it('surfaces explicit dirSource / wikiDirSource unchanged before and after writes', async () => {
-    const j = new Worklog({
-      baseDir: dir,
-      wikiDir: '/tmp/vault',
-      dirSource: 'env',
-      wikiDirSource: 'config',
-    });
-    const before = await j.status();
-    expect(before.dirSource).toBe('env');
-    expect(before.wikiDirSource).toBe('config');
-    await j.append({ content: 'a' });
-    const after = await j.status();
-    expect(after.dirSource).toBe('env');
-    expect(after.wikiDirSource).toBe('config');
-  });
-
-  it('infers dirSource=default / wikiDirSource=unset when neither is provided', async () => {
-    const j = new Worklog({ projectKey: 'x-12345678' });
-    const s = await j.status();
-    expect(s.dirSource).toBe('default');
-    expect(s.wikiDirSource).toBe('unset');
-    expect(s.wikiDir).toBeUndefined();
-  });
-
-  it('clamps wikiDirSource=unset to config when wikiDir is present (invariant)', async () => {
-    const j = new Worklog({ baseDir: dir, wikiDir: '/tmp/vault', wikiDirSource: 'unset' });
-    const s = await j.status();
-    expect(s.wikiDir).toBe(resolve('/tmp/vault'));
-    // wikiDir 이 있으면 'unset' 은 불가능 — 'config' 로 교정된다.
-    expect(s.wikiDirSource).toBe('config');
-  });
-
-  it('clamps wikiDirSource=env to unset when wikiDir is absent (invariant)', async () => {
-    const j = new Worklog({ baseDir: dir, wikiDirSource: 'env' });
-    const s = await j.status();
-    expect(s.wikiDir).toBeUndefined();
-    // wikiDir 이 없으면 넘어온 값 무시하고 항상 'unset'.
-    expect(s.wikiDirSource).toBe('unset');
   });
 
   it('clamps dirSource=default to config when baseDir is present (invariant)', async () => {
@@ -259,13 +201,22 @@ describe('Worklog.status', () => {
   it('preserves a valid explicit env source (no over-clamping)', async () => {
     const j = new Worklog({
       baseDir: dir,
-      wikiDir: '/tmp/vault',
       dirSource: 'env',
-      wikiDirSource: 'env',
     });
     const s = await j.status();
     expect(s.dirSource).toBe('env');
-    expect(s.wikiDirSource).toBe('env');
+  });
+
+  it('surfaces lastDigestAt from the newest kind:"digest" entry', async () => {
+    const w = new Worklog({ baseDir: dir, projectKey: 'p-fixed' });
+    expect((await w.status()).lastDigestAt).toBeUndefined();
+    await w.append({ content: 'a turn happened', kind: 'turn', tags: ['turn'] });
+    const mark = await w.append({ content: 'digest of 1 turn', kind: 'digest' });
+    const after = await w.status();
+    expect(after.lastDigestAt).toBe(mark.timestamp);
+    expect(after.projectKey).toBe('p-fixed');
+    expect((after as unknown as Record<string, unknown>).wikiDir).toBeUndefined();
+    expect((after as unknown as Record<string, unknown>).wikiDirSource).toBeUndefined();
   });
 });
 
@@ -281,63 +232,48 @@ describe('expandTilde', () => {
     expect(expandTilde('/x/~y')).toBe('/x/~y');
   });
 
-  it('is applied to baseDir / wikiDir so ~ paths resolve under home', () => {
-    const j = new Worklog({ baseDir: '~/rocky-j-test', wikiDir: '~/rocky-v-test' });
+  it('is applied to baseDir so ~ paths resolve under home', () => {
+    const j = new Worklog({ baseDir: '~/rocky-j-test' });
     expect(j.getDir()).toBe(join(homedir(), 'rocky-j-test'));
-    expect(j.getWikiDir()).toBe(join(homedir(), 'rocky-v-test'));
   });
 });
 
 describe('createWorklogFromEnv', () => {
-  it('lets ROCKY_WORKLOG_DIR / ROCKY_WORKLOG_WIKI_DIR win over config', async () => {
+  it('lets ROCKY_WORKLOG_DIR win over config', async () => {
     const prevDir = process.env.ROCKY_WORKLOG_DIR;
-    const prevWiki = process.env.ROCKY_WORKLOG_WIKI_DIR;
     try {
       process.env.ROCKY_WORKLOG_DIR = dir;
-      process.env.ROCKY_WORKLOG_WIKI_DIR = '/tmp/env-vault';
-      const j = createWorklogFromEnv({ dir: '/tmp/config-dir', wikiDir: '/tmp/config-vault' });
+      const j = createWorklogFromEnv({ dir: '/tmp/config-dir' });
       expect(j.getDir()).toBe(resolve(dir));
-      expect(j.getWikiDir()).toBe(resolve('/tmp/env-vault'));
       const s = await j.status();
       expect(s.dirSource).toBe('env');
-      expect(s.wikiDirSource).toBe('env');
     } finally {
       restoreEnv('ROCKY_WORKLOG_DIR', prevDir);
-      restoreEnv('ROCKY_WORKLOG_WIKI_DIR', prevWiki);
     }
   });
 
   it('falls back to config when env is unset', async () => {
     const prevDir = process.env.ROCKY_WORKLOG_DIR;
-    const prevWiki = process.env.ROCKY_WORKLOG_WIKI_DIR;
     try {
       delete process.env.ROCKY_WORKLOG_DIR;
-      delete process.env.ROCKY_WORKLOG_WIKI_DIR;
       const j = createWorklogFromEnv({ dir });
       expect(j.getDir()).toBe(resolve(dir));
       const s = await j.status();
       expect(s.dirSource).toBe('config');
-      // wikiDir 은 config 에도 없으니 unset.
-      expect(s.wikiDirSource).toBe('unset');
     } finally {
       restoreEnv('ROCKY_WORKLOG_DIR', prevDir);
-      restoreEnv('ROCKY_WORKLOG_WIKI_DIR', prevWiki);
     }
   });
 
   it('reports dirSource=default when neither env nor config is set', async () => {
     const prevDir = process.env.ROCKY_WORKLOG_DIR;
-    const prevWiki = process.env.ROCKY_WORKLOG_WIKI_DIR;
     try {
       delete process.env.ROCKY_WORKLOG_DIR;
-      delete process.env.ROCKY_WORKLOG_WIKI_DIR;
       const j = createWorklogFromEnv();
       const s = await j.status();
       expect(s.dirSource).toBe('default');
-      expect(s.wikiDirSource).toBe('unset');
     } finally {
       restoreEnv('ROCKY_WORKLOG_DIR', prevDir);
-      restoreEnv('ROCKY_WORKLOG_WIKI_DIR', prevWiki);
     }
   });
 });

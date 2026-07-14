@@ -13,10 +13,8 @@ import { resolveCacheKey } from './notion-cache';
  * 이유는 — 캐시는 외부 source of truth 의 사본이지만, 저널은 그 자체가 source of
  * truth 이기 때문이다. 따라서 만료 / 무효화 / 덮어쓰기 없음.
  *
- * 이 클래스는 **기록·저장만** 담당한다. worklog 를 읽어 지식 wiki 로 증류(整理)하는
- * 것은 rocky 가 아니라 호스트 LLM (`/rocky:curate` 슬래시커맨드) 의 몫이다 — rocky 는
- * MCP 서버라 LLM 을 내장하지 않는다. `wikiDir` 는 그 정리 대상 위치를 status 로 노출만
- * 한다 (여기서 wiki 를 쓰지는 않는다).
+ * 이 클래스는 **기록·저장만** 담당한다. worklog 를 읽어 지식으로 증류(整理)하는
+ * 것은 rocky 가 아니라 호스트 LLM 의 몫이다 — rocky 는 MCP 서버라 LLM 을 내장하지 않는다.
  *
  * 디스크 레이아웃:
  *   <baseDir>/worklog.jsonl   각 줄이 하나의 WorklogEntry
@@ -74,10 +72,17 @@ export function expandTilde(input: string): string {
 
 /**
  * 항목 종류. 저널은 자유 문자열을 허용하지만 흔한 값들을 권장으로 둔다.
- * `curate` 는 `/rocky:curate` 가 정리 시점을 남기는 watermark 종류 — 다음 정리는 이
- * 항목 이후만 증분 처리한다.
+ * `digest` 는 호스트가 정리 시점을 남기는 watermark 종류 — 다음 정리는 이 항목
+ * 이후만 증분 처리한다.
  */
-export type WorklogKind = 'decision' | 'blocker' | 'answer' | 'note' | 'curate' | (string & {});
+export type WorklogKind =
+  | 'decision'
+  | 'blocker'
+  | 'answer'
+  | 'note'
+  | 'turn'
+  | 'digest'
+  | (string & {});
 
 /**
  * 저널 한 줄.
@@ -127,13 +132,6 @@ export interface WorklogSearchOptions {
  */
 export type WorklogDirSource = 'env' | 'config' | 'default';
 
-/**
- * 저널 wikiDir 의 해석 출처. env(`ROCKY_WORKLOG_WIKI_DIR`) 있으면 `'env'`, 없고
- * config(`journal.wikiDir`) 있으면 `'config'`, 둘 다 없으면 `'unset'` — 미설정이라
- * `wikiDir` 필드 자체는 빠져도 이 힌트로 curate 대상이 미설정임을 발견 가능하게 한다.
- */
-export type WorklogWikiDirSource = 'env' | 'config' | 'unset';
-
 export interface WorklogStatus {
   path: string;
   exists: boolean;
@@ -142,36 +140,22 @@ export interface WorklogStatus {
   sizeBytes: number;
   lastEntryAt?: string;
   /**
-   * 정리(整理) 대상 wiki 위치 (설정된 경우). rocky 는 여기에 쓰지 않는다 — `/rocky:curate`
-   * 가 worklog 를 읽어 이 위치로 markdown 을 컴파일한다. 미설정이면 undefined.
-   */
-  wikiDir?: string;
-  /**
    * 저널 저장 dir(`path` 의 부모)이 어디서 왔는지. `'env'` = `ROCKY_WORKLOG_DIR`,
    * `'config'` = `rocky.json` 의 `journal.dir`, `'default'` = 프로젝트별 기본 경로.
    * 소스를 안 읽어도 저장 위치가 변경 가능함을 status 만으로 발견하게 하는 힌트.
    */
   dirSource: WorklogDirSource;
+  /** 마지막 `kind:"digest"` watermark 의 timestamp. `/recall` 증분 정리 기준점. */
+  lastDigestAt?: string;
   /**
-   * 정리 대상 wikiDir 의 출처. `'env'` = `ROCKY_WORKLOG_WIKI_DIR`, `'config'` =
-   * `rocky.json` 의 `journal.wikiDir`, `'unset'` = 미설정(그래서 `wikiDir` 필드도 없음).
-   * `'unset'` 이면 curate 대상을 아직 지정하지 않았고 위 두 방법으로 설정할 수 있다는 뜻.
-   */
-  wikiDirSource: WorklogWikiDirSource;
-  /** 마지막 `kind:"curate"` watermark 의 timestamp (있으면). 증분 정리의 기준점. */
-  lastCurateAt?: string;
-  /**
-   * 프로젝트 식별 키 (`<basename>-<hash8>`). `/rocky:curate` 가 wiki 를 프로젝트별
-   * 하위 폴더 (`<wikiDir>/<projectKey>/`) 로 격리할 때 쓴다 — 한 vault 를 여러 프로젝트가
-   * 공유해도 섞이지 않는다.
+   * 프로젝트 식별 키 (`<basename>-<hash8>`). 정리 레이어가 결과물을 프로젝트별로
+   * 격리할 때 쓴다 — 여러 프로젝트가 하나의 정리 대상을 공유해도 섞이지 않는다.
    */
   projectKey: string;
 }
 
 export interface WorklogOptions {
   baseDir?: string;
-  /** 정리 대상 wiki 위치. status 로 노출만 한다 (기록 동작에는 영향 없음). */
-  wikiDir?: string;
   /** 프로젝트 키 override (기본 `defaultProjectKey()`). 테스트에서 고정할 때 쓴다. */
   projectKey?: string;
   /**
@@ -181,13 +165,6 @@ export interface WorklogOptions {
    * 있는데 미지정/`'default'` 면 `'config'` 로 교정.
    */
   dirSource?: WorklogDirSource;
-  /**
-   * wikiDir 의 해석 출처 (status 노출용). 생성자가 불변식
-   * (`wikiDirSource === 'unset' ⟺ wikiDir === undefined`)을 강제하므로 모순되는 값은
-   * 클램프된다 — `wikiDir` 없으면 항상 `'unset'`, 있는데 미지정/`'unset'` 이면
-   * `'config'` 로 교정.
-   */
-  wikiDirSource?: WorklogWikiDirSource;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -201,18 +178,12 @@ const DEFAULT_LIMIT = 20;
 export class Worklog {
   private readonly dir: string;
   private readonly file: string;
-  private readonly wikiDir?: string;
   private readonly projectKey: string;
   private readonly dirSource: WorklogDirSource;
-  private readonly wikiDirSource: WorklogWikiDirSource;
 
   constructor(options: WorklogOptions = {}) {
     this.dir = resolve(options.baseDir ? expandTilde(options.baseDir) : resolveDefaultWorklogDir());
     this.file = join(this.dir, WORKLOG_FILE);
-    this.wikiDir =
-      typeof options.wikiDir === 'string' && options.wikiDir.trim().length > 0
-        ? resolve(expandTilde(options.wikiDir.trim()))
-        : undefined;
     this.projectKey = options.projectKey ?? defaultProjectKey();
     // 출처 힌트의 불변식을 생성자에서 강제해 invalid state 를 배제한다 — status 의
     // discoverability 힌트가 항상 실제 경로 상태와 일치하도록. 유일한 팩토리
@@ -225,14 +196,6 @@ export class Worklog {
         ? options.dirSource
         : 'config'
       : 'default';
-    // wikiDir: `wikiDirSource === 'unset' ⟺ wikiDir === undefined`.
-    //   wikiDir 있으면 'env'|'config' 만 허용 (없거나 'unset' 이면 'config' 로 클램프),
-    //   없으면 항상 'unset'.
-    this.wikiDirSource = this.wikiDir
-      ? options.wikiDirSource && options.wikiDirSource !== 'unset'
-        ? options.wikiDirSource
-        : 'config'
-      : 'unset';
   }
 
   getDir(): string {
@@ -241,10 +204,6 @@ export class Worklog {
 
   getPath(): string {
     return this.file;
-  }
-
-  getWikiDir(): string | undefined {
-    return this.wikiDir;
   }
 
   getProjectKey(): string {
@@ -386,8 +345,8 @@ export class Worklog {
   }
 
   /**
-   * 저널 메타 (파일 존재, 유효 항목 수, 바이트 크기, 마지막 항목 시각) + 정리 대상
-   * wikiDir + 마지막 curate watermark. `totalEntries` 는 유효 entry 만 센다.
+   * 저널 메타 (파일 존재, 유효 항목 수, 바이트 크기, 마지막 항목 시각) + 마지막
+   * digest watermark. `totalEntries` 는 유효 entry 만 센다.
    */
   async status(): Promise<WorklogStatus> {
     if (!existsSync(this.file)) {
@@ -398,8 +357,6 @@ export class Worklog {
         sizeBytes: 0,
         projectKey: this.projectKey,
         dirSource: this.dirSource,
-        wikiDirSource: this.wikiDirSource,
-        ...(this.wikiDir ? { wikiDir: this.wikiDir } : {}),
       };
     }
     let sizeBytes = 0;
@@ -411,7 +368,7 @@ export class Worklog {
     }
     const all = await this.readAll();
     const last = all[all.length - 1];
-    const lastCurate = [...all].reverse().find((e) => e.kind === 'curate');
+    const lastDigest = [...all].reverse().find((e) => e.kind === 'digest');
     return {
       path: this.file,
       exists: true,
@@ -419,10 +376,8 @@ export class Worklog {
       sizeBytes,
       projectKey: this.projectKey,
       dirSource: this.dirSource,
-      wikiDirSource: this.wikiDirSource,
       lastEntryAt: last?.timestamp,
-      ...(this.wikiDir ? { wikiDir: this.wikiDir } : {}),
-      ...(lastCurate ? { lastCurateAt: lastCurate.timestamp } : {}),
+      ...(lastDigest ? { lastDigestAt: lastDigest.timestamp } : {}),
     };
   }
 
@@ -559,33 +514,22 @@ function normalizeEntry(value: unknown): WorklogEntry | null {
   };
 }
 
-/** 저널 dir / wikiDir 기본값 (env 우선). config 로 채워질 수 있는 선택 필드. */
+/** 저널 dir 기본값 (env 우선). config 로 채워질 수 있는 선택 필드. */
 export interface WorklogEnvOptions {
   /** config.journal.dir — env `ROCKY_WORKLOG_DIR` 이 있으면 env 가 우선. */
   dir?: string;
-  /** config.journal.wikiDir — env `ROCKY_WORKLOG_WIKI_DIR` 이 있으면 env 가 우선. */
-  wikiDir?: string;
 }
 
 /**
- * env(`ROCKY_WORKLOG_DIR` / `ROCKY_WORKLOG_WIKI_DIR`) → config → 계산된 기본값 순으로
- * 저널 인스턴스를 만든다. env 가 명시적 per-process override 라 config 를 이긴다.
+ * env(`ROCKY_WORKLOG_DIR`) → config → 계산된 기본값 순으로 저널 인스턴스를 만든다.
+ * env 가 명시적 per-process override 라 config 를 이긴다.
  */
 export function createWorklogFromEnv(config: WorklogEnvOptions = {}): Worklog {
-  // 소스별 값을 한 번만 추출해 baseDir/dirSource, wikiDir/wikiDirSource 를 파생한다.
-  // firstNonEmpty 가 trim + 빈문자 처리를 하므로 `envDir ?? configDir` 는 기존
-  // `firstNonEmpty(env, config)` 와 동치 — env 우선, 없으면 config, 둘 다 없으면 undefined.
   const envDir = firstNonEmpty(process.env.ROCKY_WORKLOG_DIR);
   const configDir = firstNonEmpty(config.dir);
   const baseDir = envDir ?? configDir;
   const dirSource: WorklogDirSource = envDir ? 'env' : configDir ? 'config' : 'default';
-
-  const envWiki = firstNonEmpty(process.env.ROCKY_WORKLOG_WIKI_DIR);
-  const configWiki = firstNonEmpty(config.wikiDir);
-  const wikiDir = envWiki ?? configWiki;
-  const wikiDirSource: WorklogWikiDirSource = envWiki ? 'env' : configWiki ? 'config' : 'unset';
-
-  return new Worklog({ baseDir, wikiDir, dirSource, wikiDirSource });
+  return new Worklog({ baseDir, dirSource });
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
