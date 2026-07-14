@@ -83,15 +83,15 @@ export interface SeoConfig {
 }
 
 /**
- * `journal_*` 도구 + `/rocky:curate` 정리 스킬 설정. 모든 필드는 env 로 override 된다
- * (`ROCKY_JOURNAL_DIR` / `ROCKY_JOURNAL_WIKI_DIR` 가 우선).
+ * `worklog_*` 도구 + `/rocky:curate` 정리 스킬 설정. 모든 필드는 env 로 override 된다
+ * (`ROCKY_WORKLOG_DIR` / `ROCKY_WORKLOG_WIKI_DIR` 가 우선).
  */
 export interface JournalConfig {
-  /** 저널 JSONL 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/journal/<key>`). */
+  /** 저널 JSONL 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/worklog/<key>`). */
   dir?: string;
   /**
    * 정리(整理) 대상 wiki 위치 (Obsidian vault 등). rocky 는 여기에 쓰지 않는다 —
-   * `/rocky:curate` 가 저널을 읽어 이 위치로 markdown 을 컴파일한다. `journal_status` 로 노출.
+   * `/rocky:curate` 가 저널을 읽어 이 위치로 markdown 을 컴파일한다. `worklog_status` 로 노출.
    */
   wikiDir?: string;
 }
@@ -217,7 +217,7 @@ function validateSeo(seo: unknown, source: string): void {
 const ALLOWED_JOURNAL_KEYS = new Set(['dir', 'wikiDir']);
 
 /**
- * `journal` 객체 모양 검증. `journal_*` 도구 + `/rocky:curate` 설정을 받는다 — 미지원
+ * `journal` 객체 모양 검증. `worklog_*` 도구 + `/rocky:curate` 설정을 받는다 — 미지원
  * key 는 reject. dir / wikiDir 은 비어 있지 않은 문자열이어야 한다.
  */
 function validateJournal(journal: unknown, source: string): void {
