@@ -94,13 +94,13 @@ bun test                               # src/index.test.ts 표면 가드 포함
   git -C "$WT" clean -fq -- .opencode-last.txt   # untracked 캡처 파일 제거 (rm 불필요 → allowed-tools 의 git 만 사용)
   git -C "$WT" add -A
   git -C "$WT" commit -m "<한국어 커밋 제목>"
-  # 원 작업트리로 돌아와 squash 병합
-  cd - >/dev/null
-  git merge --squash "opencode/<slug>"
-  git commit -m "<한국어 커밋 제목>"
+  # 메인 worktree 경로를 git 으로 계산해(OLDPWD/cwd 비의존) 그쪽에서 squash 병합
+  MAIN="$(git -C "$WT" worktree list --porcelain | sed -n '1s/^worktree //p')"
+  git -C "$MAIN" merge --squash "opencode/<slug>"
+  git -C "$MAIN" commit -m "<한국어 커밋 제목>"
   # 정리
-  git worktree remove "$WT"
-  git branch -D "opencode/<slug>"
+  git -C "$MAIN" worktree remove "$WT"
+  git -C "$MAIN" branch -D "opencode/<slug>"
   ```
 - **하나라도 실패** → 무엇을 깼는지(게이트/표면/스코프)를 로그 인용과 함께 보고하고
   **병합하지 않는다.** 선택지: (a) 가드레일을 보강해 같은 worktree 에서 opencode 재위임
@@ -108,10 +108,10 @@ bun test                               # src/index.test.ts 표면 가드 포함
   폐기 후 사용자 에스컬레이션.
 
   ```bash
-  # 폐기할 때
-  cd - >/dev/null
-  git worktree remove --force "$WT"
-  git branch -D "opencode/<slug>"
+  # 폐기할 때 (메인 worktree 에서 실행 — OLDPWD/cwd 비의존)
+  MAIN="$(git -C "$WT" worktree list --porcelain | sed -n '1s/^worktree //p')"
+  git -C "$MAIN" worktree remove --force "$WT"
+  git -C "$MAIN" branch -D "opencode/<slug>"
   ```
 
 ### 5. 마무리
