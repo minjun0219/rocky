@@ -516,7 +516,7 @@ function normalizeEntry(value: unknown): WorklogEntry | null {
 
 /** 저널 dir 기본값 (env 우선). config 로 채워질 수 있는 선택 필드. */
 export interface WorklogEnvOptions {
-  /** config.journal.dir — env `ROCKY_WORKLOG_DIR` 이 있으면 env 가 우선. */
+  /** config.worklog.dir — env `ROCKY_WORKLOG_DIR` 이 있으면 env 가 우선. */
   dir?: string;
 }
 

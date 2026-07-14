@@ -67,8 +67,8 @@ export interface BuildServerOptions {
    */
   notionCli?: NotionCliExecutor;
   /**
-   * 저널 인스턴스 주입. 미지정이면 `createWorklogFromEnv(config.journal)` 로 만든다
-   * (env `ROCKY_WORKLOG_DIR` / `ROCKY_WORKLOG_WIKI_DIR` > `rocky.json` 의 journal 키
+   * 저널 인스턴스 주입. 미지정이면 `createWorklogFromEnv(config.worklog)` 로 만든다
+   * (env `ROCKY_WORKLOG_DIR` > `rocky.json` 의 worklog 키
    * > 프로젝트별 기본 경로). 테스트가 tmpdir 저널로 대체할 때 쓴다.
    */
   worklog?: Worklog;
@@ -248,7 +248,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   // worklog_* 는 기록(記錄) 레이어 — append-only 로컬 JSONL. 외부 의존이 없어(순수 파일
   // 시스템) notion 처럼 CLI-gate 하지 않고 무조건 등록한다. 정리(整理: worklog → wiki 컴파일)
   // 는 rocky 가 아니라 `/rocky:curate` 슬래시커맨드(호스트 LLM)의 몫이다.
-  const worklog = options.worklog ?? createWorklogFromEnv(toolkitConfig.journal);
+  const worklog = options.worklog ?? createWorklogFromEnv(toolkitConfig.worklog);
   server.registerTool(
     'worklog_append',
     {

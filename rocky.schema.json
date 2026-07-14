@@ -92,19 +92,28 @@
       },
       "additionalProperties": false
     },
-    "journal": {
+    "worklog": {
       "type": "object",
-      "description": "Settings for the worklog_* tools (append-only agent journal) and the /rocky:curate skill. Every field is overridden by env vars (ROCKY_WORKLOG_DIR / ROCKY_WORKLOG_WIKI_DIR win).",
+      "description": "Settings for the worklog_* tools (append-only agent journal), the Stop hook auto-capture, and the /recall digest.",
       "properties": {
         "dir": {
           "type": "string",
           "minLength": 1,
-          "description": "Directory for the journal JSONL file. Defaults to a per-project path under ~/.config/rocky/worklog/<project-key>. ROCKY_WORKLOG_DIR wins."
+          "description": "worklog JSONL 저장 디렉터리. Defaults to a per-project path under ~/.config/rocky/worklog/<project-key>. ROCKY_WORKLOG_DIR wins."
         },
-        "wikiDir": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Compile target for /curate — an Obsidian-style markdown location. Point it at a dedicated subfolder of your vault (e.g. ~/vault/rocky), NOT the vault root: /curate writes per-project under <wikiDir>/<projectKey>/ and marks its pages with `source: rocky-curate` so personal notes are never overwritten. Leading ~ is expanded. rocky never writes here itself; the skill (host LLM) does. Surfaced by worklog_status. ROCKY_WORKLOG_WIKI_DIR wins."
+        "autoCapture": {
+          "type": "boolean",
+          "description": "Stop hook 자동 기록 on/off (기본 true). env ROCKY_WORKLOG_AUTO_CAPTURE 가 우선."
+        },
+        "captureMaxChars": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "turn req/did 최대 글자 (기본 800)"
+        },
+        "digestThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "/recall Haiku↔Sonnet 임계 (기본 40)"
         }
       },
       "additionalProperties": false
