@@ -105,11 +105,13 @@ function listDir(dir: string, source: 'preset' | 'custom'): SoulSummary[] {
   const out: SoulSummary[] = [];
   for (const file of names) {
     const path = join(dir, file);
-    const fallback = file.replace(/\.md$/, '');
+    // 정체성 키는 항상 파일명 stem — frontmatter 의 name: 은 identity 로 쓰지 않는다
+    // (readSoul 도 파일명으로 찾으므로, 여기서 어긋나면 listSouls 결과를 readSoul 로 못 찾는다).
+    const stem = file.replace(/\.md$/, '');
     try {
       const parsed = parseFrontmatter(readFileSync(path, 'utf8'));
       out.push({
-        name: parsed.name?.trim() || fallback,
+        name: stem,
         description: parsed.description?.trim() ?? '',
         source,
         path,
@@ -149,14 +151,16 @@ export function readSoul(name: string, dirs: SoulDirs = resolveDefaultSoulDirs()
     try {
       const parsed = parseFrontmatter(readFileSync(path, 'utf8'));
       return {
-        name: parsed.name?.trim() || name,
+        // 정체성 키는 파일명 인자 그 자체 — listDir 과 동일한 규칙으로 맞춘다.
+        name,
         description: parsed.description?.trim() ?? '',
         body: parsed.body,
         source,
         path,
       };
     } catch {
-      return null;
+      // 이 후보(예: 커스텀)를 못 읽으면 다음 후보(예: 프리셋)로 폴백한다 (루프 계속) —
+      // listDir 의 "못 읽는 파일은 건너뛴다" 와 동일한 fail-soft 정책.
     }
   }
   return null;

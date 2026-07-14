@@ -84,6 +84,28 @@ describe('readSoul', () => {
   it('returns null for an unknown soul', () => {
     expect(readSoul('nope', dirs())).toBeNull();
   });
+
+  it('identity is the filename stem, not the frontmatter name', () => {
+    writeFileSync(join(presetDir, 'foo.md'), soulFile('bar', '이름 불일치', '본문'));
+
+    const souls = listSouls(dirs());
+    expect(souls.find((s) => s.name === 'foo')).toBeDefined();
+    expect(souls.find((s) => s.name === 'bar')).toBeUndefined();
+
+    expect(readSoul('foo', dirs())).not.toBeNull();
+    expect(readSoul('bar', dirs())).toBeNull();
+  });
+
+  it('falls back to preset when the custom file exists but is unreadable', () => {
+    // customDir 안에 rocky.md 라는 "디렉터리" 를 만들어 existsSync 는 true, readFileSync 는
+    // EISDIR 로 던지는 상황을 재현한다.
+    mkdirSync(join(customDir, 'rocky.md'));
+
+    const soul = readSoul('rocky', dirs());
+    expect(soul).not.toBeNull();
+    expect(soul?.source).toBe('preset');
+    expect(soul?.body.trim()).toBe('따뜻한 동료 본문');
+  });
 });
 
 describe('buildSoulContext', () => {
