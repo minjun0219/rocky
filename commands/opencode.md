@@ -46,7 +46,7 @@ git worktree add "$WT" -b "opencode/<slug>"
 ### 2. opencode 에 위임 (dispatch)
 
 가드레일을 담은 프롬프트로 opencode 를 비대화형 실행한다. `$ARGUMENTS` 변수를 통해 태스크를 전달한다.
-opencode 에는 `--output-last-message` 등가물이 없으므로 stdout 을 파일로 캡처한다:
+opencode 에는 `--output-last-message` 등가물이 없으므로 stdout/stderr 를 파일로 캡처한다:
 
 ```bash
 opencode run --dir "$WT" --auto \
@@ -91,7 +91,7 @@ bun test                               # src/index.test.ts 표면 가드 포함
 
   ```bash
   # (사용자 승인 후) 임시 캡처 파일 정리 + worktree 에서 opencode 변경을 커밋
-  rm -f "$WT/.opencode-last.txt"
+  git -C "$WT" clean -fq -- .opencode-last.txt   # untracked 캡처 파일 제거 (rm 불필요 → allowed-tools 의 git 만 사용)
   git -C "$WT" add -A
   git -C "$WT" commit -m "<한국어 커밋 제목>"
   # 원 작업트리로 돌아와 squash 병합
