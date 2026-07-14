@@ -95,7 +95,8 @@ bun test                               # src/index.test.ts 표면 가드 포함
   git -C "$WT" add -A
   git -C "$WT" commit -m "<한국어 커밋 제목>"
   # 메인 worktree 경로를 git 으로 계산해(OLDPWD/cwd 비의존) 그쪽에서 squash 병합
-  MAIN="$(git -C "$WT" worktree list --porcelain | sed -n '1s/^worktree //p')"
+  MAIN="$(git -C "$WT" worktree list --porcelain)"   # 첫 항목이 메인 worktree
+  MAIN="${MAIN%%$'\n'*}"; MAIN="${MAIN#worktree }"    # 첫 줄만 → 'worktree ' 접두 제거 (git+shell 만, sed 불필요)
   git -C "$MAIN" merge --squash "opencode/<slug>"
   git -C "$MAIN" commit -m "<한국어 커밋 제목>"
   # 정리
@@ -109,7 +110,8 @@ bun test                               # src/index.test.ts 표면 가드 포함
 
   ```bash
   # 폐기할 때 (메인 worktree 에서 실행 — OLDPWD/cwd 비의존)
-  MAIN="$(git -C "$WT" worktree list --porcelain | sed -n '1s/^worktree //p')"
+  MAIN="$(git -C "$WT" worktree list --porcelain)"   # 첫 항목이 메인 worktree
+  MAIN="${MAIN%%$'\n'*}"; MAIN="${MAIN#worktree }"    # 첫 줄만 → 'worktree ' 접두 제거 (git+shell 만, sed 불필요)
   git -C "$MAIN" worktree remove --force "$WT"
   git -C "$MAIN" branch -D "opencode/<slug>"
   ```
