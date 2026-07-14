@@ -1,7 +1,7 @@
 ---
 description: task 하나를 opencode(opencode run)에 위임해 격리된 git worktree 에서 구현시키고, Claude 가 게이트·MCP 도구 표면·diff 스코프를 감시해 rocky(Claude Code) 플러그인 동작을 깨지 않는지 검증한 뒤에만 현재 브랜치로 병합한다. 자동 병합·자동 push 없음.
 argument-hint: "<opencode 에게 맡길 구현 task>"
-allowed-tools: Bash(opencode:*), Bash(git:*), Bash(bun:*), Bash(which:*), Read, Grep, Glob
+allowed-tools: Bash(opencode:*), Bash(git:*), Bash(bun:*), Read, Grep, Glob
 ---
 
 # opencode — opencode 위임 + Claude 감시
@@ -31,7 +31,7 @@ rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 ope
 ```bash
 git rev-parse --abbrev-ref HEAD        # 현재 브랜치 확인
 git status --porcelain                 # 워킹 트리 clean 확인 (더러우면 먼저 정리 안내 후 멈춤)
-which opencode && opencode --version   # opencode CLI 존재 확인 (없으면 설치 안내 후 멈춤)
+command -v opencode >/dev/null 2>&1 && opencode --version   # opencode CLI 존재 확인 (없으면 설치 안내 후 멈춤)
 ```
 
 - 워킹 트리가 더러우면(커밋 안 된 변경) 병합 시 충돌·혼선이 나므로, 먼저 커밋/스태시하라고
@@ -45,7 +45,7 @@ git worktree add "$WT" -b "opencode/<slug>"
 
 ### 2. opencode 에 위임 (dispatch)
 
-가드레일을 담은 프롬프트로 opencode 를 비대화형 실행한다. `<TASK>` 자리에 `$ARGUMENTS` 를 넣는다.
+가드레일을 담은 프롬프트로 opencode 를 비대화형 실행한다. `$ARGUMENTS` 변수를 통해 태스크를 전달한다.
 opencode 에는 `--output-last-message` 등가물이 없으므로 stdout 을 파일로 캡처한다:
 
 ```bash
@@ -56,7 +56,7 @@ opencode run --dir "$WT" --auto \
    (3) 요청 스코프 밖 파일(특히 런타임 TS/plugin.json/package.json)을 건드리지 마라.
    (4) 사용자 표면을 바꾸면 FEATURES.md(한글)와 AGENTS.md(영문)를 lockstep 으로 동기화하라.
    (5) 커밋하지 마라 — 변경만 워킹 트리에 남겨라(감독자 Claude 가 검토 후 병합한다).
-   TASK: <TASK>" > "$WT/.opencode-last.txt" 2>&1
+   TASK: $ARGUMENTS" > "$WT/.opencode-last.txt" 2>&1
 ```
 
 - `--dir "$WT"` 로 worktree 를 작업 디렉터리로, `--auto` 로 권한 자동 승인. `.opencode-last.txt`(최종
@@ -95,6 +95,7 @@ bun test                               # src/index.test.ts 표면 가드 포함
   git -C "$WT" add -A
   git -C "$WT" commit -m "<한국어 커밋 제목>"
   # 원 작업트리로 돌아와 squash 병합
+  cd - >/dev/null
   git merge --squash "opencode/<slug>"
   git commit -m "<한국어 커밋 제목>"
   # 정리
@@ -108,6 +109,7 @@ bun test                               # src/index.test.ts 표면 가드 포함
 
   ```bash
   # 폐기할 때
+  cd - >/dev/null
   git worktree remove --force "$WT"
   git branch -D "opencode/<slug>"
   ```
