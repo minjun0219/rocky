@@ -1,7 +1,7 @@
 ---
 description: task 하나를 opencode(opencode run)에 위임해 격리된 git worktree 에서 구현시키고, Claude 가 게이트·MCP 도구 표면·diff 스코프를 감시해 rocky(Claude Code) 플러그인 동작을 깨지 않는지 검증한 뒤에만 현재 브랜치로 병합한다. 자동 병합·자동 push 없음.
 argument-hint: "<opencode 에게 맡길 구현 task>"
-allowed-tools: Bash(opencode:*), Bash(git:*), Bash(bun:*), Read, Grep, Glob
+allowed-tools: Bash(opencode:*), Bash(git:*), Bash(bun:*), Bash(which:*), Read, Grep, Glob
 ---
 
 # opencode — opencode 위임 + Claude 감시
@@ -31,7 +31,7 @@ rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 ope
 ```bash
 git rev-parse --abbrev-ref HEAD        # 현재 브랜치 확인
 git status --porcelain                 # 워킹 트리 clean 확인 (더러우면 먼저 정리 안내 후 멈춤)
-command -v opencode >/dev/null 2>&1 && opencode --version   # opencode CLI 존재 확인 (없으면 설치 안내 후 멈춤)
+which opencode && opencode --version   # opencode CLI 존재 확인 (없으면 설치 안내 후 멈춤)
 ```
 
 - 워킹 트리가 더러우면(커밋 안 된 변경) 병합 시 충돌·혼선이 나므로, 먼저 커밋/스태시하라고
