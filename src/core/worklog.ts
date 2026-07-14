@@ -126,7 +126,7 @@ export interface WorklogSearchOptions {
 
 /**
  * 저널 dir 의 해석 출처. `createWorklogFromEnv` 의 우선순위와 1:1 로 대응한다:
- * env(`ROCKY_WORKLOG_DIR`) 있으면 `'env'`, 없고 config(`journal.dir`) 있으면 `'config'`,
+ * env(`ROCKY_WORKLOG_DIR`) 있으면 `'env'`, 없고 config(`worklog.dir`) 있으면 `'config'`,
  * 둘 다 없으면 계산된 프로젝트별 기본 경로라 `'default'`. 이 값을 status 로 노출해,
  * 소스를 안 읽어도 저장 위치가 어디서 왔는지 / 바꿀 수 있는지 발견 가능하게 한다.
  */
@@ -141,7 +141,7 @@ export interface WorklogStatus {
   lastEntryAt?: string;
   /**
    * 저널 저장 dir(`path` 의 부모)이 어디서 왔는지. `'env'` = `ROCKY_WORKLOG_DIR`,
-   * `'config'` = `rocky.json` 의 `journal.dir`, `'default'` = 프로젝트별 기본 경로.
+   * `'config'` = `rocky.json` 의 `worklog.dir`, `'default'` = 프로젝트별 기본 경로.
    * 소스를 안 읽어도 저장 위치가 변경 가능함을 status 만으로 발견하게 하는 힌트.
    */
   dirSource: WorklogDirSource;
