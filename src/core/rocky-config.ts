@@ -86,7 +86,7 @@ export interface SeoConfig {
  * `worklog_*` 도구 + `/rocky:curate` 정리 스킬 설정. 모든 필드는 env 로 override 된다
  * (`ROCKY_WORKLOG_DIR` / `ROCKY_WORKLOG_WIKI_DIR` 가 우선).
  */
-export interface JournalConfig {
+export interface WorklogConfig {
   /** 저널 JSONL 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/worklog/<key>`). */
   dir?: string;
   /**
@@ -102,7 +102,7 @@ export interface RockyConfig {
     registry?: OpenapiRegistry;
   };
   seo?: SeoConfig;
-  journal?: JournalConfig;
+  journal?: WorklogConfig;
 }
 
 export interface LoadConfigOptions {
