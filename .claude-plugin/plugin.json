@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "rocky",
-  "version": "0.6.0",
-  "description": "rocky Claude Code plugin (Bun runtime). 7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate (OG / Twitter Card / JSON-LD / favicon meta validation via ogpeek) + notion_* tools (cache-first Notion page read + refresh diff, delegated to the ntn CLI, registered only when ntn is detected) + journal_* tools (append-only local JSONL agent journal — the record layer; always registered). Slash commands: /finish, /pr-watch (gh CLI), /curate (distills the journal into a configured wiki location — the organize layer). Archived domains (mysql / spec-pact / pr-watch tools) re-enter as separate PRs.",
+  "version": "0.7.0",
+  "description": "rocky Claude Code plugin (Bun runtime). 7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate (OG / Twitter Card / JSON-LD / favicon meta validation via ogpeek) + notion_* tools (cache-first Notion page read + refresh diff, delegated to the ntn CLI, registered only when ntn is detected) + journal_* tools (append-only local JSONL agent journal — the record layer; always registered). Slash commands: /finish, /pr-watch (gh CLI), /curate (distills the journal into a configured wiki location — the organize layer). Bundled skill: writing-cc-plugin (Claude Code plugin authoring guide + reference). Archived domains (mysql / spec-pact / pr-watch tools) re-enter as separate PRs.",
   "author": {
     "name": "Minjun Kim"
   },
