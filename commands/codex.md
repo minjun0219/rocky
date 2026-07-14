@@ -1,7 +1,7 @@
 ---
 description: task 하나를 Codex(codex exec)에 위임해 격리된 git worktree 에서 구현시키고, Claude 가 게이트·MCP 도구 표면·diff 스코프를 감시해 rocky(Claude Code) 플러그인 동작을 깨지 않는지 검증한 뒤에만 현재 브랜치로 병합한다. 자동 병합·자동 push 없음.
 argument-hint: "<Codex 에게 맡길 구현 task>"
-allowed-tools: Bash(codex:*), Bash(git:*), Bash(bun:*), Read, Grep, Glob
+allowed-tools: Bash(codex:*), Bash(git:*), Bash(bun:*), Bash(which:*), Read, Grep, Glob
 ---
 
 # codex — Codex 위임 + Claude 감시
@@ -20,7 +20,7 @@ rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 Cod
    요청 스코프에 한정. 하나라도 어기면 "플러그인 방해" 로 간주하고 병합 보류.
 4. **자동 병합·push 없음.** 감시 통과 후 diff 를 사용자에게 제시하고 승인 하에만 병합한다.
    원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/finish`).
-5. **샌드박스 제한.** `--full-auto`(workspace-write, worktree 범위)만 쓴다.
+5. **샌드박스 제한.** `-s workspace-write`(worktree 범위)로만 실행한다.
    `danger-full-access` / bypass 플래그는 쓰지 않는다.
 
 ## 절차
@@ -47,7 +47,7 @@ git worktree add "$WT" -b "codex/<slug>"
 가드레일을 담은 프롬프트로 Codex 를 비대화형 실행한다. `<TASK>` 자리에 `$ARGUMENTS` 를 넣는다:
 
 ```bash
-codex exec --full-auto -C "$WT" \
+codex exec -s workspace-write -C "$WT" \
   --json --output-last-message "$WT/.codex-last.txt" \
   "너는 rocky 레포에서 한 task 를 구현하는 구현자다. 다음 불변식을 반드시 지켜라:
    (1) rocky 의 MCP 도구 표면(도구 개수/이름)을 바꾸지 마라 — src/index.ts 의 registerTool 목록 불변.
@@ -97,7 +97,7 @@ bun test                               # src/index.test.ts 표면 가드 포함
   git commit -m "<한국어 커밋 제목>"
   # 정리
   git worktree remove "$WT"
-  git branch -d "codex/<slug>"
+  git branch -D "codex/<slug>"
   ```
 - **하나라도 실패** → 무엇을 깼는지(게이트/표면/스코프)를 로그 인용과 함께 보고하고
   **병합하지 않는다.** 선택지: (a) 가드레일을 보강해 같은 worktree 에서 Codex 재위임
