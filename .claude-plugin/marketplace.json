@@ -9,7 +9,7 @@
     {
       "name": "rocky",
       "source": "./",
-      "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + journal_* (append-only local journal). Slash commands: /finish, /pr-watch, /curate."
+      "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + journal_* (append-only local journal). Slash commands: /finish, /curate."
     }
   ]
 }
