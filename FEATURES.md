@@ -208,7 +208,7 @@ codex mcp add rocky -- bun run /abs/path/to/rocky/src/index.ts
 
 ## Claude Code 커맨드
 
-MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음).
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음).
 
 ### `/finish [힌트]`
 
@@ -249,6 +249,15 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **하지 않는 것**: 자동 병합·자동 push·PR 없음(승인 하 병합만, 이어서 `/finish`).
   `danger-full-access` 미사용. Claude 가 구현 코드를 직접 쓰지 않음(위임·게이트·판정만).
 - **전제**: `codex` CLI 설치(`codex exec` 의 `-s workspace-write` 지원), 워킹 트리 clean.
+
+### `/issue [아이디어/버그 한 줄]`
+
+- **What**: *다른* 레포에서 rocky 를 쓰다 떠오른 **기능 제안**·**버그**를, 작업 흐름을 끊지 않고 `minjun0219/rocky` GitHub Issue 로 캡처한다. 현재 세션 맥락(출처 레포 / 트리거 상황 / 관련 코드·에러)을 자동으로 모아 이슈 본문에 담는다.
+- **Input**: (옵션) 아이디어/버그 요지. 비어 있으면 최근 대화에서 유추하고, 모호하면 한 줄만 물어본다.
+- **동작**: 타입→라벨 추론(레포에 **존재하는** 라벨만: `bug`/`enhancement`/`documentation`/`question` 등) → `gh issue list --search` 로 유사 열린 이슈 조회 → Conventional Commits 한국어 제목 + 본문(요지/출처/맥락/제안·재현) + 라벨 **초안 제시** → 사용자 확인(`y` / 수정 / 기존 `#N` 에 코멘트) → `gh issue create` 또는 `gh issue comment`.
+- **하지 않는 것**: 확인 없이 자동 생성 금지(GitHub 은 외부 산출물), 새 라벨 생성 금지(존재하는 라벨만), 현재 레포 remote 신뢰 금지(항상 `--repo minjun0219/rocky` 명시), rocky 가 토큰 직접 취급 금지(전부 `gh` 위임).
+- **의존성**: 인증된 `gh` CLI.
+- **Hosts**: Claude Code plugin 만 (rocky 설치된 어느 세션에서든 호출 가능 — 다른 레포 포함).
 
 ## Claude Code 스킬
 
