@@ -183,7 +183,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   );
 
   // notion_* 는 외부 Notion CLI (`ntn`) 위임 도메인 — 설치가 탐지된 CLI 가 있을 때만 노출한다
-  // (로그인/권한은 호출 시점에 에러로 표면화). gh CLI 위임 (`/finish`, `/pr-watch`) 과 동일
+  // (로그인/권한은 호출 시점에 에러로 표면화). gh CLI 위임 (`/finish`) 과 동일
   // 정책: 토큰 / OAuth 를 rocky 가 직접 다루지 않는다.
   const notionCli = options.notionCli ?? createBunNotionCli();
   if (await detectNotionCli(notionCli)) {
