@@ -159,9 +159,7 @@ describe('rocky Claude Code MCP server', () => {
     }
   });
 
-  test('worklog_status reports exists=false and surfaces wikiDir (no writes)', async () => {
-    const prevWiki = process.env.ROCKY_WORKLOG_WIKI_DIR;
-    process.env.ROCKY_WORKLOG_WIKI_DIR = join(tmpHome, 'vault');
+  test('worklog_status reports exists=false without wikiDir fields', async () => {
     const client = await connect({ notionCli: absentNotionCli });
     try {
       const result = await client.callTool({ name: 'worklog_status', arguments: {} });
@@ -169,14 +167,11 @@ describe('rocky Claude Code MCP server', () => {
       const parsed = JSON.parse(content!.text);
       expect(parsed.exists).toBe(false);
       expect(parsed.totalEntries).toBe(0);
-      expect(parsed.wikiDir).toBe(join(tmpHome, 'vault'));
+      expect(parsed.wikiDir).toBeUndefined();
+      expect(parsed.wikiDirSource).toBeUndefined();
+      expect(typeof parsed.dirSource).toBe('string');
     } finally {
       await client.close().catch(() => undefined);
-      if (prevWiki === undefined) {
-        delete process.env.ROCKY_WORKLOG_WIKI_DIR;
-      } else {
-        process.env.ROCKY_WORKLOG_WIKI_DIR = prevWiki;
-      }
     }
   });
 
