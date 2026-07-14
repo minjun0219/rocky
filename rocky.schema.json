@@ -10,6 +10,11 @@
       "type": "string",
       "description": "Reference to this JSON Schema. Editors use this for autocomplete and validation."
     },
+    "soul": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "description": "활성 소울(페르소나) 이름. SessionStart 훅이 souls/<name>.md (번들) 또는 ~/.config/rocky/souls/<name>.md (커스텀) 를 찾아 세션 컨텍스트에 주입한다. 미설정 시 주입 없음(vanilla)."
+    },
     "openapi": {
       "type": "object",
       "description": "OpenAPI / Swagger registry. Maps host:env:spec handles to spec download URLs.",

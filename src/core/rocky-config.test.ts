@@ -127,6 +127,18 @@ describe('validateConfig', () => {
       /unknown top-level key "journal"/,
     );
   });
+
+  it('accepts a valid soul name', () => {
+    expect(validateConfig({ soul: 'rocky' }, 'test')).toEqual({ soul: 'rocky' });
+  });
+
+  it('rejects a soul that is not a string', () => {
+    expect(() => validateConfig({ soul: 123 }, 'test')).toThrow(/soul must be a string/);
+  });
+
+  it('rejects a soul name with illegal characters', () => {
+    expect(() => validateConfig({ soul: 'has space' }, 'test')).toThrow(/soul must match/);
+  });
 });
 
 describe('mergeConfigs', () => {
@@ -304,6 +316,18 @@ describe('mergeConfigs — worklog', () => {
     const merged = mergeConfigs(user, project);
     expect(merged.worklog?.dir).toBe('/u/w');
     expect(merged.worklog?.autoCapture).toBe(false);
+  });
+});
+
+describe('mergeConfigs soul', () => {
+  it('project soul overrides user soul', () => {
+    const merged = mergeConfigs({ soul: 'rocky' }, { soul: 'senior' });
+    expect(merged.soul).toBe('senior');
+  });
+
+  it('keeps user soul when project omits it', () => {
+    const merged = mergeConfigs({ soul: 'rocky' }, {});
+    expect(merged.soul).toBe('rocky');
   });
 });
 
