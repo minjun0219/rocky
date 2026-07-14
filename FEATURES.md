@@ -1,7 +1,7 @@
 # Rocky — Features
 
 > 이 toolkit 이 노출하는 표면을 한 페이지로 정리한 사람용 카탈로그.
-> 대상: GitHub 에서 훑어 보는 사람, 그리고 grep / anchor 로 인용하는 에이전트 (Claude Code / codex / …).
+> 대상: GitHub 에서 훑어 보는 사람, 그리고 grep / anchor 로 인용하는 에이전트 (Claude Code / Codex / opencode / …).
 > 이 파일이 **사람용 단일 source of truth** 다 (한국어). 에이전트용 단일 source 는 [`AGENTS.md`](./AGENTS.md) (영문). 표면이 바뀌면 두 파일을 같이 갱신한다.
 
 ## 한 눈에
@@ -9,17 +9,17 @@
 - **단일 패키지 (`@minjun0219/rocky`) — 전체 표면 서버(`src/index.ts`) + 단독 OpenAPI CLI, 공유 7 openapi tool + 전체 표면 전용 `seo_validate` + CLI-gated `notion_*` + 기록 `worklog_*` (`Stop` hook 자동 기록 + 정리 `/recall`)**:
   | 진입점 / 소비 호스트 | 역할 | 설치 |
   | --- | --- | --- |
-  | **전체 표면 MCP 서버** (`src/index.ts`) | Claude Code plugin 이 `.claude-plugin/plugin.json` 의 `mcpServers` 로 실행하고, Codex CLI 도 `~/.codex/config.toml` 로 같은 stdio MCP 서버를 실행. | Claude Code plugin marketplace 또는 Codex MCP 설정 |
+  | **전체 표면 MCP 서버** (`src/index.ts`) | Claude Code plugin 이 `.claude-plugin/plugin.json` 의 `mcpServers` 로 실행하고, Codex CLI 와 opencode 도 각각 host 설정으로 같은 stdio MCP 서버를 실행. | Claude Code plugin marketplace, Codex MCP 설정, opencode `opencode.json` |
   | **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp` → `src/standalone.ts`) | host-agnostic subset MCP. 어떤 stdio MCP host (Cursor / Continue / Claude Desktop / …) 든 등록해 쓰는 단독 CLI. | `bun link` (npm publish 는 별도 PR) |
 - **공유 core**: [`src/core/`](./src/core) — 두 타깃 모두 이 디렉토리의 `handlers.ts` / `registry.ts` / `adapter.ts` 등을 import. plugin 진입점은 barrel (`./core`) 로, standalone 은 `./core/<file>` subpath 로 가져온다.
-- **Surface**: 공유 7 openapi tool (두 타깃 동일) — `openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags` — 에 더해 Claude Code plugin 전용 `seo_validate` (OG / Twitter Card / JSON-LD / favicon 메타 검증, `ogpeek` 기반). 단독 `openapi-mcp` CLI 는 OpenAPI 도메인만 다뤄 `seo_validate` 를 노출하지 않는다. v0.5 부터 Claude Code plugin 은 **공식 Notion CLI (`ntn`) 가 탐지될 때만** `notion_*` 4 도구 (`notion_get` / `notion_refresh` / `notion_status` / `notion_extract`) 를 추가 등록한다 — `ntn` 이 없으면 아예 나타나지 않는다. v0.6 부터 Claude Code plugin 은 **기록(記錄)** 레이어인 `worklog_*` 4 도구 (`worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`, v0.9 에서 `journal_*` 를 개명) 를 항상 등록한다 (외부 의존 없음) — append-only 로컬 JSONL. v0.9 부터 `Stop` hook (`src/hooks/log-turn.ts`) 이 매 턴 종료 시 `kind:"turn"` 워크로그를 자동으로 남기고(`autoCapture`, 기본 on), 짝이 되는 **정리(整理)** 는 `/recall` 슬래시 커맨드가 워크로그를 앵커 히스토리 다이제스트(`kind:"digest"`)로 증분 요약한다 (rocky 는 기록·저장만, 별도 wiki 위치는 없음).
+- **Surface**: 공유 7 openapi tool (두 타깃 동일) — `openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags` — 에 더해 전체 표면 서버 전용 `seo_validate` (OG / Twitter Card / JSON-LD / favicon 메타 검증, `ogpeek` 기반). 단독 `openapi-mcp` CLI 는 OpenAPI 도메인만 다뤄 `seo_validate` 를 노출하지 않는다. v0.5 부터 전체 표면 서버는 **공식 Notion CLI (`ntn`) 가 탐지될 때만** `notion_*` 4 도구 (`notion_get` / `notion_refresh` / `notion_status` / `notion_extract`) 를 추가 등록한다 — `ntn` 이 없으면 아예 나타나지 않는다. v0.6 부터 전체 표면 서버는 **기록(記錄)** 레이어인 `worklog_*` 4 도구 (`worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`, v0.9 에서 `journal_*` 를 개명) 를 항상 등록한다 (외부 의존 없음) — append-only 로컬 JSONL. v0.9 부터 Claude Code plugin 의 `Stop` hook (`src/hooks/log-turn.ts`) 이 매 턴 종료 시 `kind:"turn"` 워크로그를 자동으로 남기고(`autoCapture`, 기본 on), 짝이 되는 **정리(整理)** 는 `/recall` 슬래시 커맨드가 워크로그를 앵커 히스토리 다이제스트(`kind:"digest"`)로 증분 요약한다 (rocky 는 기록·저장만, 별도 wiki 위치는 없음).
 - **설정 파일**:
   - `rocky.json` — plugin 이 읽는다 (project 의 `./rocky.json` 이 user 의 `~/.config/rocky/rocky.json` 을 leaf 단위로 덮어쓴다). v0.3 부터 `openapi.registry` 한 키만 존재.
   - `openapi-mcp.json` — 단독 CLI 가 읽는다. config 형태 (`specs.<name>.environments.<env>.baseUrl`) 가 다르고 평탄화 없이 그대로 SpecRegistry 에 들어간다.
 - **런타임**: Bun ≥ 1.0. 빌드 단계 없음 (Bun 이 TS 직접 실행).
 
 > - v0.2 까지 존재하던 journal / mysql / notion / spec-pact / pr-watch 5 도메인 + rocky / grace / mindy 3 에이전트 + 5 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있다. 이 중 **notion 은 v0.5 에서 `ntn` CLI 위임으로, journal 은 v0.6 에서 재추가되어 v0.9 에서 `worklog` 로 개명됨** (아래 `notion_*` / `worklog_*` 참고).
-> - opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제되어 있다 (게이트에서 제외).
+> - 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제되어 있다 (게이트에서 제외). 현재 opencode 지원은 이 플러그인의 부활이 아니라, `src/index.ts` stdio MCP 서버를 `opencode.json` 에 등록해 전체 표면을 소비하는 방식이다.
 >
 > 활용 패턴이 잡히면 ROADMAP 의 phase 단위로 재추가. 자세한 절차는 `AGENTS.md` 의 *Reintroduction strategy*.
 
@@ -190,7 +190,7 @@ Hosts          — 어디서 호출되는지 (Claude Code plugin / standalone CL
 
 ## Codex CLI 에서 쓰기
 
-Codex CLI 는 `~/.codex/config.toml` 의 `[mcp_servers.<name>]` 테이블로 stdio MCP 서버를 등록한다. rocky 의 `src/index.ts` 는 이미 host-agnostic stdio MCP 서버라, Claude Code plugin 과 같은 프로세스(`bun run <repo>/src/index.ts`)를 그대로 등록하면 전체 도구(`openapi_*` 7 + `seo_validate` + `journal_*` 4 + `ntn` 설치 시 `notion_*` 4)를 쓴다.
+Codex CLI 는 `~/.codex/config.toml` 의 `[mcp_servers.<name>]` 테이블로 stdio MCP 서버를 등록한다. rocky 의 `src/index.ts` 는 이미 host-agnostic stdio MCP 서버라, Claude Code plugin 과 같은 프로세스(`bun run <repo>/src/index.ts`)를 그대로 등록하면 전체 도구(`openapi_*` 7 + `seo_validate` + `worklog_*` 4 + `ntn` 설치 시 `notion_*` 4)를 쓴다.
 
 ```toml
 [mcp_servers.rocky]
@@ -206,9 +206,34 @@ codex mcp add rocky -- bun run /abs/path/to/rocky/src/index.ts
 
 전제는 간단하다. `/abs/path/to/rocky/src/index.ts` 는 실제 rocky 체크아웃 위치의 절대경로로 바꾸고, `bun` 이 Codex 가 보는 `PATH` 에 있어야 한다. 별도 install 없이 항상 최신 소스를 실행한다. `cwd` / env override / `notion_*` CLI-gate / Claude Code 전용 슬래시 커맨드·스킬 차이는 [`docs/codex.md`](./docs/codex.md)에 정리되어 있다.
 
+## opencode 에서 쓰기
+
+opencode 는 `opencode.json` 의 `mcp` 섹션으로 local stdio MCP 서버를 등록한다. user 스코프는 `~/.config/opencode/opencode.json`, project 스코프는 레포 루트의 `opencode.json` 이다. rocky 의 `src/index.ts` 는 이미 host-agnostic stdio MCP 서버라, Claude Code plugin 과 같은 프로세스(`bun run <repo>/src/index.ts`)를 그대로 등록하면 전체 도구(`openapi_*` 7 + `seo_validate` + `worklog_*` 4 + `ntn` 설치 시 `notion_*` 4)를 쓴다.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "rocky": {
+      "type": "local",
+      "command": ["bun", "run", "/abs/path/to/rocky/src/index.ts"],
+      "enabled": true
+    }
+  }
+}
+```
+
+동등한 CLI:
+
+```bash
+opencode mcp add rocky
+```
+
+`type` 은 `"local"` 고정(필수), `command` 는 문자열 배열이다. 환경 변수는 `env` 가 아니라 `environment` 객체로 지정한다. 예: `"environment": { "ROCKY_WORKLOG_DIR": "...", "ROCKY_NOTION_CACHE_DIR": "..." }`. `timeout` 은 옵션이며 기본값은 5000ms 다. `/abs/path/to/rocky/src/index.ts` 는 실제 rocky 체크아웃 위치의 절대경로로 바꾸고, `bun` 이 opencode 가 보는 `PATH` 에 있어야 한다. 자세한 설정과 주의점은 [`docs/opencode.md`](./docs/opencode.md)에 정리되어 있다.
+
 ## Claude Code 커맨드
 
-MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음).
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음). `/issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음).
 
 ### `/finish [힌트]`
 
@@ -249,6 +274,18 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **하지 않는 것**: 자동 병합·자동 push·PR 없음(승인 하 병합만, 이어서 `/finish`).
   `danger-full-access` 미사용. Claude 가 구현 코드를 직접 쓰지 않음(위임·게이트·판정만).
 - **전제**: `codex` CLI 설치(`codex exec` 의 `-s workspace-write` 지원), 워킹 트리 clean.
+
+### `/opencode <task>`
+
+- **What**: task 하나를 **opencode(`opencode run`)에 구현자로 위임**하고, Claude 가 **감독자**로서
+  결과를 검증하는 오케스트레이션 커맨드. opencode 는 새 git worktree(격리)에서 구현하고,
+  Claude 는 게이트(`check`/`typecheck`/`test`) + MCP 도구 표면 무결성(`src/index.test.ts`) +
+  `plugin.json` mcpServers 무결 + diff 스코프를 감시한다.
+- **감시 = "플러그인 작동 방해 안 하는지"**: 위 4가지가 모두 통과할 때만 "방해 없음" 으로 보고
+  현재 브랜치에 병합한다. 하나라도 어기면 병합하지 않고 무엇을 깼는지 보고·에스컬레이션.
+- **하지 않는 것**: 자동 병합·자동 push·PR 없음(승인 하 병합만, 이어서 `/finish`).
+  Claude 가 구현 코드를 직접 쓰지 않음(위임·게이트·판정만).
+- **전제**: `opencode` CLI 설치(`opencode run` 지원), 워킹 트리 clean.
 
 ### `/issue [아이디어/버그 한 줄]`
 
