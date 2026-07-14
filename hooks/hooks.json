@@ -1,5 +1,15 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/src/hooks/inject-soul.ts\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
