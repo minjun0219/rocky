@@ -385,9 +385,13 @@ describe('extractTurn', () => {
 });
 
 describe('buildTurnContent', () => {
-  it('formats req/tools/did, collapses whitespace, truncates', () => {
-    expect(buildTurnContent({ req: 'a  b\n\nc', tools: ['x', 'y'], did: 'done' }, 4))
-      .toBe('req: a b… | tools: x, y | did: done');
+  it('collapses whitespace and joins parts', () => {
+    expect(buildTurnContent({ req: 'a  b\n\nc', tools: ['x', 'y'], did: 'done' }, 800))
+      .toBe('req: a b c | tools: x, y | did: done');
+  });
+  it('truncates each field to maxChars with an ellipsis', () => {
+    expect(buildTurnContent({ req: 'abcdefgh', tools: [], did: '' }, 4))
+      .toBe('req: abcd… | tools: (none) | did: (none)');
   });
   it('shows (none) for empty parts and caps tools at 20', () => {
     const many = Array.from({ length: 25 }, (_, i) => `t${i}`);
