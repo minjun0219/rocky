@@ -111,11 +111,21 @@ describe('validateConfig', () => {
     }
   });
 
-  it('allows unknown top-level keys for forward compatibility', () => {
-    // 도메인 재추가 시 같은 파일 (`mysql` / `spec` / `github` 등) 이 future-key 자리에
-    // 다시 들어올 수 있어야 한다 — top-level 미지원 키는 통과시킨다.
-    expect(() => validateConfig({ futureFeature: { foo: 'bar' } } as any, 'p')).not.toThrow();
-    expect(() => validateConfig({ mysql: { connections: {} } } as any, 'p')).not.toThrow();
+  it('rejects unknown top-level keys', () => {
+    // top-level 은 명시적 allowlist ($schema/openapi/seo/worklog) 로 좁혔다 — 오타 /
+    // 제거된 도메인 키(mysql 등)는 즉시 reject 되어야 한다.
+    expect(() => validateConfig({ futureFeature: { foo: 'bar' } } as any, 'p')).toThrow(
+      /unknown top-level key "futureFeature"/,
+    );
+    expect(() => validateConfig({ mysql: { connections: {} } } as any, 'p')).toThrow(
+      /unknown top-level key "mysql"/,
+    );
+  });
+
+  it('rejects legacy top-level journal key', () => {
+    expect(() => validateConfig({ journal: { dir: '/j' } } as any, 'test')).toThrow(
+      /unknown top-level key "journal"/,
+    );
   });
 });
 
@@ -225,44 +235,75 @@ describe('validateConfig — seo', () => {
   });
 });
 
-describe('validateConfig — journal', () => {
-  it('accepts a well-formed journal block', () => {
-    const config = { journal: { dir: '~/notes/j', wikiDir: '~/Obsidian/v' } };
+describe('validateConfig — worklog', () => {
+  it('accepts a well-formed worklog block', () => {
+    const config = { worklog: { dir: '~/notes/w' } };
     expect(validateConfig(config, 'test')).toEqual(config);
   });
 
-  it('accepts an empty / omitted journal block', () => {
-    expect(() => validateConfig({ journal: {} }, 'test')).not.toThrow();
+  it('accepts an empty / omitted worklog block', () => {
+    expect(() => validateConfig({ worklog: {} }, 'test')).not.toThrow();
   });
 
-  it('rejects a non-object journal', () => {
-    expect(() => validateConfig({ journal: 'nope' } as any, 'p')).toThrow(
-      /journal must be an object/,
+  it('rejects a non-object worklog', () => {
+    expect(() => validateConfig({ worklog: 'nope' } as any, 'p')).toThrow(
+      /worklog must be an object/,
     );
-    expect(() => validateConfig({ journal: [] } as any, 'p')).toThrow(/journal must be an object/);
+    expect(() => validateConfig({ worklog: [] } as any, 'p')).toThrow(/worklog must be an object/);
   });
 
-  it('rejects unknown journal keys', () => {
-    expect(() => validateConfig({ journal: { ttl: 10 } } as any, 'p')).toThrow(/unknown key "ttl"/);
+  it('rejects unknown worklog keys', () => {
+    expect(() => validateConfig({ worklog: { ttl: 10 } } as any, 'p')).toThrow(/unknown key "ttl"/);
   });
 
-  it('rejects empty / non-string dir / wikiDir', () => {
-    expect(() => validateConfig({ journal: { dir: '' } } as any, 'p')).toThrow(
-      /journal.dir must be a non-empty string/,
+  it('rejects empty / non-string dir', () => {
+    expect(() => validateConfig({ worklog: { dir: '' } } as any, 'p')).toThrow(
+      /worklog.dir must be a non-empty string/,
     );
-    expect(() => validateConfig({ journal: { wikiDir: 42 } } as any, 'p')).toThrow(
-      /journal.wikiDir must be a non-empty string/,
+  });
+
+  it('rejects worklog.wikiDir (removed key)', () => {
+    expect(() => validateConfig({ worklog: { wikiDir: '/x' } } as any, 'p')).toThrow(
+      /unknown key "wikiDir"/,
+    );
+  });
+
+  it('accepts worklog.autoCapture / captureMaxChars / digestThreshold', () => {
+    const cfg = validateConfig(
+      { worklog: { dir: '/tmp/w', autoCapture: false, captureMaxChars: 500, digestThreshold: 10 } },
+      'test',
+    );
+    expect(cfg.worklog?.autoCapture).toBe(false);
+    expect(cfg.worklog?.captureMaxChars).toBe(500);
+    expect(cfg.worklog?.digestThreshold).toBe(10);
+  });
+
+  it('rejects non-boolean worklog.autoCapture', () => {
+    expect(() => validateConfig({ worklog: { autoCapture: 'yes' } } as any, 'p')).toThrow(
+      /autoCapture must be a boolean/,
+    );
+  });
+
+  it('rejects non-positive-integer captureMaxChars / digestThreshold', () => {
+    expect(() => validateConfig({ worklog: { captureMaxChars: 0 } } as any, 'p')).toThrow(
+      /captureMaxChars must be a positive integer/,
+    );
+    expect(() => validateConfig({ worklog: { captureMaxChars: 1.5 } } as any, 'p')).toThrow(
+      /captureMaxChars must be a positive integer/,
+    );
+    expect(() => validateConfig({ worklog: { digestThreshold: -1 } } as any, 'p')).toThrow(
+      /digestThreshold must be a positive integer/,
     );
   });
 });
 
-describe('mergeConfigs — journal', () => {
-  it('project journal fields override user journal, field by field', () => {
-    const user: RockyConfig = { journal: { dir: '/u/j', wikiDir: '/u/v' } };
-    const project: RockyConfig = { journal: { wikiDir: '/p/v' } };
+describe('mergeConfigs — worklog', () => {
+  it('project worklog fields override user worklog, field by field', () => {
+    const user: RockyConfig = { worklog: { dir: '/u/w', autoCapture: true } };
+    const project: RockyConfig = { worklog: { autoCapture: false } };
     const merged = mergeConfigs(user, project);
-    expect(merged.journal?.dir).toBe('/u/j');
-    expect(merged.journal?.wikiDir).toBe('/p/v');
+    expect(merged.worklog?.dir).toBe('/u/w');
+    expect(merged.worklog?.autoCapture).toBe(false);
   });
 });
 

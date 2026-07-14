@@ -82,18 +82,16 @@ export interface SeoConfig {
   timeoutMs?: number;
 }
 
-/**
- * `journal_*` 도구 + `/rocky:curate` 정리 스킬 설정. 모든 필드는 env 로 override 된다
- * (`ROCKY_JOURNAL_DIR` / `ROCKY_JOURNAL_WIKI_DIR` 가 우선).
- */
-export interface JournalConfig {
-  /** 저널 JSONL 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/journal/<key>`). */
+/** `worklog_*` 도구 + Stop hook 자동 기록 + `/recall` 다이제스트 설정. */
+export interface WorklogConfig {
+  /** 저널 JSONL 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/worklog/<key>`). */
   dir?: string;
-  /**
-   * 정리(整理) 대상 wiki 위치 (Obsidian vault 등). rocky 는 여기에 쓰지 않는다 —
-   * `/rocky:curate` 가 저널을 읽어 이 위치로 markdown 을 컴파일한다. `journal_status` 로 노출.
-   */
-  wikiDir?: string;
+  /** Stop hook 자동 워크로그 기록 on/off. 기본 true. env `ROCKY_WORKLOG_AUTO_CAPTURE` 우선. */
+  autoCapture?: boolean;
+  /** turn 엔트리 req/did 최대 글자 수. 기본 800. */
+  captureMaxChars?: number;
+  /** `/recall` Haiku↔Sonnet 임계(신규 엔트리 수). 기본 40. */
+  digestThreshold?: number;
 }
 
 export interface RockyConfig {
@@ -102,7 +100,7 @@ export interface RockyConfig {
     registry?: OpenapiRegistry;
   };
   seo?: SeoConfig;
-  journal?: JournalConfig;
+  worklog?: WorklogConfig;
 }
 
 export interface LoadConfigOptions {
@@ -160,6 +158,11 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
     throw new Error(`${source}: config must be a JSON object`);
   }
   const config = input as Record<string, unknown>;
+  for (const key of Object.keys(config)) {
+    if (!ALLOWED_TOP_KEYS.has(key)) {
+      throw new Error(`${source}: unknown top-level key "${key}"`);
+    }
+  }
   if (config.openapi !== undefined) {
     if (
       config.openapi === null ||
@@ -176,11 +179,14 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.seo !== undefined) {
     validateSeo(config.seo, source);
   }
-  if (config.journal !== undefined) {
-    validateJournal(config.journal, source);
+  if (config.worklog !== undefined) {
+    validateWorklog(config.worklog, source);
   }
   return config as RockyConfig;
 }
+
+/** top-level 에서 허용하는 키 (오타 / 제거된 도메인 키 가드, 스키마 lockstep). */
+const ALLOWED_TOP_KEYS = new Set(['$schema', 'openapi', 'seo', 'worklog']);
 
 /** `seo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
 const ALLOWED_SEO_KEYS = new Set(['allowPrivateHosts', 'timeoutMs']);
@@ -213,26 +219,34 @@ function validateSeo(seo: unknown, source: string): void {
   }
 }
 
-/** `journal` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
-const ALLOWED_JOURNAL_KEYS = new Set(['dir', 'wikiDir']);
+/** `worklog` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
+const ALLOWED_WORKLOG_KEYS = new Set(['dir', 'autoCapture', 'captureMaxChars', 'digestThreshold']);
 
 /**
- * `journal` 객체 모양 검증. `journal_*` 도구 + `/rocky:curate` 설정을 받는다 — 미지원
- * key 는 reject. dir / wikiDir 은 비어 있지 않은 문자열이어야 한다.
+ * `worklog` 객체 모양 검증. `worklog_*` 도구 + Stop hook 자동 기록 + `/recall` 다이제스트
+ * 설정을 받는다 — 미지원 key 는 reject. 기본값 적용은 소비 지점(다른 태스크) 몫이라
+ * 여기서는 존재하는 필드의 타입 / 범위만 검증한다.
  */
-function validateJournal(journal: unknown, source: string): void {
-  if (journal === null || typeof journal !== 'object' || Array.isArray(journal)) {
-    throw new Error(`${source}: journal must be an object`);
+function validateWorklog(worklog: unknown, source: string): void {
+  if (worklog === null || typeof worklog !== 'object' || Array.isArray(worklog)) {
+    throw new Error(`${source}: worklog must be an object`);
   }
-  const obj = journal as Record<string, unknown>;
+  const obj = worklog as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    if (!ALLOWED_JOURNAL_KEYS.has(key)) {
-      throw new Error(`${source}: journal: unknown key "${key}"`);
+    if (!ALLOWED_WORKLOG_KEYS.has(key)) {
+      throw new Error(`${source}: worklog: unknown key "${key}"`);
     }
   }
-  for (const key of ['dir', 'wikiDir'] as const) {
-    if (obj[key] !== undefined && (typeof obj[key] !== 'string' || obj[key].trim().length === 0)) {
-      throw new Error(`${source}: journal.${key} must be a non-empty string`);
+  if (obj.dir !== undefined && (typeof obj.dir !== 'string' || obj.dir.trim().length === 0)) {
+    throw new Error(`${source}: worklog.dir must be a non-empty string`);
+  }
+  if (obj.autoCapture !== undefined && typeof obj.autoCapture !== 'boolean') {
+    throw new Error(`${source}: worklog.autoCapture must be a boolean`);
+  }
+  for (const key of ['captureMaxChars', 'digestThreshold'] as const) {
+    const v = obj[key];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 1)) {
+      throw new Error(`${source}: worklog.${key} must be a positive integer`);
     }
   }
 }
@@ -375,9 +389,9 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   if (project.seo) {
     out.seo = { ...out.seo, ...project.seo };
   }
-  // journal 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
-  if (project.journal) {
-    out.journal = { ...out.journal, ...project.journal };
+  // worklog 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
+  if (project.worklog) {
+    out.worklog = { ...out.worklog, ...project.worklog };
   }
   return out;
 }

@@ -6,7 +6,7 @@
  *  - notion_* tools appear only when a Notion CLI (`ntn`) is detected — the
  *    detection is stubbed via an injected executor so the suite is deterministic
  *    regardless of whether `ntn` is on the CI PATH
- *  - no other removed-domain tools (journal / mysql / spec-pact / pr-watch) leak
+ *  - no other removed-domain tools (mysql / spec-pact / pr-watch) leak
  *  - openapi tool input schemas advertise the right required fields
  *
  * No network / no real subprocess — the notion CLI is always a fake executor.
@@ -34,12 +34,12 @@ const OPENAPI_TOOLS = [
 
 const NOTION_TOOLS = ['notion_get', 'notion_refresh', 'notion_status', 'notion_extract'] as const;
 
-/** journal_* 는 기록 레이어 — CLI-gate 없이 항상 등록 (openapi + seo 와 함께 base surface). */
-const JOURNAL_TOOLS = [
-  'journal_append',
-  'journal_read',
-  'journal_search',
-  'journal_status',
+/** worklog_* 는 기록 레이어 — CLI-gate 없이 항상 등록 (openapi + seo 와 함께 base surface). */
+const WORKLOG_TOOLS = [
+  'worklog_append',
+  'worklog_read',
+  'worklog_search',
+  'worklog_status',
 ] as const;
 
 /** 아직 재추가되지 않아 surface 에서 빠져 있어야 하는 tool — 누수 회귀 가드. */
@@ -91,7 +91,7 @@ const presentNotionCli: NotionCliExecutor = {
 const ENV_KEYS_TO_RESTORE = [
   'ROCKY_OPENAPI_CACHE_DIR',
   'ROCKY_NOTION_CACHE_DIR',
-  'ROCKY_JOURNAL_DIR',
+  'ROCKY_WORKLOG_DIR',
 ] as const;
 
 let tmpHome: string;
@@ -117,7 +117,7 @@ beforeAll(() => {
   }
   process.env.ROCKY_OPENAPI_CACHE_DIR = join(tmpHome, 'openapi-cache');
   process.env.ROCKY_NOTION_CACHE_DIR = join(tmpHome, 'notion-cache');
-  process.env.ROCKY_JOURNAL_DIR = join(tmpHome, 'journal');
+  process.env.ROCKY_WORKLOG_DIR = join(tmpHome, 'worklog');
 });
 
 afterAll(() => {
@@ -135,22 +135,22 @@ afterAll(() => {
 });
 
 describe('rocky Claude Code MCP server', () => {
-  test('without a Notion CLI, exposes exactly openapi + seo_validate + journal', async () => {
+  test('without a Notion CLI, exposes exactly openapi + seo_validate + worklog', async () => {
     const client = await connect({ notionCli: absentNotionCli });
     try {
       const names = [...(await toolNames(client))].sort();
-      expect(names).toEqual([...OPENAPI_TOOLS, ...JOURNAL_TOOLS].sort());
+      expect(names).toEqual([...OPENAPI_TOOLS, ...WORKLOG_TOOLS].sort());
     } finally {
       await client.close().catch(() => undefined);
     }
   });
 
-  test('registers journal_* regardless of Notion CLI presence (no gate)', async () => {
+  test('registers worklog_* regardless of Notion CLI presence (no gate)', async () => {
     for (const notionCli of [absentNotionCli, presentNotionCli]) {
       const client = await connect({ notionCli });
       try {
         const names = await toolNames(client);
-        for (const tool of JOURNAL_TOOLS) {
+        for (const tool of WORKLOG_TOOLS) {
           expect(names.has(tool)).toBe(true);
         }
       } finally {
@@ -159,36 +159,31 @@ describe('rocky Claude Code MCP server', () => {
     }
   });
 
-  test('journal_status reports exists=false and surfaces wikiDir (no writes)', async () => {
-    const prevWiki = process.env.ROCKY_JOURNAL_WIKI_DIR;
-    process.env.ROCKY_JOURNAL_WIKI_DIR = join(tmpHome, 'vault');
+  test('worklog_status reports exists=false without wikiDir fields', async () => {
     const client = await connect({ notionCli: absentNotionCli });
     try {
-      const result = await client.callTool({ name: 'journal_status', arguments: {} });
+      const result = await client.callTool({ name: 'worklog_status', arguments: {} });
       const content = (result.content as Array<{ type: string; text: string }>)[0];
       const parsed = JSON.parse(content!.text);
       expect(parsed.exists).toBe(false);
       expect(parsed.totalEntries).toBe(0);
-      expect(parsed.wikiDir).toBe(join(tmpHome, 'vault'));
+      expect(parsed.wikiDir).toBeUndefined();
+      expect(parsed.wikiDirSource).toBeUndefined();
+      expect(typeof parsed.dirSource).toBe('string');
     } finally {
       await client.close().catch(() => undefined);
-      if (prevWiki === undefined) {
-        delete process.env.ROCKY_JOURNAL_WIKI_DIR;
-      } else {
-        process.env.ROCKY_JOURNAL_WIKI_DIR = prevWiki;
-      }
     }
   });
 
-  test('journal_append then journal_read round-trips through the tool surface', async () => {
+  test('worklog_append then worklog_read round-trips through the tool surface', async () => {
     const client = await connect({ notionCli: absentNotionCli });
     try {
       await client.callTool({
-        name: 'journal_append',
-        arguments: { content: 'decided on 2-layer design', kind: 'decision', tags: ['journal'] },
+        name: 'worklog_append',
+        arguments: { content: 'decided on 2-layer design', kind: 'decision', tags: ['worklog'] },
       });
       const read = await client.callTool({
-        name: 'journal_read',
+        name: 'worklog_read',
         arguments: { kind: 'decision' },
       });
       const content = (read.content as Array<{ type: string; text: string }>)[0];
