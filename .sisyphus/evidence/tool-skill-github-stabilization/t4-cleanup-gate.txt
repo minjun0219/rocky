@@ -1,3 +1,0 @@
-Checking Cleanup Gate...
-Cleanup Stage Definition: OK
-Cleanup Procedure (Issue/PR): OK

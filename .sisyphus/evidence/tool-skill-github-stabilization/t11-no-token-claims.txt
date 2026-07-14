@@ -1,3 +1,0 @@
-Verified that no documentation claims toolkit stores GitHub tokens.
-README.md clearly states: 'toolkit설정이나 환경변수에는 GitHub 토큰을 두지 않습니다.'
-INSTALL.md clearly states: 'toolkit 설정에 토큰을 저장하지 않습니다.'

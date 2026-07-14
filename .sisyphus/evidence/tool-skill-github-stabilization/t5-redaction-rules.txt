@@ -1,1 +1,0 @@
-PASS: redaction rules include keywords and avoid secret-like values
