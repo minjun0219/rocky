@@ -84,27 +84,21 @@ bun test                               # src/index.test.ts 표면 가드 포함
 
 ### 4. 판정 & 병합 / 에스컬레이션
 
-- **모두 통과** → 변경 요약 + `git diff --stat` 을 사용자에게 제시하고 승인 하에 현재 브랜치로
-  가져온다:
+- **모두 통과** → 변경 요약 + `git diff --stat` 을 사용자에게 제시하고 승인받는다. Codex 는 커밋을
+  남기지 않으므로(원칙 5) 변경은 worktree 에 uncommitted 로 있다. 승인 후 worktree 에서 커밋한 뒤
+  원 브랜치로 squash 병합하고 worktree 를 정리한다:
 
   ```bash
-  cd -                                 # 원래 작업트리로
-  git merge --no-ff "codex/<slug>"     # 또는 squash: git merge --squash
+  # (사용자 승인 후) worktree 에서 Codex 변경을 커밋
+  git -C "$WT" add -A
+  git -C "$WT" commit -m "<한국어 커밋 제목>"
+  # 원 작업트리로 돌아와 squash 병합
+  git merge --squash "codex/<slug>"
+  git commit -m "<한국어 커밋 제목>"
+  # 정리
   git worktree remove "$WT"
   git branch -d "codex/<slug>"
   ```
-
-  Codex 가 커밋을 안 남겼으면(원칙 5) merge 대신 worktree 의 변경을 원래 트리로 가져와
-  Claude 가 직접 커밋한다:
-
-  ```bash
-  cd -
-  git --no-ff은 불가 → 변경을 적용: (worktree diff 를 원 트리에 반영 후 커밋)
-  ```
-
-  실무상: worktree 에서 `git add -A && git commit` 후 `git merge --squash` 로 가져오거나,
-  간단히 원 트리에서 동일 파일을 반영 커밋한다. 어느 쪽이든 **사용자에게 diff 를 먼저 보여주고**
-  승인받은 뒤 커밋한다.
 - **하나라도 실패** → 무엇을 깼는지(게이트/표면/스코프)를 로그 인용과 함께 보고하고
   **병합하지 않는다.** 선택지: (a) 가드레일을 보강해 같은 worktree 에서 Codex 재위임
   (`codex exec ... resume` 또는 새 프롬프트), (b) worktree 폐기 후 사용자 에스컬레이션.
