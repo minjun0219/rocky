@@ -1,15 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "rocky-local",
+  "name": "rocky-marketplace",
   "owner": {
     "name": "Minjun Kim"
   },
-  "description": "Local marketplace serving the rocky Claude Code plugin straight from this dev repo (directory source, read in place — no façade).",
+  "description": "Marketplace serving the rocky Claude Code plugin straight from this repo (no façade) — add locally as a directory source, or from GitHub (minjun0219/rocky) for claude.ai web / remote sessions.",
   "plugins": [
     {
       "name": "rocky",
       "source": "./",
-      "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + journal_* (append-only local journal). Slash commands: /finish, /curate."
+      "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + worklog_* (append-only local JSONL worklog, auto turn capture via Stop hook). Slash commands: /finish, /recall, /codex, /opencode, /issue, /soul."
     }
   ]
 }

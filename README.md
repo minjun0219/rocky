@@ -43,16 +43,16 @@ Codex / opencode 는 위 MCP 도구만 소비하고, 아래는 Claude Code plugi
 
 ### Claude Code plugin
 
-이 저장소 자체가 플러그인 소스이자 로컬 마켓플레이스다 (`.claude-plugin/marketplace.json`, 별도 파사드 없음):
+이 저장소 자체가 플러그인 소스이자 마켓플레이스다 (`.claude-plugin/marketplace.json`, 별도 파사드 없음):
 
 ```bash
 git clone https://github.com/minjun0219/rocky.git && cd rocky
 bun install
 claude plugin marketplace add .          # 저장소 루트에서 실행
-claude plugin install rocky@rocky-local
+claude plugin install rocky@rocky-marketplace
 ```
 
-`directory` 소스 마켓플레이스라 Claude Code는 저장소를 **제자리에서** 읽는다 (사본 X). 코드를 고친 뒤 `/reload-plugins` 하면 재시작 없이 반영된다. 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
+`directory` 소스 마켓플레이스라 Claude Code는 저장소를 **제자리에서** 읽는다 (사본 X). 코드를 고친 뒤 `/reload-plugins` 하면 재시작 없이 반영된다. 로컬 클론 없이 (claude.ai 웹 / 원격 세션 포함) 쓰려면 GitHub 소스로 추가한다: `claude plugin marketplace add minjun0219/rocky` → `claude plugin install rocky@rocky-marketplace`. 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
 
 설치 후 `openapi_envs` → `openapi_get` → `openapi_search` 흐름으로 spec을 둘러보면 된다. 레지스트리 (`rocky.json`)는 비어 있어도 URL 직접 입력으로 작동한다.
 
