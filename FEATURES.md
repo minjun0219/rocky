@@ -4,7 +4,7 @@
 > 대상: GitHub 에서 훑어 보는 사람, 그리고 grep / anchor 로 인용하는 에이전트 (Claude Code / Codex / opencode / …).
 > 이 파일이 **사람용 단일 source of truth** 다 (한국어). 에이전트용 단일 source 는 [`AGENTS.md`](./AGENTS.md) (영문). 표면이 바뀌면 두 파일을 같이 갱신한다.
 
-## 한 눈에
+## 한눈에
 
 - **단일 패키지 (`@minjun0219/rocky`) — 전체 표면 서버(`src/index.ts`) + 단독 OpenAPI CLI, 공유 7 openapi tool + 전체 표면 전용 `seo_validate` + CLI-gated `notion_*` + 기록 `worklog_*` (`Stop` hook 자동 기록 + 정리 `/recall`)**:
   | 진입점 / 소비 호스트 | 역할 | 설치 |
