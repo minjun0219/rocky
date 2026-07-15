@@ -10,6 +10,11 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(bun:*), Bash(which:*), Read, Gre
 rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 Codex 에게 맡길 구현 task.
 출력은 **한국어**(코드 identifier / 경로 / 명령어는 영어 그대로).
 
+위임 메커니즘·가드레일(자기완결 프롬프트, `codex exec` 플래그, 샌드박스/모델 선택, 실행 후
+검증)의 canonical 출처는 `delegating-to-codex` 스킬이다. 이 커맨드는 그 위에 **격리 worktree +
+게이트/표면/스코프 감시 + 승인 병합** 오케스트레이션을 얹은 특정 적용이다 — 아래 절차를 따르되
+프롬프트 구성·가드레일 판단은 스킬을 따른다.
+
 ## 원칙
 
 1. **역할 분리.** Codex = 구현자, Claude = 감독자. 나는 구현 코드를 직접 쓰지 않고
