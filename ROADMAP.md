@@ -2,10 +2,10 @@
 
 본 toolkit 의 장기 비전 메모. 현재 출하된 MVP 는 [`AGENTS.md`](./AGENTS.md) 의 *MVP scope* 에 한정한다 — 이 문서는 그 너머의 목표를 정리한다. 새 기능은 항상 별도 PR 로, 한 번에 한 항목씩.
 
-## 현재 (v0.6, openapi + seo + notion + journal)
+## 현재 (v0.9, openapi + seo + notion + worklog + souls)
 
-- 단일 패키지 (`@minjun0219/rocky`) — 두 배포 타깃이 동일 7-tool openapi surface 공유 (+ plugin 전용 `seo_validate`, `ntn` 탐지 시 `notion_*` 4 도구, 항상 등록되는 `journal_*` 4 도구 + `/curate` 정리 커맨드):
-  - **Claude Code plugin** (`src/index.ts`, marketplace) — `.claude-plugin/plugin.json` 의 `mcpServers` 로 stdio MCP 등록.
+- 단일 패키지 (`@minjun0219/rocky`) — 전체 표면 MCP 서버 + 단독 CLI 가 동일 7-tool openapi surface 공유 (+ 전체 표면 전용 `seo_validate`, `ntn` 탐지 시 `notion_*` 4 도구, 항상 등록되는 `worklog_*` 4 도구; 훅·슬래시 커맨드 — `Stop` hook 턴 자동 기록 / `/recall` 정리 커맨드 / `SessionStart` hook 소울 주입 — 는 **Claude Code plugin 전용**, Codex/opencode 는 MCP 도구만 소비):
+  - **전체 표면 MCP 서버** (`src/index.ts`) — Claude Code plugin (`.claude-plugin/plugin.json`의 `mcpServers`), Codex CLI (`~/.codex/config.toml`), opencode (`opencode.json`)가 같은 stdio 프로세스를 실행.
   - **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm publish 는 별도 PR) — host-agnostic stdio MCP.
   - **공유 core** (`src/core/` — handlers / registry / cache / fetcher / parser / indexer / filter / adapter / config / schema). plugin 은 barrel (`./core`), standalone 은 `./core/<file>` subpath 로 import.
 - archive 브랜치:
@@ -16,6 +16,7 @@
 
 - **`notion-context` → v0.5 (2026-07)**: `ntn` (공식 Notion CLI) 위임으로 재추가. shape (a) plugin 직접 합류 + **CLI-gate** (`ntn` 탐지 시에만 도구 등록). 아카이브의 원안 (외부 Notion MCP OAuth 직접 호출) 대신 CLI 위임으로 인증 경로를 우회 — rocky 는 토큰 / OAuth 를 직접 다루지 않는다. `lib/notion-context.ts` → `src/core/notion-cache.ts`, `lib/notion-chunking.ts` → `src/core/notion-chunking.ts`, 신규 `src/core/notion-cli.ts` (executor + `pages get --json` 파서) + `src/core/notion-handlers.ts` + PR #60 의 `notion-diff.ts` POC 포팅. env 는 `ROCKY_NOTION_CLI` / `ROCKY_NOTION_CLI_TIMEOUT_MS` / `ROCKY_NOTION_CACHE_DIR` / `ROCKY_NOTION_CACHE_TTL`. 토큰/OAuth env (`ROCKY_NOTION_MCP_*`) 는 부활하지 않았다. 이 CLI 위임 shape 가 이후 auth-bearing 도메인의 참고 템플릿.
 - **`journal` → v0.6 (2026-07)**: shape (a) plugin 직접 합류, **CLI-gate 없이 항상 등록** (순수 파일시스템). 다만 그동안 Claude Code 에 네이티브 메모리가 생겨, 단순 포팅은 겹친다 — 그래서 **기록(記錄)↔정리(整理) 2레이어**로 갈랐다: 기록은 `journal_*` MCP 도구(`lib/agent-journal.ts` → `src/core/journal.ts` + `src/core/journal-handlers.ts`, append-only JSONL, `resolveCacheKey` 재사용), 정리는 rocky 도구가 아니라 **`/curate` 슬래시 커맨드**(호스트 LLM)가 저널을 읽어 설정된 wiki 위치(Obsidian 등)로 markdown 을 증분 증류하고 `kind:"curate"` watermark 를 남긴다. rocky 는 기록·저장만, 증류는 호스트 몫 → 네이티브 메모리와 역할 분리. 저장은 프로젝트별 (`~/.config/rocky/journal/<project-key>`), env 는 `ROCKY_JOURNAL_DIR` / `ROCKY_JOURNAL_WIKI_DIR`, config 는 `rocky.json` 의 `journal.dir` / `journal.wikiDir`. 이 record↔organize 분리가 이후 memory-shaped 도메인의 참고 템플릿.
+- **`journal` → `worklog` 개명 (v0.9, 2026-07)**: 도구 4 종은 `worklog_*` 로, env / config 는 `ROCKY_WORKLOG_DIR` / `worklog.dir` 로 개명 (개수·역할 불변). 정리 레이어는 외부 wiki (`/curate` + `wikiDir`) 를 버리고 **워크로그 자체에 `kind:"digest"` 앵커 항목을 남기는 `/recall`** 로 교체 — `wikiDir` / `ROCKY_JOURNAL_WIKI_DIR` 제거. 동시에 Claude Code plugin 의 `Stop` hook 이 매 턴 `kind:"turn"` 항목을 결정론적으로 자동 기록한다 (`worklog.autoCapture`, 기본 on) — 아래 "백그라운드 저널 캡처" 후보의 유보를 hook 방식으로 해소한 셈.
 
 ## 도메인 재추가 후보
 
@@ -30,13 +31,13 @@
 | --- | --- | --- | --- |
 | `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | (b) 별도 CLI 진입점 강력 후보 — DB inspector 는 host 독립적. | `mysql2` prod-dep 부활. `rocky.json` 의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
 | `spec-pact` (DRAFT / VERIFY / DRIFT-CHECK / AMEND lifecycle) | `lib/spec-pact-fragments.ts` + 1 tool (`spec_pact_fragment`) + `skills/spec-pact/` + `agents/grace.md` | (a) plugin 합류. fragment loader 자체는 가벼움. | INDEX / SPEC 파일 lifecycle 은 `grace` sub-agent 책임. |
-| `pr-review-watch` (polling-only, journal-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | journal 재추가(v0.6) 완료 — 이제 journal-backed 이벤트 로그를 얹을 수 있다. |
+| `pr-review-watch` (polling-only, worklog-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | `worklog` 재추가 완료 — 이제 worklog-backed 이벤트 로그를 얹을 수 있다. 다만 Claude Code 빌트인 `/autofix-pr` 가 같은 자리를 차지해 우선순위 낮음. |
 
 재추가 절차의 자세한 단계는 `AGENTS.md` 의 *Reintroduction strategy* 절.
 
 ## 능력 목표 (원본 메모, 분리 단위 유지)
 
-1. 에이전트가 작업하거나 기억해야 하는 사항을 **자동으로 기억 / 기록** 해야 한다 — **journal 재추가로 출하 (v0.6)**: 기록은 `journal_*`, 정리(증류)는 `/curate` 슬래시 커맨드가 설정된 wiki 로. 네이티브 메모리와 역할 분리.
+1. 에이전트가 작업하거나 기억해야 하는 사항을 **자동으로 기억 / 기록** 해야 한다 — **journal 재추가로 출하 (v0.6), v0.9 에서 `worklog` 로 개명 + 자동화 완성**: 기록은 `worklog_*` + `Stop` hook 턴 자동 캡처, 정리(증류)는 `/recall` 슬래시 커맨드가 워크로그 안 `kind:"digest"` 앵커 다이제스트로. 네이티브 메모리와 역할 분리.
 2. 작성한 코드와 관련하여 **주석을 상세하게** 작성 — runtime project comment guidance 로 이미 출하 (in this repo as `AGENTS.md` 의 동일 절).
 3. 주석 / 설명을 **한글** 로 작성 — 동일.
 4. **Notion MCP** 를 활용해 노션 문서를 캐싱하고, 일정 시간 내 같은 문서를 참고할 때 캐싱 사용 — notion-context 도메인 재추가 후.
@@ -59,7 +60,7 @@
 - **npm publish 자동화** — `openapi-mcp` CLI 를 npm 에 올릴 시점에 changeset (`@changesets/cli`) 도입 + GitHub Actions release workflow. 첫 publish 필요 시점에 시작.
 - **Project references 도입** — 현재 단일 패키지 (`tsconfig.json` 하나) 라 `tsc -b` project references 는 N/A. 도메인 재추가로 별도 CLI 진입점이 늘어나 빌드 그래프가 복잡해지면 재검토.
 - **Repo rename** — ✅ 완료 (2026-07): `agent-toolkit` → `rocky` (Project Hail Mary 의 Rocky). GitHub repo / npm 패키지명 / plugin 명 / config (`rocky.json`, `~/.config/rocky/`) / env prefix (`ROCKY_*`) 일괄 전환.
-- **백그라운드 저널 캡처 (scribe 서브에이전트)** — 별도 PR. journal_append 인라인 호출은 메인 에이전트의 주의(판단+문장화) 비용이 있어, 작업 구획 끝(또는 `/finish`)에 **서브에이전트를 `run_in_background` 로 띄워 git diff + 짧은 요약에서 결정/blocker 를 배치 append** 하는 패턴 (설계 논의의 "모델 C"). MCP 도구 변경 없이 오케스트레이션만 추가 — `/journal` 슬래시커맨드 형태 유력, `capture(/journal) → organize(/curate)` 파이프라인. 동시 쓰기는 저널이 이미 best-effort 로 견딤. v0.6 에서는 인라인 `journal_append` 만 출하하고 이 캡처 자동화는 감을 잡은 뒤 재논의하기로 유보 (2026-07).
+- **백그라운드 저널 캡처 (scribe 서브에이전트)** — ✅ 다른 형태로 해소 (v0.9, 2026-07): 서브에이전트 배치 캡처("모델 C") 대신 **Claude Code plugin 의 `Stop` hook 이 매 턴 종료 시 결정론적으로(LLM 미사용) `kind:"turn"` 항목을 자동 append** 하는 방식으로 출하 (`src/hooks/log-turn.ts`, `worklog.autoCapture` 토글). `capture(hook) → organize(/recall)` 파이프라인 완성 — 별도 scribe 서브에이전트는 계획 없음.
 
 ## Out of scope
 
