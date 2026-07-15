@@ -242,6 +242,55 @@ opencode mcp add rocky
 
 `type` 은 `"local"` 고정(필수), `command` 는 문자열 배열이다. 환경 변수는 `env` 가 아니라 `environment` 객체로 지정한다. 예: `"environment": { "ROCKY_WORKLOG_DIR": "...", "ROCKY_NOTION_CACHE_DIR": "..." }`. `timeout` 은 옵션이며 기본값은 5000ms 다. `/abs/path/to/rocky/src/index.ts` 는 실제 rocky 체크아웃 위치의 절대경로로 바꾸고, `bun` 이 opencode 가 보는 `PATH` 에 있어야 한다. 자세한 설정과 주의점은 [`docs/opencode.md`](./docs/opencode.md)에 정리되어 있다.
 
+## 호스트 지원 매트릭스
+
+> rocky 는 세 full-surface 호스트(Claude Code plugin / Codex CLI / opencode)에서 **오늘 기준 MCP 도구만** 공유한다. 슬래시 커맨드·훅·스킬·소울·statusline 은 Claude Code plugin 에만 배포돼 있다. **단, 이는 "다른 호스트가 그 확장을 못 한다"는 뜻이 아니다** — Codex 와 opencode 도 2026 기준 커맨드 / 훅 / 스킬 / 서브에이전트 / 번들 플러그인을 네이티브로 지원한다. rocky 가 아직 그 호스트용 버전을 만들지 않았을 뿐이라 대부분 이식 가능하다. 아래 두 표가 (A) 호스트가 네이티브로 뭘 지원하는지 와 (B) rocky 표면이 각 호스트에서 어디까지 커버되는지 를 나눠 보여준다.
+
+### A. 호스트 확장 메커니즘 (네이티브 지원)
+
+| 메커니즘 | Claude Code | Codex CLI | opencode |
+| --- | --- | --- | --- |
+| MCP stdio 서버 | ✅ | ✅ `[mcp_servers.*]` | ✅ `mcp{type:"local"}` |
+| 슬래시 커맨드 | ✅ `commands/` (project+user) | ◐ `~/.codex/prompts/*.md` (user-only, **deprecated → skills**) | ✅ `.opencode/command/*.md` (`$ARGUMENTS`/`$1`/`` !`sh` ``/`@file`) |
+| SessionStart 훅 | ✅ | ◐ `SessionStart` hook (**실험적 · 기본 off · no Windows**) 또는 AGENTS.md 정적 병합 | ✅ plugin `session.created` / `instructions` |
+| Stop · 턴 훅 | ✅ | ◐ `Stop` hook(실험) 또는 `notify`(agent-turn-complete) | ✅ plugin `session.idle` / `message.updated` |
+| Skills (SKILL.md) | ✅ | ✅ 동일 스펙 | ✅ `.claude/skills/` 직접 읽음 |
+| Subagents | ✅ | ✅ `.codex/agents/*.toml` | ✅ `.opencode/agent/*.md` |
+| AGENTS.md 세션 주입 | ✅ | ✅ (3-scope) | ✅ (3-scope + `CLAUDE.md` fallback) |
+| 단일 번들 플러그인 + 마켓플레이스 | ✅ `.claude-plugin/` + `marketplace.json` | ✅ `.codex-plugin/plugin.json` + 마켓플레이스 (**2026-03 신규**) | ✗ 우산 매니페스트 없음 (surface별 개별 / npm plugin) |
+
+범례: ✅ 1급 지원 · ◐ 되지만 제약/실험적 · ✗ 등가물 없음.
+
+### B. rocky 표면별 커버 현황
+
+| rocky 표면 | Claude Code | Codex | opencode | 메모 |
+| --- | --- | --- | --- | --- |
+| MCP 도구 (openapi 7 + `seo_validate` + worklog 4 + notion 4 = 16) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | 공유 코어 — 이미 3-호스트 완결 |
+| `/finish`, `/issue` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI 의존, 로직은 호스트 중립 |
+| `/recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
+| `/codex`, `/opencode` | ✅ | — 무의미 | — 무의미 | 대상 호스트로 위임하는 커맨드라 그 호스트 안에 둘 이유 없음 |
+| `/rocky:soul` + 소울·callsign 주입 (SessionStart) | ✅ | ◐ SessionStart hook 또는 AGENTS.md 정적 병합 | ◐ plugin / `instructions` | 정적 병합이면 쉬움, 동적 주입은 훅 필요 |
+| `/rocky:statusline` + 번들 템플릿 3종 + 동기화 훅 | ✅ | ✗ 등가물 없음 | ✗ 등가물 없음 | Claude Code 의 `statusLine` 설정 자체가 CC 고유 표면 |
+| 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | `src/hooks/transcript.ts` 를 호스트별 재작성해야 (실제 비용) |
+| skill `writing-cc-plugin` | ✅ | ◐ 스펙 호환하나 내용이 CC 전용 | ✅ `.claude/skills/` 자동 발견 | 메커니즘은 커버, 내용 가치는 CC 한정 |
+| skill `delegating-to-codex` | ✅ | — 무의미 | ✅ `.claude/skills/` 자동 발견 | Codex 안에서 Codex 에 위임할 이유 없음 |
+| skill `todoist` | ✅ | ◐ 커버 가능 | ✅ `.claude/skills/` 자동 발견 | 세션에 연결된 Todoist MCP 에만 의존 — 로직은 호스트 중립 |
+| 단일 설치 유닛 | ✅ `.claude-plugin/` + `rocky-marketplace` | ◐ `.codex-plugin/plugin.json` 로 번들화 가능 (`codex plugin` 서브커맨드 실재) | ✗ 우산 없음 → config 트리 / npm plugin | Codex 가 새로 연 길 |
+| 동반 플러그인 `rocky-todo` (별도 레포) | ✅ 같은 마켓 2번째 entry | ◐ 데몬 MCP 가 HTTP 라 등록만 하면 됨 | ◐ 동일 | 데몬·웹UI 는 호스트 무관, 플러그인 배선과 훅만 CC 전용 |
+
+범례: ✅ rocky 가 이미 배포 · ◐ 호스트는 지원, rocky 미구현(커버 가능) · ✗ 등가물 없음 · — 무의미.
+
+### 요약
+
+- **이미 완결**: MCP 코어 — 세 호스트 동등.
+- **정적으로 쉬운 커버**: 소울 / 규칙을 AGENTS.md 정적 병합으로. 스킬은 opencode 가 `.claude/skills/` 를 이미 자동 발견한다.
+- **훅 필요(품이 듦)**: 턴 자동 기록 — 호스트별 트랜스크립트 파서 재작성이 실제 비용.
+- **새로 열린 길**: Codex 를 `.codex-plugin/plugin.json` 번들 플러그인으로 (MCP + skills + hooks 한 번에). opencode 는 우산 매니페스트가 없어 config 트리 / npm plugin 로 나눠 배포.
+- **등가물 없음**: statusline — Claude Code 고유 설정 표면이라 이식 대상이 아니다.
+- **무의미**: `/codex`·`/opencode` 를 대상 호스트 안에 넣기.
+
+> **신뢰도 캐비앗**: Codex 확장 스택(hooks · plugins · 마켓플레이스)은 2026 초 신규 + 일부 실험적이다 — hooks 기본 off · no Windows, custom prompts deprecated(→ skills), skills 경로 `.agents/skills` vs `.codex/skills` 유동. 설치본 `codex-cli 0.144.5` 기준으로 `codex plugin` 서브커맨드와 `~/.codex/{skills,plugins}` 존재는 실측 확인했으나, 세부 스펙은 이식 직전에 그때의 `codex --version` 으로 재확인할 것. opencode(실측 `1.18.4`)의 `.opencode/command|agent|plugin` 은 단수 디렉터리명이 정식이다(복수형도 허용).
+
 ## Claude Code 커맨드
 
 MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음). `/issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.

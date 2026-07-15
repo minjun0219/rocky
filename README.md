@@ -105,6 +105,8 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 
 v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 + 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있고, 활용 패턴이 잡히는 대로 [`docs/backlog.md`](./docs/backlog.md)의 후보 단위로 재추가한다 — notion은 v0.5 (`ntn` CLI 위임), journal은 v0.6 에 재추가되어 v0.9 에서 `worklog` 로 개명됐다. 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제 (게이트 제외) — 현재 opencode 지원은 이 플러그인의 부활이 아니라 stdio MCP 등록 방식이다.
 
+> 세 호스트에서 rocky 표면이 어디까지 커버되는지 (슬래시 커맨드·훅·스킬·소울 이식 가능 범위 포함) 는 [`FEATURES.md`](./FEATURES.md#호스트-지원-매트릭스) 의 *호스트 지원 매트릭스* 참고.
+
 ## 개발
 
 ```bash
