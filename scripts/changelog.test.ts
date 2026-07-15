@@ -34,4 +34,10 @@ describe('extractChangelogSection', () => {
   it('빈 CHANGELOG 는 빈 문자열', () => {
     expect(extractChangelogSection('', '0.11.0')).toBe('');
   });
+
+  it('CRLF 개행도 \\r 없이 추출한다', () => {
+    const crlf = SAMPLE.replace(/\n/g, '\r\n');
+    const notes = extractChangelogSection(crlf, '0.11.0');
+    expect(notes).toBe('### Minor Changes\n\n- a881fb8: changesets 도입');
+  });
 });

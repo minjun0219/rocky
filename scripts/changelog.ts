@@ -4,14 +4,14 @@
  * 매칭되는 섹션이 없으면 빈 문자열을 반환한다.
  */
 export function extractChangelogSection(changelog: string, version: string): string {
-  const lines = changelog.split('\n');
+  const lines = changelog.split(/\r?\n/);
   const start = lines.findIndex((l) => l.trim() === `## ${version}`);
   if (start === -1) {
     return '';
   }
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
+    if (/^## /.test(lines[i] ?? '')) {
       end = i;
       break;
     }
