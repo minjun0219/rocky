@@ -189,9 +189,10 @@ export function buildSoulContext(soul: Soul, opts: SoulContextOptions = {}): str
   ];
   const callsign = opts.callsign?.trim();
   if (callsign) {
+    // JSON.stringify 로 감싸 따옴표 등 특수문자가 있어도 주입 라인이 깨지지 않게 한다.
     lines.push(
       '',
-      `사용자 호칭: 이 세션의 사용자를 "${callsign}"(이)라고 부른다 — 소울 본문의 기본 호칭 규칙보다 우선한다.`,
+      `사용자 호칭: 이 세션의 사용자를 ${JSON.stringify(callsign)}(이)라고 부른다 — 소울 본문의 기본 호칭 규칙보다 우선한다.`,
     );
   }
   return lines.join('\n');

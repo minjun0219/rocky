@@ -284,23 +284,24 @@ const CALLSIGN_MAX_LENGTH = 40;
 
 /**
  * `callsign` 필드 검증. 사용자를 부르는 호칭 — 컨텍스트에 한 줄로 주입되므로
- * 개행 없는 non-empty 문자열(trim 기준, 최대 40자)만 허용한다. 한글 / 공백 OK —
- * `soul` 과 달리 파일명으로 쓰이지 않아 `ID_PATTERN` 제약이 없다.
+ * 줄바꿈(유니코드 line separator 포함) 없는 문자열, 공백-only 불가, 원본 기준 최대
+ * 40자만 허용한다. 한글 / 공백 OK — `soul` 과 달리 파일명으로 쓰이지 않아
+ * `ID_PATTERN` 제약이 없다. 기준은 `rocky.schema.json` 의 `callsign` 과 lockstep —
+ * 길이는 둘 다 원본(raw) 기준이라 에디터 검증과 런타임이 어긋나지 않는다.
  */
 function validateCallsign(callsign: unknown, source: string): void {
   if (typeof callsign !== 'string') {
     throw new Error(`${source}: callsign must be a string`);
   }
-  if (/[\r\n]/.test(callsign)) {
-    throw new Error(`${source}: callsign must be a single line (no newlines)`);
+  if (/[\r\n\u2028\u2029]/.test(callsign)) {
+    throw new Error(`${source}: callsign must be a single line (no line breaks)`);
   }
-  const trimmed = callsign.trim();
-  if (trimmed.length === 0) {
+  if (callsign.trim().length === 0) {
     throw new Error(`${source}: callsign must be a non-empty string`);
   }
-  if (trimmed.length > CALLSIGN_MAX_LENGTH) {
+  if (callsign.length > CALLSIGN_MAX_LENGTH) {
     throw new Error(
-      `${source}: callsign must be at most ${CALLSIGN_MAX_LENGTH} characters — got ${trimmed.length}`,
+      `${source}: callsign must be at most ${CALLSIGN_MAX_LENGTH} characters — got ${callsign.length}`,
     );
   }
 }

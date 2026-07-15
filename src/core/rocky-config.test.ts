@@ -158,14 +158,21 @@ describe('validateConfig', () => {
     );
   });
 
-  it('rejects a callsign containing newlines', () => {
+  it('rejects a callsign containing line breaks (incl. unicode separators)', () => {
     expect(() => validateConfig({ callsign: '민\n준' }, 'test')).toThrow(
+      /callsign must be a single line/,
+    );
+    expect(() => validateConfig({ callsign: '민\u2028준' }, 'test')).toThrow(
       /callsign must be a single line/,
     );
   });
 
-  it('rejects a callsign longer than 40 characters', () => {
+  it('rejects a callsign longer than 40 characters (raw length, schema lockstep)', () => {
     expect(() => validateConfig({ callsign: 'a'.repeat(41) }, 'test')).toThrow(
+      /callsign must be at most 40 characters/,
+    );
+    // trim 후 40자 이하라도 원본이 41자면 reject — rocky.schema.json 의 maxLength 와 동일 기준.
+    expect(() => validateConfig({ callsign: ` ${'a'.repeat(40)}` }, 'test')).toThrow(
       /callsign must be at most 40 characters/,
     );
   });
