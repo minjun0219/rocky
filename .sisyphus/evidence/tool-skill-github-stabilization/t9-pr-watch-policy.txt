@@ -1,3 +1,0 @@
-Verified contract policy in agents/mindy.md and lib/pr-watch.ts:
-- mindy explicitly denies permission.edit and permission.bash
-- pr-watch module remains reducer-only and does not contain direct GitHub API calls

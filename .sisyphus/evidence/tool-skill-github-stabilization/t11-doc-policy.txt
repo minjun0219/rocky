@@ -1,3 +1,0 @@
-README.md and INSTALL.md updated with GitHub transport policies (gh-cli, external-mcp, journal-only).
-Included deny policy for high-risk commands and dryRun-first principle.
-References: .sisyphus/artifacts/tool-skill-github-stabilization/github-effects-matrix.md

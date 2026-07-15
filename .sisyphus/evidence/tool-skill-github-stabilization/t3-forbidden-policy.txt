@@ -1,1 +1,0 @@
-Verified required forbidden-policy text coverage for `rocky.md`, `grace.md`, `mindy.md`, and `skills/pr-review-watch/SKILL.md` with exact substring assertions.

@@ -96,6 +96,8 @@ export interface WorklogConfig {
 
 export interface RockyConfig {
   $schema?: string;
+  /** 활성 소울(페르소나) 이름. SessionStart 훅이 이 이름으로 소울 파일을 찾아 주입한다. */
+  soul?: string;
   openapi?: {
     registry?: OpenapiRegistry;
   };
@@ -182,11 +184,14 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.worklog !== undefined) {
     validateWorklog(config.worklog, source);
   }
+  if (config.soul !== undefined) {
+    validateSoul(config.soul, source);
+  }
   return config as RockyConfig;
 }
 
 /** top-level 에서 허용하는 키 (오타 / 제거된 도메인 키 가드, 스키마 lockstep). */
-const ALLOWED_TOP_KEYS = new Set(['$schema', 'openapi', 'seo', 'worklog']);
+const ALLOWED_TOP_KEYS = new Set(['$schema', 'soul', 'openapi', 'seo', 'worklog']);
 
 /** `seo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
 const ALLOWED_SEO_KEYS = new Set(['allowPrivateHosts', 'timeoutMs']);
@@ -248,6 +253,21 @@ function validateWorklog(worklog: unknown, source: string): void {
     if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 1)) {
       throw new Error(`${source}: worklog.${key} must be a positive integer`);
     }
+  }
+}
+
+/**
+ * `soul` 필드 검증. 활성 소울 이름 — 파일명으로 쓰이므로 `ID_PATTERN`
+ * (`[a-zA-Z0-9_-]+`) 만 허용한다 (경로 이스케이프 / 콜론 방지).
+ */
+function validateSoul(soul: unknown, source: string): void {
+  if (typeof soul !== 'string') {
+    throw new Error(`${source}: soul must be a string`);
+  }
+  if (!ID_PATTERN.test(soul)) {
+    throw new Error(
+      `${source}: soul must match ${ID_PATTERN} (alphanumeric, "_" or "-" only) — got "${soul}"`,
+    );
   }
 }
 
@@ -392,6 +412,10 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   // worklog 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
   if (project.worklog) {
     out.worklog = { ...out.worklog, ...project.worklog };
+  }
+  // soul 은 스칼라 — project 가 있으면 user 를 덮어쓴다.
+  if (project.soul !== undefined) {
+    out.soul = project.soul;
   }
   return out;
 }

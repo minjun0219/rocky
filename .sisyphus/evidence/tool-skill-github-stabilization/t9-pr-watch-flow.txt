@@ -1,4 +1,0 @@
-Verified fake/journal-only PR watch lifecycle coverage in lib/pr-watch.test.ts:
-- start → inbound record → pending → resolve → stop
-- duplicate inbound record collapses to a single pending item via reducer contract
-- final active watch set becomes empty after stop
