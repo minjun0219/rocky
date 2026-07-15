@@ -50,16 +50,7 @@ claude plugin marketplace add minjun0219/rocky
 claude plugin install rocky@rocky-marketplace
 ```
 
-원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일하게, claude.ai 웹 UI에서는 CLI 명령 대신 플러그인/마켓플레이스 설정에 저장소 URL(`https://github.com/minjun0219/rocky.git`)을 등록한다. 플러그인 source가 명시적 git URL이라(상대 경로 X) 웹 UI의 서버 사이드 동기화에서도 해석된다 — 설치본은 GitHub `main`에서 clone되므로 코드 변경은 push 후 `claude plugin update rocky`로 반영.
-
-rocky 자체를 개발할 때는 클론 안의 **dev 마켓플레이스**(`marketplace.dev.json`, plugin source `"./"`)를 쓴다 — 저장소를 **제자리에서** 읽으므로 (사본 X) 코드를 고친 뒤 `/reload-plugins` 하면 재시작 없이 반영된다:
-
-```bash
-git clone https://github.com/minjun0219/rocky.git && cd rocky
-bun install
-claude plugin marketplace add ./marketplace.dev.json
-claude plugin install rocky@rocky-dev
-```
+원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일하게, claude.ai 웹 UI에서는 CLI 명령 대신 플러그인/마켓플레이스 설정에 저장소 URL(`https://github.com/minjun0219/rocky.git`)을 등록한다. 플러그인 source가 명시적 git URL이라(상대 경로 X) 웹 UI의 서버 사이드 동기화에서도 해석된다. 설치본은 GitHub `main`에서 clone되므로 코드 변경은 push 후 `claude plugin update rocky`로 반영된다.
 
 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
 

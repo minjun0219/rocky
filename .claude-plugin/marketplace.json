@@ -4,7 +4,7 @@
   "owner": {
     "name": "Minjun Kim"
   },
-  "description": "Marketplace serving the rocky Claude Code plugin from GitHub (minjun0219/rocky). Plugin source is an explicit git URL (no relative paths) so it also syncs in the claude.ai web UI's server-side marketplace sync. For the in-place local dev loop use ./marketplace.dev.json (rocky-dev) instead.",
+  "description": "Marketplace serving the rocky Claude Code plugin from GitHub (minjun0219/rocky). Plugin source is an explicit git URL (no relative paths) so it also syncs in the claude.ai web UI's server-side marketplace sync.",
   "plugins": [
     {
       "name": "rocky",
