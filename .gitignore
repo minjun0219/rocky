@@ -6,7 +6,16 @@ dist/
 .sisyphus/
 .env
 .env.local
+# .env.production / .env.development 등 나머지 변형
+.env.*
 *.tsbuildinfo
 # bun build 가 outfile 미지정 시 만드는 sibling artifacts (예: bin/openapi-mcp-<hash>)
 bin/openapi-mcp-*
+# 로컬 전용 캐시/워크로그 (ROCKY_WORKLOG_DIR / ROCKY_NOTION_CACHE_DIR 가 in-tree 로 향할 때 대비)
+*.jsonl
+notion-pages/
+# 로컬 프로젝트 설정 (private registry URL 등을 담을 수 있음). rocky.schema.json 은 추적 유지.
+rocky.json
+# Claude Code 로컬 오버라이드 (권한/시크릿 보관 위치)
+.claude/settings.local.json
 

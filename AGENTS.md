@@ -105,6 +105,8 @@ bun run typecheck   # tsc --noEmit
 bun test            # 모든 src/**/*.test.ts
 ```
 
+**Git hooks (husky).** `bun install` 시 `prepare: "husky"` 가 `core.hooksPath` 를 `.husky/_` 로 배선한다 (clone 받은 기여자도 자동 활성화). `.husky/pre-commit` 은 staged 파일에 `lint-staged`(biome check/format) + 시크릿 스캔(`gitleaks` 있으면 `gitleaks protect --staged`, 없으면 내장 grep fallback)을, `.husky/pre-push` 는 `typecheck` + `test` 를 돌린다. 긴급 우회는 `git commit --no-verify` / `git push --no-verify`. CI(`.github/workflows/ci.yml`)는 같은 게이트 + `gitleaks` 잡을 PR·main push 마다 재실행한다. `.husky/_` 는 husky 자체 `.gitignore` 로 커밋 제외 — 추적 대상은 `.husky/pre-commit` / `.husky/pre-push` 두 파일뿐.
+
 ## Coding rules
 
 - **Language**: TypeScript (`type: module`). Bun runs `.ts` directly — no build, no `dist/`.
@@ -112,7 +114,7 @@ bun test            # 모든 src/**/*.test.ts
 - **ESM safety**: never use `__dirname`. Use `import.meta.url` + `fileURLToPath`, or Bun's `import.meta.dir`.
 - **Repo-local JSDoc**: write JSDoc on exported functions / classes when touching this repository, but do not treat it as a custom hard-lint gate. Korean comments are fine for tricky logic.
 - **Errors**: include context in messages (input value, timeout, status code, handle mismatch, …).
-- **Dependencies**: avoid adding any if possible. Prefer the standard library and Bun built-ins. **Explicit prod-dep exceptions:** `@modelcontextprotocol/sdk` + `zod` (MCP wire protocol + blessed schema dialect), `@apidevtools/swagger-parser` + `swagger2openapi` + `js-yaml` + `openapi-types` + `pino` (OpenAPI parsing / conversion / structured stderr logging), `ogpeek` (`seo_validate` 의 HTML fetch + OG / Twitter Card / JSON-LD / favicon 파싱 — 손으로 유지할 표면이 아님). HTTP transport는 Bun의 native `fetch` (with `tls` option) 직접 사용. Dev-only tooling (linters / formatters) 는 OK. New runtime deps 는 별도 scope 논의. (`@opencode-ai/plugin` 은 opencode plugin 아카이브와 함께 제거됨.)
+- **Dependencies**: avoid adding any if possible. Prefer the standard library and Bun built-ins. **Explicit prod-dep exceptions:** `@modelcontextprotocol/sdk` + `zod` (MCP wire protocol + blessed schema dialect), `@apidevtools/swagger-parser` + `swagger2openapi` + `js-yaml` + `openapi-types` + `pino` (OpenAPI parsing / conversion / structured stderr logging), `ogpeek` (`seo_validate` 의 HTML fetch + OG / Twitter Card / JSON-LD / favicon 파싱 — 손으로 유지할 표면이 아님). HTTP transport는 Bun의 native `fetch` (with `tls` option) 직접 사용. Dev-only tooling (linters / formatters / git-hook 러너) 는 OK — 현재 devDep 예외로 `husky` + `lint-staged` (pre-commit/pre-push 게이트, 런타임 미포함). New runtime deps 는 별도 scope 논의. (`@opencode-ai/plugin` 은 opencode plugin 아카이브와 함께 제거됨.)
 - **Tests**: keep `*.test.ts` next to the source and run with `bun test`. Isolate fs-dependent tests with `mkdtempSync`. 핸들러 동작 자체는 `src/core/handlers.test.ts` 에서 검증, 플러그인 진입점의 `src/index.test.ts` 는 surface (tool 개수 / 누수 회귀) 만 검증.
 
 ## Runtime project comment guidance

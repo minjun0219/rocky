@@ -1,1 +1,0 @@
-PASS: artifact covers required fixture conventions and evidence path rules
