@@ -149,7 +149,7 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 
 ## Plugin source & dev loop
 
-**This repo IS the plugin source AND its own marketplace — there is no separate façade directory.** `.claude-plugin/marketplace.json` (name `rocky-marketplace`, plugin `rocky` at `source: "./"`) makes the repo directly installable — as a local directory source for the dev loop, or as a GitHub source (`minjun0219/rocky`) for claude.ai web / remote sessions — and `.claude-plugin/plugin.json`'s `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) is the **only** MCP server the plugin ships.
+**This repo IS the plugin source AND its own marketplace — there is no separate façade directory.** `.claude-plugin/marketplace.json` (name `rocky-marketplace`, plugin `rocky` at `source: "./"`) makes the repo directly installable — as a local directory source for the dev loop, or as a GitHub source (`minjun0219/rocky`) — via `/plugin marketplace add` in remote sessions, or by registering the repo URL in the claude.ai web UI's plugin settings (no CLI there) — and `.claude-plugin/plugin.json`'s `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) is the **only** MCP server the plugin ships.
 
 Install for personal use (once):
 

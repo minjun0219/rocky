@@ -52,7 +52,7 @@ claude plugin marketplace add .          # 저장소 루트에서 실행
 claude plugin install rocky@rocky-marketplace
 ```
 
-`directory` 소스 마켓플레이스라 Claude Code는 저장소를 **제자리에서** 읽는다 (사본 X). 코드를 고친 뒤 `/reload-plugins` 하면 재시작 없이 반영된다. 로컬 클론 없이 (claude.ai 웹 / 원격 세션 포함) 쓰려면 GitHub 소스로 추가한다: `claude plugin marketplace add minjun0219/rocky` → `claude plugin install rocky@rocky-marketplace`. 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
+`directory` 소스 마켓플레이스라 Claude Code는 저장소를 **제자리에서** 읽는다 (사본 X). 코드를 고친 뒤 `/reload-plugins` 하면 재시작 없이 반영된다. 로컬 클론 없이 쓰려면 GitHub 소스로 추가한다 — CLI에서는 `claude plugin marketplace add minjun0219/rocky` → `claude plugin install rocky@rocky-marketplace` (원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일), claude.ai 웹 UI에서는 CLI 명령 대신 플러그인/마켓플레이스 설정에 저장소 URL(`https://github.com/minjun0219/rocky.git`)을 등록한다. 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
 
 설치 후 `openapi_envs` → `openapi_get` → `openapi_search` 흐름으로 spec을 둘러보면 된다. 레지스트리 (`rocky.json`)는 비어 있어도 URL 직접 입력으로 작동한다.
 
