@@ -45,6 +45,8 @@
     "lint:fix": "biome lint --write .",
     "test": "bun test ./src",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
+    "changeset": "changeset",
+    "changeset:version": "changeset version && bun scripts/sync-plugin-version.ts",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -62,6 +64,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
+    "@changesets/cli": "^2.31.0",
     "@minjun0219/biome-config": "2.1.0",
     "@types/bun": "^1.1.0",
     "@types/js-yaml": "^4.0.9",
