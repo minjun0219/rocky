@@ -21,10 +21,11 @@ rocky/                                      single package — @minjun0219/rocky
 ├── rocky.schema.json                       `rocky.json` JSON Schema (IDE autocomplete)
 ├── .claude-plugin/marketplace.json         ★ 이 레포를 그대로 설치 가능한 로컬 마켓플레이스로 (name rocky-local, plugin rocky @ source "./")
 ├── .claude-plugin/plugin.json              ★ plugin metadata + mcpServers (via ${CLAUDE_PLUGIN_ROOT}/src/index.ts)
-├── README.md / FEATURES.md / AGENTS.md / ROADMAP.md / REVIEW.md / LICENSE
+├── README.md / FEATURES.md / AGENTS.md / REVIEW.md / LICENSE
 ├── docs/openapi-mcp.md                     standalone CLI 보조 문서
 ├── docs/codex.md                           Codex CLI 에서 full-surface `src/index.ts` 를 MCP 서버로 등록하는 보조 문서
 ├── docs/opencode.md                        opencode CLI 에서 full-surface `src/index.ts` 를 MCP 서버로 등록하는 보조 문서
+├── docs/backlog.md                         백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 (구 ROADMAP.md 의 live 항목 이관)
 ├── commands/                               ★ Claude Code plugin 슬래시 커맨드 (자동 발견, gh CLI 기반, MCP tool surface 와 별개)
 │   ├── finish.md                           `/finish` — 게이트 → 커밋 → 푸시 → PR 생성 (PR 감시는 빌트인 /autofix-pr 위임)
 │   ├── recall.md                           `/recall` — worklog_* 를 읽어 앵커 히스토리 다이제스트(kind:"digest")로 증분 요약 (정리 레이어, gh 불필요, v0.9 에서 curate.md 대체)

@@ -8,8 +8,8 @@
  * v0.3 부터 toolkit 은 OpenAPI 도메인만 다뤘다. notion (v0.5) 과 worklog (v0.6, 구 journal —
  * v0.9 에서 개명) 는 이미 재추가되어 활성 도메인이다. 아직 재추가되지 않은 mysql / spec-pact /
  * pr-watch 도메인은 `archive/pre-openapi-only-slim` 브랜치에, opencode plugin 은 in-tree
- * `.archive/agent-toolkit-opencode/` 에 박제되어 있다. 활용 패턴이 잡히면 ROADMAP 의 phase
- * 단위로 재추가된다.
+ * `.archive/agent-toolkit-opencode/` 에 박제되어 있다. 활용 패턴이 잡히면 `docs/backlog.md`
+ * 의 후보 단위로 재추가된다.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

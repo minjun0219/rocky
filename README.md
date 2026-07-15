@@ -102,14 +102,14 @@ opencode mcp add rocky                                           # opencode — 
 | --- | --- | --- |
 | [`FEATURES.md`](./FEATURES.md) | 사람 (한국어) | **단일 source of truth** — 전 도구 카탈로그 / 환경 변수 / 설정 파일 / Quick start |
 | [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / MVP scope / coding rules / change checklist |
-| [`ROADMAP.md`](./ROADMAP.md) | 사람 | 장기 비전 + 도메인 재추가 후보 |
+| [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | Codex / opencode 에서 전체 표면 서버 등록 |
 | [`REVIEW.md`](./REVIEW.md) | 리뷰 에이전트 | 이 레포의 코드 리뷰 규칙 |
 
 ## 역사 / 아카이브
 
-v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 + 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있고, 활용 패턴이 잡히는 대로 [`ROADMAP.md`](./ROADMAP.md)의 phase 별로 재추가한다 — notion은 v0.5 (`ntn` CLI 위임), journal은 v0.6 에 재추가되어 v0.9 에서 `worklog` 로 개명됐다. 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제 (게이트 제외) — 현재 opencode 지원은 이 플러그인의 부활이 아니라 stdio MCP 등록 방식이다.
+v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 + 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있고, 활용 패턴이 잡히는 대로 [`docs/backlog.md`](./docs/backlog.md)의 후보 단위로 재추가한다 — notion은 v0.5 (`ntn` CLI 위임), journal은 v0.6 에 재추가되어 v0.9 에서 `worklog` 로 개명됐다. 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제 (게이트 제외) — 현재 opencode 지원은 이 플러그인의 부활이 아니라 stdio MCP 등록 방식이다.
 
 ## 개발
 
