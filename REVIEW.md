@@ -27,7 +27,7 @@ Style, naming, minor JSDoc gaps, test-file location (`*.test.ts` must sit next t
 
 - Lockfiles and generated artifacts: `bun.lock`, plus anything matched by the repo's `.gitignore` (`node_modules/`, `dist/`, `*.tsbuildinfo`, `.env`, `.env.local`, …).
 - Type errors and test failures already caught by `bun run typecheck` / `bun test` — CI handles those. Exception: if a new module under `src/core/` ships without an adjacent `*.test.ts`, report that as a Nit.
-- A PR that *was explicitly asked* to pull in a `ROADMAP.md` phase item is not, by that fact alone, an MVP-scope violation — the scope expansion is part of the request.
+- A PR that *was explicitly asked* to pull in a `docs/backlog.md` backlog item is not, by that fact alone, an MVP-scope violation — the scope expansion is part of the request.
 
 ## Always check
 
