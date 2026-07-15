@@ -116,4 +116,20 @@ describe('buildSoulContext', () => {
     expect(ctx).toContain('AGENTS.md');
     expect(ctx).toContain('rocky');
   });
+
+  it('appends a callsign line when opts.callsign is set', () => {
+    const soul = readSoul('rocky', dirs())!;
+    const ctx = buildSoulContext(soul, { callsign: '민준' });
+    expect(ctx).toContain('사용자 호칭');
+    expect(ctx).toContain('"민준"');
+    // 호칭 라인은 본문 뒤에 온다.
+    expect(ctx.indexOf('사용자 호칭')).toBeGreaterThan(ctx.indexOf('따뜻한 동료 본문'));
+  });
+
+  it('omits the callsign line when callsign is missing or blank', () => {
+    const soul = readSoul('rocky', dirs())!;
+    expect(buildSoulContext(soul)).not.toContain('사용자 호칭');
+    expect(buildSoulContext(soul, {})).not.toContain('사용자 호칭');
+    expect(buildSoulContext(soul, { callsign: '   ' })).not.toContain('사용자 호칭');
+  });
 });

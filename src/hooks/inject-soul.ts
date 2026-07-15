@@ -47,7 +47,7 @@ async function resolveContext(cwd: string): Promise<string | null> {
     process.stderr.write(`[rocky soul] configured soul "${name}" not found — skipping\n`);
     return null;
   }
-  return buildSoulContext(soul);
+  return buildSoulContext(soul, { callsign: config.callsign });
 }
 
 async function run(): Promise<void> {

@@ -166,17 +166,33 @@ export function readSoul(name: string, dirs: SoulDirs = resolveDefaultSoulDirs()
   return null;
 }
 
+/** `buildSoulContext` 옵션. */
+export interface SoulContextOptions {
+  /** 사용자를 부르는 호칭 (`rocky.json` 의 `callsign`). trim 후 비어있으면 무시. */
+  callsign?: string;
+}
+
 /**
  * 소울 본문을 세션 주입용 컨텍스트로 감싼다. 앞에 우선순위 preamble 을 붙여, 페르소나가
  * AGENTS.md 의 게이트/안전 규칙과 충돌하면 항상 후자가 이기도록 명시한다.
+ * `opts.callsign` 이 있으면 본문 뒤에 호칭 지시 한 줄을 덧붙인다 — 소울 본문의 기본
+ * 호칭 규칙보다 우선한다.
  */
-export function buildSoulContext(soul: Soul): string {
-  return [
+export function buildSoulContext(soul: Soul, opts: SoulContextOptions = {}): string {
+  const lines = [
     `# rocky soul: ${soul.name}`,
     '',
     '아래는 이 세션에 선택된 rocky 소울(페르소나)이다. 말투/성격 + 작업 방식의 레이어일 뿐,',
     'AGENTS.md / CLAUDE.md 의 게이트·검증·안전 규칙을 절대 덮어쓰지 않는다 — 충돌 시 그 규칙이 이긴다.',
     '',
     soul.body.trim(),
-  ].join('\n');
+  ];
+  const callsign = opts.callsign?.trim();
+  if (callsign) {
+    lines.push(
+      '',
+      `사용자 호칭: 이 세션의 사용자를 "${callsign}"(이)라고 부른다 — 소울 본문의 기본 호칭 규칙보다 우선한다.`,
+    );
+  }
+  return lines.join('\n');
 }

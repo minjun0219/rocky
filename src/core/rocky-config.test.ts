@@ -139,6 +139,36 @@ describe('validateConfig', () => {
   it('rejects a soul name with illegal characters', () => {
     expect(() => validateConfig({ soul: 'has space' }, 'test')).toThrow(/soul must match/);
   });
+
+  it('accepts a valid callsign (Korean / spaces OK)', () => {
+    expect(validateConfig({ callsign: '민준' }, 'test')).toEqual({ callsign: '민준' });
+    expect(validateConfig({ callsign: '민준 님' }, 'test')).toEqual({ callsign: '민준 님' });
+  });
+
+  it('rejects a callsign that is not a string', () => {
+    expect(() => validateConfig({ callsign: 42 } as any, 'test')).toThrow(
+      /callsign must be a string/,
+    );
+  });
+
+  it('rejects an empty / whitespace-only callsign', () => {
+    expect(() => validateConfig({ callsign: '' }, 'test')).toThrow(/callsign must be a non-empty/);
+    expect(() => validateConfig({ callsign: '   ' }, 'test')).toThrow(
+      /callsign must be a non-empty/,
+    );
+  });
+
+  it('rejects a callsign containing newlines', () => {
+    expect(() => validateConfig({ callsign: '민\n준' }, 'test')).toThrow(
+      /callsign must be a single line/,
+    );
+  });
+
+  it('rejects a callsign longer than 40 characters', () => {
+    expect(() => validateConfig({ callsign: 'a'.repeat(41) }, 'test')).toThrow(
+      /callsign must be at most 40 characters/,
+    );
+  });
 });
 
 describe('mergeConfigs', () => {
@@ -328,6 +358,18 @@ describe('mergeConfigs soul', () => {
   it('keeps user soul when project omits it', () => {
     const merged = mergeConfigs({ soul: 'rocky' }, {});
     expect(merged.soul).toBe('rocky');
+  });
+});
+
+describe('mergeConfigs callsign', () => {
+  it('project callsign overrides user callsign', () => {
+    const merged = mergeConfigs({ callsign: '민준' }, { callsign: '팀장님' });
+    expect(merged.callsign).toBe('팀장님');
+  });
+
+  it('keeps user callsign when project omits it', () => {
+    const merged = mergeConfigs({ callsign: '민준' }, { soul: 'senior' });
+    expect(merged.callsign).toBe('민준');
   });
 });
 
