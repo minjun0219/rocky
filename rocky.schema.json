@@ -15,6 +15,13 @@
       "pattern": "^[a-zA-Z0-9_-]+$",
       "description": "활성 소울(페르소나) 이름. SessionStart 훅이 souls/<name>.md (번들) 또는 ~/.config/rocky/souls/<name>.md (커스텀) 를 찾아 세션 컨텍스트에 주입한다. 미설정 시 주입 없음(vanilla)."
     },
+    "callsign": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[^\\r\\n\\u2028\\u2029]*\\S[^\\r\\n\\u2028\\u2029]*$",
+      "description": "소울이 사용자를 부르는 호칭 (한글/공백 OK — 단 공백만은 불가, 한 줄, 최대 40자). SessionStart 훅이 소울 컨텍스트에 함께 주입하며, 소울 본문의 기본 호칭 규칙(예: rocky 의 \"친구\")보다 우선한다. 미설정 시 소울 본문의 기본 호칭을 따른다. /rocky:soul call <이름> 으로 변경. 런타임 검증(rocky-config.ts 의 validateCallsign)과 lockstep."
+    },
     "openapi": {
       "type": "object",
       "description": "OpenAPI / Swagger registry. Maps host:env:spec handles to spec download URLs.",

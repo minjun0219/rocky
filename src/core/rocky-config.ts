@@ -98,6 +98,11 @@ export interface RockyConfig {
   $schema?: string;
   /** 활성 소울(페르소나) 이름. SessionStart 훅이 이 이름으로 소울 파일을 찾아 주입한다. */
   soul?: string;
+  /**
+   * 소울이 사용자를 부르는 호칭. SessionStart 훅이 소울 컨텍스트에 함께 주입한다.
+   * 소울 본문의 기본 호칭 규칙(예: rocky 의 "친구")보다 우선. 미설정 시 주입 없음.
+   */
+  callsign?: string;
   openapi?: {
     registry?: OpenapiRegistry;
   };
@@ -187,11 +192,14 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.soul !== undefined) {
     validateSoul(config.soul, source);
   }
+  if (config.callsign !== undefined) {
+    validateCallsign(config.callsign, source);
+  }
   return config as RockyConfig;
 }
 
 /** top-level 에서 허용하는 키 (오타 / 제거된 도메인 키 가드, 스키마 lockstep). */
-const ALLOWED_TOP_KEYS = new Set(['$schema', 'soul', 'openapi', 'seo', 'worklog']);
+const ALLOWED_TOP_KEYS = new Set(['$schema', 'soul', 'callsign', 'openapi', 'seo', 'worklog']);
 
 /** `seo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
 const ALLOWED_SEO_KEYS = new Set(['allowPrivateHosts', 'timeoutMs']);
@@ -267,6 +275,33 @@ function validateSoul(soul: unknown, source: string): void {
   if (!ID_PATTERN.test(soul)) {
     throw new Error(
       `${source}: soul must match ${ID_PATTERN} (alphanumeric, "_" or "-" only) — got "${soul}"`,
+    );
+  }
+}
+
+/** 호칭 최대 길이 — 컨텍스트에 한 줄로 주입되므로 짧게 제한한다 (스키마 lockstep). */
+const CALLSIGN_MAX_LENGTH = 40;
+
+/**
+ * `callsign` 필드 검증. 사용자를 부르는 호칭 — 컨텍스트에 한 줄로 주입되므로
+ * 줄바꿈(유니코드 line separator 포함) 없는 문자열, 공백-only 불가, 원본 기준 최대
+ * 40자만 허용한다. 한글 / 공백 OK — `soul` 과 달리 파일명으로 쓰이지 않아
+ * `ID_PATTERN` 제약이 없다. 기준은 `rocky.schema.json` 의 `callsign` 과 lockstep —
+ * 길이는 둘 다 원본(raw) 기준이라 에디터 검증과 런타임이 어긋나지 않는다.
+ */
+function validateCallsign(callsign: unknown, source: string): void {
+  if (typeof callsign !== 'string') {
+    throw new Error(`${source}: callsign must be a string`);
+  }
+  if (/[\r\n\u2028\u2029]/.test(callsign)) {
+    throw new Error(`${source}: callsign must be a single line (no line breaks)`);
+  }
+  if (callsign.trim().length === 0) {
+    throw new Error(`${source}: callsign must be a non-empty string`);
+  }
+  if (callsign.length > CALLSIGN_MAX_LENGTH) {
+    throw new Error(
+      `${source}: callsign must be at most ${CALLSIGN_MAX_LENGTH} characters — got ${callsign.length}`,
     );
   }
 }
@@ -413,9 +448,12 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   if (project.worklog) {
     out.worklog = { ...out.worklog, ...project.worklog };
   }
-  // soul 은 스칼라 — project 가 있으면 user 를 덮어쓴다.
+  // soul / callsign 은 스칼라 — project 가 있으면 user 를 덮어쓴다.
   if (project.soul !== undefined) {
     out.soul = project.soul;
+  }
+  if (project.callsign !== undefined) {
+    out.callsign = project.callsign;
   }
   return out;
 }

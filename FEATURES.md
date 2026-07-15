@@ -259,10 +259,10 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 ### `SessionStart` — 소울(페르소나) 자동 주입
 
 - **What**: 세션 시작 시 `rocky.json` 의 활성 `soul` 을 읽어, 해당 이름의 소울 파일(커스텀 `~/.config/rocky/souls/<name>.md` 우선, 없으면 번들 프리셋 `souls/<name>.md`) 을 찾아 페르소나 본문을 `additionalContext` 로 주입한다. `soul` 이 비어있거나 파일을 못 찾으면 아무 것도 주입하지 않는다(vanilla, opt-in 기본값). 주입되는 컨텍스트 맨 앞에는 "AGENTS.md/CLAUDE.md 의 게이트·안전 규칙이 항상 이긴다" 는 우선순위 preamble 이 붙는다 — 소울은 그 위의 말투/작업 방식 레이어일 뿐, override 가 아니다.
-- **동작**: 세션 cwd 로 `rocky.json` 을 로드(project > user) → `soul` 필드 확인 → 소울 파일 read → frontmatter 제거한 본문 + preamble 로 컨텍스트 조립. 어떤 단계든 실패해도 세션 시작을 막지 않고 항상 exit 0 (fail-open).
+- **동작**: 세션 cwd 로 `rocky.json` 을 로드(project > user) → `soul` 필드 확인 → 소울 파일 read → frontmatter 제거한 본문 + preamble 로 컨텍스트 조립. `callsign` 이 설정돼 있으면 본문 끝에 호칭 지시 한 줄("사용자를 `<callsign>` 이라고 부른다")을 덧붙인다 — 소울 본문의 기본 호칭 규칙보다 우선. 어떤 단계든 실패해도 세션 시작을 막지 않고 항상 exit 0 (fail-open).
 - **주입 시점**: hook 은 `matcher: "startup|clear|compact"` 로 등록된다 — 컨텍스트가 새로 시작(`startup`)되거나 `/clear`·compact 로 초기화/축약된 뒤 소울을 (재)주입한다. `resume` 은 기존 컨텍스트(이미 주입된 소울 포함)가 그대로 살아있어 중복 주입을 건너뛴다.
 - **Side effects**: 없음 (read-only, remote 호출 없음).
-- **Related config**: `rocky.json` 의 `soul`. env 변수 없음.
+- **Related config**: `rocky.json` 의 `soul` / `callsign`. env 변수 없음.
 - **Hosts**: Claude Code plugin 만. 구현은 `src/hooks/inject-soul.ts` (코어 로직은 `src/core/soul.ts`).
 
 ### `Stop` — 턴 자동 기록
@@ -306,11 +306,11 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **의존성**: 인증된 `gh` CLI.
 - **Hosts**: Claude Code plugin 만 (rocky 설치된 어느 세션에서든 호출 가능 — 다른 레포 포함).
 
-### `/rocky:soul [list | <name> | show [name] | new <name>] [--project]`
+### `/rocky:soul [list | <name> | call [<이름>|--clear] | show [name] | new <name>] [--project]`
 
-- **What**: 로키의 소울(페르소나 — 말투/성격 + 작업 방식)을 고른다. 인자 없음 또는 `list` 는 프리셋(`${CLAUDE_PLUGIN_ROOT}/souls/`) + 커스텀(`~/.config/rocky/souls/`) 목록과 현재 활성 소울을 보여준다(같은 이름이면 커스텀이 이김). `<name>` 은 이름 검증(`^[a-zA-Z0-9_-]+$`) → 존재 확인 → 사용자 확인 후 `rocky.json` 의 `soul` 키만 갱신(기본 user `~/.config/rocky/rocky.json`, `--project` 면 `./rocky.json`, 다른 필드는 보존). `show [name]` 은 본문 미리보기(생략 시 현재 활성 소울). `new <name>` 은 `~/.config/rocky/souls/<name>.md` 에 frontmatter(`name`/`description`) + 빈 섹션 템플릿을 스캐폴딩(이미 있으면 덮어쓰지 않음).
+- **What**: 로키의 소울(페르소나 — 말투/성격 + 작업 방식)을 고른다. 인자 없음 또는 `list` 는 프리셋(`${CLAUDE_PLUGIN_ROOT}/souls/`) + 커스텀(`~/.config/rocky/souls/`) 목록과 현재 활성 소울을 보여준다(같은 이름이면 커스텀이 이김). `<name>` 은 이름 검증(`^[a-zA-Z0-9_-]+$`) → 존재 확인 → **호칭 질문("소울이 뭐라고 불러 드릴까요?", 생략 가능)** → 사용자 확인 후 `rocky.json` 의 `soul` 키(+ 호칭을 받았으면 `callsign` 키)만 갱신(기본 user `~/.config/rocky/rocky.json`, `--project` 면 `./rocky.json`, 다른 필드는 보존). `call` 은 호칭만 다룬다 — 인자 없으면 현재 `callsign` 표시(user/project + 병합 결과), `<이름>` 이면 검증(한 줄, 공백만은 불가, 최대 40자) + 확인 후 `callsign` 키만 갱신, `--clear` 면 확인 후 키 제거. `show [name]` 은 본문 미리보기(생략 시 현재 활성 소울). `new <name>` 은 `~/.config/rocky/souls/<name>.md` 에 frontmatter(`name`/`description`) + 빈 섹션 템플릿을 스캐폴딩(이미 있으면 덮어쓰지 않음).
 - **Input**: 서브커맨드 + 옵션 `--project`.
-- **하지 않는 것**: 소울로 AGENTS.md/CLAUDE.md 게이트·안전 규칙 override 금지, `rocky.json` 쓸 때 `soul` 외 필드 변경 금지, 확인 없이 활성 소울 전환 금지.
+- **하지 않는 것**: 소울로 AGENTS.md/CLAUDE.md 게이트·안전 규칙 override 금지, `rocky.json` 쓸 때 `soul` / `callsign` 외 필드 변경 금지, 확인 없이 활성 소울 전환·호칭 변경 금지.
 - **적용 시점**: `soul` 변경은 다음 세션부터 `SessionStart` 훅이 자동 주입 — 이번 세션에는 반영되지 않는다.
 - **Hosts**: Claude Code plugin 만.
 
@@ -364,6 +364,7 @@ standalone CLI 는 위 XDG 변수에 추가로 `openapi-mcp` CLI flag (`--config
 {
   "$schema": "https://raw.githubusercontent.com/minjun0219/rocky/main/rocky.schema.json",
   "soul": "rocky",
+  "callsign": "민준",
   "openapi": {
     "registry": {
       "acme": {
@@ -389,13 +390,14 @@ standalone CLI 는 위 XDG 변수에 추가로 `openapi-mcp` CLI flag (`--config
 ```
 
 - `soul` (옵션): 활성 소울(페르소나) 이름 — `^[a-zA-Z0-9_-]+$`, 파일명 stem 과 동일한 값. `SessionStart` 훅이 이 값으로 `souls/<name>.md` (번들 프리셋, `${CLAUDE_PLUGIN_ROOT}/souls/`) 또는 `~/.config/rocky/souls/<name>.md` (커스텀, 같은 이름이면 이쪽이 이김) 를 찾아 세션 컨텍스트에 자동 주입한다. project (`./rocky.json`) 가 user 를 덮어쓴다. 미설정 시 주입 없음(vanilla, opt-in). `/rocky:soul <name>` 으로 전환.
+- `callsign` (옵션): 소울이 사용자를 부르는 호칭 — 한 줄, 공백만은 불가, 최대 40자 (한글/공백 OK, 파일명이 아니라 `soul` 의 `[a-zA-Z0-9_-]` 제약 없음). `SessionStart` 훅이 활성 소울 컨텍스트 끝에 호칭 지시 한 줄로 함께 주입하며, 소울 본문의 기본 호칭 규칙(예: rocky 의 "친구")보다 우선한다. `soul` 미설정 시에는 주입 대상이 없어 무시된다. project 가 user 를 덮어쓴다. `/rocky:soul <name>` 세팅 때 물어보거나 `/rocky:soul call <이름>` 으로 변경.
 - 핸들 규칙: `host:env:spec`. 각 식별자는 `^[a-zA-Z0-9_-]+$` — 콜론은 separator 예약.
 - `seo` (옵션): `seo_validate` 도구 기본값. `allowPrivateHosts` (boolean, 기본 false) / `timeoutMs` (1..30000). 두 값 모두 도구 호출 인자가 우선. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
 - `worklog` (옵션, v0.9 에서 `journal` 개명): `worklog_*` 기록 저장 위치(`dir`, env `ROCKY_WORKLOG_DIR` 가 우선), `Stop` hook 자동 기록 on/off(`autoCapture`, 기본 true, env `ROCKY_WORKLOG_AUTO_CAPTURE` 가 우선) + turn 항목 truncate 길이(`captureMaxChars`, 기본 800), `/recall` 의 Haiku↔Sonnet 임계(`digestThreshold`, 기본 40). 더 이상 `wikiDir` 는 없다 — 정리 결과는 워크로그 자체의 `kind:"digest"` 항목으로 남는다. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
 - leaf 는 string (URL only) 또는 object (`{ url, baseUrl?, format? }`). `baseUrl` 은 `openapi_endpoint` 의 `fullUrl` 합성에 사용. `format` 은 `openapi3` / `swagger2` / `auto` (기본 auto).
 - project (`./rocky.json`) 가 user (`~/.config/rocky/rocky.json`) 를 leaf 단위로 덮어쓴다.
 
-미지원 top-level 키는 즉시 reject 된다 (`$schema` / `soul` / `openapi` / `seo` / `worklog` 만 허용 — `rocky.schema.json` 최상위 `additionalProperties:false` 와 런타임 `validateConfig` 둘 다 강제) — 오타 가드. 새 도메인이 재추가될 때는 이 허용 목록과 스키마를 함께 갱신해야 한다.
+미지원 top-level 키는 즉시 reject 된다 (`$schema` / `soul` / `callsign` / `openapi` / `seo` / `worklog` 만 허용 — `rocky.schema.json` 최상위 `additionalProperties:false` 와 런타임 `validateConfig` 둘 다 강제) — 오타 가드. 새 도메인이 재추가될 때는 이 허용 목록과 스키마를 함께 갱신해야 한다.
 
 ### `openapi-mcp.json` (단독 CLI)
 
