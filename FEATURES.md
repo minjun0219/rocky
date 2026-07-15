@@ -442,3 +442,7 @@ bun test
 ```
 
 플러그인 설치 / dev 루프 (마켓플레이스 · `/reload-plugins` · context7 유저 스코프) 는 `AGENTS.md` 의 *Plugin source & dev loop* 절 참고.
+
+## 릴리스 (changesets)
+
+user-facing 변경이 있는 PR 은 `bunx changeset` 으로 버전 의도(patch/minor/major)를 선언한다. main 에 병합되면 GitHub Action(`.github/workflows/release.yml`)이 "Version Packages" PR 을 자동으로 열어 `package.json` + `.claude-plugin/plugin.json` 버전 범프와 `CHANGELOG.md` 갱신을 모아준다. 그 PR 을 병합하면 새 버전이 확정된다. (npm publish 는 자동화하지 않는다 — 태그는 수동.)
