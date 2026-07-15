@@ -4,11 +4,17 @@
   "owner": {
     "name": "Minjun Kim"
   },
-  "description": "Marketplace serving the rocky Claude Code plugin straight from this repo (no façade) — add locally as a directory source, or from GitHub (minjun0219/rocky) for claude.ai web / remote sessions.",
+  "description": "Marketplace serving the rocky Claude Code plugin from GitHub (minjun0219/rocky). Plugin source is an explicit git URL (no relative paths) so it also syncs in the claude.ai web UI's server-side marketplace sync. For the in-place local dev loop use ./marketplace.dev.json (rocky-dev) instead.",
   "plugins": [
     {
       "name": "rocky",
-      "source": "./",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/minjun0219/rocky.git"
+      },
+      "author": {
+        "name": "Minjun Kim"
+      },
       "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + worklog_* (append-only local JSONL worklog, auto turn capture via Stop hook). Slash commands: /finish, /recall, /codex, /opencode, /issue, /soul."
     }
   ]
