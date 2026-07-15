@@ -64,6 +64,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
+    "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
     "@minjun0219/biome-config": "2.1.0",
     "@types/bun": "^1.1.0",

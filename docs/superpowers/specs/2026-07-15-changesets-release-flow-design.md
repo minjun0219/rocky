@@ -77,4 +77,4 @@ rocky 는 버전이 두 곳(`package.json`, `.claude-plugin/plugin.json`)에 loc
 ## 오픈 이슈 / 후속
 
 - 접근 C (npm publish + 자동 태그): `NPM_TOKEN` secret + `files`/`publishConfig` 점검 + release.yml publish 입력 채우기. 별도 PR.
-- changelog 를 `@changesets/changelog-github` 로 교체 (PR 링크 포함) — 필요 시 별도.
+- ~~changelog 를 `@changesets/changelog-github` 로 교체 (PR 링크 포함)~~ → **적용됨**: `.changeset/config.json` 의 `changelog` 를 `["@changesets/changelog-github", { "repo": "minjun0219/rocky" }]` 로 교체. 이후 CHANGELOG/릴리스 노트에 커밋·PR·작성자 링크가 자동으로 붙는다 (커밋된 changeset + 연결된 PR 기준). CI 는 `changesets/action` 이 넘기는 `GITHUB_TOKEN` 으로 동작; 로컬에서 `bun run changeset:version` 을 직접 돌릴 땐 `GITHUB_TOKEN` (예: `$(gh auth token)`) 이 필요하다.
