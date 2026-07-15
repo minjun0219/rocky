@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | (b) 별도 CLI 진입점 강력 후보 — DB inspector 는 host 독립적. | `mysql2` prod-dep 부활. `rocky.json` 의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
 | `spec-pact` (DRAFT / VERIFY / DRIFT-CHECK / AMEND lifecycle) | `lib/spec-pact-fragments.ts` + 1 tool (`spec_pact_fragment`) + `skills/spec-pact/` + `agents/grace.md` | (a) plugin 합류. fragment loader 자체는 가벼움. | INDEX / SPEC 파일 lifecycle 은 `grace` sub-agent 책임. |
-| `pr-review-watch` (polling-only, journal-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | journal(현 `worklog`) 재추가 완료 — 이제 worklog-backed 이벤트 로그를 얹을 수 있다. 다만 Claude Code 빌트인 `/autofix-pr` 가 같은 자리를 차지해 우선순위 낮음. |
+| `pr-review-watch` (polling-only, worklog-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | `worklog` 재추가 완료 — 이제 worklog-backed 이벤트 로그를 얹을 수 있다. 다만 Claude Code 빌트인 `/autofix-pr` 가 같은 자리를 차지해 우선순위 낮음. |
 
 재추가 절차의 자세한 단계는 `AGENTS.md` 의 *Reintroduction strategy* 절.
 
