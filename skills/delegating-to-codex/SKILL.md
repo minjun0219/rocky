@@ -64,8 +64,8 @@ Make gates pass: <cmd>. Leave changes uncommitted." -C <path> -s workspace-write
 ```bash
 codex review --uncommitted        # staged + unstaged + untracked; also --base <branch> / --commit <sha>
 ```
-Gotcha: **`codex review` has no `-m`** — pin a model with `-c model="<name>"` instead. (`-m` is an
-`codex exec` flag; `codex exec review` also accepts `-m`.)
+Gotcha: **`codex review` has no `-m`** — pin a model with `-c model="<name>"` instead (`-m` is a
+`codex exec`-only flag).
 
 **Advisory / second opinion** — independent cross-check on an approach or design, no edits:
 ```bash
