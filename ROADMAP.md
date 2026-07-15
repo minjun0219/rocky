@@ -4,7 +4,7 @@
 
 ## 현재 (v0.9, openapi + seo + notion + worklog + souls)
 
-- 단일 패키지 (`@minjun0219/rocky`) — 전체 표면 MCP 서버 + 단독 CLI 가 동일 7-tool openapi surface 공유 (+ 전체 표면 전용 `seo_validate`, `ntn` 탐지 시 `notion_*` 4 도구, 항상 등록되는 `worklog_*` 4 도구 + `Stop` hook 턴 자동 기록 + `/recall` 정리 커맨드 + `SessionStart` hook 소울 주입):
+- 단일 패키지 (`@minjun0219/rocky`) — 전체 표면 MCP 서버 + 단독 CLI 가 동일 7-tool openapi surface 공유 (+ 전체 표면 전용 `seo_validate`, `ntn` 탐지 시 `notion_*` 4 도구, 항상 등록되는 `worklog_*` 4 도구; 훅·슬래시 커맨드 — `Stop` hook 턴 자동 기록 / `/recall` 정리 커맨드 / `SessionStart` hook 소울 주입 — 는 **Claude Code plugin 전용**, Codex/opencode 는 MCP 도구만 소비):
   - **전체 표면 MCP 서버** (`src/index.ts`) — Claude Code plugin (`.claude-plugin/plugin.json` 의 `mcpServers`), Codex CLI (`~/.codex/config.toml`), opencode (`opencode.json`) 가 같은 stdio 프로세스를 실행.
   - **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm publish 는 별도 PR) — host-agnostic stdio MCP.
   - **공유 core** (`src/core/` — handlers / registry / cache / fetcher / parser / indexer / filter / adapter / config / schema). plugin 은 barrel (`./core`), standalone 은 `./core/<file>` subpath 로 import.
