@@ -24,11 +24,14 @@ verified; say so plainly when it failed or is incomplete.
 ## Invocation pattern (`codex exec`)
 
 ```bash
-codex exec "<self-contained prompt>" \
-  -C /abs/path/to/repo \        # cwd + write scope (writes stay inside -C)
-  -s workspace-write \          # default; use read-only for analysis/review
-  -o /abs/path/to/out.txt       # capture the final message for you to read back
+# -C: cwd + write scope (writes stay inside -C)
+# -s: default workspace-write; use read-only for analysis/review
+# -o: capture the final message for you to read back
 # -m <model> optional — omit to use the account's configured default (always auth-valid)
+codex exec "<self-contained prompt>" \
+  -C /abs/path/to/repo \
+  -s workspace-write \
+  -o /abs/path/to/out.txt
 ```
 
 | Flag | Meaning | Default choice |
@@ -66,7 +69,7 @@ Gotcha: **`codex review` has no `-m`** — pin a model with `-c model="<name>"` 
 
 **Advisory / second opinion** — independent cross-check on an approach or design, no edits:
 ```bash
-codex exec "Review this plan and argue where it's wrong: <plan>. Repo at <path> for reference only."
+codex exec "Review this plan and argue where it's wrong: <plan>. Repo at <path> for reference only." \
   -C <path> -s read-only -o advice.txt
 ```
 
@@ -83,8 +86,8 @@ codex exec "Review this plan and argue where it's wrong: <plan>. Repo at <path> 
 4. Re-run the repo gates yourself (`bun run check` / `typecheck` / `bun test`) before trusting it.
 5. Summarize in one or two lines: what changed, what you verified, and any failure/gap — honestly.
 
-## Relationship to `/rocky:codex`
-This skill is the reusable **delegation mechanics + guardrails**. The `/rocky:codex` slash command
+## Relationship to `/codex`
+This skill is the reusable **delegation mechanics + guardrails**. The `/codex` slash command
 is one application of it: dispatch an *implementer* into an isolated git worktree, then supervise
 gates + MCP-tool-surface + diff-scope before an approved merge. Reach for the command for that full
 worktree-and-merge workflow; reach for this skill for one-off `codex exec` / `codex review` /
