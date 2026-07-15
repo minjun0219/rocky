@@ -445,4 +445,4 @@ bun test
 
 ## 릴리스 (changesets)
 
-user-facing 변경이 있는 PR 은 `bunx changeset` 으로 버전 의도(patch/minor/major)를 선언한다. main 에 병합되면 GitHub Action(`.github/workflows/release.yml`)이 "Version Packages" PR 을 자동으로 열어 `package.json` + `.claude-plugin/plugin.json` 버전 범프와 `CHANGELOG.md` 갱신을 모아준다. 그 PR 을 병합하면 새 버전이 확정된다. (npm publish 는 자동화하지 않는다 — 태그는 수동.)
+user-facing 변경이 있는 PR 은 `bunx changeset` 으로 버전 의도(patch/minor/major)를 선언한다. main 에 병합되면 GitHub Action(`.github/workflows/release.yml`)이 "Version Packages" PR 을 자동으로 열어 `package.json` + `.claude-plugin/plugin.json` 버전 범프와 `CHANGELOG.md` 갱신을 모아준다. 그 PR 을 병합해 버전이 오르면 `v<version>` 태그와 GitHub Release(노트는 `CHANGELOG.md` 해당 섹션)까지 자동으로 생성된다. (npm publish 는 자동화하지 않는다 — GitHub Release 는 태그+릴리스 노트일 뿐 npm 과 무관.)

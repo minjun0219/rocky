@@ -16,7 +16,7 @@ rocky 는 버전이 두 곳(`package.json`, `.claude-plugin/plugin.json`)에 loc
 ## 비목표 (out of scope)
 
 - npm publish 자동화 (후속 접근 C 에서 `NPM_TOKEN` + publish 스텝 추가).
-- git 태그 자동 생성 (publish 를 안 하므로 Action 이 태그를 만들지 않음 — 태그는 당분간 수동 유지, 오늘 `v0.10.0` 처럼).
+- ~~git 태그 자동 생성~~ → **후속으로 추가됨**: Version PR 병합으로 버전이 오르면 release.yml 의 독립 스텝(`scripts/release-github.ts`)이 `v<version>` 태그 + GitHub Release(노트=CHANGELOG 섹션)를 멱등하게 생성한다. npm 은 여전히 손대지 않는다 (GitHub Release ≠ npm publish).
 - `@changesets/changelog-github` 등 향상된 changelog 생성기 (기본 생성기로 시작, 나중에 교체 가능).
 - 이 설정 PR 로 버전을 올리는 것 (tooling chore 라 버전 범프 changeset 을 넣지 않음).
 
@@ -45,7 +45,7 @@ rocky 는 버전이 두 곳(`package.json`, `.claude-plugin/plugin.json`)에 loc
 2. PR 병합 → release.yml 감지 → "Version Packages" PR 자동 생성/갱신
    (package.json + plugin.json 범프 + CHANGELOG.md 갱신 + .changeset/*.md 소비)
 3. Version PR 병합 → 다음 버전 확정 (예: 0.10.0 → 0.11.0)
-4. 태그 → 수동 유지 (오늘 v0.10.0 방식) 또는 후속 접근 C 에서 자동화
+4. 태그 + GitHub Release → release.yml 의 `scripts/release-github.ts` 스텝이 자동 생성 (`v<version>` + CHANGELOG 노트, 멱등)
 ```
 
 ## Bun ↔ changesets/action 마찰 (알려진 리스크, 선제 처리)
