@@ -19,7 +19,7 @@ rocky/                                      single package — @minjun0219/rocky
 ├── tsconfig.json                           단일 컴파일러 옵션 + include ["src/**/*.ts"]
 ├── biome.json                              lint / format (!.sisyphus, !.claude 제외)
 ├── rocky.schema.json                       `rocky.json` JSON Schema (IDE autocomplete)
-├── .claude-plugin/marketplace.json         ★ 이 레포를 그대로 설치 가능한 로컬 마켓플레이스로 (name rocky-local, plugin rocky @ source "./")
+├── .claude-plugin/marketplace.json         ★ 이 레포를 그대로 설치 가능한 마켓플레이스로 (name rocky-marketplace, plugin rocky @ 명시적 git URL source — claude.ai 웹 UI 동기화 호환)
 ├── .claude-plugin/plugin.json              ★ plugin metadata + mcpServers (via ${CLAUDE_PLUGIN_ROOT}/src/index.ts)
 ├── README.md / FEATURES.md / AGENTS.md / REVIEW.md / LICENSE
 ├── docs/openapi-mcp.md                     standalone CLI 보조 문서
@@ -150,18 +150,18 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 
 ## Plugin source & dev loop
 
-**This repo IS the plugin source AND its own local marketplace — there is no separate façade directory.** `.claude-plugin/marketplace.json` (name `rocky-local`, plugin `rocky` at `source: "./"`) makes the repo directly installable, and `.claude-plugin/plugin.json`'s `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) is the **only** MCP server the plugin ships.
+**This repo IS the plugin source AND its own marketplace — there is no separate façade directory.** `.claude-plugin/marketplace.json` (name `rocky-marketplace`) is the single marketplace. The plugin `source` is an explicit git URL object (`{"source": "url", "url": "https://github.com/minjun0219/rocky.git"}`), **not** a relative path: the claude.ai web UI's server-side marketplace sync does not clone the repo, so a relative `source: "./"` fails there ("marketplace sync failed"). Add via `claude plugin marketplace add minjun0219/rocky` (CLI / remote sessions, `/plugin` slash command in-session) or by registering the repo URL in the claude.ai web UI's plugin settings (no CLI there). `.claude-plugin/plugin.json`'s `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) is the **only** MCP server the plugin ships.
 
 Install for personal use (once):
 
 ```bash
-claude plugin marketplace add .          # 저장소 루트에서 실행
-claude plugin install rocky@rocky-local
+claude plugin marketplace add minjun0219/rocky
+claude plugin install rocky@rocky-marketplace
 ```
 
-A `directory`-source marketplace reads the plugin root **in place** (no copy step — verify with `ps`: the MCP proc runs `bun run <repo>/src/index.ts` directly). So after editing plugin code or metadata, `/reload-plugins` applies changes without a restart; `claude plugin update rocky` or a fresh session picks up `plugin.json` / `commands/` changes too.
+Installs clone the repo from GitHub `main` into the plugin cache — the plugin is **not** read in place from a working tree. The dev loop is therefore push-based: edit → push to `main` → `claude plugin update rocky` (a fresh session picks up updates too). `/reload-plugins` does not see uncommitted working-tree edits.
 
-**Why there is no `.mcp.json` in this repo:** a directory-source marketplace reads the plugin root in place, so any repo-root `.mcp.json` would leak into the *installed* plugin's MCP config (on top of `plugin.json`'s `mcpServers`). `context7` (external-library docs, handy while developing here) therefore lives at **user scope** instead of a repo `.mcp.json`:
+**Why there is no `.mcp.json` in this repo:** the installed plugin root is a clone of this repo root, so any repo-root `.mcp.json` would leak into the *installed* plugin's MCP config (on top of `plugin.json`'s `mcpServers`). `context7` (external-library docs, handy while developing here) therefore lives at **user scope** instead of a repo `.mcp.json`:
 
 ```bash
 claude mcp add --scope user --transport http context7 https://mcp.context7.com/mcp
