@@ -77,9 +77,9 @@ Expected: 빈 출력 (변경 없음).
 
 - [ ] **Step 3: 실제 치환 동작 검증 (임시로 package.json version 변경 후 되돌림)**
 
-Run:
+Run (macOS BSD sed 는 `sed -i ''`, Linux GNU sed 는 `sed -i` — 이식성 위해 Bun 한 줄로):
 ```bash
-sed -i '' 's/"version": "0.10.0"/"version": "9.9.9"/' package.json
+bun -e "const f='package.json';require('fs').writeFileSync(f,require('fs').readFileSync(f,'utf8').replace('\"version\": \"0.10.0\"','\"version\": \"9.9.9\"'))"
 bun scripts/sync-plugin-version.ts
 grep '"version"' .claude-plugin/plugin.json
 ```

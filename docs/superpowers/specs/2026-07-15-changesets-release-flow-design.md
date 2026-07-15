@@ -1,7 +1,7 @@
 # changesets 기반 릴리스 플로우 도입 — 설계
 
 - 날짜: 2026-07-15
-- 상태: 승인됨 (구현 대기)
+- 상태: 구현됨 (PR #88)
 - 범위: 접근 **B** — GitHub Action 자동 "Version Packages" PR + CHANGELOG 자동 생성. **npm publish 는 포함 안 함** (별도 후속 PR).
 
 ## 배경 / 목적
