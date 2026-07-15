@@ -114,7 +114,11 @@ bun run lint:fix    # Biome lint write
 bun run format      # Biome format only
 bun run typecheck   # tsc --noEmit
 bun test            # 모든 src/**/*.test.ts
+bunx changeset      # user-facing 변경의 버전 의도 선언 (patch/minor/major)
+bun run changeset:version  # (로컬 수동 시) 버전 범프 + CHANGELOG + plugin.json sync
 ```
+
+**Release (changesets).** user-facing 변경이 있는 PR 은 `bunx changeset` 으로 의도를 선언한다(`.changeset/*.md` 커밋). main 병합 시 `.github/workflows/release.yml` 의 `changesets/action` 이 pending changeset 을 모아 "Version Packages" PR 을 자동으로 열고, 그 PR 이 `package.json` + `.claude-plugin/plugin.json` 범프와 `CHANGELOG.md` 갱신을 담는다 (버전 sync 는 `bun run changeset:version` 안의 `scripts/sync-plugin-version.ts` 가 처리 — changesets 는 `package.json` 만 범프하므로). 그 Version PR 을 병합하면 릴리스가 확정된다. npm publish/태그는 자동화 대상이 아니다 (태그는 수동).
 
 **Git hooks (husky).** `bun install` 시 `prepare: "husky"` 가 `core.hooksPath` 를 `.husky/_` 로 배선한다 (clone 받은 기여자도 자동 활성화). `.husky/pre-commit` 은 staged 파일에 `lint-staged`(biome check/format) + 시크릿 스캔(`gitleaks` 있으면 `gitleaks protect --staged`, 없으면 내장 grep fallback)을, `.husky/pre-push` 는 `typecheck` + `test` 를 돌린다. 긴급 우회는 `git commit --no-verify` / `git push --no-verify`. CI(`.github/workflows/ci.yml`)는 같은 게이트 + `gitleaks` 잡을 PR·main push 마다 재실행한다. `.husky/_` 는 husky 자체 `.gitignore` 로 커밋 제외 — 추적 대상은 `.husky/pre-commit` / `.husky/pre-push` 두 파일뿐.
 
@@ -147,6 +151,7 @@ When this toolkit is used against a runtime / downstream project, JSDoc and Kore
 6. If a tool contract changes, update the registration in `src/index.ts` (plugin) and/or `src/standalone.ts` (CLI) as appropriate, and the shared handler in `src/core/handlers.ts` (implementation).
 7. If `rocky.json` shape changes, update **both** `rocky.schema.json` (IDE autocomplete) **and** `src/core/rocky-config.ts` (runtime validation) — they must stay in lockstep.
 8. If a removed-domain tool name needs to surface again, update the `REMOVED_TOOLS` array in `src/index.test.ts` — it currently guards against mysql / spec-pact / pr-watch leakage (journal was un-removed in v0.6, renamed `worklog` in v0.9; its always-on presence is asserted via `WORKLOG_TOOLS`).
+9. If the change is user-facing (tools / commands / hooks / config surface), declare the version intent with `bunx changeset` (patch / minor / major) so the release workflow can bump on merge. Tooling-only chores need no changeset.
 
 ## Plugin source & dev loop
 
