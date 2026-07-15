@@ -22,7 +22,7 @@
 에이전트 생성 작업 문서(설계/조사/플랜)가 대상 레포의 공식 문서와 섞이지 않도록 안내하는 **repo 문서 3단계 lifecycle (draft → accepted → archive)** 번들 스킬.
 
 - **경위**: PR [#85](https://github.com/minjun0219/rocky/pull/85) 에서 `skills/docs-lifecycle/SKILL.md` 로 구현 완료(봇 리뷰 5건 반영)했으나, 오너 판단으로 스킬 출하는 보류 — rocky 에 적용하기엔 과함. 당시 구현 diff 는 PR #85 의 force-push 이전 타임라인에 남아 있고, 아래 완성본이 그 최종본에 후속 오너 피드백까지 반영한 결정판이다.
-- **부활 방법**: 아래 완성본을 `skills/docs-lifecycle/SKILL.md` 로 옮기고 문서 동기화 4곳 — `FEATURES.md` 스킬 블록 / `README.md` 스킬 bullet / `AGENTS.md` Layout + *Project in one line* / `plugin.json` description — 을 갱신하면 된다 (스킬은 자동 발견, `plugin.json` 에 skills 필드 없음).
+- **부활 방법**: 아래 완성본을 `skills/docs-lifecycle/SKILL.md` 로 옮기고 문서 동기화 4곳 — `FEATURES.md` 스킬 블록 / `README.md` 스킬 bullet / `AGENTS.md` Layout + *Project in one line* / `.claude-plugin/plugin.json` description — 을 갱신하면 된다 (스킬은 자동 발견, `.claude-plugin/plugin.json` 에 skills 필드 없음).
 - **수용 기준 (원 요청)**: ① 3단계 분류·라우팅·승격·위생 규칙을 표/목록으로 정리 ② repo 구조 하드코딩 금지 (디렉터리 이름은 관례 기본값 + 대상 repo 기존 구조 존중) ③ 사용자 확인 없는 승격 경로 금지.
 - **반영된 오너 피드백 (PR #85 이후)**: ① 디렉토리 사전 스캐폴딩 제거 — 첫 문서 작성 직전 `mkdir -p` 지연 생성 ② draft 는 기본값일 뿐 강제 아님 — 이미 사용자와 합의된 내용은 accepted 직행 허용 (게이트의 본질은 사용자 확인이지 draft 경유가 아님) ③ ignore 규칙 위치 자유 — 루트 `.gitignore` (`docs/.draft/`) 또는 `docs/.gitignore` (`.draft/`), 레포 기존 관례 우선.
 
