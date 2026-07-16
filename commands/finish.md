@@ -17,6 +17,8 @@ allowed-tools: Bash(bun:*), Bash(git:*), Bash(gh:*), Read, Grep, Glob
 3. **사용자가 명시적으로 이 커맨드를 호출한 것 = 커밋·푸시·PR 승인.** 다만 커밋 메시지와
    PR 초안은 만들기 전에 한 번 보여준다.
 4. Conventional Commits 스타일 제목 (`type(scope): 한국어 요약` 또는 `type: 한국어 요약`).
+   **제목은 간결하게** — 핵심 변경 하나만 한 구절로 담고(요약부 대략 50자 이내), 나열·부연·괄호
+   덧붙임은 전부 본문으로 내린다. 본문의 상세함은 지금 수준을 유지한다.
 
 ## 절차
 
@@ -75,7 +77,8 @@ git push -u origin <현재 브랜치>
 gh pr create --base main --head <브랜치> --title "<Conventional 한국어 제목>" --body "<본문>"
 ```
 
-- 제목: Conventional Commits 스타일 한국어.
+- 제목: Conventional Commits 스타일 한국어. **간결하게** — 핵심 하나만 한 구절로, 세부·나열은
+  본문으로 (원칙 4).
 - 본문(한국어): **요약** / **변경 사항**(bullet) / **검증**(돌린 게이트 결과) 순. 장문 리포트 금지.
 - 본문 말미에 반드시:
 
