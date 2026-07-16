@@ -50,7 +50,7 @@ claude plugin marketplace add minjun0219/rocky
 claude plugin install rocky@rocky-marketplace
 ```
 
-원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일하게 설치한다. 설치본은 GitHub `main`에서 clone되므로 코드 변경은 push 후 `claude plugin update rocky`로 반영된다. (플러그인 source가 상대 경로 `"./"`라 claude.ai 웹 UI의 서버 사이드 마켓플레이스 동기화는 지원하지 않는다 — CLI로 설치.)
+원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일하게 설치한다. 설치본은 GitHub `main`에서 clone되므로 코드 변경은 push 후 `claude plugin update rocky`로 반영된다.
 
 설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
 
