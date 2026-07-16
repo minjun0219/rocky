@@ -178,6 +178,6 @@ claude mcp add --scope user --transport http context7 https://mcp.context7.com/m
 - Keep change summaries short (one-line summary, bullets only when needed). Do not produce long-form reports.
 - Write code review outputs (summary / inline / suggestions) in Korean by default.
 - When requesting a PR review, explicitly ask for Korean review comments (`모든 리뷰 코멘트는 한국어로 작성해 주세요.`).
-- PR and commit titles must follow Conventional Commits style (`type(scope): Korean summary` or `type: Korean summary`). Keep the title concise — one short clause naming the main change (summary part roughly ≤50 chars); move enumerations and qualifiers into the body, which stays as detailed as before.
+- PR and commit titles must follow Conventional Commits style (`type(scope): Korean summary` or `type: Korean summary`). Do not pad the title — no enumerations, qualifiers, or parenthetical asides beyond the one main change (summary part must not exceed roughly 50 chars); displaced detail goes in the body. Do not thin the body to compensate for a shorter title.
 - PR title / body and user-facing change descriptions should also be written in Korean.
 - **Single sources**: humans = `FEATURES.md` (Korean), agents = this `AGENTS.md` (English). Do not introduce a new sibling doc — fold new content into one of the two.
