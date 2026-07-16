@@ -14,7 +14,7 @@
 
 | 진입점 | 역할 | 소비 호스트 |
 | --- | --- | --- |
-| **전체 표면 MCP 서버** (`src/index.ts`) | 아래 도구 표면 전부. | Claude Code plugin (`.claude-plugin/plugin.json` 의 `mcpServers`), [OpenAI Codex CLI](./docs/codex.md), [opencode](./docs/opencode.md) |
+| **전체 표면 MCP 서버** (`src/index.ts`) | 아래 도구 표면 전부. | Claude Code plugin (`.claude-plugin/plugin.json` 의 `mcpServers`) |
 | **`openapi-mcp` 단독 CLI** (`bin/openapi-mcp`) | OpenAPI 도구 7 개만 담은 host-agnostic subset. | 모든 stdio MCP host (Cursor / Continue / Claude Desktop / …) — [설정 가이드](./docs/openapi-mcp.md) |
 
 ### MCP 도구 표면
@@ -30,7 +30,7 @@
 
 ### Claude Code 전용 표면 (MCP tool 아님)
 
-Codex / opencode 는 위 MCP 도구만 소비하고, 아래는 Claude Code plugin 으로 설치했을 때만 붙는다:
+아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
 - **슬래시 커맨드** (`commands/`) — `/finish` (게이트 → 커밋 → 푸시 → PR 생성), `/recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어), `/codex` · `/opencode` (task 를 각 CLI 에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·표면·diff 스코프 감시, 자동 병합 없음), `/issue` (다른 레포에서 떠오른 rocky 개선안을 GitHub Issue 로 캡처), `/rocky:soul` (소울 전환). PR 감시·리뷰 반영은 Claude Code 빌트인 `/autofix-pr` 에 위임.
 - **훅** (`hooks/hooks.json`) — `SessionStart`: 활성 소울(페르소나) 자동 주입. `Stop`: 매 턴 종료 시 `kind:"turn"` 워크로그 자동 기록 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글).
@@ -66,17 +66,6 @@ openapi-mcp --config ~/.config/openapi-mcp/openapi-mcp.json
 
 npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 쓴다. config 형태와 host 별 등록 예시는 [`docs/openapi-mcp.md`](./docs/openapi-mcp.md).
 
-### OpenAI Codex CLI / opencode
-
-둘 다 Claude Code plugin과 **같은 프로세스** (`bun run <repo>/src/index.ts`)를 각자의 설정으로 등록해 전체 MCP 도구를 쓴다:
-
-```bash
-codex mcp add rocky -- bun run /abs/path/to/rocky/src/index.ts   # Codex — ~/.codex/config.toml
-opencode mcp add rocky                                           # opencode — opencode.json 의 mcp.rocky
-```
-
-자세한 설정과 호스트별 차이(훅·슬래시 커맨드는 Claude Code 전용)는 [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md).
-
 ## 설정
 
 전체 표면 서버는 `rocky.json` (project `./rocky.json` > user `~/.config/rocky/rocky.json`, [JSON Schema](./rocky.schema.json) 로 IDE 자동완성 지원)을, 단독 CLI 는 `openapi-mcp.json`을 읽는다:
@@ -104,7 +93,7 @@ opencode mcp add rocky                                           # opencode — 
 | [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / MVP scope / coding rules / change checklist |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
-| [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | Codex / opencode 에서 전체 표면 서버 등록 |
+| [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 전체 표면 서버를 쓰고 싶을 때 |
 | [`REVIEW.md`](./REVIEW.md) | 리뷰 에이전트 | 이 레포의 코드 리뷰 규칙 |
 
 ## 역사 / 아카이브
