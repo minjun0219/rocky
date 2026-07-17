@@ -21,8 +21,12 @@ import { join } from 'node:path';
 /** 마커 없는(구형) 설치본을 동기화할 때 쓰는 기본 템플릿. */
 export const DEFAULT_TEMPLATE = 'duo';
 
-/** 설치본 헤더의 템플릿 마커 — 템플릿 이름은 파일명 제약과 동일하게 [a-zA-Z0-9_-]+. */
-const TEMPLATE_MARKER = /^# rocky-statusline-template: ([a-zA-Z0-9_-]+)$/m;
+/**
+ * 설치본 헤더의 템플릿 마커 — 템플릿 이름은 파일명 제약과 동일하게 [a-zA-Z0-9_-]+.
+ * CRLF 설치본(사용자가 Windows 에디터로 수정한 경우)도 매칭되게 줄 끝 \r 을 허용한다 —
+ * 아니면 마커 파싱이 실패해 사용자가 고른 템플릿이 기본값으로 덮인다.
+ */
+const TEMPLATE_MARKER = /^# rocky-statusline-template: ([a-zA-Z0-9_-]+)\r?$/m;
 
 /** sync 대상 경로 쌍. 테스트/훅이 임의 경로를 주입할 수 있게 파라미터화. */
 export interface StatuslineSyncOptions {

@@ -30,6 +30,10 @@ describe('parseTemplateName', () => {
     expect(parseTemplateName('#!/bin/sh\necho hi\n')).toBeNull();
     expect(parseTemplateName('# rocky-statusline-template: ../evil\n')).toBeNull();
   });
+
+  test('CRLF 라인 엔딩(설치본을 Windows 에디터로 수정한 경우)에서도 마커를 읽는다', () => {
+    expect(parseTemplateName(template('mini', 'echo hi\n').replaceAll('\n', '\r\n'))).toBe('mini');
+  });
 });
 
 describe('syncStatusline', () => {
