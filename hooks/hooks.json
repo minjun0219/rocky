@@ -9,6 +9,15 @@
             "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/src/hooks/inject-soul.ts\""
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/src/hooks/sync-statusline.ts\""
+          }
+        ]
       }
     ],
     "Stop": [
