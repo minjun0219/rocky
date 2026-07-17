@@ -13,7 +13,9 @@
 # left = 100 - rate_limits.five_hour.used_percentage (session limit remaining).
 # Falls back to seven_day if five_hour is absent; label becomes "left7d" in that case.
 # resets_at is read from the SAME window used for the limit (five_hour or seven_day),
-# Unix epoch seconds; parenthesized text is human-adaptive (Nd Nh / Nh Nm / Nm), e.g. (43m).
+# Unix epoch seconds; parenthesized text is "<remaining>, <HH:MM>" — remaining is
+# human-adaptive (Nd Nh / Nh Nm / Nm) and HH:MM is the local reset clock time,
+# e.g. (1h 30m, 18:00). The clock part is dropped if `date` can't format the epoch.
 
 input=$(cat)
 
@@ -105,6 +107,9 @@ if [ -n "$limit_resets_at" ]; then
         else
           resets_text="$(((rem + 59) / 60))m"
         fi
+        # 로컬 리셋 시각(HH:MM) — BSD date(-r) 우선, GNU date(-d @) fallback
+        reset_clock=$(date -r "$limit_resets_at" +%H:%M 2>/dev/null || date -d "@$limit_resets_at" +%H:%M 2>/dev/null)
+        [ -n "$reset_clock" ] && resets_text="${resets_text}, ${reset_clock}"
         [ -n "$line2" ] && line2="${line2} "
         line2="${line2}${c_reset_time}(${resets_text})${c_reset}"
       fi

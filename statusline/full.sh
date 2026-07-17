@@ -11,7 +11,10 @@
 #   line 3 = $<cost>  +<added>/-<removed>  <elapsed>   (each segment omitted when absent;
 #            the whole line is omitted when every segment is empty)
 # left = 100 - rate_limits.five_hour.used_percentage (falls back to seven_day → "left7d").
-# resets_at is read from the SAME window used for the limit, Unix epoch seconds.
+# resets_at is read from the SAME window used for the limit, Unix epoch seconds; the gray
+# segment is "(<remaining>, <HH:MM>)" — remaining is human-adaptive (Nd Nh / Nh Nm / Nm)
+# and HH:MM is the local reset clock time, e.g. (1h 30m, 18:00). The clock part is
+# dropped if `date` can't format the epoch.
 
 input=$(cat)
 
@@ -99,6 +102,9 @@ if [ -n "$limit_resets_at" ]; then
         else
           resets_text="$(((rem + 59) / 60))m"
         fi
+        # 로컬 리셋 시각(HH:MM) — BSD date(-r) 우선, GNU date(-d @) fallback
+        reset_clock=$(date -r "$limit_resets_at" +%H:%M 2>/dev/null || date -d "@$limit_resets_at" +%H:%M 2>/dev/null)
+        [ -n "$reset_clock" ] && resets_text="${resets_text}, ${reset_clock}"
         [ -n "$line2" ] && line2="${line2} "
         line2="${line2}${c_reset_time}(${resets_text})${c_reset}"
       fi
