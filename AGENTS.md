@@ -33,7 +33,7 @@ rocky/                                      single package — @minjun0219/rocky
 │   ├── opencode.md                         `/opencode` — task 를 opencode(opencode run)에 위임(격리 worktree) + Claude 감시(게이트/표면/스코프), 자동 병합 X
 │   ├── issue.md                            `/issue` — 다른 레포에서 떠오른 rocky 개선 아이디어/버그를 minjun0219/rocky GitHub Issue 로 캡처 (gh CLI 기반, 맥락 수집 + 유사 이슈 조회 + 초안 확인 후 생성)
 │   ├── soul.md                             `/rocky:soul` — 소울(페르소나) 선택 + 호칭 설정 (list/set/call/show/new), MCP tool 아님
-│   └── statusline.md                       `/rocky:statusline` — statusline 설치/점검/해제 (install/status/off) — 번들 스크립트를 ~/.config/rocky/statusline.sh 로 복사 + user settings.json 의 statusLine 1회 지정, MCP tool 아님
+│   └── statusline.md                       `/rocky:statusline` — statusline 설치/점검/해제 (install/list/status/off) — 번들 스크립트를 ~/.config/rocky/statusline.sh 로 복사 + user settings.json 의 statusLine 1회 지정, MCP tool 아님
 ├── hooks/                                  ★ Claude Code plugin 훅 (자동 발견, MCP tool surface 와 별개)
 │   └── hooks.json                          `SessionStart` (matcher `startup|clear|compact`) → `bun run ${CLAUDE_PLUGIN_ROOT}/src/hooks/inject-soul.ts` (소울 자동 주입) + `SessionStart` (matcher `startup`) → `bun run ${CLAUDE_PLUGIN_ROOT}/src/hooks/sync-statusline.ts` (statusline 자동 동기화) + `Stop` → `bun run ${CLAUDE_PLUGIN_ROOT}/src/hooks/log-turn.ts` (v0.9, 턴 자동 기록)
 ├── skills/                                 ★ Claude Code plugin 번들 스킬 (기본 위치 자동 스캔, 플러그인 전용, MCP tool 아님)
