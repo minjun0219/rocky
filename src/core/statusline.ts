@@ -52,7 +52,7 @@ export function parseTemplateName(content: string): string | null {
 /**
  * 설치본이 가리키는 템플릿을 번들에서 찾아 동기화한다. 안정 경로에 파일이 없으면 아직
  * `/rocky:statusline` 로 설치하지 않은 것이므로 아무것도 만들지 않는다 (opt-in 유지).
- * 내용이 다를 때만 덮어쓰고 실행 권한(0o755)을 보장한다.
+ * 내용이 다를 때만 덮어쓰며, 실행 권한(0o755)은 내용과 무관하게 항상 보장한다.
  */
 export function syncStatusline(options: StatuslineSyncOptions): StatuslineSyncResult {
   const { bundledDir, targetPath } = options;
@@ -66,10 +66,11 @@ export function syncStatusline(options: StatuslineSyncOptions): StatuslineSyncRe
     throw new Error(`bundled statusline template "${templateName}" not found: ${sourcePath}`);
   }
   const source = readFileSync(sourcePath, 'utf8');
-  if (source === target) {
-    return 'up-to-date';
+  const result = source === target ? 'up-to-date' : 'updated';
+  if (result === 'updated') {
+    writeFileSync(targetPath, source);
   }
-  writeFileSync(targetPath, source);
+  // 내용이 같아도 실행 비트가 유실됐을 수 있으므로 (사용자 chmod / 파일 복원) 항상 복구한다.
   chmodSync(targetPath, 0o755);
-  return 'updated';
+  return result;
 }

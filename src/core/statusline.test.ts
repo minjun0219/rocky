@@ -49,11 +49,12 @@ describe('syncStatusline', () => {
     expect(statSync(targetPath).mode & 0o100).toBe(0o100);
   });
 
-  test('내용이 같으면 up-to-date, no-op', () => {
+  test('내용이 같으면 up-to-date — 덮어쓰지 않되 유실된 실행 비트는 복구한다', () => {
     const { bundledDir, targetPath } = setup();
     writeFileSync(join(bundledDir, 'mini.sh'), template('mini', 'echo v1\n'));
-    writeFileSync(targetPath, template('mini', 'echo v1\n'));
+    writeFileSync(targetPath, template('mini', 'echo v1\n'), { mode: 0o644 });
     expect(syncStatusline({ bundledDir, targetPath })).toBe('up-to-date');
+    expect(statSync(targetPath).mode & 0o100).toBe(0o100);
   });
 
   test('마커 없는 설치본은 기본 템플릿으로 동기화한다', () => {
