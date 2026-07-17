@@ -18,12 +18,14 @@
 # e.g. (1h 30m, 18:00). The clock part is dropped if `date` can't format the epoch.
 
 input=$(cat)
+# 로캘 독립 숫자 처리 — 쉼표 소수점 로캘에서 printf '%.0f' 파싱 실패 방지
+export LC_NUMERIC=C
 
 # --- model display name ---
-model=$(echo "$input" | jq -r '.model.display_name // empty')
+model=$(printf '%s\n' "$input" | jq -r '.model.display_name // empty')
 
 # --- current directory: keep raw path for git, build abbreviated copy for display ---
-raw_dir=$(echo "$input" | jq -r '.workspace.current_dir // empty')
+raw_dir=$(printf '%s\n' "$input" | jq -r '.workspace.current_dir // empty')
 dir="$raw_dir"
 case "$dir" in
   "$HOME"/*) dir="~${dir#$HOME}" ;;
@@ -37,16 +39,16 @@ if [ -n "$raw_dir" ]; then
 fi
 
 # --- context window usage (pre-calculated field; omit if null/empty) ---
-ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+ctx_used=$(printf '%s\n' "$input" | jq -r '.context_window.used_percentage // empty')
 
 # --- rate limit remaining: prefer 5-hour session limit, fall back to 7-day weekly limit ---
 # limit_resets_at is captured from the SAME window as limit_used (may be absent).
-limit_used=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
-limit_resets_at=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+limit_used=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+limit_resets_at=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 limit_label="left"
 if [ -z "$limit_used" ]; then
-  limit_used=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
-  limit_resets_at=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+  limit_used=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+  limit_resets_at=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
   limit_label="left7d"
 fi
 
@@ -87,7 +89,7 @@ if [ -n "$ctx_used" ]; then
 fi
 
 if [ -n "$limit_used" ]; then
-  limit_remaining=$(awk -v u="$limit_used" 'BEGIN { printf "%.0f", 100 - u }')
+  limit_remaining=$((100 - $(printf '%.0f' "$limit_used")))
   [ -n "$line2" ] && line2="${line2}${sep}"
   line2="${line2}${c_limit}${limit_label} ${limit_remaining}%${c_reset}"
 fi

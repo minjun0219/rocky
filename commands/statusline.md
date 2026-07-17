@@ -1,7 +1,7 @@
 ---
 description: rocky statusline 을 설치/점검/해제한다. 번들 템플릿(statusline/<name>.sh — duo/mini/full)에서 하나를 골라 안정 경로 ~/.config/rocky/statusline.sh 로 복사하고 user settings.json 의 statusLine 을 그 경로로 지정. 이후 플러그인 업데이트는 SessionStart 훅이 자동 전파.
 argument-hint: "[install [<template>] | list | status | off]"
-allowed-tools: Read, Write, Edit, Bash(ls:*), Bash(cp:*), Bash(chmod:*), Bash(mkdir:*), Bash(command:*), Bash(diff:*), Bash(head:*)
+allowed-tools: Read, Write, Edit, Bash(ls:*), Bash(cp:*), Bash(chmod:*), Bash(mkdir:*), Bash(command -v:*), Bash(diff:*), Bash(head:*)
 ---
 
 # statusline — rocky statusline 설치/관리

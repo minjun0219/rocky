@@ -17,10 +17,12 @@
 # dropped if `date` can't format the epoch.
 
 input=$(cat)
+# 로캘 독립 숫자 처리 — 쉼표 소수점 로캘에서 printf '%.0f' 파싱 실패 방지
+export LC_NUMERIC=C
 
-model=$(echo "$input" | jq -r '.model.display_name // empty')
+model=$(printf '%s\n' "$input" | jq -r '.model.display_name // empty')
 
-raw_dir=$(echo "$input" | jq -r '.workspace.current_dir // empty')
+raw_dir=$(printf '%s\n' "$input" | jq -r '.workspace.current_dir // empty')
 dir="$raw_dir"
 case "$dir" in
   "$HOME"/*) dir="~${dir#$HOME}" ;;
@@ -32,22 +34,22 @@ if [ -n "$raw_dir" ]; then
   branch=$(git -C "$raw_dir" --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null)
 fi
 
-ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+ctx_used=$(printf '%s\n' "$input" | jq -r '.context_window.used_percentage // empty')
 
-limit_used=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
-limit_resets_at=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+limit_used=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+limit_resets_at=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 limit_label="left"
 if [ -z "$limit_used" ]; then
-  limit_used=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
-  limit_resets_at=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+  limit_used=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+  limit_resets_at=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
   limit_label="left7d"
 fi
 
 # --- session cost / churn / elapsed (line 3 sources; each may be absent) ---
-cost_usd=$(echo "$input" | jq -r '.cost.total_cost_usd // empty')
-lines_added=$(echo "$input" | jq -r '.cost.total_lines_added // empty')
-lines_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // empty')
-duration_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // empty')
+cost_usd=$(printf '%s\n' "$input" | jq -r '.cost.total_cost_usd // empty')
+lines_added=$(printf '%s\n' "$input" | jq -r '.cost.total_lines_added // empty')
+lines_removed=$(printf '%s\n' "$input" | jq -r '.cost.total_lines_removed // empty')
+duration_ms=$(printf '%s\n' "$input" | jq -r '.cost.total_duration_ms // empty')
 
 c_reset=$(printf '\033[0m')
 c_model=$(printf '\033[1;35m')   # magenta
@@ -83,7 +85,7 @@ if [ -n "$ctx_used" ]; then
 fi
 
 if [ -n "$limit_used" ]; then
-  limit_remaining=$(awk -v u="$limit_used" 'BEGIN { printf "%.0f", 100 - u }')
+  limit_remaining=$((100 - $(printf '%.0f' "$limit_used")))
   [ -n "$line2" ] && line2="${line2}${sep}"
   line2="${line2}${c_limit}${limit_label} ${limit_remaining}%${c_reset}"
 fi
@@ -116,7 +118,7 @@ fi
 line3=""
 
 if [ -n "$cost_usd" ]; then
-  cost_text=$(awk -v c="$cost_usd" 'BEGIN { printf "$%.2f", c }')
+  cost_text=$(printf '$%.2f' "$cost_usd")
   line3="${c_cost}${cost_text}${c_reset}"
 fi
 

@@ -10,10 +10,12 @@
 #   (branch omitted outside a git repo; left falls back to seven_day → label "left7d")
 
 input=$(cat)
+# 로캘 독립 숫자 처리 — 쉼표 소수점 로캘에서 printf '%.0f' 파싱 실패 방지
+export LC_NUMERIC=C
 
-model=$(echo "$input" | jq -r '.model.display_name // empty')
+model=$(printf '%s\n' "$input" | jq -r '.model.display_name // empty')
 
-raw_dir=$(echo "$input" | jq -r '.workspace.current_dir // empty')
+raw_dir=$(printf '%s\n' "$input" | jq -r '.workspace.current_dir // empty')
 dir="$raw_dir"
 case "$dir" in
   "$HOME"/*) dir="~${dir#$HOME}" ;;
@@ -25,12 +27,12 @@ if [ -n "$raw_dir" ]; then
   branch=$(git -C "$raw_dir" --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null)
 fi
 
-ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+ctx_used=$(printf '%s\n' "$input" | jq -r '.context_window.used_percentage // empty')
 
-limit_used=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+limit_used=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 limit_label="left"
 if [ -z "$limit_used" ]; then
-  limit_used=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+  limit_used=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
   limit_label="left7d"
 fi
 
@@ -60,7 +62,7 @@ if [ -n "$ctx_used" ]; then
 fi
 
 if [ -n "$limit_used" ]; then
-  limit_remaining=$(awk -v u="$limit_used" 'BEGIN { printf "%.0f", 100 - u }')
+  limit_remaining=$((100 - $(printf '%.0f' "$limit_used")))
   append "${c_limit}${limit_label} ${limit_remaining}%${c_reset}"
 fi
 
