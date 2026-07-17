@@ -37,7 +37,7 @@ Claude Code 의 `statusLine` 은 user `settings.json` 에만 살 수 있다 (플
      - `~/.claude/settings.json` 을 타임스탬프 백업(`settings.json.bak-<YYYYMMDDHHmmss>`)으로
        복사해 두고, `statusLine` 키만 갱신한다 (다른 필드 보존):
        ```json
-       { "type": "command", "command": "bash ~/.config/rocky/statusline.sh" }
+       { "type": "command", "command": "sh ~/.config/rocky/statusline.sh" }
        ```
      - 이미 rocky statusline 이 설치된 상태에서 템플릿만 바꾸는 경우 settings 는 그대로 두고
        복사만 한다 (경로 동일).

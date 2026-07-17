@@ -325,7 +325,7 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 
 ### `/rocky:statusline [install [<template>] | list | status | off]`
 
-- **What**: rocky statusline 을 설치/점검/해제한다. 인자 없음 또는 `install` 은 템플릿 선택(인자로 지정 가능, 미지정 시 목록에서 고름 — `duo` 2줄 기본 / `mini` 1줄 / `full` 3줄+비용) → `jq` 확인 → 현재 `~/.claude/settings.json` 의 `statusLine` 표시(다른 statusline 이 있으면 교체 여부 확인) → **초안 확인 후** 고른 템플릿을 `~/.config/rocky/statusline.sh` 로 복사(`chmod +x`)하고 settings 를 타임스탬프 백업 뒤 `statusLine` 키만 `bash ~/.config/rocky/statusline.sh` 로 갱신 (템플릿 교체만이면 settings 는 그대로). `list` 는 번들 템플릿 목록 + 현재 설치본의 템플릿을 보여준다. `status` 는 settings 값 / 설치본 존재·템플릿 / 번들과의 동기화 여부를 보여준다. `off` 는 확인 후 백업을 남기고 `statusLine` 키만 제거한다 (설치본 파일은 남긴다).
+- **What**: rocky statusline 을 설치/점검/해제한다. 인자 없음 또는 `install` 은 템플릿 선택(인자로 지정 가능, 미지정 시 목록에서 고름 — `duo` 2줄 기본 / `mini` 1줄 / `full` 3줄+비용) → `jq` 확인 → 현재 `~/.claude/settings.json` 의 `statusLine` 표시(다른 statusline 이 있으면 교체 여부 확인) → **초안 확인 후** 고른 템플릿을 `~/.config/rocky/statusline.sh` 로 복사(`chmod +x`)하고 settings 를 타임스탬프 백업 뒤 `statusLine` 키만 `sh ~/.config/rocky/statusline.sh` 로 갱신 (템플릿 교체만이면 settings 는 그대로). `list` 는 번들 템플릿 목록 + 현재 설치본의 템플릿을 보여준다. `status` 는 settings 값 / 설치본 존재·템플릿 / 번들과의 동기화 여부를 보여준다. `off` 는 확인 후 백업을 남기고 `statusLine` 키만 제거한다 (설치본 파일은 남긴다).
 - **Input**: 서브커맨드 (기본 `install`) + 템플릿 이름 (옵션, `^[a-zA-Z0-9_-]+$`).
 - **하지 않는 것**: 확인 없이 settings 쓰기 금지, `statusLine` 외 필드 변경 금지, 플러그인 캐시 경로를 settings 에 직접 쓰기 금지 (버전마다 바뀜 — 반드시 안정 경로 간접화).
 - **적용 시점**: 새 세션부터. 이후 스크립트 커스터마이징은 번들 `statusline/<template>.sh` 를 고치면 `SessionStart` 훅이 다음 세션에 전파한다 (설치본 직접 수정은 sync 때 덮임).
