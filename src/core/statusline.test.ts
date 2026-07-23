@@ -88,3 +88,74 @@ describe('paths', () => {
     expect(bundledStatuslineDir('/plugin/root')).toBe('/plugin/root/statusline');
   });
 });
+
+describe('full.sh smoke', () => {
+  // git 세그먼트는 실행 환경의 실제 repo 상태에 의존하므로 비-git 디렉터리(current_dir
+  // 가 존재하지 않는 경로)로 고정해 결정론을 확보한다 — git 세그먼트는 수동 검증 항목.
+  function runFull(input: unknown): string[] {
+    const proc = Bun.spawnSync(['sh', join(import.meta.dir, '../../statusline/full.sh')], {
+      stdin: Buffer.from(JSON.stringify(input)),
+    });
+    return proc.stdout.toString().trimEnd().split('\n');
+  }
+
+  const DIM = '[38;5;245m';
+  const WARN = '[33m';
+  const DANGER = '[1;31m';
+
+  const base = {
+    model: { display_name: 'Opus' },
+    workspace: { current_dir: '/rocky-statusline-test-no-such-dir' },
+  };
+
+  test('위험 구간 — 3줄 출력, ctx/left 빨강, 시간당 비용 표시', () => {
+    const lines = runFull({
+      ...base,
+      context_window: { used_percentage: 95 },
+      rate_limits: { five_hour: { used_percentage: 95 } },
+      cost: {
+        total_cost_usd: 4.2,
+        total_duration_ms: 3_600_000,
+        total_lines_added: 10,
+        total_lines_removed: 3,
+      },
+    });
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain(DANGER);
+    expect(lines[2]).toContain('/h)');
+  });
+
+  test('안전 구간 — ctx/left 는 둔한 회색, 경고/위험색 없음', () => {
+    const lines = runFull({
+      ...base,
+      context_window: { used_percentage: 30 },
+      rate_limits: { five_hour: { used_percentage: 20 } },
+    });
+    expect(lines[1]).toContain(DIM);
+    expect(lines[1]).not.toContain(WARN);
+    expect(lines[1]).not.toContain(DANGER);
+  });
+
+  test('경고 구간 — ctx 70%+ / left 30%- 는 노랑', () => {
+    const lines = runFull({
+      ...base,
+      context_window: { used_percentage: 75 },
+      rate_limits: { five_hour: { used_percentage: 75 } },
+    });
+    expect(lines[1]).toContain(WARN);
+    expect(lines[1]).not.toContain(DANGER);
+  });
+
+  test('경과 5분 미만 — 비용은 있어도 시간당 비용은 생략', () => {
+    const lines = runFull({
+      ...base,
+      cost: { total_cost_usd: 0.5, total_duration_ms: 60_000 },
+    });
+    expect(lines[2]).toContain('$0.50');
+    expect(lines[2]).not.toContain('/h)');
+  });
+
+  test('최소 입력 — line 3 세그먼트가 전무하면 2줄만 출력', () => {
+    expect(runFull(base)).toHaveLength(2);
+  });
+});
