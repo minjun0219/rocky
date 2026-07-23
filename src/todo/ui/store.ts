@@ -13,6 +13,18 @@ const ACTOR_KEY = 'rocky-todo-actor';
 
 export type BoardSelection = 'all' | string;
 
+/** 서버/스토어가 실제로 지원하는 todo patch 필드만 허용한다 (임의 필드 유입 방지). */
+export interface TodoPatch {
+  title?: string;
+  description?: string;
+  priority?: Todo['priority'];
+  due?: string | null;
+  labels?: string[];
+  links?: Todo['links'];
+  section?: string;
+  parentId?: string | null;
+}
+
 interface DetailState {
   kind: 'todo' | 'note';
   todo?: Todo;
@@ -42,7 +54,7 @@ interface UiState {
   closeDetail: () => void;
 
   addTodo: (input: { board: string; title: string; section?: string }) => Promise<void>;
-  patchTodo: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  patchTodo: (id: string, patch: TodoPatch) => Promise<void>;
   setTodoStatus: (id: string, action: StatusAction) => Promise<void>;
   addNote: (input: { board?: string; title: string }) => Promise<void>;
   saveNote: (id: string, patch: { title?: string; content?: string }) => Promise<void>;

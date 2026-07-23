@@ -5,7 +5,9 @@
  * tailscale 을 일절 건드리지 않는다. 켜는 경로는 둘:
  *   - 수동: `rocky-todo tailscale on|off|status`
  *   - 자동: user rocky.json 의 `todo.expose` 에 "tailscale-serve" 채널 포함 → 데몬 기동 시 serve 보장
- * 데몬 자체는 계속 127.0.0.1 만 바인딩한다 — 노출은 tailscaled 의 로컬 프록시가 담당.
+ * "tailscale-serve" 채널 자체는 데몬의 바인딩을 바꾸지 않는다 — 루프백(127.0.0.1)
+ * 바인딩을 유지한 채 tailscaled 의 로컬 프록시로 테일넷에 노출한다. (별개로 `todo.expose`
+ * 에 "lan" 이 포함되면 데몬이 0.0.0.0 으로 바인딩한다 — 그건 tailscale 과 무관한 경로다.)
  */
 
 function tailscaleCmd(args: string[], timeoutMs = 10_000): { ok: boolean; out: string } {

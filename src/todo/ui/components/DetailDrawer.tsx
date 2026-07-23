@@ -30,7 +30,7 @@ export function DetailDrawer() {
     <div className="drawer-backdrop">
       <button type="button" className="backdrop-hit" aria-label="상세 닫기" onClick={closeDetail} />
       <aside className="drawer" role="dialog" aria-modal="true">
-        <button type="button" className="drawer-close" onClick={closeDetail}>
+        <button type="button" className="drawer-close" aria-label="상세 닫기" onClick={closeDetail}>
           ✕
         </button>
         {detail.kind === 'todo' ? <TodoDetail /> : <NoteDetail />}
