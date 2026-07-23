@@ -42,16 +42,25 @@ function plistContent(dir: string): string {
 }
 
 function launchctl(args: string[]): { ok: boolean; out: string } {
-  const proc = Bun.spawnSync({ cmd: ['launchctl', ...args], stdout: 'pipe', stderr: 'pipe' });
-  return {
-    ok: proc.exitCode === 0,
-    out: `${proc.stdout.toString()}${proc.stderr.toString()}`.trim(),
-  };
+  // spawn 자체 실패(launchctl 없음/비-macOS 의 ENOENT 등)도 예외 대신 결과로 돌려준다.
+  try {
+    const proc = Bun.spawnSync({ cmd: ['launchctl', ...args], stdout: 'pipe', stderr: 'pipe' });
+    return {
+      ok: proc.exitCode === 0,
+      out: `${proc.stdout.toString()}${proc.stderr.toString()}`.trim(),
+    };
+  } catch (error) {
+    return { ok: false, out: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function gid(): string {
   return `gui/${process.getuid?.() ?? 501}`;
 }
+
+/** launchd 는 macOS 전용 — 다른 OS 에서는 안내 문구를 돌려주고 명령을 건너뛴다. */
+const NOT_MACOS_MESSAGE =
+  'launchd 상주 등록은 macOS 전용이다 — 다른 OS 에서는 CLI 온디맨드 자동 기동만 사용한다';
 
 /**
  * launchd 상주 등록. `dir` 은 데몬의 데이터 디렉터리(runtime.dir) — 로그 경로와
@@ -59,6 +68,9 @@ function gid(): string {
  * todo.dir 반영)에 놓이게 한다. 미지정 시 기본 디렉터리.
  */
 export function installLaunchd(dir: string = DEFAULT_TODO_DIR): string {
+  if (process.platform !== 'darwin') {
+    return NOT_MACOS_MESSAGE;
+  }
   mkdirSync(join(homedir(), 'Library', 'LaunchAgents'), { recursive: true });
   mkdirSync(dir, { recursive: true });
   writeFileSync(PLIST_PATH, plistContent(dir));
@@ -72,6 +84,9 @@ export function installLaunchd(dir: string = DEFAULT_TODO_DIR): string {
 }
 
 export function uninstallLaunchd(): string {
+  if (process.platform !== 'darwin') {
+    return NOT_MACOS_MESSAGE;
+  }
   const result = launchctl(['bootout', gid(), PLIST_PATH]);
   if (existsSync(PLIST_PATH)) {
     rmSync(PLIST_PATH, { force: true });
@@ -82,6 +97,9 @@ export function uninstallLaunchd(): string {
 }
 
 export function launchdStatus(): string {
+  if (process.platform !== 'darwin') {
+    return NOT_MACOS_MESSAGE;
+  }
   if (!existsSync(PLIST_PATH)) {
     return 'launchd: 미등록 (온디맨드 자동 기동만 사용중)';
   }
