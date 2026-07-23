@@ -96,6 +96,12 @@ export interface WorklogConfig {
 
 /** rocky-todo 데몬 (공유 todo/스크래치패드 보드) 설정. */
 export interface TodoConfig {
+  /**
+   * 마스터 스위치. 기본 **false** — 상주 데몬을 띄우는 기능이라 opt-in 이다.
+   * 꺼져 있으면 UserPromptSubmit 훅·CLI 자동 기동·데몬 기동이 모두 비활성.
+   * env `ROCKY_TODO_ENABLED` 우선.
+   */
+  enabled?: boolean;
   /** 데몬 포트. 기본 8636 (키패드 "todo"). env `ROCKY_TODO_PORT` 우선. */
   port?: number;
   /** 데이터 디렉터리 (todo.db). 기본 `~/.config/rocky/todo`. env `ROCKY_TODO_DIR` 우선. */
@@ -298,7 +304,7 @@ function validateWorklog(worklog: unknown, source: string): void {
 }
 
 /** `todo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
-const ALLOWED_TODO_KEYS = new Set(['port', 'dir', 'expose', 'watch']);
+const ALLOWED_TODO_KEYS = new Set(['enabled', 'port', 'dir', 'expose', 'watch']);
 
 /** `todo.expose` 배열이 받는 채널 — src/todo/config.ts 의 EXPOSE_CHANNELS 와 lockstep. */
 const TODO_EXPOSE_CHANNELS = new Set(['lan', 'tailscale-serve']);
@@ -342,8 +348,10 @@ function validateTodo(todo: unknown, source: string): void {
       }
     }
   }
-  if (obj.watch !== undefined && typeof obj.watch !== 'boolean') {
-    throw new Error(`${source}: todo.watch must be a boolean`);
+  for (const key of ['enabled', 'watch'] as const) {
+    if (obj[key] !== undefined && typeof obj[key] !== 'boolean') {
+      throw new Error(`${source}: todo.${key} must be a boolean`);
+    }
   }
 }
 

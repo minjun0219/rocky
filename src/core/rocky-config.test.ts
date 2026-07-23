@@ -404,10 +404,13 @@ describe('validateConfig — todo', () => {
     );
   });
 
-  it('accepts boolean watch, rejects non-boolean', () => {
-    expect(validateConfig({ todo: { watch: false } }, 't').todo?.watch).toBe(false);
+  it('accepts boolean enabled / watch, rejects non-boolean', () => {
+    expect(validateConfig({ todo: { enabled: true, watch: false } }, 't').todo?.enabled).toBe(true);
     expect(() => validateConfig({ todo: { watch: 'yes' } } as any, 'p')).toThrow(
       /todo.watch must be a boolean/,
+    );
+    expect(() => validateConfig({ todo: { enabled: 1 } } as any, 'p')).toThrow(
+      /todo.enabled must be a boolean/,
     );
   });
 });

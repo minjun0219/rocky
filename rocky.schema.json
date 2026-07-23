@@ -135,6 +135,10 @@
       "type": "object",
       "description": "Settings for the rocky-todo daemon (shared todo / scratchpad board with web UI + MCP).",
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "마스터 스위치 (기본 false — 상주 데몬을 띄우는 기능이라 opt-in). 꺼져 있으면 훅/CLI 자동 기동/데몬이 모두 비활성. env ROCKY_TODO_ENABLED 가 우선."
+        },
         "port": {
           "type": "integer",
           "minimum": 1,
