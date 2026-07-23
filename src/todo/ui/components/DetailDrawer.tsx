@@ -123,13 +123,27 @@ function TodoDetail() {
           </div>
         </div>
       ) : (
-        <button type="button" className="drawer-desc" onClick={() => setEditingDesc(true)}>
+        // button 안에 Markdown 의 <p>/<a> 가 중첩되면 HTML 유효성/접근성 문제가 생기므로
+        // div role="button" 으로 편집 트리거를 만든다 (키보드 Enter/Space 지원).
+        // biome-ignore lint/a11y/useSemanticElements: Markdown 이 <p>/<a> 를 렌더해 button 중첩 불가 — div role=button 사용
+        <div
+          role="button"
+          tabIndex={0}
+          className="drawer-desc"
+          onClick={() => setEditingDesc(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setEditingDesc(true);
+            }
+          }}
+        >
           {todo.description === '' ? (
             <span className="drawer-desc-empty">설명 없음 — 눌러서 작성</span>
           ) : (
             <Markdown text={todo.description} />
           )}
-        </button>
+        </div>
       )}
       <div className="drawer-actions">
         {todo.status !== 'doing' && statusButton('▶ 시작', 'start')}
@@ -177,7 +191,14 @@ function Markdown({ text }: { text: string }) {
             }
             if (token.type === 'link') {
               return (
-                <a key={key} href={token.value} target="_blank" rel="noreferrer noopener">
+                // 링크 클릭이 상위 편집 트리거(div role="button")로 버블링되지 않게 막는다.
+                <a
+                  key={key}
+                  href={token.value}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {token.value}
                 </a>
               );
