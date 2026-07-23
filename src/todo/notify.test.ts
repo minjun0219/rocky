@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildNotifyContext, filterHumanChanges, readCursor, writeCursor } from './notify';
@@ -89,7 +89,7 @@ describe('cursor store', () => {
     const file = join(dir, 'hook-cursors.json');
     try {
       writeCursor(file, 'a', 1);
-      require('node:fs').writeFileSync(file, '{broken');
+      writeFileSync(file, '{broken');
       expect(readCursor(file, 'a')).toBeUndefined();
       writeCursor(file, 'a', 2);
       expect(readCursor(file, 'a')).toBe(2);

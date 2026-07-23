@@ -170,6 +170,28 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * links 의 각 url 을 파싱해 http/https 스킴만 허용한다 — `javascript:` 등 위험한
+ * 스킴이 DB 에 저장돼 웹 UI 의 클릭 가능한 링크로 노출되는 것을 막는다. REST/MCP 어느
+ * 경로로 들어오든 스토어 레이어에서 일괄 강제한다 (create/update 공통).
+ */
+function assertSafeLinks(links: TodoLink[] | undefined): void {
+  if (!links) {
+    return;
+  }
+  for (const link of links) {
+    let parsed: URL;
+    try {
+      parsed = new URL(link.url);
+    } catch {
+      throw new Error(`invalid link url (parse failed): ${link.url}`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`unsupported link url scheme (http/https only): ${link.url}`);
+    }
+  }
+}
+
 interface TodoRow {
   id: string;
   board_id: string;
@@ -420,6 +442,7 @@ export class TodoStore {
   // ── todos ─────────────────────────────────────────────────────────────────
 
   createTodo(input: CreateTodoInput, actor: string): Todo {
+    assertSafeLinks(input.links);
     const board = this.ensureBoard(input.board, { actor });
     let sectionId: string | undefined;
     if (input.section) {
@@ -518,6 +541,7 @@ export class TodoStore {
       apply('labels', 'labels', current.labels, patch.labels, JSON.stringify(patch.labels));
     }
     if (patch.links !== undefined) {
+      assertSafeLinks(patch.links);
       apply('links', 'links', current.links, patch.links, JSON.stringify(patch.links));
     }
     if (patch.section !== undefined) {

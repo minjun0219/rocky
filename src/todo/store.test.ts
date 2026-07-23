@@ -68,6 +68,22 @@ describe('todos', () => {
     ]);
   });
 
+  test('createTodo rejects non-http(s) link url (javascript: 등 위험 스킴 차단)', () => {
+    expect(() =>
+      store.createTodo(
+        { board: 'rocky', title: 'x', links: [{ url: 'javascript:alert(1)' }] },
+        'tester',
+      ),
+    ).toThrow(/scheme/i);
+  });
+
+  test('updateTodo rejects non-http(s) link url', () => {
+    const todo = store.createTodo({ board: 'rocky', title: 'x' }, 'tester');
+    expect(() => store.updateTodo(todo.id, { links: [{ url: 'ftp://evil/x' }] }, 'tester')).toThrow(
+      /scheme/i,
+    );
+  });
+
   test('section is upserted by name within a board', () => {
     const a = store.createTodo({ board: 'rocky', title: 'a', section: '설계' }, 'tester');
     const b = store.createTodo({ board: 'rocky', title: 'b', section: '설계' }, 'tester');
