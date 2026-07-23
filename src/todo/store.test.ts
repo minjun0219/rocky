@@ -110,6 +110,27 @@ describe('todos', () => {
     expect(() => store.updateTodo(a.id, { parentId: b.id }, 'tester')).toThrow(/descendant/i);
   });
 
+  test('store trims and rejects empty identity fields (title/board/section)', () => {
+    // 공백 제목 거부 + 정규화
+    expect(() => store.createTodo({ board: 'rocky', title: '   ' }, 'tester')).toThrow(/title/i);
+    const trimmed = store.createTodo({ board: 'rocky', title: '  할 일  ' }, 'tester');
+    expect(trimmed.title).toBe('할 일');
+    // 공백 보드 키 거부
+    expect(() => store.createTodo({ board: '  ', title: 'x' }, 'tester')).toThrow(/board key/i);
+    // updateTodo 공백 제목 거부
+    expect(() => store.updateTodo(trimmed.id, { title: '  ' }, 'tester')).toThrow(/title/i);
+    // 공백 섹션 거부
+    expect(() =>
+      store.createTodo({ board: 'rocky', title: 'y', section: '   ' }, 'tester'),
+    ).toThrow(/section/i);
+  });
+
+  test('createNote/updateNote reject empty title', () => {
+    expect(() => store.createNote({ board: 'rocky', title: '  ' }, 'tester')).toThrow(/title/i);
+    const note = store.createNote({ board: 'rocky', title: '메모' }, 'tester');
+    expect(() => store.updateNote(note.id, { title: '   ' }, 'tester')).toThrow(/title/i);
+  });
+
   test('createTodo rejects unknown parent', () => {
     expect(() =>
       store.createTodo({ board: 'rocky', title: 'x', parentId: 'zzzzzzzz' }, 'tester'),

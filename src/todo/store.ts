@@ -189,6 +189,24 @@ function normalizeActor(raw: string): string {
 }
 
 /**
+ * 필수 식별 문자열(제목 / 보드 키 / 섹션명 등) 정규화 — trim 후 빈 값이면 예외.
+ * 모든 표면(REST/MCP/CLI/내부 호출)이 store 를 거치므로 여기서 한 번만 강제하면
+ * 빈/공백 제목·키가 어느 경로로도 저장되지 않는다.
+ */
+function requireNonEmptyField(value: string, field: string): string {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    throw new Error(`${field} must not be empty`);
+  }
+  return trimmed;
+}
+
+/** 선택적 식별 문자열 정규화 — undefined 는 그대로, 값이 있으면 trim + 빈 값 거부. */
+function optionalNonEmptyField(value: string | undefined, field: string): string | undefined {
+  return value === undefined ? undefined : requireNonEmptyField(value, field);
+}
+
+/**
  * links 의 각 url 을 파싱해 http/https 스킴만 허용한다 — `javascript:` 등 위험한
  * 스킴이 DB 에 저장돼 웹 UI 의 클릭 가능한 링크로 노출되는 것을 막는다. REST/MCP 어느
  * 경로로 들어오든 스토어 레이어에서 일괄 강제한다 (create/update 공통).
@@ -384,16 +402,17 @@ export class TodoStore {
   // ── boards ────────────────────────────────────────────────────────────────
 
   ensureBoard(key: string, options: { title?: string; actor: string }): Board {
+    const normalizedKey = requireNonEmptyField(key, 'board key');
     const existing = this.db
       .query<BoardRow, [string]>('SELECT * FROM boards WHERE key = ?')
-      .get(key);
+      .get(normalizedKey);
     if (existing) {
       return toBoard(existing);
     }
     const board: Board = {
       id: newId(),
-      key,
-      title: options.title ?? key,
+      key: normalizedKey,
+      title: options.title?.trim() || normalizedKey,
       createdAt: nowIso(),
     };
     this.db
@@ -421,19 +440,20 @@ export class TodoStore {
 
   /** 보드 안에서 섹션을 이름으로 upsert 한다 — todo_write 의 section 인자가 쓰는 경로. */
   ensureSection(boardId: string, title: string, actor: string): Section {
+    const normalizedTitle = requireNonEmptyField(title, 'section');
     const existing = this.db
       .query<SectionRow, [string, string]>(
         'SELECT * FROM sections WHERE board_id = ? AND title = ? AND archived_at IS NULL',
       )
-      .get(boardId, title);
+      .get(boardId, normalizedTitle);
     if (existing) {
       return toSection(existing);
     }
     const position = this.nextPosition('sections', boardId);
-    const section: Section = { id: newId(), boardId, title, position };
+    const section: Section = { id: newId(), boardId, title: normalizedTitle, position };
     this.db
       .query('INSERT INTO sections (id, board_id, title, position) VALUES (?, ?, ?, ?)')
-      .run(section.id, boardId, title, position);
+      .run(section.id, boardId, normalizedTitle, position);
     this.recordHistory('section', section.id, actor, 'create', undefined, boardId);
     return section;
   }
@@ -468,16 +488,19 @@ export class TodoStore {
 
   createTodo(input: CreateTodoInput, actor: string): Todo {
     assertSafeLinks(input.links);
+    const title = requireNonEmptyField(input.title, 'title');
     const board = this.ensureBoard(input.board, { actor });
     let sectionId: string | undefined;
-    if (input.section) {
-      sectionId = this.ensureSection(board.id, input.section, actor).id;
+    // section 이름은 ensureSection 이 trim + 빈 값 거부한다.
+    if (optionalNonEmptyField(input.section, 'section')) {
+      sectionId = this.ensureSection(board.id, input.section as string, actor).id;
     }
     let parentId: string | undefined;
-    if (input.parentId) {
-      const parent = this.getTodo(input.parentId);
+    const parentInput = optionalNonEmptyField(input.parentId, 'parentId');
+    if (parentInput) {
+      const parent = this.getTodo(parentInput);
       if (!parent || parent.boardId !== board.id) {
-        throw new Error(`parent todo not found in board ${input.board}: ${input.parentId}`);
+        throw new Error(`parent todo not found in board ${input.board}: ${parentInput}`);
       }
       parentId = parent.id;
     }
@@ -487,7 +510,7 @@ export class TodoStore {
       boardId: board.id,
       sectionId,
       parentId,
-      title: input.title,
+      title,
       description: input.description ?? '',
       status: 'todo',
       priority: input.priority ?? 'p4',
@@ -545,7 +568,8 @@ export class TodoStore {
     };
 
     if (patch.title !== undefined) {
-      apply('title', 'title', current.title, patch.title, patch.title);
+      const title = requireNonEmptyField(patch.title, 'title');
+      apply('title', 'title', current.title, title, title);
     }
     if (patch.description !== undefined) {
       apply(
@@ -577,9 +601,10 @@ export class TodoStore {
       if (patch.parentId === null) {
         apply('parent_id', 'parentId', current.parentId, undefined, null);
       } else {
-        const parent = this.mustGetTodo(patch.parentId);
+        const parentInput = requireNonEmptyField(patch.parentId, 'parentId');
+        const parent = this.mustGetTodo(parentInput);
         if (parent.boardId !== current.boardId) {
-          throw new Error(`parent todo not in same board: ${patch.parentId}`);
+          throw new Error(`parent todo not in same board: ${parentInput}`);
         }
         if (parent.id === current.id) {
           throw new Error('todo cannot be its own parent');
@@ -717,6 +742,7 @@ export class TodoStore {
   // ── notes ─────────────────────────────────────────────────────────────────
 
   createNote(input: CreateNoteInput, actor: string): Note {
+    const title = requireNonEmptyField(input.title, 'title');
     let boardId: string | null = null;
     if (input.board) {
       boardId = this.ensureBoard(input.board, { actor }).id;
@@ -725,7 +751,7 @@ export class TodoStore {
     const note: Note = {
       id: newId(),
       boardId: boardId ?? undefined,
-      title: input.title,
+      title,
       content: input.content ?? '',
       position: this.nextPosition('notes', boardId),
       createdAt: now,
@@ -754,10 +780,13 @@ export class TodoStore {
     const sets: string[] = [];
     const params: (string | null)[] = [];
 
-    if (patch.title !== undefined && patch.title !== current.title) {
-      changes.title = [current.title, patch.title];
-      sets.push('title = ?');
-      params.push(patch.title);
+    if (patch.title !== undefined) {
+      const title = requireNonEmptyField(patch.title, 'title');
+      if (title !== current.title) {
+        changes.title = [current.title, title];
+        sets.push('title = ?');
+        params.push(title);
+      }
     }
     if (patch.content !== undefined) {
       const next =
