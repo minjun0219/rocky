@@ -179,7 +179,12 @@ interface CliContext {
 async function health(baseUrl: string): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(700) });
-    return res.ok;
+    if (!res.ok) {
+      return false;
+    }
+    // 같은 포트의 다른 서비스를 rocky-todo 로 오인하지 않도록 body.name 까지 확인.
+    const body = (await res.json().catch(() => null)) as { name?: string } | null;
+    return body?.name === 'rocky-todo';
   } catch {
     return false;
   }

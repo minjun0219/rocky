@@ -14,8 +14,16 @@ import type { ChangeFeedEntry } from './store';
 /** 에이전트로 간주하는 actor — 이들의 변경은 주입하지 않는다 (자기 반향 방지). */
 const AGENT_ACTORS = new Set(['claude-code', 'codex', 'opencode', 'agent', 'rocky']);
 
+/**
+ * actor 매칭용 정규화 — 소문자 + 공백을 하이픈으로. store 가 actor 를 공백 축약으로
+ * 정규화하므로("claude code"), 하이픈 표기 목록과 매칭되게 canonical 형태로 맞춘다.
+ */
+function canonicalActor(actor: string): string {
+  return actor.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
 export function filterHumanChanges(entries: ChangeFeedEntry[]): ChangeFeedEntry[] {
-  return entries.filter((e) => !AGENT_ACTORS.has(e.actor));
+  return entries.filter((e) => !AGENT_ACTORS.has(canonicalActor(e.actor)));
 }
 
 const ACTION_LABELS: Record<string, string> = {

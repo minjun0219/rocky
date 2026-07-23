@@ -5,12 +5,17 @@
 /** 에이전트로 취급하는 actor 이름 — 따뜻한 앰버 톤 (에리디언의 대기). */
 const AGENT_ACTORS = new Set(['claude-code', 'codex', 'opencode', 'agent', 'rocky']);
 
+/** actor 매칭용 정규화 — 소문자 + 공백→하이픈 (store 의 공백 축약 정규화와 매칭 통일). */
+function canonicalActor(actor: string): string {
+  return actor.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
 /**
  * actor → 시각 톤. 에이전트는 warm(앰버), 사람은 cool(아이스 블루).
  * "누가 했나"를 온도로 인코딩하는 것이 이 UI 의 시그니처다.
  */
 export function actorTone(actor: string): 'warm' | 'cool' {
-  return AGENT_ACTORS.has(actor) ? 'warm' : 'cool';
+  return AGENT_ACTORS.has(canonicalActor(actor)) ? 'warm' : 'cool';
 }
 
 /** doing 경과가 이 시간(ms)을 넘으면 stale 로 표시한다. */

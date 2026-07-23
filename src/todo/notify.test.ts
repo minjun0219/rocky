@@ -29,6 +29,16 @@ describe('filterHumanChanges', () => {
     ];
     expect(filterHumanChanges(entries).map((e) => e.id)).toEqual([2, 4]);
   });
+
+  test('canonicalizes actor before matching (공백 축약된 에이전트도 걸러냄)', () => {
+    // store 가 "claude\ncode" → "claude code" 로 정규화한 형태도 에이전트로 인식해야 한다.
+    const entries = [
+      entry({ id: 1, actor: 'claude code' }),
+      entry({ id: 2, actor: 'Codex' }),
+      entry({ id: 3, actor: 'logan' }),
+    ];
+    expect(filterHumanChanges(entries).map((e) => e.id)).toEqual([3]);
+  });
 });
 
 describe('buildNotifyContext', () => {
