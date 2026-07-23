@@ -346,6 +346,82 @@ describe('validateConfig — worklog', () => {
   });
 });
 
+describe('validateConfig — todo', () => {
+  it('accepts a well-formed todo block', () => {
+    const config = { todo: { port: 8636, dir: '~/todo-data' } };
+    expect(validateConfig(config, 'test')).toEqual(config);
+  });
+
+  it('accepts an empty todo block', () => {
+    expect(() => validateConfig({ todo: {} }, 'test')).not.toThrow();
+  });
+
+  it('rejects a non-object todo', () => {
+    expect(() => validateConfig({ todo: 'nope' } as any, 'p')).toThrow(/todo must be an object/);
+  });
+
+  it('rejects unknown todo keys', () => {
+    expect(() => validateConfig({ todo: { host: 'x' } } as any, 'p')).toThrow(/unknown key "host"/);
+  });
+
+  it('rejects an out-of-range or non-integer port', () => {
+    expect(() => validateConfig({ todo: { port: 0 } } as any, 'p')).toThrow(
+      /todo.port must be an integer between 1 and 65535/,
+    );
+    expect(() => validateConfig({ todo: { port: 70000 } } as any, 'p')).toThrow(
+      /todo.port must be an integer between 1 and 65535/,
+    );
+    expect(() => validateConfig({ todo: { port: 1.5 } } as any, 'p')).toThrow(
+      /todo.port must be an integer between 1 and 65535/,
+    );
+  });
+
+  it('rejects empty / non-string dir', () => {
+    expect(() => validateConfig({ todo: { dir: '' } } as any, 'p')).toThrow(
+      /todo.dir must be a non-empty string/,
+    );
+  });
+
+  it('accepts expose channel array, rejects unknown channels and non-arrays', () => {
+    expect(validateConfig({ todo: { expose: [] } }, 't').todo?.expose).toEqual([]);
+    expect(validateConfig({ todo: { expose: ['lan'] } }, 't').todo?.expose).toEqual(['lan']);
+    expect(
+      validateConfig({ todo: { expose: ['lan', 'tailscale-serve'] } }, 't').todo?.expose,
+    ).toEqual(['lan', 'tailscale-serve']);
+    expect(() => validateConfig({ todo: { expose: ['wan'] } } as any, 'p')).toThrow(
+      /todo.expose entries must be "lan" or "tailscale-serve"/,
+    );
+    // 채널 하나는 문자열도 허용
+    expect(validateConfig({ todo: { expose: 'lan' } }, 't').todo?.expose).toBe('lan');
+    expect(() => validateConfig({ todo: { expose: 'wan' } } as any, 'p')).toThrow(
+      /todo.expose entries must be "lan" or "tailscale-serve"/,
+    );
+    // "off"(문자열 전용) 와 null 은 미설정과 동일 취급으로 통과
+    expect(() => validateConfig({ todo: { expose: 'off' } }, 't')).not.toThrow();
+    expect(() => validateConfig({ todo: { expose: null } } as any, 't')).not.toThrow();
+    expect(() => validateConfig({ todo: { expose: ['off'] } } as any, 'p')).toThrow(
+      /todo.expose entries must be "lan" or "tailscale-serve"/,
+    );
+  });
+
+  it('accepts boolean watch, rejects non-boolean', () => {
+    expect(validateConfig({ todo: { watch: false } }, 't').todo?.watch).toBe(false);
+    expect(() => validateConfig({ todo: { watch: 'yes' } } as any, 'p')).toThrow(
+      /todo.watch must be a boolean/,
+    );
+  });
+});
+
+describe('mergeConfigs — todo', () => {
+  it('project todo fields override user todo, field by field', () => {
+    const user: RockyConfig = { todo: { port: 8636, dir: '/u/t' } };
+    const project: RockyConfig = { todo: { port: 9000 } };
+    const merged = mergeConfigs(user, project);
+    expect(merged.todo?.port).toBe(9000);
+    expect(merged.todo?.dir).toBe('/u/t');
+  });
+});
+
 describe('mergeConfigs — worklog', () => {
   it('project worklog fields override user worklog, field by field', () => {
     const user: RockyConfig = { worklog: { dir: '/u/w', autoCapture: true } };
