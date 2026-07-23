@@ -1,4 +1,4 @@
-import type { ListTodosFilter, StatusAction, TodoStore } from './store';
+import type { ListTodosFilter, StatusAction, TodoLink, TodoPriority, TodoStore } from './store';
 
 /**
  * rocky-todo REST + SSE 표면 — CLI / 웹 UI 가 공유한다.
@@ -46,6 +46,67 @@ async function readBody(req: Request): Promise<Record<string, unknown>> {
   } catch {
     throw new Error('invalid JSON body');
   }
+}
+
+const PRIORITIES: ReadonlySet<string> = new Set(['p1', 'p2', 'p3', 'p4']);
+
+/**
+ * `limit` 쿼리 파싱 — 없으면 undefined(스토어 기본값), 있으면 1..500 정수만 허용한다.
+ * NaN / 음수 / 과도한 값이 SQLite 쿼리로 새어 들어가지 않게 막는다 (lan 노출 대비).
+ */
+function parseLimitParam(raw: string | null): number | undefined {
+  if (raw === null) {
+    return undefined;
+  }
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 500) {
+    throw new Error(`limit must be an integer between 1 and 500: ${raw}`);
+  }
+  return n;
+}
+
+/** priority 는 있으면 p1–p4 만 허용 (DB CHECK 이전에 400 으로 거른다). */
+function validatePriority(value: unknown): TodoPriority | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !PRIORITIES.has(value)) {
+    throw new Error(`invalid priority (expected p1-p4): ${String(value)}`);
+  }
+  return value as TodoPriority;
+}
+
+/** labels 는 있으면 string[] 만 허용. */
+function validateLabels(value: unknown): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+    throw new Error('invalid labels (expected string[])');
+  }
+  return value as string[];
+}
+
+/** links 는 있으면 `{ url: string, title?: string }[]` 만 허용. */
+function validateLinks(value: unknown): TodoLink[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const ok =
+    Array.isArray(value) &&
+    value.every((v) => {
+      if (typeof v !== 'object' || v === null) {
+        return false;
+      }
+      const link = v as { url?: unknown; title?: unknown };
+      return (
+        typeof link.url === 'string' && (link.title === undefined || typeof link.title === 'string')
+      );
+    });
+  if (!ok) {
+    throw new Error('invalid links (expected { url: string, title?: string }[])');
+  }
+  return value as TodoLink[];
 }
 
 /** not found 류 스토어 에러를 HTTP status 로 번역한다. */
@@ -133,10 +194,10 @@ export function buildTodoServer(options: TodoServerOptions): TodoServer {
             description: typeof body.description === 'string' ? body.description : undefined,
             section: typeof body.section === 'string' ? body.section : undefined,
             parentId: typeof body.parentId === 'string' ? body.parentId : undefined,
-            priority: body.priority as never,
+            priority: validatePriority(body.priority),
             due: typeof body.due === 'string' ? body.due : undefined,
-            labels: Array.isArray(body.labels) ? (body.labels as string[]) : undefined,
-            links: Array.isArray(body.links) ? (body.links as never) : undefined,
+            labels: validateLabels(body.labels),
+            links: validateLinks(body.links),
           },
           actor,
         );
@@ -155,6 +216,10 @@ export function buildTodoServer(options: TodoServerOptions): TodoServer {
         }
         if (method === 'PATCH') {
           const body = await readBody(req);
+          // 위험 필드는 store 로 넘기기 전에 검증 (잘못된 값은 400).
+          validatePriority(body.priority);
+          validateLabels(body.labels);
+          validateLinks(body.links);
           return json(store.updateTodo(id, body as never, actor));
         }
       }
@@ -227,9 +292,7 @@ export function buildTodoServer(options: TodoServerOptions): TodoServer {
         if (!Number.isInteger(sinceId) || sinceId < 0) {
           return errorResponse('sinceId must be a non-negative integer', 400);
         }
-        const limit = url.searchParams.has('limit')
-          ? Number(url.searchParams.get('limit'))
-          : undefined;
+        const limit = parseLimitParam(url.searchParams.get('limit'));
         return json(store.listChangesSince(sinceId, limit));
       }
 
@@ -239,9 +302,7 @@ export function buildTodoServer(options: TodoServerOptions): TodoServer {
           store.listHistory({
             entityId: url.searchParams.get('entityId') ?? undefined,
             entity: (url.searchParams.get('entity') as never) ?? undefined,
-            limit: url.searchParams.has('limit')
-              ? Number(url.searchParams.get('limit'))
-              : undefined,
+            limit: parseLimitParam(url.searchParams.get('limit')),
           }),
         );
       }

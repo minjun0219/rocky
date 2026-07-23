@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { loadConfig } from '../core/rocky-config';
-import { resolveTodoRuntimeConfig } from '../todo/config';
+import { DEFAULT_TODO_DIR, resolveTodoRuntimeConfig } from '../todo/config';
 import { buildNotifyContext, filterHumanChanges, readCursor, writeCursor } from '../todo/notify';
 import type { ChangeFeedEntry } from '../todo/store';
 
@@ -68,12 +68,18 @@ async function run(): Promise<void> {
     return;
   }
 
+  // watch 토글은 project rocky.json 도 끌 수 있게 project-merge 된 값을 본다.
   const { config } = await loadConfig({ projectRoot: input.cwd ?? process.cwd() });
   if (envToggle === undefined && config.todo?.watch === false) {
     return;
   }
 
-  const runtime = resolveTodoRuntimeConfig(process.env, config.todo);
+  // 런타임(port/dir/enabled/expose)은 데몬/CLI 와 동일하게 user-only 로 해석한다
+  // — project 의 todo.port/dir 가 훅만 다른 데몬/커서 파일을 보게 만들면 (전역 단일
+  // 인스턴스 계약 위반) 보드 변경 주입이 조용히 끊긴다. projectRoot 를 데이터
+  // 디렉터리로 줘 project config 를 무력화한다 (daemon.ts / cli.ts 와 동일).
+  const { config: userConfig } = await loadConfig({ projectRoot: DEFAULT_TODO_DIR });
+  const runtime = resolveTodoRuntimeConfig(process.env, userConfig.todo);
   // 마스터 스위치 (todo.enabled, 기본 off) — 꺼져 있으면 완전 침묵
   if (!runtime.enabled) {
     return;

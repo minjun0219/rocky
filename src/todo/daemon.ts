@@ -63,7 +63,8 @@ export async function startDaemon(): Promise<void> {
 
   const server = Bun.serve({
     port: runtime.port,
-    // 기본 루프백 전용. `todo.host: "0.0.0.0"` opt-in 시 내부망 개방 (인증 없음 — 신뢰망 전제).
+    // 기본 루프백 전용. host 는 todo.expose 에서 파생된다 — "lan" 채널이 있으면 0.0.0.0
+    // (내부망 개방, 인증 없음 — 신뢰망 전제), 아니면 127.0.0.1.
     // 0.0.0.0 은 루프백을 포함하므로 단일 인스턴스 가드/CLI 의 127.0.0.1 경로는 그대로 동작한다.
     hostname: runtime.host,
     development: false,

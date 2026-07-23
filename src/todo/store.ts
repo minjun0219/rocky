@@ -535,6 +535,20 @@ export class TodoStore {
         if (parent.id === current.id) {
           throw new Error('todo cannot be its own parent');
         }
+        // 새 부모가 현재 todo 의 하위(자손)이면 A↔B 순환 계층이 되어 트리에서
+        // 루트가 사라진다 — 부모 체인을 거슬러 올라 current 를 만나면 거부한다.
+        let ancestor: Todo | undefined = parent;
+        const walked = new Set<string>();
+        while (ancestor?.parentId !== undefined) {
+          if (walked.has(ancestor.id)) {
+            break;
+          }
+          walked.add(ancestor.id);
+          if (ancestor.parentId === current.id) {
+            throw new Error(`parent todo is a descendant of this todo: ${patch.parentId}`);
+          }
+          ancestor = this.getTodo(ancestor.parentId);
+        }
         apply('parent_id', 'parentId', current.parentId, parent.id, parent.id);
       }
     }
@@ -558,17 +572,20 @@ export class TodoStore {
     switch (action) {
       case 'start':
         changes.status = [current.status, 'doing'];
+        // done 항목을 다시 시작할 수 있으므로 completed_at 도 함께 비운다 — 아니면
+        // status 는 doing 인데 완료 시각이 남아 lifecycle 상태가 모순된다.
         this.db
           .query(
-            'UPDATE todos SET status = ?, doing_by = ?, doing_since = ?, updated_at = ? WHERE id = ?',
+            'UPDATE todos SET status = ?, doing_by = ?, doing_since = ?, completed_at = NULL, updated_at = ? WHERE id = ?',
           )
           .run('doing', actor, now, now, current.id);
         break;
       case 'stop':
         changes.status = [current.status, 'todo'];
+        // done → stop 전이도 완료 시각을 정리한다 (start 와 동일 이유).
         this.db
           .query(
-            'UPDATE todos SET status = ?, doing_by = NULL, doing_since = NULL, updated_at = ? WHERE id = ?',
+            'UPDATE todos SET status = ?, doing_by = NULL, doing_since = NULL, completed_at = NULL, updated_at = ? WHERE id = ?',
           )
           .run('todo', now, current.id);
         break;

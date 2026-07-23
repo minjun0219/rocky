@@ -126,6 +126,26 @@ describe('todos REST', () => {
     const res = await req('/api/todos', { method: 'POST', body: JSON.stringify({ board: 'a' }) });
     expect(res.status).toBe(400);
   });
+
+  test('POST /api/todos with invalid priority/labels/links → 400', async () => {
+    const badPriority = await req('/api/todos', {
+      method: 'POST',
+      body: JSON.stringify({ board: 'a', title: 'x', priority: 'p9' }),
+    });
+    expect(badPriority.status).toBe(400);
+
+    const badLabels = await req('/api/todos', {
+      method: 'POST',
+      body: JSON.stringify({ board: 'a', title: 'x', labels: [1, 2] }),
+    });
+    expect(badLabels.status).toBe(400);
+
+    const badLinks = await req('/api/todos', {
+      method: 'POST',
+      body: JSON.stringify({ board: 'a', title: 'x', links: [{ title: 'no-url' }] }),
+    });
+    expect(badLinks.status).toBe(400);
+  });
 });
 
 describe('notes REST', () => {
@@ -193,6 +213,14 @@ describe('changes feed', () => {
     };
     expect(feed.lastId).toBeGreaterThan(base.lastId);
     expect(feed.entries.some((e) => e.entityId === created.id && e.actor === 'logan')).toBe(true);
+  });
+
+  test('GET /api/changes with invalid limit → 400', async () => {
+    expect((await req('/api/changes?sinceId=0&limit=abc')).status).toBe(400);
+    expect((await req('/api/changes?sinceId=0&limit=-5')).status).toBe(400);
+    expect((await req('/api/changes?sinceId=0&limit=99999')).status).toBe(400);
+    // 유효 범위(1..500)는 통과.
+    expect((await req('/api/changes?sinceId=0&limit=10')).status).toBe(200);
   });
 });
 

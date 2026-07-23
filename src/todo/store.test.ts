@@ -87,6 +87,13 @@ describe('todos', () => {
     expect(child.parentId).toBe(parent.id);
   });
 
+  test('updateTodo rejects parenting to a descendant (순환 계층 방지)', () => {
+    const a = store.createTodo({ board: 'rocky', title: 'A' }, 'tester');
+    const b = store.createTodo({ board: 'rocky', title: 'B', parentId: a.id }, 'tester');
+    // A 의 부모를 자식 B 로 바꾸면 A↔B 순환이 되므로 거부해야 한다.
+    expect(() => store.updateTodo(a.id, { parentId: b.id }, 'tester')).toThrow(/descendant/i);
+  });
+
   test('createTodo rejects unknown parent', () => {
     expect(() =>
       store.createTodo({ board: 'rocky', title: 'x', parentId: 'zzzzzzzz' }, 'tester'),
@@ -133,6 +140,22 @@ describe('status transitions', () => {
     const reopened = store.setTodoStatus(todo.id, 'reopen', 'claude-code');
     expect(reopened.status).toBe('todo');
     expect(reopened.completedAt).toBeUndefined();
+  });
+
+  test('start clears completedAt when leaving done (no doing+completedAt 모순)', () => {
+    const todo = store.createTodo({ board: 'rocky', title: '작업' }, 'tester');
+    store.setTodoStatus(todo.id, 'done', 'claude-code');
+    const restarted = store.setTodoStatus(todo.id, 'start', 'claude-code');
+    expect(restarted.status).toBe('doing');
+    expect(restarted.completedAt).toBeUndefined();
+  });
+
+  test('stop clears completedAt when leaving done', () => {
+    const todo = store.createTodo({ board: 'rocky', title: '작업' }, 'tester');
+    store.setTodoStatus(todo.id, 'done', 'claude-code');
+    const stopped = store.setTodoStatus(todo.id, 'stop', 'claude-code');
+    expect(stopped.status).toBe('todo');
+    expect(stopped.completedAt).toBeUndefined();
   });
 
   test('archive hides from default listing; includeArchived reveals; unarchive restores', () => {

@@ -168,7 +168,7 @@
               "uniqueItems": true
             }
           ],
-          "description": "보드 노출 채널 (기본 [] — 이 머신만). \"lan\" = 내부망 개방(0.0.0.0, 인증 없음 — 신뢰망 전용), \"tailscale\" = 테일넷 한정(tailscale serve). 배열로 조합, 채널 하나면 문자열도 OK. env ROCKY_TODO_EXPOSE(콤마 구분)가 우선."
+          "description": "보드 노출 채널 (기본 [] — 이 머신만). \"lan\" = 내부망 개방(0.0.0.0, 인증 없음 — 신뢰망 전용), \"tailscale-serve\" = 테일넷 한정(tailscale serve). 배열로 조합, 채널 하나면 문자열도 OK. env ROCKY_TODO_EXPOSE(콤마 구분)가 우선."
         },
         "watch": {
           "type": "boolean",

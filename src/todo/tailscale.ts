@@ -4,7 +4,7 @@
  * 기본은 **off**: 회사 등 tailscale 을 쓰면 안 되는 환경에서는 rocky-todo 가
  * tailscale 을 일절 건드리지 않는다. 켜는 경로는 둘:
  *   - 수동: `rocky-todo tailscale on|off|status`
- *   - 자동: user rocky.json 의 `todo.tailscale: true` → 데몬 기동 시 serve 보장
+ *   - 자동: user rocky.json 의 `todo.expose` 에 "tailscale-serve" 채널 포함 → 데몬 기동 시 serve 보장
  * 데몬 자체는 계속 127.0.0.1 만 바인딩한다 — 노출은 tailscaled 의 로컬 프록시가 담당.
  */
 
@@ -66,7 +66,7 @@ export function ensureTailscaleServe(port: number): void {
   const result = tailscaleCmd(['serve', '--bg', String(port)]);
   console.log(
     result.ok
-      ? `tailscale serve 활성화됨 (todo.tailscale=true)\n${result.out}`
+      ? `tailscale serve 활성화됨 (todo.expose 에 tailscale-serve 포함)\n${result.out}`
       : `tailscale serve 자동 활성화 실패 (무시하고 계속): ${result.out.split('\n')[0]}`,
   );
 }

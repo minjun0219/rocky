@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Note } from '../../store';
 import { formatElapsed } from '../lib';
 import { useUiStore } from '../store';
@@ -40,11 +40,16 @@ function NoteCard({ note }: { note: Note }) {
   const openNoteDetail = useUiStore((s) => s.openNoteDetail);
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
+  // 직전에 반영한 서버 값 — "사용자가 편집했는지" 를 새 서버 값과 구분하기 위해 추적한다.
+  const syncedRef = useRef({ title: note.title, content: note.content });
 
-  // 다른 경로(에이전트)의 편집이 SSE refetch 로 들어오면, 내가 수정중이 아닐 때만 동기화
+  // 다른 경로(에이전트)의 편집이 SSE refetch 로 들어와도, 해당 필드가 직전 서버 값
+  // 그대로면(= 사용자가 편집 중이 아니면) 새 값으로 동기화하고, 편집 중이면 입력을 보존한다.
+  // 필드별로 판단하므로 title 만 편집 중이어도 content 는 계속 동기화된다.
   useEffect(() => {
-    setTitle(note.title);
-    setContent(note.content);
+    setTitle((prev) => (prev === syncedRef.current.title ? note.title : prev));
+    setContent((prev) => (prev === syncedRef.current.content ? note.content : prev));
+    syncedRef.current = { title: note.title, content: note.content };
   }, [note.title, note.content]);
 
   const dirty = title !== note.title || content !== note.content;
