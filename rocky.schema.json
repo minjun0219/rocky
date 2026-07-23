@@ -130,6 +130,52 @@
         }
       },
       "additionalProperties": false
+    },
+    "todo": {
+      "type": "object",
+      "description": "Settings for the rocky-todo daemon (shared todo / scratchpad board with web UI + MCP).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "마스터 스위치 (기본 false — 상주 데몬을 띄우는 기능이라 opt-in). 꺼져 있으면 훅/CLI 자동 기동/데몬이 모두 비활성. env ROCKY_TODO_ENABLED 가 우선."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "데몬 포트 (기본 8636). env ROCKY_TODO_PORT 가 우선."
+        },
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "todo.db 데이터 디렉터리 (기본 ~/.config/rocky/todo). env ROCKY_TODO_DIR 가 우선."
+        },
+        "expose": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["off", "lan", "tailscale-serve"]
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["lan", "tailscale-serve"]
+              },
+              "uniqueItems": true
+            }
+          ],
+          "description": "보드 노출 채널 (기본 [] — 이 머신만). \"lan\" = 내부망 개방(0.0.0.0, 인증 없음 — 신뢰망 전용), \"tailscale-serve\" = 테일넷 한정(tailscale serve). 배열로 조합, 채널 하나면 문자열도 OK. env ROCKY_TODO_EXPOSE(콤마 구분)가 우선."
+        },
+        "watch": {
+          "type": "boolean",
+          "description": "UserPromptSubmit 훅의 보드 변경 주입 on/off (기본 true). env ROCKY_TODO_WATCH 가 우선."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

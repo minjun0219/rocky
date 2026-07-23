@@ -1,7 +1,7 @@
 {
   "name": "@minjun0219/rocky",
   "version": "0.13.0",
-  "description": "rocky (named after Project Hail Mary) — a single Bun package shipping a Claude Code plugin (marketplace) plus a host-agnostic openapi-mcp stdio CLI (npm), sharing one OpenAPI / Swagger core. 7 openapi_* tools (cache-first spec inspection, endpoint search, tag list) + 1 seo_validate tool (OG / Twitter Card / JSON-LD / favicon meta validation via ogpeek) + 4 notion_* tools (cache-first Notion page read + refresh diff, delegated to the ntn CLI, plugin-only and registered only when ntn is detected) + 4 worklog_* tools (append-only local JSONL agent journal — the record layer, plugin-only, always registered; formerly journal_*), with a Stop hook auto-capturing each turn and a /recall command distilling the worklog into an anchored history digest. mysql / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim; the opencode plugin is archived in-tree under .archive/agent-toolkit-opencode/.",
+  "description": "rocky (named after Project Hail Mary) — a single Bun package shipping a Claude Code plugin (marketplace) plus a host-agnostic openapi-mcp stdio CLI (npm), sharing one OpenAPI / Swagger core. 7 openapi_* tools (cache-first spec inspection, endpoint search, tag list) + 1 seo_validate tool (OG / Twitter Card / JSON-LD / favicon meta validation via ogpeek) + 4 notion_* tools (cache-first Notion page read + refresh diff, delegated to the ntn CLI, plugin-only and registered only when ntn is detected) + 4 worklog_* tools (append-only local JSONL agent journal — the record layer, plugin-only, always registered; formerly journal_*), with a Stop hook auto-capturing each turn and a /recall command distilling the worklog into an anchored history digest. Also ships rocky-todo — a separate resident daemon (SQLite + React web UI + SSE) holding a shared todo/scratchpad board, exposed to agents via streamable HTTP MCP (5 todo_*/note_* tools) and a rocky-todo CLI, archive-only with full per-actor history. mysql / spec-pact / pr-watch domains live on archive/pre-openapi-only-slim; the opencode plugin is archived in-tree under .archive/agent-toolkit-opencode/.",
   "license": "MIT",
   "author": "Minjun Kim",
   "homepage": "https://github.com/minjun0219/rocky",
@@ -12,7 +12,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "bin": {
-    "openapi-mcp": "./bin/openapi-mcp"
+    "openapi-mcp": "./bin/openapi-mcp",
+    "rocky-todo": "./bin/rocky-todo"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -59,8 +60,11 @@
     "ogpeek": "^0.5.0",
     "openapi-types": "^12.1.3",
     "pino": "^9.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "swagger2openapi": "^7.0.8",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
@@ -69,6 +73,8 @@
     "@minjun0219/biome-config": "2.1.0",
     "@types/bun": "^1.1.0",
     "@types/js-yaml": "^4.0.9",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@types/swagger2openapi": "^7.0.4",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",

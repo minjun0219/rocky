@@ -94,6 +94,33 @@ export interface WorklogConfig {
   digestThreshold?: number;
 }
 
+/** rocky-todo 데몬 (공유 todo/스크래치패드 보드) 설정. */
+export interface TodoConfig {
+  /**
+   * 마스터 스위치. 기본 **false** — 상주 데몬을 띄우는 기능이라 opt-in 이다.
+   * 꺼져 있으면 UserPromptSubmit 훅·CLI 자동 기동·데몬 기동이 모두 비활성.
+   * env `ROCKY_TODO_ENABLED` 우선.
+   */
+  enabled?: boolean;
+  /** 데몬 포트. 기본 8636 (키패드 "todo"). env `ROCKY_TODO_PORT` 우선. */
+  port?: number;
+  /** 데이터 디렉터리 (todo.db). 기본 `~/.config/rocky/todo`. env `ROCKY_TODO_DIR` 우선. */
+  dir?: string;
+  /**
+   * 보드 노출 채널 배열. 빈 배열/생략(기본) = 이 머신만(127.0.0.1). `"lan"` = 내부망
+   * 개방(0.0.0.0), `"tailscale-serve"` = 테일넷 한정 프록시(tailscale serve, 바인딩은
+   * 루프백 유지 — 테일넷 로그인이 사실상의 최소 안전장치, 자체 인증은 아님) —
+   * 둘 다 넣으면 동시 개방. 보드에 인증이 없으므로 lan 은 신뢰하는 네트워크에서만.
+   * tailscale-serve 채널이 없으면 tailscale 을 일절 건드리지 않는다 (회사 등 금지 환경 대비).
+   * env `ROCKY_TODO_EXPOSE`(콤마 구분, 설정 시 통째로 우선 — `off` 로 강제 차단) 우선.
+   * 채널 하나만 켤 땐 배열 대신 문자열도 허용 (`"expose": "lan"`). 문자열 전용 값
+   * `"off"` 와 null 은 미설정(undefined)과 동일 — 채널 없음. 배열 안에는 못 넣는다.
+   */
+  expose?: ('lan' | 'tailscale-serve')[] | 'lan' | 'tailscale-serve' | 'off' | null;
+  /** UserPromptSubmit 훅의 보드 변경 주입 on/off. 기본 true. env `ROCKY_TODO_WATCH` 우선. */
+  watch?: boolean;
+}
+
 export interface RockyConfig {
   $schema?: string;
   /** 활성 소울(페르소나) 이름. SessionStart 훅이 이 이름으로 소울 파일을 찾아 주입한다. */
@@ -108,6 +135,7 @@ export interface RockyConfig {
   };
   seo?: SeoConfig;
   worklog?: WorklogConfig;
+  todo?: TodoConfig;
 }
 
 export interface LoadConfigOptions {
@@ -189,6 +217,9 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.worklog !== undefined) {
     validateWorklog(config.worklog, source);
   }
+  if (config.todo !== undefined) {
+    validateTodo(config.todo, source);
+  }
   if (config.soul !== undefined) {
     validateSoul(config.soul, source);
   }
@@ -199,7 +230,15 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
 }
 
 /** top-level 에서 허용하는 키 (오타 / 제거된 도메인 키 가드, 스키마 lockstep). */
-const ALLOWED_TOP_KEYS = new Set(['$schema', 'soul', 'callsign', 'openapi', 'seo', 'worklog']);
+const ALLOWED_TOP_KEYS = new Set([
+  '$schema',
+  'soul',
+  'callsign',
+  'openapi',
+  'seo',
+  'worklog',
+  'todo',
+]);
 
 /** `seo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
 const ALLOWED_SEO_KEYS = new Set(['allowPrivateHosts', 'timeoutMs']);
@@ -260,6 +299,58 @@ function validateWorklog(worklog: unknown, source: string): void {
     const v = obj[key];
     if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 1)) {
       throw new Error(`${source}: worklog.${key} must be a positive integer`);
+    }
+  }
+}
+
+/** `todo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
+const ALLOWED_TODO_KEYS = new Set(['enabled', 'port', 'dir', 'expose', 'watch']);
+
+/** `todo.expose` 배열이 받는 채널 — src/todo/config.ts 의 EXPOSE_CHANNELS 와 lockstep. */
+const TODO_EXPOSE_CHANNELS = new Set(['lan', 'tailscale-serve']);
+
+/**
+ * `todo` 객체 모양 검증. rocky-todo 데몬 설정을 받는다 — 미지원 key 는 reject.
+ * 기본값 적용(포트 8636 / `~/.config/rocky/todo`)은 소비 지점(데몬/CLI) 몫.
+ */
+function validateTodo(todo: unknown, source: string): void {
+  if (todo === null || typeof todo !== 'object' || Array.isArray(todo)) {
+    throw new Error(`${source}: todo must be an object`);
+  }
+  const obj = todo as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!ALLOWED_TODO_KEYS.has(key)) {
+      throw new Error(`${source}: todo: unknown key "${key}"`);
+    }
+  }
+  if (obj.port !== undefined) {
+    if (
+      typeof obj.port !== 'number' ||
+      !Number.isInteger(obj.port) ||
+      obj.port < 1 ||
+      obj.port > 65_535
+    ) {
+      throw new Error(`${source}: todo.port must be an integer between 1 and 65535`);
+    }
+  }
+  if (obj.dir !== undefined && (typeof obj.dir !== 'string' || obj.dir.trim().length === 0)) {
+    throw new Error(`${source}: todo.dir must be a non-empty string`);
+  }
+  // "off"(문자열 전용) / null 은 미설정과 동일 취급 — 배열 안의 "off" 는 거부된다.
+  if (obj.expose !== undefined && obj.expose !== null && obj.expose !== 'off') {
+    if (!Array.isArray(obj.expose) && typeof obj.expose !== 'string') {
+      throw new Error(`${source}: todo.expose must be a channel string or an array of channels`);
+    }
+    const channels = Array.isArray(obj.expose) ? obj.expose : [obj.expose];
+    for (const channel of channels) {
+      if (typeof channel !== 'string' || !TODO_EXPOSE_CHANNELS.has(channel)) {
+        throw new Error(`${source}: todo.expose entries must be "lan" or "tailscale-serve"`);
+      }
+    }
+  }
+  for (const key of ['enabled', 'watch'] as const) {
+    if (obj[key] !== undefined && typeof obj[key] !== 'boolean') {
+      throw new Error(`${source}: todo.${key} must be a boolean`);
     }
   }
 }
@@ -447,6 +538,10 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   // worklog 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
   if (project.worklog) {
     out.worklog = { ...out.worklog, ...project.worklog };
+  }
+  // todo 도 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
+  if (project.todo) {
+    out.todo = { ...out.todo, ...project.todo };
   }
   // soul / callsign 은 스칼라 — project 가 있으면 user 를 덮어쓴다.
   if (project.soul !== undefined) {
