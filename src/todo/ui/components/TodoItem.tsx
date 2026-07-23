@@ -50,7 +50,7 @@ export function TodoItem({ todo, depth }: TodoItemProps) {
           className="chip chip-link"
           href={link.url}
           target="_blank"
-          rel="noreferrer"
+          rel="noreferrer noopener"
           title={link.title ?? link.url}
           onClick={(e) => e.stopPropagation()}
         >

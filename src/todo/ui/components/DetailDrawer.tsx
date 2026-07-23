@@ -89,7 +89,7 @@ function TodoDetail() {
               key={link.url}
               href={link.url}
               target="_blank"
-              rel="noreferrer"
+              rel="noreferrer noopener"
               className="chip chip-link"
             >
               {link.title ?? linkLabel(link.url)} ↗

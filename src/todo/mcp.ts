@@ -26,7 +26,21 @@ const actorSchema = z
   .optional()
   .describe('who is acting (e.g. claude-code / codex / opencode); recorded in history');
 
-const linkSchema = z.object({ url: z.string(), title: z.string().optional() });
+const linkSchema = z.object({
+  // http/https 스킴만 허용 — javascript:/data: 등 위험 스킴 차단 (store 검증과 lockstep).
+  url: z.string().refine(
+    (u) => {
+      try {
+        const proto = new URL(u).protocol;
+        return proto === 'http:' || proto === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    { message: 'link url must be an http/https URL' },
+  ),
+  title: z.string().optional(),
+});
 
 /** 5개 도구가 등록된 McpServer 를 만든다 — transport 바인딩은 호출자 몫. */
 export function buildTodoMcpServer(options: TodoMcpOptions): McpServer {

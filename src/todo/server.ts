@@ -102,12 +102,22 @@ function validateLinks(value: unknown): TodoLink[] | undefined {
         return false;
       }
       const link = v as { url?: unknown; title?: unknown };
-      return (
-        typeof link.url === 'string' && (link.title === undefined || typeof link.title === 'string')
-      );
+      if (typeof link.url !== 'string') {
+        return false;
+      }
+      if (link.title !== undefined && typeof link.title !== 'string') {
+        return false;
+      }
+      // http/https 스킴만 허용 — javascript:/data: 등 위험 스킴 차단.
+      try {
+        const proto = new URL(link.url).protocol;
+        return proto === 'http:' || proto === 'https:';
+      } catch {
+        return false;
+      }
     });
   if (!ok) {
-    throw new Error('invalid links (expected { url: string, title?: string }[])');
+    throw new Error('invalid links (expected { url: http(s) URL, title?: string }[])');
   }
   return value as TodoLink[];
 }
