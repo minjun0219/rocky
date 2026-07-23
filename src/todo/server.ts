@@ -37,15 +37,18 @@ function errorResponse(message: string, status: number): Response {
 }
 
 async function readBody(req: Request): Promise<Record<string, unknown>> {
+  // 파싱 실패와 shape 오류를 분리한다 — shape 오류가 catch 에 먹혀 파싱 에러로
+  // 뭉개지지 않도록. 배열([])은 typeof 로는 object 라 명시적으로 거부한다.
+  let body: unknown;
   try {
-    const body = (await req.json()) as unknown;
-    if (typeof body !== 'object' || body === null) {
-      throw new Error('body must be a JSON object');
-    }
-    return body as Record<string, unknown>;
+    body = await req.json();
   } catch {
     throw new Error('invalid JSON body');
   }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new Error('body must be a JSON object');
+  }
+  return body as Record<string, unknown>;
 }
 
 const PRIORITIES: ReadonlySet<string> = new Set(['p1', 'p2', 'p3', 'p4']);

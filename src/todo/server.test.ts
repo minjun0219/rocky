@@ -127,6 +127,14 @@ describe('todos REST', () => {
     expect(res.status).toBe(400);
   });
 
+  test('POST /api/todos with array/non-object body → 400', async () => {
+    expect((await req('/api/todos', { method: 'POST', body: JSON.stringify([]) })).status).toBe(
+      400,
+    );
+    expect((await req('/api/todos', { method: 'POST', body: '"just a string"' })).status).toBe(400);
+    expect((await req('/api/todos', { method: 'POST', body: 'not json' })).status).toBe(400);
+  });
+
   test('POST /api/todos with invalid priority/labels/links → 400', async () => {
     const badPriority = await req('/api/todos', {
       method: 'POST',
