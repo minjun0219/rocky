@@ -50,13 +50,13 @@ interface UiState {
 }
 
 async function api<T>(path: string, actor: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'content-type': 'application/json' } : {}),
-      'x-rocky-actor': actor,
-    },
-  });
+  // 호출자가 넘긴 헤더를 먼저 복사한 뒤 필수 헤더만 덮어써 병합한다 (헤더 유실 방지).
+  const headers = new Headers(init?.headers);
+  if (init?.body) {
+    headers.set('content-type', 'application/json');
+  }
+  headers.set('x-rocky-actor', actor);
+  const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);
@@ -71,7 +71,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   notes: [],
   selected: 'all',
   showArchived: false,
-  actor: localStorage.getItem(ACTOR_KEY) ?? 'logan',
+  actor: localStorage.getItem(ACTOR_KEY) ?? 'web',
   connected: false,
   detail: null,
 

@@ -177,7 +177,7 @@ function Markdown({ text }: { text: string }) {
             }
             if (token.type === 'link') {
               return (
-                <a key={key} href={token.value} target="_blank" rel="noreferrer">
+                <a key={key} href={token.value} target="_blank" rel="noreferrer noopener">
                   {token.value}
                 </a>
               );
