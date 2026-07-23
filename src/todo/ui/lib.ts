@@ -50,8 +50,15 @@ export function formatDue(due: string): string {
 }
 
 export function isOverdue(due: string, now = new Date()): boolean {
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  return due < today;
+  // 문자열 비교는 zero-padding 이 없는 날짜(예: 2026-8-1)에서 오작동하므로 파싱해 비교한다.
+  const parts = due.split('-').map((p) => Number(p));
+  if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) {
+    return false;
+  }
+  const [year, month, day] = parts as [number, number, number];
+  const dueDate = new Date(year, month - 1, day);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return dueDate.getTime() < today.getTime();
 }
 
 export type MdToken =

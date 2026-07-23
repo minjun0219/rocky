@@ -29,22 +29,38 @@ const ACTION_LABELS: Record<string, string> = {
   unarchive: '보관 해제',
 };
 
+/**
+ * 주입 문자열은 반드시 단일 라인으로 정규화한다 — 개행/제어문자를 공백으로 바꾸고
+ * 연속 공백을 축약한 뒤 trim. 보드의 외부 입력(사람/타 기기, todo.expose=lan 등)이
+ * additionalContext 를 통해 프롬프트 인젝션/포맷 깨짐을 일으키는 것을 막는다.
+ */
+function oneLine(value: string): string {
+  let out = '';
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0;
+    // C0 제어문자(개행/탭 포함)와 DEL 을 공백으로 치환.
+    out += code < 0x20 || code === 0x7f ? ' ' : ch;
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 function formatLine(entry: ChangeFeedEntry): string {
-  const board = entry.boardKey ? `[${entry.boardKey}] ` : '';
+  const board = entry.boardKey ? `[${oneLine(entry.boardKey)}] ` : '';
   const kind =
-    entry.entity === 'note' ? '메모 ' : entry.entity === 'todo' ? '' : `${entry.entity} `;
-  const action = ACTION_LABELS[entry.action] ?? entry.action;
+    entry.entity === 'note' ? '메모 ' : entry.entity === 'todo' ? '' : `${oneLine(entry.entity)} `;
+  const action = ACTION_LABELS[entry.action] ?? oneLine(entry.action);
   const diff = entry.changes
     ? Object.entries(entry.changes)
         .filter(([field]) => field !== 'content') // 메모 본문 diff 는 장황 — 필드명만
         .map(
-          ([field, [oldValue, newValue]]) => `${field}: ${String(oldValue)} → ${String(newValue)}`,
+          ([field, [oldValue, newValue]]) =>
+            `${oneLine(field)}: ${oneLine(String(oldValue))} → ${oneLine(String(newValue))}`,
         )
         .slice(0, 3)
         .join(', ')
     : '';
   const diffPart = diff ? ` (${diff})` : entry.changes?.content ? ' (내용 편집)' : '';
-  return `- ${entry.actor}: ${board}${kind}"${entry.title}" ${action}${diffPart} · ${entry.entityId.slice(0, 6)}`;
+  return `- ${oneLine(entry.actor)}: ${board}${kind}"${oneLine(entry.title)}" ${action}${diffPart} · ${entry.entityId.slice(0, 6)}`;
 }
 
 /**
