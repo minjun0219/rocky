@@ -18,8 +18,9 @@ function daemonEntryPath(): string {
   return join(import.meta.dir, 'daemon.ts');
 }
 
-function plistContent(): string {
-  const logPath = join(DEFAULT_TODO_DIR, 'daemon.log');
+function plistContent(dir: string): string {
+  // 로그 경로는 데몬의 데이터 디렉터리(runtime.dir)를 따른다 — db/pid 와 같은 곳.
+  const logPath = join(dir, 'daemon.log');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -52,10 +53,15 @@ function gid(): string {
   return `gui/${process.getuid?.() ?? 501}`;
 }
 
-export function installLaunchd(): string {
+/**
+ * launchd 상주 등록. `dir` 은 데몬의 데이터 디렉터리(runtime.dir) — 로그 경로와
+ * mkdir 대상을 이 값으로 맞춰 db/pid 와 로그가 같은 곳(ROCKY_TODO_DIR / rocky.json
+ * todo.dir 반영)에 놓이게 한다. 미지정 시 기본 디렉터리.
+ */
+export function installLaunchd(dir: string = DEFAULT_TODO_DIR): string {
   mkdirSync(join(homedir(), 'Library', 'LaunchAgents'), { recursive: true });
-  mkdirSync(DEFAULT_TODO_DIR, { recursive: true });
-  writeFileSync(PLIST_PATH, plistContent());
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(PLIST_PATH, plistContent(dir));
   // 재설치를 멱등하게 — 이미 떠 있으면 내리고 다시 올린다
   launchctl(['bootout', gid(), PLIST_PATH]);
   const result = launchctl(['bootstrap', gid(), PLIST_PATH]);

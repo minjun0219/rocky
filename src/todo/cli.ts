@@ -706,7 +706,7 @@ async function handleDaemon(
       return;
     }
     case 'install': {
-      console.log(installLaunchd());
+      console.log(installLaunchd(ctx.dir));
       return;
     }
     case 'uninstall': {
