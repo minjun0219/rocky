@@ -35,7 +35,7 @@
 - **슬래시 커맨드** (`commands/`) — `/finish` (게이트 → 커밋 → 푸시 → PR 생성), `/recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어), `/codex` · `/opencode` (task 를 각 CLI 에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·표면·diff 스코프 감시, 자동 병합 없음), `/issue` (다른 레포에서 떠오른 rocky 개선안을 GitHub Issue 로 캡처), `/rocky:soul` (소울 전환), `/rocky:statusline` (번들 statusline 설치/점검/해제). PR 감시·리뷰 반영은 Claude Code 빌트인 `/autofix-pr` 에 위임.
 - **훅** (`hooks/hooks.json`) — `SessionStart`: 활성 소울(페르소나) 자동 주입 + 설치된 statusline 스크립트 자동 동기화. `Stop`: 매 턴 종료 시 `kind:"turn"` 워크로그 자동 기록 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글).
 - **소울(페르소나)** (`souls/`) — `rocky.json` 의 `soul` 필드로 고정하는 말투/작업 방식 레이어. 번들 프리셋 `rocky` / `senior` / `terse` + 커스텀 (`~/.config/rocky/souls/`). 게이트·안전 규칙을 덮어쓰지 않으며, 미설정 시 아무 것도 주입하지 않는다.
-- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `delegating-to-codex`: 자기완결 task 를 headless OpenAI 모델 (`codex` CLI) 에 위임하는 패턴 + 가드레일 (`/codex` 커맨드가 얹히는 메커니즘 레이어).
+- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `delegating-to-codex`: 자기완결 task 를 headless OpenAI 모델 (`codex` CLI) 에 위임하는 패턴 + 가드레일 (`/codex` 커맨드가 얹히는 메커니즘 레이어). `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git + worklog 교차, 쓰기는 컨벤션 + 확인 게이트.
 - **statusline** (`statusline/`) — statusLine 템플릿 3종: `duo` (2줄 — cwd+branch / model+ctx+세션 잔여율+리셋 타이머, 기본), `mini` (1줄 컴팩트), `full` (3줄 — 세션 비용·변경량·경과 추가). `/rocky:statusline` 이 고른 템플릿을 `~/.config/rocky/statusline.sh` 로 설치하고 user `settings.json` 을 1회 지정 — 이후 플러그인 업데이트는 `SessionStart` 훅이 같은 템플릿에서 자동 전파 (opt-in, 미설치 시 아무 것도 안 함).
 
 ## 시작하기
