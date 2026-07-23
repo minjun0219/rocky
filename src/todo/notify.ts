@@ -106,10 +106,14 @@ export function readCursor(file: string, sessionId: string): number | undefined 
 
 export function writeCursor(file: string, sessionId: string, lastId: number): void {
   const all = readCursorFile(file);
+  // 삽입 순서를 recency 순서로 쓴다 — 방금 갱신한 세션을 지웠다 다시 넣어 맨 뒤(최신)로
+  // 보낸다. `at` 타임스탬프 정렬에 의존하면 같은 ms 안의 다수 write 가 동률이 되어(빠른 CI
+  // 등) 오래된 세션이 남을 수 있으므로, 삽입 순서 기반으로 결정론적으로 prune 한다.
+  delete all[sessionId];
   all[sessionId] = { lastId, at: new Date().toISOString() };
-  const entries = Object.entries(all)
-    .sort(([, a], [, b]) => (a.at < b.at ? 1 : -1))
-    .slice(0, MAX_CURSOR_SESSIONS);
+  const keys = Object.keys(all);
+  const kept = keys.slice(Math.max(0, keys.length - MAX_CURSOR_SESSIONS));
+  const pruned = Object.fromEntries(kept.map((key) => [key, all[key]]));
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(Object.fromEntries(entries)));
+  writeFileSync(file, JSON.stringify(pruned));
 }
