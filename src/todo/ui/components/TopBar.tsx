@@ -33,6 +33,7 @@ export function TopBar() {
         >
           <input
             className="actor-input"
+            aria-label="내 표시 이름 (actor)"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             // biome-ignore lint/a11y/noAutofocus: 호출자 이름 편집 진입 시 즉시 입력
