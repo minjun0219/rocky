@@ -61,20 +61,31 @@ export async function startDaemon(): Promise<void> {
   const api = buildTodoServer({ store });
   const mcp = createMcpFetchHandler({ store });
 
-  const server = Bun.serve({
-    port: runtime.port,
-    // 기본 루프백 전용. host 는 todo.expose 에서 파생된다 — "lan" 채널이 있으면 0.0.0.0
-    // (내부망 개방, 인증 없음 — 신뢰망 전제), 아니면 127.0.0.1.
-    // 0.0.0.0 은 루프백을 포함하므로 단일 인스턴스 가드/CLI 의 127.0.0.1 경로는 그대로 동작한다.
-    hostname: runtime.host,
-    development: false,
-    routes: {
-      '/': ui,
-      '/mcp': (req) => mcp(req),
-      '/api/*': (req) => api.fetch(req),
-    },
-    fetch: (req) => api.fetch(req),
-  });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({
+      port: runtime.port,
+      // 기본 루프백 전용. host 는 todo.expose 에서 파생된다 — "lan" 채널이 있으면 0.0.0.0
+      // (내부망 개방, 인증 없음 — 신뢰망 전제), 아니면 127.0.0.1.
+      // 0.0.0.0 은 루프백을 포함하므로 단일 인스턴스 가드/CLI 의 127.0.0.1 경로는 그대로 동작한다.
+      hostname: runtime.host,
+      development: false,
+      routes: {
+        '/': ui,
+        '/mcp': (req) => mcp(req),
+        '/api/*': (req) => api.fetch(req),
+      },
+      fetch: (req) => api.fetch(req),
+    });
+  } catch (error) {
+    // 포트 점유(다른 프로세스) 등 바인딩 실패 — 크래시 대신 store 정리 후 안내하고 종료.
+    store.close();
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(
+      `rocky-todo daemon 기동 실패 — 포트 ${runtime.port} 가 이미 사용 중일 수 있다: ${msg}`,
+    );
+    return;
+  }
 
   const pidPath = join(runtime.dir, 'daemon.pid');
   writeFileSync(pidPath, String(process.pid));

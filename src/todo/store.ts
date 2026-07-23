@@ -170,6 +170,24 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** actor 표시 이름 최대 길이 — 무인증 lan 노출 시 비정상 성장 방지. */
+const MAX_ACTOR_LEN = 80;
+
+/**
+ * actor 문자열 정규화 — 외부 입력(HTTP x-rocky-actor / MCP / CLI)이 그대로 history·
+ * doing_by 에 저장되지 않게: 제어문자 → 공백, 공백 축약 + trim, 길이 제한, 빈 값이면
+ * 'unknown'. UI 표시 깨짐 / DB 오염 / 컨텍스트 포맷 오염을 막는다.
+ */
+function normalizeActor(raw: string): string {
+  let out = '';
+  for (const ch of raw) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += code < 0x20 || code === 0x7f ? ' ' : ch;
+  }
+  const cleaned = out.replace(/\s+/g, ' ').trim().slice(0, MAX_ACTOR_LEN);
+  return cleaned === '' ? 'unknown' : cleaned;
+}
+
 /**
  * links 의 각 url 을 파싱해 http/https 스킴만 허용한다 — `javascript:` 등 위험한
  * 스킴이 DB 에 저장돼 웹 UI 의 클릭 가능한 링크로 노출되는 것을 막는다. REST/MCP 어느
@@ -352,7 +370,14 @@ export class TodoStore {
       .query(
         'INSERT INTO history (entity, entity_id, actor, action, changes, at) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(entity, entityId, actor, action, changes ? JSON.stringify(changes) : null, nowIso());
+      .run(
+        entity,
+        entityId,
+        normalizeActor(actor),
+        action,
+        changes ? JSON.stringify(changes) : null,
+        nowIso(),
+      );
     this.emit({ entity, entityId, action, boardId });
   }
 
@@ -602,7 +627,7 @@ export class TodoStore {
           .query(
             'UPDATE todos SET status = ?, doing_by = ?, doing_since = ?, completed_at = NULL, updated_at = ? WHERE id = ?',
           )
-          .run('doing', actor, now, now, current.id);
+          .run('doing', normalizeActor(actor), now, now, current.id);
         break;
       case 'stop':
         changes.status = [current.status, 'todo'];

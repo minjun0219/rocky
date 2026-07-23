@@ -240,6 +240,19 @@ describe('history', () => {
     expect(history[1]?.changes).toEqual({ title: ['이력', '이력 v2'] });
   });
 
+  test('actor is normalized before recording (제어문자/공백/길이/빈값)', () => {
+    const todo = store.createTodo({ board: 'rocky', title: 'x' }, '  claude\ncode  ');
+    const history = store.listHistory({ entityId: todo.id });
+    expect(history[0]?.actor).toBe('claude code');
+
+    const todo2 = store.createTodo({ board: 'rocky', title: 'y' }, '   ');
+    const history2 = store.listHistory({ entityId: todo2.id });
+    expect(history2[0]?.actor).toBe('unknown');
+
+    const doing = store.setTodoStatus(todo.id, 'start', 'a\tb\tc');
+    expect(doing.doingBy).toBe('a b c');
+  });
+
   test('note edits are recorded too', () => {
     const note = store.createNote({ title: 'n', content: 'a' }, 'tester');
     store.updateNote(note.id, { content: 'b' }, 'logan');
