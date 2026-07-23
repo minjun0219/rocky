@@ -21,6 +21,12 @@ Todoist MCP tools are connected to the session:
   connect one (e.g. the claude.ai Todoist connector, or `claude mcp add` with a Todoist MCP
   server). Never fake progress or invent task state.
 
+## rocky-todo 와의 역할 구분
+
+코딩 세션의 실시간 작업 추적(처리중 표시·세션 협업 보드)은 `todo` 스킬(rocky-todo)이
+기본이다. Todoist 는 알림·반복 일정·마감이 있는 개인 장부 — 사용자가 명시적으로
+Todoist 를 언급하거나 그런 속성이 필요할 때 이 스킬을 쓴다. 상호 참조는 링크로.
+
 ## Repo ↔ project mapping
 
 Map the current repository to exactly one Todoist project before reading or writing anything:
