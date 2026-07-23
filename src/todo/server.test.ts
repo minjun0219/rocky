@@ -135,6 +135,48 @@ describe('todos REST', () => {
     expect((await req('/api/todos', { method: 'POST', body: 'not json' })).status).toBe(400);
   });
 
+  test('POST /api/todos with empty/whitespace section or parentId → 400', async () => {
+    const emptySection = await req('/api/todos', {
+      method: 'POST',
+      body: JSON.stringify({ board: 'a', title: 'x', section: '   ' }),
+    });
+    expect(emptySection.status).toBe(400);
+
+    const emptyParent = await req('/api/todos', {
+      method: 'POST',
+      body: JSON.stringify({ board: 'a', title: 'x', parentId: '' }),
+    });
+    expect(emptyParent.status).toBe(400);
+  });
+
+  test('POST /api/todos trims section before storing', async () => {
+    const created = (await (
+      await req('/api/todos', {
+        method: 'POST',
+        body: JSON.stringify({ board: 'a', title: 'x', section: '  설계  ' }),
+      })
+    ).json()) as { id: string };
+    const sections = (await (await req('/api/sections?board=a')).json()) as { title: string }[];
+    expect(sections.map((s) => s.title)).toContain('설계');
+    expect(created.id).toBeDefined();
+  });
+
+  test('PATCH /api/todos/:id with empty parentId → 400 (null clears)', async () => {
+    const created = (await (
+      await req('/api/todos', { method: 'POST', body: JSON.stringify({ board: 'a', title: 'x' }) })
+    ).json()) as { id: string };
+    const bad = await req(`/api/todos/${created.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ parentId: '  ' }),
+    });
+    expect(bad.status).toBe(400);
+    const clear = await req(`/api/todos/${created.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ parentId: null }),
+    });
+    expect(clear.status).toBe(200);
+  });
+
   test('POST /api/todos with invalid priority/labels/links → 400', async () => {
     const badPriority = await req('/api/todos', {
       method: 'POST',

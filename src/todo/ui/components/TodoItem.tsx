@@ -25,6 +25,7 @@ export function TodoItem({ todo, depth }: TodoItemProps) {
         type="checkbox"
         className="todo-check"
         checked={done}
+        aria-label={`${todo.title} ${done ? '다시 열기' : '완료'}`}
         title={done ? '다시 열기' : '완료'}
         onChange={() => void setTodoStatus(todo.id, done ? 'reopen' : 'done')}
       />

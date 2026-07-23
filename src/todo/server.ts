@@ -122,6 +122,39 @@ function validateLinks(value: unknown): TodoLink[] | undefined {
   return value as TodoLink[];
 }
 
+/**
+ * 선택적 문자열 필드 정규화 — 미제공(undefined)이면 undefined, 제공되면 trim.
+ * 제공됐지만 trim 후 빈 값이면 400 (빈 섹션 생성 / 모호한 parentId prefix 방지).
+ */
+function optionalNonEmptyString(value: unknown, field: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${field} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    throw new Error(`${field} must not be empty`);
+  }
+  return trimmed;
+}
+
+/** parentId 정규화 — PATCH 용. null 은 부모 해제로 허용, 문자열은 trim + 비어있지 않아야 함. */
+function normalizeParentId(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) {
+    return value as null | undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error('parentId must be a string or null');
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    throw new Error('parentId must not be empty (use null to clear)');
+  }
+  return trimmed;
+}
+
 /** not found 류 스토어 에러를 HTTP status 로 번역한다. */
 function toHttpError(error: unknown): Response {
   const message = error instanceof Error ? error.message : String(error);
@@ -205,8 +238,8 @@ export function buildTodoServer(options: TodoServerOptions): TodoServer {
             board: body.board,
             title: body.title,
             description: typeof body.description === 'string' ? body.description : undefined,
-            section: typeof body.section === 'string' ? body.section : undefined,
-            parentId: typeof body.parentId === 'string' ? body.parentId : undefined,
+            section: optionalNonEmptyString(body.section, 'section'),
+            parentId: optionalNonEmptyString(body.parentId, 'parentId'),
             priority: validatePriority(body.priority),
             due: typeof body.due === 'string' ? body.due : undefined,
             labels: validateLabels(body.labels),
@@ -233,6 +266,12 @@ export function buildTodoServer(options: TodoServerOptions): TodoServer {
           validatePriority(body.priority);
           validateLabels(body.labels);
           validateLinks(body.links);
+          if (body.section !== undefined) {
+            body.section = optionalNonEmptyString(body.section, 'section');
+          }
+          if (body.parentId !== undefined) {
+            body.parentId = normalizeParentId(body.parentId);
+          }
           return json(store.updateTodo(id, body as never, actor));
         }
       }
