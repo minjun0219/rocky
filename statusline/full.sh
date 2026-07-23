@@ -44,9 +44,10 @@ if [ -n "$raw_dir" ]; then
     # @{u}...HEAD --left-right --count → "<behind><TAB><ahead>" (upstream 없으면 실패 → 생략)
     ab=$(git -C "$raw_dir" --no-optional-locks rev-list --left-right --count '@{u}...HEAD' 2>/dev/null)
     if [ -n "$ab" ]; then
-      # shellcheck disable=SC2086 — 의도된 word splitting
-      set -- $ab
-      behind="$1" ahead="$2"
+      # read 로 탭 구분 파싱 — set 으로 positional params 를 오염시키지 않는다
+      read -r behind ahead <<EOF
+$ab
+EOF
       [ "$behind" = "0" ] && behind=""
       [ "$ahead" = "0" ] && ahead=""
     fi
