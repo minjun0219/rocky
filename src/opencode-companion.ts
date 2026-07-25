@@ -255,16 +255,40 @@ function spawnWorker(cwd: string, jobId: string): number {
   return child.pid ?? 0;
 }
 
-/** `job-worker` — 내부 분기. detached 프로세스로 실행된다. */
+/**
+ * `job-worker` — 내부 분기. detached 프로세스로 실행된다.
+ *
+ * 예외를 밖으로 내보내지 않는다. 워커는 stdout 이 버려진 detached 프로세스라 던져봐야
+ * 아무도 읽지 못하고, 잡은 `queued` 인 채로 영원히 남아 사용자가 이유도 모른 채 기다리게 된다.
+ * `runJob` 이 흡수하지 못하는 실패(config 로드 실패 / 잡 파일 손상 / 없는 job-id)까지
+ * 여기서 받아 **가능한 한** 잡에 사유를 남긴다.
+ */
 async function handleWorker(parsed: ParsedArgs): Promise<number> {
   const cwd = str(parsed.flags, 'cwd') ?? process.cwd();
   const jobId = str(parsed.flags, 'job-id');
   if (!jobId) {
     return 2;
   }
-  const store = await openStore(cwd);
-  const done = await runJob(store, jobId, createOpencodeExecutor(), { pid: process.pid });
-  return done.status === 'completed' ? 0 : 1;
+  try {
+    const store = await openStore(cwd);
+    const done = await runJob(store, jobId, createOpencodeExecutor(), { pid: process.pid });
+    return done.status === 'completed' ? 0 : 1;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      const store = await openStore(cwd);
+      store.appendLog(jobId, `워커 실패: ${message}`);
+      store.update(jobId, {
+        status: 'failed',
+        phase: 'done',
+        errorMessage: `백그라운드 워커가 실패했습니다: ${message}`,
+        completedAt: new Date().toISOString(),
+      });
+    } catch {
+      // 저장소 자체를 열 수 없으면 남길 곳이 없다 — 종료 코드로만 알린다.
+    }
+    return 1;
+  }
 }
 
 /** 이 세션이 볼 수 있는 잡 목록 (최신순). `--all` 이면 세션 필터를 끈다. */

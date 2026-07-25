@@ -169,6 +169,20 @@ describe('status [job-ref]', () => {
   });
 });
 
+// 워커는 stdout 이 버려진 detached 프로세스라, 예외를 그냥 던지면 잡이 queued 인 채로
+// 영원히 남고 사용자는 이유를 알 수 없다.
+describe('job-worker 실패 처리', () => {
+  it('은 없는 job-id 에도 크래시하지 않고 종료 코드로 알린다', async () => {
+    const out = await run(['job-worker', '--job-id', 'oc-does-not-exist']);
+    expect(out.exitCode).toBe(1);
+  });
+
+  it('은 job-id 가 없으면 2 를 준다', async () => {
+    const out = await run(['job-worker']);
+    expect(out.exitCode).toBe(2);
+  });
+});
+
 describe('result', () => {
   it('은 최신 잡의 출력을 준다', async () => {
     await seedJob('결과 작업');

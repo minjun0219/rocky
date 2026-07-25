@@ -73,14 +73,25 @@ async function handleEnd(input: SessionHookInput): Promise<void> {
     if (job.sessionId !== sessionId || isTerminal(job.status)) {
       continue;
     }
-    const outcome = killJobProcess(job);
-    store.appendLog(job.id, `세션 종료로 정리: ${outcome.detail}`);
-    store.update(job.id, {
-      status: 'cancelled',
-      phase: 'done',
-      errorMessage: `세션 종료로 중단 (${outcome.detail})`,
-      completedAt: new Date().toISOString(),
-    });
+    // 잡 하나의 실패가 루프를 끊으면 같은 세션의 다른 워커가 고아로 남는다 —
+    // 고아를 막으려고 만든 훅이 정작 고아를 만드는 셈이라, 개별 실패를 격리한다.
+    try {
+      // payload 가 없는 잡은 `list()` 가 인덱스로 복원한 것이라 pid 를 모른다. 끊을 수단이
+      // 없으니 건너뛴다 — 여기서 update 를 시도하면 예외로 나머지 정리까지 막힌다.
+      if (!store.get(job.id)) {
+        continue;
+      }
+      const outcome = killJobProcess(job);
+      store.appendLog(job.id, `세션 종료로 정리: ${outcome.detail}`);
+      store.update(job.id, {
+        status: 'cancelled',
+        phase: 'done',
+        errorMessage: `세션 종료로 중단 (${outcome.detail})`,
+        completedAt: new Date().toISOString(),
+      });
+    } catch {
+      // 다음 잡 정리를 계속한다.
+    }
   }
 }
 
