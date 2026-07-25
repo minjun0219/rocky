@@ -10,23 +10,35 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(bun:*), Bash(which:*), Read, Gre
 rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 Codex 에게 맡길 구현 task.
 출력은 **한국어**(코드 identifier / 경로 / 명령어는 영어 그대로).
 
-위임 메커니즘·가드레일(자기완결 프롬프트, `codex exec` 플래그, 샌드박스/모델 선택, 실행 후
-검증)의 canonical 출처는 `delegating-to-codex` 스킬이다. 이 커맨드는 그 위에 **격리 worktree +
-게이트/표면/스코프 감시 + 승인 병합** 오케스트레이션을 얹은 특정 적용이다 — 아래 절차를 따르되
-프롬프트 구성·가드레일 판단은 스킬을 따른다.
+> **언제 이 커맨드를 쓰나.** 일반적인 Codex 위임·리뷰·구조 요청은 공식 플러그인
+> [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) 가 더 낫다 (`/codex:rescue`,
+> `/codex:review`, `/codex:transfer` — 공유 app-server 런타임 위에서 백그라운드 잡·취소·결과 보관까지
+> 해준다). 이 커맨드의 존재 이유는 그쪽에 없는 두 가지다: **격리 worktree** 와 **rocky 플러그인 표면
+> 무결 검증**(MCP 도구 개수/이름 + `plugin.json` 의 `mcpServers`). 그 검증이 필요 없는 위임이면
+> 공식 커맨드를 쓰면 된다.
 
 ## 원칙
 
 1. **역할 분리.** Codex = 구현자, Claude = 감독자. 나는 구현 코드를 직접 쓰지 않고
    위임·게이트·판정만 한다. Codex 가 스코프 밖을 건드리거나 게이트를 못 맞추면 병합하지 않는다.
-2. **격리.** Codex 는 항상 새 git worktree 안에서만 작업한다. 현재 작업트리는 건드리지 않는다.
-3. **감시 = "플러그인 작동 방해 안 하는지" 의 구체 정의.** (a) 게이트 3종 통과, (b) MCP 도구
+2. **프롬프트는 자기완결이어야 한다.** Codex 는 별도 프로세스라 **이 대화의 맥락을 볼 수 없다** —
+   채팅 기록도, 내가 이미 읽은 파일도, 앞선 결정도 없다. 목표·레포 경로·제약·불변식·완료 기준을
+   전부 프롬프트 안에 넣는다. "아까 얘기한 거 마저 해줘" 같은 프롬프트는 실패한다.
+3. **격리.** Codex 는 항상 새 git worktree 안에서만 작업한다. 현재 작업트리는 건드리지 않는다.
+4. **감시 = "플러그인 작동 방해 안 하는지" 의 구체 정의.** (a) 게이트 3종 통과, (b) MCP 도구
    표면(개수/이름) 무결, (c) `.claude-plugin/plugin.json` 의 `mcpServers` 무결, (d) diff 가
    요청 스코프에 한정. 하나라도 어기면 "플러그인 방해" 로 간주하고 병합 보류.
-4. **자동 병합·push 없음.** 감시 통과 후 diff 를 사용자에게 제시하고 승인 하에만 병합한다.
-   원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/finish`).
-5. **샌드박스 제한.** `-s workspace-write`(worktree 범위)로만 실행한다.
-   `danger-full-access` / bypass 플래그는 쓰지 않는다.
+5. **Codex 출력을 진실로 옮기지 않는다.** 최종 메시지는 참고일 뿐이고, 실제 변경은 `git diff` 로
+   내가 직접 확인한 뒤에만 보고한다. 실패했거나 미완이면 그대로 말한다.
+6. **자동 병합·push 없음.** 감시 통과 후 diff 를 사용자에게 제시하고 승인 하에만 병합한다.
+   원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/rocky:finish`).
+7. **샌드박스 제한.** `-s workspace-write`(worktree 범위)로만 실행한다.
+   `danger-full-access` / `--dangerously-bypass-approvals-and-sandbox` 는 쓰지 않는다.
+   쓰기 범위는 `-C` 로 한정하고, 정말 필요할 때만 최소한의 `--add-dir` 로 넓힌다.
+8. **모델은 기본적으로 고정하지 않는다.** `-m` 을 생략하면 계정에 설정된 기본 모델이 쓰이고 이건
+   항상 그 인증에 유효하다. ChatGPT 계정 로그인에서는 최신 모델명을 그대로 넣으면 거부될 수 있다
+   (`model is not supported when using Codex with a ChatGPT account`). 굳이 고정해야 하면 계정이
+   실제로 제공하는 이름을 쓴다. (`codex review` 에는 `-m` 이 없다 — `-c model="<name>"` 을 쓴다.)
 
 ## 절차
 
@@ -49,7 +61,18 @@ git worktree add "$WT" -b "codex/<slug>"
 
 ### 2. Codex 에 위임 (dispatch)
 
-가드레일을 담은 프롬프트로 Codex 를 비대화형 실행한다. `<TASK>` 자리에 `$ARGUMENTS` 를 넣는다:
+가드레일을 담은 프롬프트로 Codex 를 비대화형 실행한다. `<TASK>` 자리에 `$ARGUMENTS` 를 넣되,
+원칙 2 에 따라 **task 를 자기완결 문장으로 풀어 쓴다** — 대화에서만 오간 전제가 있으면 프롬프트에
+명시적으로 옮겨 적는다.
+
+| 플래그 | 의미 | 이 커맨드의 선택 |
+| :-- | :-- | :-- |
+| `-C, --cd` | 작업 디렉터리 + 쓰기 경계 | 격리 worktree `$WT` 고정 |
+| `-s, --sandbox` | `read-only` / `workspace-write` / `danger-full-access` | `workspace-write` 고정 |
+| `-o, --output-last-message` | 최종 메시지를 파일로 | 항상 지정하고 반드시 Read |
+| `--json` | 진행 이벤트를 JSONL 로 스트리밍 | 진행 관찰용으로 사용 |
+| `-m, --model` | 모델 티어 | **생략**(원칙 8) |
+
 
 ```bash
 codex exec -s workspace-write -C "$WT" \
@@ -89,8 +112,9 @@ bun test                               # src/index.test.ts 표면 가드 포함
 
 ### 4. 판정 & 병합 / 에스컬레이션
 
-- **모두 통과** → 변경 요약 + `git diff --stat` 을 사용자에게 제시하고 승인받는다. Codex 는 커밋을
-  남기지 않으므로(원칙 5) 변경은 worktree 에 uncommitted 로 있다. 승인 후 worktree 에서 커밋한 뒤
+- **모두 통과** → 변경 요약 + `git diff --stat` 을 사용자에게 제시하고 승인받는다. 위임 프롬프트의
+  불변식 (5) 때문에 Codex 는 커밋을 남기지 않으므로 변경은 worktree 에 uncommitted 로 있다.
+  승인 후 worktree 에서 커밋한 뒤
   원 브랜치로 squash 병합하고 worktree 를 정리한다:
 
   ```bash

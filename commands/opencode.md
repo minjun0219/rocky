@@ -19,7 +19,7 @@ rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 ope
    표면(개수/이름) 무결, (c) `.claude-plugin/plugin.json` 의 `mcpServers` 무결, (d) diff 가
    요청 스코프에 한정. 하나라도 어기면 "플러그인 방해" 로 간주하고 병합 보류.
 4. **자동 병합·push 없음.** 감시 통과 후 diff 를 사용자에게 제시하고 승인 하에만 병합한다.
-   원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/finish`).
+   원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/rocky:finish`).
 5. **격리로만 봉쇄.** opencode 에는 codex `-s workspace-write` 같은 OS 레벨 파일시스템 샌드박스가
    없다. 봉쇄는 **worktree 격리 + 병합 전 Claude 의 diff 전량 검토**로만 보장된다. `--auto`(권한 자동
    승인)는 worktree 안으로만 국한되고 어떤 변경도 Claude 검토 없이는 원 브랜치에 들어가지 않는다.

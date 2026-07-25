@@ -12,7 +12,7 @@
       "author": {
         "name": "Minjun Kim"
       },
-      "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + worklog_* (append-only local JSONL worklog, auto turn capture via Stop hook). Slash commands: /finish, /recall, /codex, /opencode, /issue, /soul."
+      "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + worklog_* (append-only local JSONL worklog, auto turn capture via Stop hook). Slash commands: /rocky:finish, /rocky:recall, /rocky:codex, /rocky:opencode, /rocky:issue, /rocky:soul, /rocky:statusline."
     },
     {
       "name": "rocky-todo",
