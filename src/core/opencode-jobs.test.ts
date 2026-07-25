@@ -114,6 +114,46 @@ describe('JobStore.update', () => {
   it('은 없는 잡에 대해 에러를 던진다', () => {
     expect(() => store.update('oc-missing-1', { status: 'failed' })).toThrow(/oc-missing-1/);
   });
+
+  // 사용자가 취소한 잡을 워커가 뒤늦게 완료로 덮으면 잘못된 상태가 보인다.
+  it('은 종료 상태를 되돌리지 않는다', () => {
+    const job = seed('a');
+    store.update(job.id, {
+      status: 'cancelled',
+      phase: 'done',
+      errorMessage: '사용자 취소',
+      completedAt: '2026-07-25T00:00:00.000Z',
+    });
+    const late = store.update(job.id, {
+      status: 'completed',
+      phase: 'done',
+      errorMessage: undefined,
+      completedAt: '2026-07-25T01:00:00.000Z',
+    });
+    expect(late.status).toBe('cancelled');
+    expect(late.errorMessage).toBe('사용자 취소');
+    expect(late.completedAt).toBe('2026-07-25T00:00:00.000Z');
+  });
+
+  it('은 종료된 잡에도 결과물은 계속 채운다', () => {
+    const job = seed('a');
+    store.update(job.id, { status: 'cancelled', completedAt: new Date().toISOString() });
+    const late = store.update(job.id, {
+      status: 'completed',
+      result: '뒤늦게 도착한 출력',
+      sessionRef: 'ses_late',
+      exitCode: 0,
+    });
+    expect(late.status).toBe('cancelled');
+    expect(late.result).toBe('뒤늦게 도착한 출력');
+    expect(late.sessionRef).toBe('ses_late');
+  });
+
+  it('은 종료 전이는 정상적으로 허용한다', () => {
+    const job = seed('a');
+    store.update(job.id, { status: 'running' });
+    expect(store.update(job.id, { status: 'completed' }).status).toBe('completed');
+  });
 });
 
 describe('JobStore 로그', () => {

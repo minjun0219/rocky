@@ -35,6 +35,57 @@ async function spawnCreators(dir: string, count: number): Promise<void> {
   await Promise.all(procs.map((proc) => proc.exited));
 }
 
+const UPDATER = `
+import { JobStore } from "%SRC%";
+const store = new JobStore({ dir: process.argv[2] });
+const patch = JSON.parse(process.argv[4]);
+// 같은 순간에 서로 다른 필드를 갱신한다 — 락 밖에서 payload 를 읽으면 한쪽이 유실된다.
+store.update(process.argv[3], patch);
+`;
+
+/** 같은 잡을 서로 다른 필드로 동시에 갱신한다. */
+async function spawnUpdaters(
+  dir: string,
+  jobId: string,
+  patches: Record<string, unknown>[],
+): Promise<void> {
+  const src = join(import.meta.dir, 'opencode-jobs.ts');
+  const scriptPath = join(dir, 'updater.ts');
+  writeFileSync(scriptPath, UPDATER.replace('%SRC%', src), 'utf8');
+  const procs = patches.map((patch) =>
+    Bun.spawn([process.execPath, scriptPath, dir, jobId, JSON.stringify(patch)], {
+      stdout: 'ignore',
+      stderr: 'pipe',
+    }),
+  );
+  await Promise.all(procs.map((proc) => proc.exited));
+}
+
+describe('동시 update (프로세스 간)', () => {
+  // childPid 가 유실되면 cancel / SessionEnd 가 opencode 그룹을 못 찾아 고아가 남는다.
+  it('은 서로 다른 필드를 동시에 갱신해도 잃지 않는다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rocky-jobs-update-'));
+    const store = new JobStore({ dir });
+    const job = store.create({
+      title: '동시 갱신',
+      workspaceRoot: '/repo',
+      request: { prompt: 'p', worktree: '/repo/wt' },
+    });
+
+    await spawnUpdaters(dir, job.id, [
+      { childPid: 4242 },
+      { sessionRef: 'ses_concurrent' },
+      { exitCode: 0 },
+      { pid: 1111 },
+    ]);
+
+    const updated = store.get(job.id);
+    expect(updated?.childPid).toBe(4242);
+    expect(updated?.sessionRef).toBe('ses_concurrent');
+    expect(updated?.pid).toBe(1111);
+  }, 30_000);
+});
+
 describe('동시 create (프로세스 간)', () => {
   it('은 동시에 만든 잡을 하나도 잃지 않는다', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rocky-jobs-race-'));

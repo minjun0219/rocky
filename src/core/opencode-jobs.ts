@@ -489,14 +489,31 @@ export class JobStore {
       .map((entry) => this.get(entry.id) ?? this.fromIndexEntry(entry));
   }
 
-  /** 필드를 패치하고 `updatedAt` 을 갱신한다. 인덱스에도 상태를 반영한다. */
+  /**
+   * 필드를 패치하고 `updatedAt` 을 갱신한다. 인덱스에도 상태를 반영한다.
+   *
+   * **payload 읽기까지 락 안에서 한다.** 락 밖에서 읽으면 동시 갱신이 서로의 결과를 덮는다 —
+   * 워커의 `onSpawn`(childPid 기록)과 `cancel` / `SessionEnd` 가 겹치는 게 실제 경로이고,
+   * 하필 `childPid` 가 유실되면 취소가 opencode 프로세스 그룹을 못 찾아 고아가 남는다.
+   *
+   * 종료 상태는 **되돌리지 않는다**: 사용자가 취소한 뒤 워커가 뒤늦게 완료를 기록하면
+   * `cancelled` 가 `completed` 로 덮여 잘못된 상태가 보인다. 그래서 이미 terminal 인 잡의
+   * `status` / `phase` / `completedAt` / `errorMessage` 는 보존하고, 결과물(`result` /
+   * `exitCode` / `sessionRef` 등)만 계속 채운다.
+   */
   update(id: string, patch: Partial<Omit<JobRecord, 'id' | 'kind' | 'createdAt'>>): JobRecord {
-    const current = this.get(id);
-    if (!current) {
-      throw new Error(`opencode 잡 "${id}" 를 찾을 수 없습니다.`);
-    }
-    const next: JobRecord = { ...current, ...patch, updatedAt: new Date().toISOString() };
     return this.withStateLock((state) => {
+      const current = this.get(id);
+      if (!current) {
+        throw new Error(`opencode 잡 "${id}" 를 찾을 수 없습니다.`);
+      }
+      const next: JobRecord = { ...current, ...patch, updatedAt: new Date().toISOString() };
+      if (isTerminal(current.status)) {
+        next.status = current.status;
+        next.phase = current.phase;
+        next.completedAt = current.completedAt;
+        next.errorMessage = current.errorMessage;
+      }
       this.writePayload(next);
       const idx = state.jobs.findIndex((entry) => entry.id === id);
       if (idx >= 0) {
