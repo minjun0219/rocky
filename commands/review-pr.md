@@ -53,7 +53,7 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
       pageInfo{ hasNextPage endCursor }
       nodes{
         id isResolved isOutdated path line
-        comments(first:10){nodes{author{login} body diffHunk}}
+        comments(first:50){nodes{author{login} body diffHunk}}
       }
     }
   }}
@@ -152,10 +152,17 @@ mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved
 
 - 반론 **승인** → 한국어 근거 코멘트 1개를 그 스레드에 남기고 resolve.
 
+  본문은 **heredoc 으로 변수에 담아** 넘긴다. 작은따옴표로 인라인하면 근거에 아포스트로피나
+  줄바꿈이 들어갈 때 셸에서 깨진다.
+
   ```bash
-  gh api graphql -f query='
+  BODY=$(cat <<'EOF'
+  <한국어 근거>
+  EOF
+  )
+  gh api graphql -f id="$THREAD_ID" -f body="$BODY" -f query='
   mutation($id:ID!, $body:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id, body:$body}){ comment{ url } } }
-  ' -f id=<threadId> -f body='<한국어 근거>'
+  '
   ```
 
 - 반론 **반려** → 수정 대상으로 전환하고 3단계로 복귀한다 (라운드 카운트는 이어서 센다).
@@ -174,6 +181,19 @@ gh pr view <번호> --json mergeable,mergeStateStatus,reviewDecision
 ```
 
 - 조건: 미해결 스레드 0 · checks 전부 통과 · `mergeStateStatus` 가 `CLEAN` 또는 `UNSTABLE`.
+- **`BLOCKED` 을 곧바로 "머지 불가" 로 단정하지 않는다.** 마지막 푸시에 대한 봇 리뷰가 아직
+  안 끝났을 때도 `BLOCKED` 이 나온다 (레포에 `copilot_code_review` ruleset 이 걸린 경우). 사유를
+  먼저 확인한다.
+
+  ```bash
+  gh api repos/<owner>/<repo>/rulesets --jq '.[].id' \
+    | xargs -I{} gh api repos/<owner>/<repo>/rulesets/{} --jq '{name, rules:[.rules[].type]}'
+  ```
+
+  - 승인 리뷰 부족(`required_approving_review_count` 미달)처럼 **사람이 풀어야 하는 사유**면 그대로
+    보고한다.
+  - 봇 리뷰 대기처럼 **시간이 풀어주는 사유**면 7단계로 돌아가 한 번 더 대기한 뒤 재판정한다
+    (이 재판정도 라운드 상한에 포함).
 - 충족 → `PushNotification` 으로 알리고 채팅에 최종 요약을 남긴다.
 
   ```
