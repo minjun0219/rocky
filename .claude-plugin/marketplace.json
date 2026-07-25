@@ -23,6 +23,7 @@
       "author": {
         "name": "Minjun Kim"
       },
+      "dependencies": ["rocky"],
       "description": "공유 todo/스크래치패드 상주 데몬 + 웹 UI + streamable HTTP MCP(5 도구) + CLI. 설치=활성화(SessionStart 훅이 데몬 기동). rocky 동반 플러그인 — dependencies:[\"rocky\"] 로 자동 동반. 별도 레포 minjun0219/rocky-todo 에서 서빙."
     }
   ]
