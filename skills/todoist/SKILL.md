@@ -23,9 +23,11 @@ Todoist MCP tools are connected to the session:
 
 ## rocky-todo 와의 역할 구분
 
-코딩 세션의 실시간 작업 추적(처리중 표시·세션 협업 보드)은 `todo` 스킬(rocky-todo)이
-기본이다. Todoist 는 알림·반복 일정·마감이 있는 개인 장부 — 사용자가 명시적으로
-Todoist 를 언급하거나 그런 속성이 필요할 때 이 스킬을 쓴다. 상호 참조는 링크로.
+코딩 세션의 실시간 작업 추적(처리중 표시·세션 협업 보드)은 **동반 플러그인 rocky-todo**
+(별도 레포 `minjun0219/rocky-todo`, 설치 시 `rocky-todo:board` 스킬 + `todo_*`/`note_*` MCP 도구)가
+기본이다 — rocky 본체엔 더 이상 그 스킬/도구가 없으니 rocky-todo 가 설치돼 있을 때만 그 경로를 쓴다.
+Todoist 는 알림·반복 일정·마감이 있는 개인 장부 — 사용자가 명시적으로 Todoist 를 언급하거나
+그런 속성이 필요할 때 이 스킬을 쓴다. 상호 참조는 링크로.
 
 ## Repo ↔ project mapping
 

@@ -15,7 +15,7 @@
 - **Surface**: 공유 7 openapi tool (두 타깃 동일) — `openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags` — 에 더해 전체 표면 서버 전용 `seo_validate` (OG / Twitter Card / JSON-LD / favicon 메타 검증, `ogpeek` 기반). 단독 `openapi-mcp` CLI 는 OpenAPI 도메인만 다뤄 `seo_validate` 를 노출하지 않는다. v0.5 부터 전체 표면 서버는 **공식 Notion CLI (`ntn`) 가 탐지될 때만** `notion_*` 4 도구 (`notion_get` / `notion_refresh` / `notion_status` / `notion_extract`) 를 추가 등록한다 — `ntn` 이 없으면 아예 나타나지 않는다. v0.6 부터 전체 표면 서버는 **기록(記錄)** 레이어인 `worklog_*` 4 도구 (`worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`, v0.9 에서 `journal_*` 를 개명) 를 항상 등록한다 (외부 의존 없음) — append-only 로컬 JSONL. v0.9 부터 Claude Code plugin 의 `Stop` hook (`src/hooks/log-turn.ts`) 이 매 턴 종료 시 `kind:"turn"` 워크로그를 자동으로 남기고(`autoCapture`, 기본 on), 짝이 되는 **정리(整理)** 는 `/recall` 슬래시 커맨드가 워크로그를 앵커 히스토리 다이제스트(`kind:"digest"`)로 증분 요약한다 (rocky 는 기록·저장만, 별도 wiki 위치는 없음).
 - **소울(페르소나)**: Claude Code plugin 은 `rocky.json` 의 `soul` 필드로 고정한 페르소나를 `SessionStart` 훅이 자동 주입한다 (`matcher: startup|clear|compact` — 새 세션/clear/compact 시, resume 은 건너뜀). 소울은 markdown 파일(frontmatter `name`/`description` + 본문) — 번들 프리셋 3 종은 `souls/rocky.md` / `souls/senior.md` / `souls/terse.md`, 커스텀은 `~/.config/rocky/souls/<name>.md` (같은 이름이면 커스텀이 이김). `/rocky:soul` 로 목록/전환/미리보기/스캐폴딩. MCP tool 은 아니며, 미설정 시 아무 것도 주입하지 않는다(vanilla).
 - **statusline**: Claude Code plugin 은 statusline 템플릿 3종(`statusline/<name>.sh` — `duo` 2줄 기본 / `mini` 1줄 컴팩트 / `full` 3줄+git 상태(dirty/↑↓)·임계값 경고색·세션 비용(+시간당)·변경량·경과)을 번들한다. Claude Code 의 `statusLine` 설정은 user `settings.json` 에만 살 수 있으므로(플러그인 `settings.json` 은 미지원), `/rocky:statusline` 이 고른 템플릿을 안정 경로 `~/.config/rocky/statusline.sh` 로 복사하고 settings 를 1회 지정한다 — 이후 플러그인 업데이트는 `SessionStart` 훅이 설치본 헤더의 템플릿 마커를 보고 같은 템플릿에서 자동 전파. MCP tool 은 아니며, opt-in (설치 전에는 아무 것도 하지 않음). 템플릿별 표시 내용은 [`docs/statusline.md`](./docs/statusline.md) 참고.
-- **rocky-todo (공유 작업 보드 데몬)**: v0.13 부터 별도 상주 데몬 `rocky-todo` (`bin/rocky-todo` → `src/todo/`) — 시스템 유일 인스턴스(127.0.0.1:8636)가 SQLite 보드를 들고, 에이전트는 `/mcp` (streamable HTTP, `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` 5 도구) 또는 CLI 로, 사람은 React 웹 UI (SSE 실시간) 로 같은 데이터를 본다. 계층/섹션/보드 + 우선순위/라벨/마감/링크 + 처리중(actor) 표시 + 스크래치패드 메모 + 전 변경 히스토리, 삭제 없음(아카이브만). CLI 온디맨드 자동 기동 + `daemon install`(launchd) 지원. 자세한 건 [`docs/rocky-todo.md`](./docs/rocky-todo.md).
+- **rocky-todo (공유 작업 보드 데몬)**: 별도 레포/플러그인 [`minjun0219/rocky-todo`](https://github.com/minjun0219/rocky-todo) 로 분리됨 (v0.13 번들 → 2026-07-25 분리). 같은 rocky 마켓플레이스가 서빙 — `claude plugin install rocky-todo@rocky-marketplace` (설치=활성화, rocky 자동 동반). 공유 todo/스크래치패드 보드 + 웹 UI + 5 MCP 도구 + CLI.
 - **설정 파일**:
   - `rocky.json` — plugin 이 읽는다 (project 의 `./rocky.json` 이 user 의 `~/.config/rocky/rocky.json` 을 leaf 단위로 덮어쓴다). v0.3 부터 `openapi.registry` 한 키만 존재, 여기에 `soul` 도 추가.
   - `openapi-mcp.json` — 단독 CLI 가 읽는다. config 형태 (`specs.<name>.environments.<env>.baseUrl`) 가 다르고 평탄화 없이 그대로 SpecRegistry 에 들어간다.
@@ -191,44 +191,13 @@ Hosts          — 어디서 호출되는지 (전체 표면 서버 `src/index.ts
 - **Related config**: `ROCKY_WORKLOG_DIR`, `rocky.json` 의 `worklog.dir`.
 - **Hosts**: 전체 표면 서버(`src/index.ts`) 실행 호스트 (Claude Code plugin / Codex / opencode). 단독 `openapi-mcp` CLI 미노출.
 
-### `rocky-todo` (공유 todo / 스크래치패드 데몬)
+### `rocky-todo` (별도 레포로 분리됨)
 
-v0.13 부터 rocky 는 **별도 상주 데몬** `rocky-todo` 를 함께 배포한다 (`bin/rocky-todo` → `src/todo/`). 전체 표면 서버(`src/index.ts`)와 **별개 프로세스** — 시스템에 단 하나만 떠서(127.0.0.1:8636, 포트는 키패드 "todo") Claude Code / Codex / opencode 의 모든 세션·모든 프로젝트가 같은 보드를 공유한다. 저장은 SQLite (`bun:sqlite`, `~/.config/rocky/todo/todo.db`), 웹 UI 는 React (Bun fullstack 이 서빙 시 자동 번들 — dist 없음, 외부 CDN 없음) + SSE 실시간 갱신. 에이전트는 데몬의 `/mcp` (streamable HTTP) 로 5개 도구를, 사람은 브라우저(`/`)와 CLI(`rocky-todo`)를 쓴다. 삭제 API 는 존재하지 않는다 — 전 엔티티 아카이브만. 모든 변경은 actor(누가) 포함 히스토리로 기록되고, `start` 상태는 웹 UI 에 "처리중" 뱃지(에이전트=앰버/사람=아이스블루)로 표시된다. CLI 는 데몬이 죽어 있으면 자동 기동하고, `rocky-todo daemon install` 로 launchd 상주 등록도 된다. 데몬 MCP 는 plugin.json 에 넣지 않는다 (lifecycle 독립) — 호스트별 등록은 `rocky-todo mcp setup` 또는 [`docs/rocky-todo.md`](./docs/rocky-todo.md) 참고. 사용 에티켓은 번들 스킬 `todo` 가 안내한다.
-
-#### `todo_list`
-
-- **What**: 보드/전체 todo 조회 (계층·섹션 포함), `id` 지정 시 상세 + 히스토리, `boards:true` 면 보드 목록.
-- **Input**: `board?` / `id?` / `boards?` / `status?`(todo·doing·done) / `label?` / `includeArchived?`.
-- **Output**: `{ todos }` 또는 `{ todo, history }` 또는 `{ boards }`.
-- **Side effects**: 없음 (read-only).
-- **Related config**: `ROCKY_TODO_PORT` / `ROCKY_TODO_DIR`, `rocky.json` 의 `todo.*`.
-- **Hosts**: rocky-todo 데몬 `/mcp` 를 등록한 모든 호스트 (Claude Code / Codex / opencode). 전체 표면 서버·`openapi-mcp` CLI 미노출.
-
-#### `todo_write`
-
-- **What**: todo 생성(`board`+`title`) 또는 부분 수정(`id`). `section` 은 이름으로 자동 upsert, `links` 로 GitHub 이슈/Todoist URL 첨부, `parentId` 로 계층.
-- **Input**: `id?` / `board?` / `title?` / `description?` / `section?` / `parentId?` / `priority?`(p1–p4) / `due?` / `labels?` / `links?` / `actor?`.
-- **Output**: 생성/수정된 `Todo`.
-- **Side effects**: SQLite 쓰기 + 히스토리 기록 + SSE 브로드캐스트.
-- **Hosts**: 위와 동일.
-
-#### `todo_status`
-
-- **What**: 상태 전이 — `start`(처리중 표시 시작) / `stop` / `done` / `reopen` / `archive` / `unarchive`. 삭제 대체는 `archive`.
-- **Input**: `id` / `action` / `actor?`.
-- **Output**: 전이 후 `Todo`.
-- **Side effects**: SQLite 쓰기 + 히스토리 + SSE.
-- **Hosts**: 위와 동일.
-
-#### `note_list` / `note_write`
-
-- **What**: 스크래치패드/스티커 메모 조회·작성. 보드 소속 또는 글로벌(`board` 생략), 여러 개 가능. `note_write` 의 `mode`: `set`(교체, 기본) / `append`(이어붙임) / `archive` / `unarchive`.
-- **Input**: `note_list` — `board?` / `global?` / `id?` / `includeArchived?`. `note_write` — `id?` / `board?` / `title?` / `content?` / `mode?` / `actor?`.
-- **Output**: `{ notes }` / `{ note, history }` / 수정된 `Note`.
-- **Side effects**: `note_write` 는 SQLite 쓰기 + 히스토리 + SSE.
-- **Hosts**: 위와 동일.
-
-역방향(사람→에이전트) 실시간성은 MCP 도구가 아니라 **`UserPromptSubmit` 훅** (Claude Code 전용, 아래 훅 절) 이 담당한다 — 데몬의 `/api/changes` 피드(REST)를 세션별 커서로 읽어 호출자의 웹 편집분만 컨텍스트로 주입. **노출 범위는 `todo.expose` 채널 배열** (기본 없음 = 이 머신만): `"lan"` 은 내부망 개방(0.0.0.0 바인딩 — 인증 없음, 신뢰망 전용), `"tailscale-serve"` 은 테일넷 한정(tailscale serve 자동 보장, 바인딩은 루프백 유지) — 조합 가능하고 채널 하나면 문자열로도 쓴다 (`"expose": "lan"`; `"off"`/null 은 미설정과 동일). tailscale-serve 채널이 없으면 tailscale 을 일절 건드리지 않는다 (회사 등 금지 환경 대비). 수동 제어는 `rocky-todo tailscale on|off|status`.
+공유 todo / 스크래치패드 보드 데몬(`todo_list` / `todo_write` / `todo_status` / `note_list` /
+`note_write` 5 도구 + 웹 UI + CLI)은 v0.13 에 rocky 에 번들됐다가 **별도 레포/플러그인
+[`minjun0219/rocky-todo`](https://github.com/minjun0219/rocky-todo) 로 분리**됐다. 같은 rocky
+마켓플레이스가 서빙하니 `claude plugin install rocky-todo@rocky-marketplace` 로 설치하면 된다
+(설치=활성화, `dependencies:["rocky"]`). 도구·설정·설치는 그 레포의 문서를 참고.
 
 ## Codex CLI 에서 쓰기
 
@@ -314,14 +283,6 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **Related config**: 없음.
 - **Hosts**: Claude Code plugin 만. 구현은 `src/hooks/sync-statusline.ts` (코어 로직은 `src/core/statusline.ts`).
 
-### `UserPromptSubmit` — rocky-todo 보드 변경 주입
-
-- **What**: 사용자가 프롬프트를 보낼 때마다 rocky-todo 데몬의 `/api/changes` 피드를 세션별 커서 이후로 읽어, **사람(비-에이전트 actor)의 변경만** 골라 컴팩트 한국어 요약을 `additionalContext` 로 주입한다 — 호출자가 웹 UI 에서 편집한 내용이 다음 발화 때 에이전트에게 자동 전달되는 경로(사람→에이전트 방향).
-- **동작**: 세션 첫 프롬프트에서는 watermark 만 기록(과거 덤프 없음). 커서는 `<todo.dir>/hook-cursors.json` 에 세션별 저장, 최근 100 세션 유지. 에이전트 actor(claude-code/codex/opencode/agent/rocky)의 변경은 자기 반향 방지를 위해 걸러진다. 결정론적(LLM 미사용), fail-open — 데몬 미기동이면 조용히 no-op (훅이 데몬을 기동하지 않는다).
-- **토글**: env `ROCKY_TODO_WATCH` (`0`/`false`/`off`/`no` 만 비활성) > `rocky.json` 의 `todo.watch` (기본 true).
-- **Side effects**: 커서 파일 갱신. 데몬 read-only HTTP 1–2회.
-- **Hosts**: Claude Code plugin 만. 구현은 `src/hooks/notify-todo.ts` (순수 로직 `src/todo/notify.ts`).
-
 ### `Stop` — 턴 자동 기록
 
 - **What**: 이번 turn 의 사용자 요청(req)과 에이전트가 한 일(did, 사용한 tool 이름 포함)을 추출해 하나의 `content` 로 합성하고 `worklog_append {kind:"turn", tags:["turn"]}` 로 append 한다.
@@ -405,11 +366,8 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `skills/` �
 - **가드레일**: 완료·수정·일정 이동은 항상 확인 후, 삭제는 명시 요청만, 일정 이동은 reschedule 계열 도구(recurrence 보존), 대량 일괄 변경 금지, 매핑된 프로젝트 밖은 불가침.
 - **Hosts**: Claude Code plugin 만 (standalone `openapi-mcp` CLI 에는 없음).
 
-### `todo`
-
-- **What**: **rocky-todo 공유 보드 사용 가이드** — 세션에 rocky-todo 데몬의 MCP 도구(`todo_*` / `note_*`)가 연결되어 있으면 그걸, 없으면 `rocky-todo` CLI 를 폴백으로 쓰는 도구 게이트 + 보드 결정(레포 이름, 세션당 1회) + 에티켓(**작업 착수 시 `start`** — 웹 UI 처리중 뱃지의 원천, 끝나면 `done`, actor 명시, GitHub/Todoist 링크 첨부) + 우선순위 의미(todoist 스킬과 동일 관례) + 가드레일(삭제 없음·아카이브만, 사용자 메모 통편집 대신 append 우선).
-- **전제**: rocky-todo 데몬 (CLI 가 자동 기동; 상주는 `rocky-todo daemon install`). MCP 등록은 [`docs/rocky-todo.md`](./docs/rocky-todo.md).
-- **Hosts**: Claude Code plugin 만 (스킬 자체는 — 데몬/CLI/MCP 는 host 무관).
+> `todo` 스킬(공유 보드 사용 가이드)은 rocky-todo 분리와 함께 그 레포로 이동했다 —
+> `rocky-todo:board` 스킬로 제공된다.
 
 ## 환경 변수
 
@@ -429,12 +387,6 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `skills/` �
 | `ROCKY_NOTION_CACHE_TTL` | `86400` (초, 24h) | 전체 표면 서버 | Notion 캐시 entry TTL 기본값. |
 | `ROCKY_WORKLOG_DIR` | `~/.config/rocky/worklog/<project-key>` | 전체 표면 서버 | 워크로그 JSONL 저장 디렉터리. 지정 시 프로젝트별 기본 경로 대신 이 값을 verbatim 사용. `rocky.json` 의 `worklog.dir` 보다 우선. |
 | `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` (on) | Claude Code plugin (`Stop` hook) | `Stop` hook 의 턴 자동 기록 on/off. `0` / `false` / `off` / `no` 값만 비활성, 그 외는 활성. `rocky.json` 의 `worklog.autoCapture` 보다 우선. |
-| `ROCKY_TODO_ENABLED` | (unset = off) | rocky-todo 데몬 + CLI + 훅 | rocky-todo 마스터 스위치 강제. `rocky.json` 의 `todo.enabled` (기본 false) 보다 우선. |
-| `ROCKY_TODO_PORT` | `8636` | rocky-todo 데몬 + CLI | rocky-todo 데몬 포트. `rocky.json` 의 `todo.port` 보다 우선. |
-| `ROCKY_TODO_DIR` | `~/.config/rocky/todo` | rocky-todo 데몬 + CLI | rocky-todo 데이터 디렉터리 (todo.db / daemon.pid / daemon.log). `todo.dir` 보다 우선. |
-| `ROCKY_TODO_ACTOR` | (unset) | rocky-todo CLI | CLI mutation 의 actor 이름 강제 — 미설정 시 호스트 자동 감지 (claude-code / codex / opencode / agent). |
-| `ROCKY_TODO_WATCH` | `1` (on) | Claude Code plugin (`UserPromptSubmit` hook) | 보드 변경 주입 훅 on/off. `0`/`false`/`off`/`no` 만 비활성. `rocky.json` 의 `todo.watch` 보다 우선. |
-| `ROCKY_TODO_EXPOSE` | (unset) | rocky-todo 데몬 | 노출 채널 강제 (콤마 구분: `lan,tailscale-serve`, `off` = 차단). 설정 시 `todo.expose` 를 통째로 덮어쓴다. |
 | `XDG_CONFIG_HOME` | `~/.config` | standalone CLI | `openapi-mcp.json` 기본 검색 경로의 prefix. |
 | `XDG_CACHE_HOME` | `~/.cache` | standalone CLI | 디스크 캐시 디렉토리의 prefix (`openapi-mcp.json` 의 `cache.diskCachePath` 가 우선). |
 
@@ -482,7 +434,7 @@ standalone CLI 는 위 XDG 변수에 추가로 `openapi-mcp` CLI flag (`--config
 - 핸들 규칙: `host:env:spec`. 각 식별자는 `^[a-zA-Z0-9_-]+$` — 콜론은 separator 예약.
 - `seo` (옵션): `seo_validate` 도구 기본값. `allowPrivateHosts` (boolean, 기본 false) / `timeoutMs` (1..30000). 두 값 모두 도구 호출 인자가 우선. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
 - `worklog` (옵션, v0.9 에서 `journal` 개명): `worklog_*` 기록 저장 위치(`dir`, env `ROCKY_WORKLOG_DIR` 가 우선), `Stop` hook 자동 기록 on/off(`autoCapture`, 기본 true, env `ROCKY_WORKLOG_AUTO_CAPTURE` 가 우선) + turn 항목 truncate 길이(`captureMaxChars`, 기본 800), `/recall` 의 Haiku↔Sonnet 임계(`digestThreshold`, 기본 40). 더 이상 `wikiDir` 는 없다 — 정리 결과는 워크로그 자체의 `kind:"digest"` 항목으로 남는다. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
-- `todo` (옵션, v0.13): rocky-todo 데몬 설정 — `enabled` (**마스터 스위치, 기본 false** — 상주 데몬을 띄우는 기능이라 opt-in; 꺼져 있으면 훅/CLI 자동 기동/데몬 모두 비활성, env `ROCKY_TODO_ENABLED` 가 우선) / `port` (기본 8636, env `ROCKY_TODO_PORT` 가 우선) / `dir` (데이터 디렉터리, 기본 `~/.config/rocky/todo`, env `ROCKY_TODO_DIR` 가 우선) / `expose` (노출 채널 — `"lan"`(내부망, 0.0.0.0)·`"tailscale-serve"`(테일넷 serve) 배열 또는 단일 문자열, **기본 없음 = 이 머신만**; `"off"`/null 은 미설정과 동일; env `ROCKY_TODO_EXPOSE` 콤마 구분이 통째로 우선 — `off` 로 강제 차단) / `watch` (UserPromptSubmit 훅의 보드 변경 주입, 기본 true, env `ROCKY_TODO_WATCH` 가 우선 — 이 키만은 훅이 project rocky.json 도 본다). 데몬은 시스템 전역 단일 인스턴스라 port/dir/expose 는 **user rocky.json 만** 읽는다 (어디서 기동돼도 같은 데몬이어야 하므로).
+- `todo` (옵션): **rocky-todo 동반 플러그인**(별도 레포 `minjun0219/rocky-todo`)의 설정 블록. rocky 본체는 이 키를 **관용만** 하고(파싱/검증/소비하지 않음 — 공유 rocky.json 이라 거부하지 않을 뿐) 실제 소비는 rocky-todo 데몬 몫이다. 키 모양(`port` / `dir` / `expose` / `watch`)은 그 레포 문서 참고.
 - leaf 는 string (URL only) 또는 object (`{ url, baseUrl?, format? }`). `baseUrl` 은 `openapi_endpoint` 의 `fullUrl` 합성에 사용. `format` 은 `openapi3` / `swagger2` / `auto` (기본 auto).
 - project (`./rocky.json`) 가 user (`~/.config/rocky/rocky.json`) 를 leaf 단위로 덮어쓴다.
 
