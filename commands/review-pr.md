@@ -201,6 +201,9 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 ```
 
 - 조건: 미해결 스레드 0 · checks 전부 통과 · `mergeStateStatus` 가 `CLEAN` 또는 `UNSTABLE`.
+- **푸시 직후의 첫 조회를 믿지 않는다.** GitHub 은 `mergeable` / `mergeStateStatus` 를 비동기로
+  다시 계산해서, 방금 푼 충돌이 몇 초간 `CONFLICTING` / `DIRTY` 로 남아 있다. 값이 부정적이면
+  몇 초 간격으로 두어 번 더 조회해 안정된 값으로 판정한다.
 - **`BLOCKED` 을 곧바로 "머지 불가" 로 단정하지 않는다.** 마지막 푸시에 대한 봇 리뷰가 아직
   안 끝났을 때도 `BLOCKED` 이 나온다 (레포에 `copilot_code_review` ruleset 이 걸린 경우). 사유를
   먼저 확인한다.
