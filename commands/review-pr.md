@@ -113,9 +113,12 @@ git push
 [수정] 과 [무효] 스레드를 **코멘트 없이** resolve 한다. [반론] 스레드는 건드리지 않는다.
 
 ```bash
-gh api graphql -f query='
-mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }
-' -f id=<threadId>
+# THREAD_ID = 2단계에서 [수정] 또는 [무효] 로 판정한 스레드의 id (1단계 수집 결과의 nodes[].id)
+for THREAD_ID in $RESOLVE_IDS; do
+  gh api graphql -f id="$THREAD_ID" -f query='
+  mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }
+  '
+done
 ```
 
 ### 6. 라운드 보고 (채팅)
@@ -187,14 +190,14 @@ echo "CONVERGED: 8분간 새 리뷰 없음"
   코멘트를 달고 7단계로 돌아간다. 승인이 없으면 달지 않는다.
 
   ```bash
-  gh pr comment <번호> --body "@codex review"
+  gh pr comment "$NUM" --body "@codex review"
   ```
 
 ### 10. 머지 가능 판정 + 알림
 
 ```bash
-gh pr checks <번호>
-gh pr view <번호> --json mergeable,mergeStateStatus,reviewDecision
+gh pr checks "$NUM"
+gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 ```
 
 - 조건: 미해결 스레드 0 · checks 전부 통과 · `mergeStateStatus` 가 `CLEAN` 또는 `UNSTABLE`.
@@ -203,8 +206,8 @@ gh pr view <번호> --json mergeable,mergeStateStatus,reviewDecision
   먼저 확인한다.
 
   ```bash
-  gh api repos/<owner>/<repo>/rulesets --jq '.[].id' \
-    | xargs -I{} gh api repos/<owner>/<repo>/rulesets/{} --jq '{name, rules:[.rules[].type]}'
+  gh api "repos/$OWNER/$REPO/rulesets" --jq '.[].id' \
+    | xargs -I{} gh api "repos/$OWNER/$REPO/rulesets/{}" --jq '{name, rules:[.rules[].type]}'
   ```
 
   - 승인 리뷰 부족(`required_approving_review_count` 미달)처럼 **사람이 풀어야 하는 사유**면 그대로
