@@ -267,6 +267,7 @@ opencode mcp add rocky
 | --- | --- | --- | --- | --- |
 | MCP 도구 (openapi 7 + `seo_validate` + worklog 4 + notion 4 = 16) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | 공유 코어 — 이미 3-호스트 완결 |
 | `/rocky:finish`, `/rocky:issue` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI 의존, 로직은 호스트 중립 |
+| `/rocky:review-pr` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI + 폴링 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
 | `/rocky:codex`, `/rocky:opencode` | ✅ | — 무의미 | — 무의미 | 대상 호스트로 위임하는 커맨드라 그 호스트 안에 둘 이유 없음 |
 | `/rocky:soul` + 소울·callsign 주입 (SessionStart) | ✅ | ◐ SessionStart hook 또는 AGENTS.md 정적 병합 | ◐ plugin / `instructions` | 정적 병합이면 쉬움, 동적 주입은 훅 필요 |
@@ -292,7 +293,7 @@ opencode mcp add rocky
 
 ## Claude Code 커맨드
 
-MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/rocky:finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/rocky:recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/rocky:codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/rocky:opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음) — v0.17 부터 dispatch 를 companion 런타임(`src/opencode-companion.ts`)이 맡아 `--background` 위임이 가능해졌고, 그렇게 띄운 잡의 조회·회수·취소는 짝 커맨드 `/rocky:opencode-jobs` 가 담당한다. `/rocky:issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/rocky:finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/rocky:recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 리뷰 대응은 `/rocky:review-pr` 이 맡는다 — Copilot / Codex / 사람 리뷰를 미해결 0 까지 처리하고 머지 가능해지면 알린다(머지는 하지 않음). CI 실패 자동 수정만 필요하면 Claude Code **빌트인 `/autofix-pr`** 이 별도 선택지다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/rocky:codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/rocky:opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음) — v0.17 부터 dispatch 를 companion 런타임(`src/opencode-companion.ts`)이 맡아 `--background` 위임이 가능해졌고, 그렇게 띄운 잡의 조회·회수·취소는 짝 커맨드 `/rocky:opencode-jobs` 가 담당한다. `/rocky:issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.
 
 ### `/rocky:finish [힌트]`
 
@@ -300,6 +301,16 @@ MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨�
 - **Input**: (옵션) 커밋/PR 요약에 참고할 힌트.
 - **하지 않는 것**: 게이트 실패 시 커밋 금지(우회 X), `main` 직접 커밋 금지(먼저 브랜치), 무관한 파일 싸잡아 스테이지 금지.
 - **규칙**: Conventional Commits 한국어 제목(제목에 나열·부연 금지 — 핵심 하나, 요약부 대략 50자 초과 금지, 세부는 본문으로), 커밋 `Co-Authored-By` / PR 본문 서명 trailer 부착, 리뷰 요청 시 한국어 코멘트 요청.
+- **의존성**: 인증된 `gh` CLI.
+
+### `/rocky:review-pr [PR 번호]`
+
+- **What**: PR 에 붙은 리뷰(Copilot `copilot-pull-request-reviewer` / Codex `chatgpt-codex-connector` / 사람)를 **미해결 0 까지** 처리한다 — GraphQL `reviewThreads` 수집 → 수정/반론/무효 분류 → 수정 + 게이트 → 라운드당 커밋 1개 푸시 → 수정·무효 스레드 `resolveReviewThread` → 재리뷰 대기(60초 폴링, 8분 무반응이면 수렴) 반복.
+- **Input**: (옵션) PR 번호. 생략 시 현재 브랜치의 PR.
+- **반론**: 판단이 갈리는 지적은 **보류 큐**에 모아두고 루프의 미해결 판정에서 제외한다. 수렴 후 사용자와 하나씩 상의해 **승인된 반론만** 근거 코멘트 1개를 남기고 resolve 한다 (반려하면 수정으로 전환).
+- **알림**: 미해결 0 + checks 통과 + `mergeStateStatus` 가 `CLEAN`/`UNSTABLE` 이면 `PushNotification` 으로 "머지 가능" 을 알린다.
+- **하지 않는 것**: 자동 머지 없음(알림까지가 끝), 게이트 실패 시 푸시 금지, force push 금지, 수정 반영 건에 코멘트 금지(resolve 만), `@codex review` 자동 트리거 금지(사용자 승인 후에만 — Codex 의 수동 게이트는 의도된 설정이다). Copilot 은 푸시마다 자동 재리뷰하므로 트리거가 불필요하다.
+- **가드**: 라운드 상한 5, 같은 스레드 2라운드 연속 미해결 시 중단, PR head 브랜치가 아니면 실행 거부.
 - **의존성**: 인증된 `gh` CLI.
 
 ### `/rocky:recall [주제 힌트]`
