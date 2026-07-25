@@ -107,7 +107,7 @@
     },
     "worklog": {
       "type": "object",
-      "description": "Settings for the worklog_* tools (append-only agent journal), the Stop hook auto-capture, and the /recall digest.",
+      "description": "Settings for the worklog_* tools (append-only agent journal), the Stop hook auto-capture, and the /rocky:recall digest.",
       "properties": {
         "dir": {
           "type": "string",
@@ -126,7 +126,7 @@
         "digestThreshold": {
           "type": "integer",
           "minimum": 1,
-          "description": "/recall Haiku↔Sonnet 임계 (기본 40)"
+          "description": "/rocky:recall Haiku↔Sonnet 임계 (기본 40)"
         }
       },
       "additionalProperties": false
