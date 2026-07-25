@@ -273,7 +273,6 @@ opencode mcp add rocky
 | `/rocky:statusline` + 번들 템플릿 3종 + 동기화 훅 | ✅ | ✗ 등가물 없음 | ✗ 등가물 없음 | Claude Code 의 `statusLine` 설정 자체가 CC 고유 표면 |
 | 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | `src/hooks/transcript.ts` 를 호스트별 재작성해야 (실제 비용) |
 | skill `writing-cc-plugin` | ✅ | ◐ 스펙 호환하나 내용이 CC 전용 | ✅ `.claude/skills/` 자동 발견 | 메커니즘은 커버, 내용 가치는 CC 한정 |
-| skill `delegating-to-codex` | ✅ | — 무의미 | ✅ `.claude/skills/` 자동 발견 | Codex 안에서 Codex 에 위임할 이유 없음 |
 | skill `todoist` | ✅ | ◐ 커버 가능 | ✅ `.claude/skills/` 자동 발견 | 세션에 연결된 Todoist MCP 에만 의존 — 로직은 호스트 중립 |
 | 단일 설치 유닛 | ✅ `.claude-plugin/` + `rocky-marketplace` | ◐ `.codex-plugin/plugin.json` 로 번들화 가능 (`codex plugin` 서브커맨드 실재) | ✗ 우산 없음 → config 트리 / npm plugin | Codex 가 새로 연 길 |
 | 동반 플러그인 `rocky-todo` (별도 레포) | ✅ 같은 마켓 2번째 entry | ◐ 데몬 MCP 가 HTTP 라 등록만 하면 됨 | ◐ 동일 | 데몬·웹UI 는 호스트 무관, 플러그인 배선과 훅만 CC 전용 |
@@ -400,14 +399,6 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `skills/` �
 - **출처**: 공식 `/ko/plugins-reference` + `/ko/plugins` 문서 증류. 버전 게이트 기능·정확한 필드는 라이브 문서 재확인 권장.
 - **Hosts**: Claude Code plugin 만 (standalone `openapi-mcp` CLI 에는 없음).
 
-### `delegating-to-codex`
-
-- **What**: 자기완결적 task 하나를 headless OpenAI 모델(`codex` CLI)에 위임하는 **재사용 위임 패턴 + 가드레일**. 핵심 원칙은 **자기완결 프롬프트** — codex 는 별도 프로세스라 이 대화 맥락을 못 보므로 목표·경로·불변식·완료조건을 프롬프트에 전부 담는다. `codex exec`(구현 `-s workspace-write` / 분석·자문 `-s read-only`, `-o` 로 최종 답 캡처, `-m` 생략 시 계정 기본 모델) · `codex review --uncommitted`(working tree 리뷰, `-m` 없이 `-c model=`) · 자문(read-only exec) 레시피와, `danger-full-access`/bypass 금지·쓰기 범위 `-C` 한정·결과 맹신 금지 가드레일, 그리고 실행 후 출력 Read → `git diff` 확인 → 게이트 재실행 → 검증분만 보고하는 절차를 담는다.
-- **구성**: `SKILL.md` (원칙 + 호출 패턴 표 + 3 레시피 + 가드레일 + 실행 후 검증).
-- **전제**: `codex` CLI 설치 + 로그인(계정/ API 키 인증).
-- **`/codex` 커맨드와의 관계**: 이 스킬이 위임 메커니즘·가드레일의 canonical 출처이고, `/codex` 는 그 위에 격리 worktree + 감시 + 승인 병합을 얹은 특정 적용이다.
-- **Hosts**: Claude Code plugin 만 (standalone `openapi-mcp` CLI 에는 없음).
-
 ### `todoist`
 
 - **What**: 사용자의 Todoist 를 현재 레포의 **작업 장부**로 쓰는 연동 스킬. ① **다음 작업 파악** — Todoist(우선순위·기한) + git(미병합 브랜치·미커밋 변경) + worklog(최근 턴·다이제스트, `worklog_*` 도구 없으면 조용히 생략)를 교차해 후보 2-3개 + 추천 1개 제시 ② **등록/정리** — 명시 요청은 즉시 실행, 스킬 제안·기존 태스크 수정은 초안 확인 후. 등록 전 중복 검색 + 컨벤션 고정(제목 간결·실행형 / description 은 다른 세션이 읽어도 착수 가능하게 자기완결 / priority 의미 고정: p1 블로커 · p2 다음 착수 · p3 준비된 백로그 · p4 아이디어·보류 / 기한은 실제 기한만) ③ **완료 처리** — 출하된 작업의 태스크를 찾아 확인 후 complete, 파생 후속 작업은 신규 초안으로 제안.
@@ -417,6 +408,13 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `skills/` �
 
 > `todo` 스킬(공유 보드 사용 가이드)은 rocky-todo 분리와 함께 그 레포로 이동했다 —
 > `rocky-todo:board` 스킬로 제공된다.
+>
+> `delegating-to-codex` 스킬(Codex 위임 메커니즘 + 가드레일)은 v0.16 에서 제거했다. 공식
+> [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) 플러그인이 같은 영역을
+> 공유 app-server 런타임 기반으로 더 넓게 덮기 때문이다 (`codex-cli-runtime` / `codex-result-handling`
+> / `gpt-5-4-prompting` 스킬 + `/codex:rescue` · `/codex:review` 커맨드). rocky 의 `/rocky:codex` 는
+> 그쪽에 없는 **격리 worktree + 플러그인 표면 무결 검증**만 남기고 위임 메커니즘을 커맨드 본문에
+> 흡수해 자기완결로 만들었다.
 
 ## 환경 변수
 
