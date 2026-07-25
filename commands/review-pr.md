@@ -135,25 +135,33 @@ done
 
 ### 7. 재리뷰 대기
 
-`Monitor` 로 60초 간격 폴링한다. 5단계에서 resolve 를 마쳤으니 이 시점의 미해결은 **보류 큐를
-제외하면 0** 이다. 따라서 **미해결 개수가 0보다 크면 새 리뷰**로 보면 된다 — 스레드 id 목록을
-들고 비교하지 않는다. 그 목록은 라운드마다 낡아서 이미 처리한 스레드를 다시 새것으로 알린다.
+`Monitor` 로 60초 간격 폴링한다. 5단계에서 resolve 를 마쳤으니 이 시점의 미해결은 **보류 큐가
+전부**다. 따라서 판정 기준은 **`미해결 id 집합 − 보류 큐 id 집합`이 비어 있지 않은가** 하나다.
+
+들고 다니는 목록은 **보류 큐 id 집합(`HELD`) 하나뿐**이다. 처리 완료한 스레드 id 목록은 들지
+않는다 — 라운드마다 낡아서 이미 resolve 한 스레드를 새것으로 다시 알린다. 반대로 보류 큐는
+9단계까지 유지되는 명시적 집합이라 낡지 않는다.
 
 ```bash
+HELD=""   # 보류 큐 스레드 id 를 공백으로 이어 붙인 값 (없으면 빈 문자열)
+
 for i in $(seq 1 8); do
   sleep 60
-  n=$(gh api graphql -f owner="$OWNER" -f repo="$REPO" -F num="$NUM" -f query='
+  ids=$(gh api graphql -f owner="$OWNER" -f repo="$REPO" -F num="$NUM" -f query='
   query($owner:String!, $repo:String!, $num:Int!) {
     repository(owner:$owner, name:$repo) { pullRequest(number:$num) {
-      reviewThreads(first:100){nodes{isResolved}}
+      reviewThreads(first:100){nodes{id isResolved}}
     }}
-  }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length') || n=0
-  if [ "${n:-0}" -gt 0 ]; then echo "NEW REVIEW: 미해결 ${n}건 (${i}분 경과)"; exit 0; fi
+  }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)|.id') || ids=""
+  new=0
+  for id in $ids; do
+    case " $HELD " in *" $id "*) ;; *) new=$((new+1)) ;; esac
+  done
+  if [ "$new" -gt 0 ]; then echo "NEW REVIEW: 새 스레드 ${new}건 (${i}분 경과)"; exit 0; fi
 done
 echo "CONVERGED: 8분간 새 리뷰 없음"
 ```
 
-- 보류 큐에 넣은 스레드가 있으면 그 개수를 빼고 센다.
 - **8분간 새 스레드가 없으면 리뷰 종료로 판정**하고 9단계로 간다.
   (Copilot 은 푸시마다 자동 재리뷰하며 실측 지연이 2~5분이다.)
 - **트리거 코멘트를 달지 않는다.** Copilot 은 이미 자동으로 돌고, Codex 는 사용자가 의도적으로
