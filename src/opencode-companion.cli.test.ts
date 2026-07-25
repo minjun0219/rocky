@@ -98,6 +98,31 @@ describe('task', () => {
     expect(out.stderr).not.toContain('at ');
   });
 
+  // 명시한 파일이 뒤따르는 positional 에 덮이면 조용히 엉뚱한 프롬프트로 위임하게 된다.
+  it('은 --prompt-file 을 positional 보다 우선한다', async () => {
+    const file = join(dir, 'prompt.md');
+    writeFileSync(file, '파일에서 온 프롬프트', 'utf8');
+    const out = await run([
+      'task',
+      '--worktree',
+      worktree,
+      '--json',
+      '--prompt-file',
+      file,
+      '무시되어야 하는 positional',
+    ]);
+    expect(out.exitCode).toBe(0);
+    const job = JSON.parse(out.stdout) as { request: { prompt: string } };
+    expect(job.request.prompt).toContain('파일에서 온 프롬프트');
+    expect(job.request.prompt).not.toContain('무시되어야 하는');
+  });
+
+  it('은 파일이 없으면 positional 을 쓴다', async () => {
+    const out = await run(['task', '--worktree', worktree, '--json', 'positional 프롬프트']);
+    const job = JSON.parse(out.stdout) as { request: { prompt: string } };
+    expect(job.request.prompt).toBe('positional 프롬프트');
+  });
+
   it('은 빈 프롬프트를 거부한다', async () => {
     const empty = join(dir, 'empty.md');
     writeFileSync(empty, '   \n', 'utf8');

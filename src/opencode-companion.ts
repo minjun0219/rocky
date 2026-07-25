@@ -91,8 +91,11 @@ async function readStdin(): Promise<string> {
 }
 
 /**
- * 프롬프트 입력 3경로: positional → `--prompt-file` → stdin.
- * 슬래시 커맨드는 긴 가드레일 프롬프트를 넘기므로 파일 / stdin 경로가 실질적인 주력이다.
+ * 프롬프트 입력 3경로를 **`--prompt-file` → positional → stdin** 순으로 본다.
+ *
+ * 파일을 맨 앞에 두는 이유는 슬래시 커맨드가 긴 가드레일 프롬프트를 파일로 넘기기 때문이다 —
+ * 명시적으로 파일을 지정했는데 뒤따르는 positional 이 그걸 덮어쓰면 조용히 엉뚱한 프롬프트로
+ * 위임하게 된다.
  */
 async function resolvePrompt(parsed: ParsedArgs): Promise<string> {
   const file = str(parsed.flags, 'prompt-file');
