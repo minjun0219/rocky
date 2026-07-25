@@ -145,7 +145,16 @@ async function handleTask(parsed: ParsedArgs): Promise<number> {
     process.stderr.write('--worktree <path> 가 필요합니다 (opencode 가 작업할 격리 디렉터리).\n');
     return 2;
   }
-  const prompt = await resolvePrompt(parsed);
+  let prompt: string;
+  try {
+    prompt = await resolvePrompt(parsed);
+  } catch (error) {
+    // 프롬프트 파일이 없거나 못 읽는 건 흔한 사용자 실수다 — 스택 트레이스 대신 한 줄로 알린다.
+    process.stderr.write(
+      `프롬프트를 읽지 못했습니다: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return 2;
+  }
   if (prompt.trim().length === 0) {
     process.stderr.write('프롬프트가 비어 있습니다 (positional / --prompt-file / stdin).\n');
     return 2;
@@ -253,7 +262,19 @@ async function handleStatus(parsed: ParsedArgs): Promise<number> {
   const cwd = str(parsed.flags, 'cwd') ?? process.cwd();
   const { store, jobs } = await visibleJobs(parsed, cwd);
   const now = new Date();
-  const summaries = jobs.map((job) =>
+  // job-ref 를 주면 그 잡 하나로 좁힌다. 문서와 usage 가 `status [job-ref]` 를 약속하므로
+  // 무시하고 전체를 뿌리면 잘못된 / 모호한 참조까지 조용히 통과해버린다.
+  let target = jobs;
+  const ref = parsed.positionals[0];
+  if (ref) {
+    try {
+      target = [matchJobReference(jobs, ref)];
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+  }
+  const summaries = target.map((job) =>
     toSummary(job, now, isTerminal(job.status) ? [] : store.readLogTail(job.id, 3)),
   );
   const snapshot = buildStatusSnapshot(summaries);
@@ -282,7 +303,7 @@ async function handleCancel(parsed: ParsedArgs): Promise<number> {
   const active = jobs.filter((job) => !isTerminal(job.status));
   try {
     const job = matchJobReference(active, parsed.positionals[0]);
-    const outcome = killJobProcess(job.pid);
+    const outcome = killJobProcess(job);
     store.appendLog(job.id, `취소 요청: ${outcome.detail}`);
     const cancelled = store.update(job.id, {
       status: 'cancelled',

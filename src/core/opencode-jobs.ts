@@ -4,6 +4,8 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -24,8 +26,11 @@ import { defaultProjectKey, expandTilde } from './worklog';
  *   <dir>/jobs/<id>.json      JobRecord 전체 (request / result 포함)
  *   <dir>/jobs/<id>.log       진행 로그 (append-only, "[iso] message")
  *
- * 2단으로 나눈 이유는 `status` 가 잡 목록만 보려고 무거운 payload 를 전부 읽지 않게 하려는 것.
- * 인덱스에서 prune 되어 떨어져 나간 잡은 payload / log 파일도 같이 지운다 (GC 를 저장 경로에 인라인).
+ * 2단으로 나눈 이유는 **정렬 / GC / 복원**이다: 인덱스가 순서(`seq`)와 보관 한도(`maxJobs`)의
+ * 단일 기준점이 되고, prune 되어 떨어져 나간 잡의 payload / log 를 같은 자리에서 지운다.
+ * payload 가 사라진 잡도 인덱스 정보만으로 목록에 남길 수 있다.
+ * (`list()` 는 각 잡의 payload 를 읽는다 — 잡이 최대 50개이고 파일이 작아 실측상 무시할 만하고,
+ * 조회 경로를 둘로 나누면 인덱스가 payload 를 중복해서 들고 있어야 해 오히려 손해다.)
  *
  * 동기 API 인 이유: 소비자가 (a) 짧게 살다 죽는 CLI 서브커맨드와 (b) hook 스크립트뿐이라
  * 비동기로 얻을 이득이 없고, 워커 종료 직전 마지막 기록이 유실되지 않는 편이 중요하다.
@@ -42,6 +47,27 @@ export const MAX_JOBS = 50;
 
 /** 저장 포맷 버전 — 뒤에 모양이 바뀌면 올린다. */
 export const STATE_VERSION = 1;
+
+/** 인덱스 갱신을 프로세스 간 직렬화하는 락 디렉터리 이름 (`mkdir` 원자성 이용). */
+export const STATE_LOCK_DIR = 'state.lock';
+
+/** 락 획득 대기 상한. 넘기면 락 없이 진행한다 (fail-open). */
+const LOCK_WAIT_MS = 3_000;
+
+/** 이보다 오래된 락은 죽은 프로세스가 남긴 것으로 보고 회수한다. */
+const LOCK_STALE_MS = 30_000;
+
+/** 락 재시도 간격. */
+const LOCK_POLL_MS = 5;
+
+/**
+ * 동기 sleep. 락 대기는 반드시 동기여야 한다 — `create` / `update` 는 워커 종료 직전에도
+ * 불리므로 이벤트 루프에 양보하면 마지막 기록이 유실될 수 있다.
+ */
+function sleepSync(ms: number): void {
+  const shared = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(shared, 0, 0, ms);
+}
 
 /**
  * 잡 상태.
@@ -61,7 +87,13 @@ export function isTerminal(status: JobStatus): boolean {
  * 부모는 이 객체를 잡 파일에 써두고 `--job-id` 만 넘긴다 — argv 로 프롬프트를 나르지 않는다.
  */
 export interface JobRequest {
-  /** opencode 에 넘길 프롬프트 본문. 워커가 **stdin 으로** 전달한다. */
+  /**
+   * opencode 에 넘길 프롬프트 본문.
+   *
+   * 실행 시에는 `opencode run` 의 **마지막 positional 인자**로 전달된다 — shell 없이
+   * `spawn(bin, argv)` 로 넘기므로 인용 문제가 생기지 않는다. 워커에게는 argv 가 아니라
+   * **이 잡 파일을 통해** 건네진다 (워커는 `--job-id` 만 받는다).
+   */
   prompt: string;
   /** opencode 가 작업할 디렉터리 (격리 worktree 경로). */
   worktree: string;
@@ -106,6 +138,11 @@ export interface JobRecord {
   request: JobRequest;
   /** 워커 프로세스 pid. `detached` 로 띄우므로 취소는 `kill(-pid)`. */
   pid?: number;
+  /**
+   * opencode 프로세스 pid. 워커와 **별도 프로세스 그룹**이라 워커 그룹만 끊으면 살아남는다 —
+   * 취소 / 세션 정리는 이 그룹도 함께 끊어야 opencode 와 그 도구 프로세스가 확실히 죽는다.
+   */
+  childPid?: number;
   /** 진행 로그 파일 절대 경로. */
   logFile: string;
   /**
@@ -282,14 +319,73 @@ export class JobStore {
     }
   }
 
-  /** 인덱스를 쓰고, 넘치는 잡의 payload / log 를 같이 지운다. */
+  /**
+   * 인덱스 read-modify-write 를 **프로세스 간 직렬화**한다.
+   *
+   * 이게 없으면 부모(잡 생성)와 detached 워커(상태 갱신)가 같은 `state.json` 스냅샷을 읽고
+   * 각자 덮어써 마지막 writer 외의 인덱스 변경이 사라진다. payload 파일은 남는데 인덱스에서만
+   * 빠지므로 `list()` 에 안 보이고 — 그러면 `cancel` / `SessionEnd` 정리가 그 잡을 못 찾아
+   * **opencode 프로세스가 고아로 남는다.** 이건 이론이 아니라 정상 경로다: `task --background`
+   * 직후 부모의 pid 기록과 워커의 running 기록이 곧바로 겹친다.
+   *
+   * 락은 `mkdir` 의 원자성을 쓴다 (`O_EXCL` 과 같은 보장, 의존성 0). 죽은 프로세스가 남긴
+   * 락은 `LOCK_STALE_MS` 를 넘기면 회수하고, 끝내 못 얻으면 **락 없이 진행**한다 — 상태 갱신을
+   * 영구히 막느니 드문 경합을 감수하는 편이 낫다 (fail-open).
+   */
+  private withStateLock<T>(fn: (state: StateFile) => T): T {
+    this.ensureDirs();
+    const lockPath = join(this.dir, STATE_LOCK_DIR);
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    let acquired = false;
+    while (Date.now() < deadline) {
+      try {
+        mkdirSync(lockPath);
+        acquired = true;
+        break;
+      } catch {
+        try {
+          if (Date.now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
+            rmSync(lockPath, { recursive: true, force: true });
+            continue;
+          }
+        } catch {
+          // 락이 방금 사라졌다 — 다음 루프에서 다시 잡아본다.
+          continue;
+        }
+        sleepSync(LOCK_POLL_MS);
+      }
+    }
+    try {
+      return fn(this.readState());
+    } finally {
+      if (acquired) {
+        try {
+          rmSync(lockPath, { recursive: true, force: true });
+        } catch {
+          // 락 해제 실패는 stale 회수로 흡수된다.
+        }
+      }
+    }
+  }
+
+  /**
+   * 인덱스를 쓰고, 넘치는 잡의 payload / log 를 같이 지운다.
+   * **반드시 `withStateLock` 안에서만 호출한다** (락 밖에서 부르면 P1 경합이 되살아난다).
+   */
   private writeState(state: StateFile): void {
     this.ensureDirs();
     const sorted = [...state.jobs].sort(byNewest);
-    const kept = sorted.slice(0, this.maxJobs);
-    for (const dropped of sorted.slice(this.maxJobs)) {
-      this.deleteFiles(dropped.id);
+    // 진행 중인 잡은 한도를 넘겨도 보존한다. 활성 잡의 payload 를 지우면 워커가 완료를
+    // 기록하려 할 때 update() 가 던지고, 사용자는 결과 조회도 취소도 못 하게 된다.
+    const activeCount = sorted.filter((entry) => !isTerminal(entry.status)).length;
+    const terminalBudget = Math.max(0, this.maxJobs - activeCount);
+    const terminal = sorted.filter((entry) => isTerminal(entry.status));
+    const dropped = terminal.slice(terminalBudget); // newest-first 이므로 뒤쪽이 가장 오래된 것
+    const droppedIds = new Set(dropped.map((entry) => entry.id));
+    for (const entry of dropped) {
+      this.deleteFiles(entry.id);
     }
+    const kept = sorted.filter((entry) => !droppedIds.has(entry.id));
     writeAtomic(
       this.statePath,
       JSON.stringify({ version: STATE_VERSION, nextSeq: state.nextSeq, jobs: kept }, null, 2),
@@ -350,27 +446,28 @@ export class JobStore {
   create(input: CreateJobInput): JobRecord {
     const now = new Date().toISOString();
     const id = newJobId();
-    const state = this.readState();
-    const seq = state.nextSeq;
-    state.nextSeq = seq + 1;
-    const job: JobRecord = {
-      id,
-      kind: 'task',
-      title: input.title,
-      status: 'queued',
-      phase: input.phase ?? 'queued',
-      sessionId: input.sessionId,
-      workspaceRoot: input.workspaceRoot,
-      request: input.request,
-      logFile: this.logPath(id),
-      seq,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.writePayload(job);
-    state.jobs.push(this.toIndexEntry(job));
-    this.writeState(state);
-    return job;
+    return this.withStateLock((state) => {
+      const seq = state.nextSeq;
+      state.nextSeq = seq + 1;
+      const job: JobRecord = {
+        id,
+        kind: 'task',
+        title: input.title,
+        status: 'queued',
+        phase: input.phase ?? 'queued',
+        sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot,
+        request: input.request,
+        logFile: this.logPath(id),
+        seq,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.writePayload(job);
+      state.jobs.push(this.toIndexEntry(job));
+      this.writeState(state);
+      return job;
+    });
   }
 
   /** payload 를 읽는다. 없으면 null. */
@@ -397,16 +494,17 @@ export class JobStore {
       throw new Error(`opencode 잡 "${id}" 를 찾을 수 없습니다.`);
     }
     const next: JobRecord = { ...current, ...patch, updatedAt: new Date().toISOString() };
-    this.writePayload(next);
-    const state = this.readState();
-    const idx = state.jobs.findIndex((entry) => entry.id === id);
-    if (idx >= 0) {
-      state.jobs[idx] = this.toIndexEntry(next);
-    } else {
-      state.jobs.push(this.toIndexEntry(next));
-    }
-    this.writeState(state);
-    return next;
+    return this.withStateLock((state) => {
+      this.writePayload(next);
+      const idx = state.jobs.findIndex((entry) => entry.id === id);
+      if (idx >= 0) {
+        state.jobs[idx] = this.toIndexEntry(next);
+      } else {
+        state.jobs.push(this.toIndexEntry(next));
+      }
+      this.writeState(state);
+      return next;
+    });
   }
 
   /** 진행 로그 한 줄 append. 실패해도 던지지 않는다 (로그 때문에 잡이 죽으면 안 된다). */
@@ -432,10 +530,11 @@ export class JobStore {
 
   /** 잡 하나를 인덱스와 파일에서 모두 제거한다. */
   remove(id: string): void {
-    const state = this.readState();
-    state.jobs = state.jobs.filter((entry) => entry.id !== id);
-    this.deleteFiles(id);
-    this.writeState(state);
+    this.withStateLock((state) => {
+      state.jobs = state.jobs.filter((entry) => entry.id !== id);
+      this.deleteFiles(id);
+      this.writeState(state);
+    });
   }
 }
 

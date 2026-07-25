@@ -73,7 +73,7 @@ async function handleEnd(input: SessionHookInput): Promise<void> {
     if (job.sessionId !== sessionId || isTerminal(job.status)) {
       continue;
     }
-    const outcome = killJobProcess(job.pid);
+    const outcome = killJobProcess(job);
     store.appendLog(job.id, `세션 종료로 정리: ${outcome.detail}`);
     store.update(job.id, {
       status: 'cancelled',

@@ -1,6 +1,7 @@
 import {
   type OpencodeExecutor,
   buildRunArgs,
+  killProcessGroup,
   renderRunOutput,
   summarizeRunEvents,
 } from './opencode-cli';
@@ -39,6 +40,12 @@ export async function runJob(
     const result = await executor.run(args, {
       cwd: started.request.worktree,
       timeoutMs: options.timeoutMs,
+      // opencode 는 자체 프로세스 그룹으로 뜨므로 pid 를 즉시 기록해 둬야 `cancel` /
+      // `SessionEnd` 가 워커 그룹과 함께 이 그룹도 끊을 수 있다.
+      onSpawn: (childPid) => {
+        store.update(jobId, { childPid, phase: 'running' });
+        store.appendLog(jobId, `opencode 프로세스 시작 (pid ${childPid})`);
+      },
     });
     const summary = summarizeRunEvents(result.stdout);
     const rendered = renderRunOutput(result, summary);
@@ -74,31 +81,33 @@ export async function runJob(
 }
 
 /**
- * 잡의 워커 프로세스를 죽인다.
+ * 잡에 딸린 프로세스를 모두 죽인다.
  *
- * 워커는 `detached: true` 로 띄웠으므로 자기 자신이 프로세스 그룹 리더다 — `kill(-pid)` 로
- * **그룹 전체**를 끊어야 워커가 띄운 opencode 자식까지 같이 죽는다. `kill(pid)` 만 보내면
- * 워커만 죽고 opencode 는 고아로 계속 돈다. detached spawn 과 이 호출은 한 세트다.
+ * **두 그룹을 끊어야 한다.** 워커는 `detached` 로 떠서 자기 그룹의 리더이고, opencode 는
+ * 타임아웃 때 손자까지 정리하려고 **또 다른** 그룹으로 떨어져 나가 있다. 그래서 워커 그룹만
+ * 끊으면 opencode 가 고아로 남아 worktree 를 계속 건드린다. 두 pid 모두에 그룹 kill 을 보낸다.
  */
 export function killJobProcess(
-  pid: number | undefined,
+  job: { pid?: number; childPid?: number } | number | undefined,
   signal: NodeJS.Signals = 'SIGTERM',
   kill: (target: number, sig: NodeJS.Signals) => void = process.kill,
 ): { killed: boolean; detail: string } {
-  if (!pid || pid <= 0) {
+  const targets = typeof job === 'number' ? { pid: job } : (job ?? {});
+  const parts: string[] = [];
+  let killed = false;
+  for (const [label, pid] of [
+    ['worker', targets.pid],
+    ['opencode', targets.childPid],
+  ] as const) {
+    if (!pid || pid <= 0) {
+      continue;
+    }
+    const outcome = killProcessGroup(pid, signal, kill);
+    killed ||= outcome.killed;
+    parts.push(`${label}: ${outcome.detail}`);
+  }
+  if (parts.length === 0) {
     return { killed: false, detail: '기록된 pid 가 없습니다.' };
   }
-  try {
-    kill(-pid, signal);
-    return { killed: true, detail: `프로세스 그룹 ${pid} 에 ${signal} 전송` };
-  } catch (groupError) {
-    // 그룹이 없으면(워커가 detached 로 안 떴거나 이미 리핑됨) 단일 프로세스로 재시도.
-    try {
-      kill(pid, signal);
-      return { killed: true, detail: `프로세스 ${pid} 에 ${signal} 전송 (그룹 없음)` };
-    } catch {
-      const message = groupError instanceof Error ? groupError.message : String(groupError);
-      return { killed: false, detail: `이미 종료됐거나 죽일 수 없습니다: ${message}` };
-    }
-  }
+  return { killed, detail: parts.join(' / ') };
 }

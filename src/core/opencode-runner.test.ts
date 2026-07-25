@@ -67,6 +67,19 @@ describe('runJob 성공 경로', () => {
     expect(store.get(job.id)?.pid).toBe(process.pid);
   });
 
+  // childPid 를 기록하지 않으면 cancel / SessionEnd 가 opencode 프로세스 그룹을 못 찾는다.
+  it('은 onSpawn 으로 받은 opencode pid 를 잡에 기록한다', async () => {
+    const job = seed();
+    await runJob(store, job.id, {
+      async run(_args, options) {
+        options?.onSpawn?.(31337);
+        return { stdout: '{"type":"text","text":"ok"}', stderr: '', exitCode: 0 };
+      },
+    });
+    expect(store.get(job.id)?.childPid).toBe(31337);
+    expect(store.readLogTail(job.id, 10).join('\n')).toContain('31337');
+  });
+
   it('은 진행 로그를 남긴다', async () => {
     const job = seed();
     await runJob(store, job.id, fake({ stdout: '{"type":"text","text":"ok"}' }));
@@ -133,6 +146,39 @@ describe('killJobProcess', () => {
     expect(seen).toEqual([-4242]);
   });
 
+  // opencode 는 워커와 **별도 프로세스 그룹**으로 뜬다 (타임아웃 때 손자까지 끊으려고).
+  // 워커 그룹만 죽이면 opencode 가 고아로 남아 worktree 를 계속 수정한다.
+  it('은 워커 그룹과 opencode 그룹을 모두 끊는다', () => {
+    const seen: number[] = [];
+    const outcome = killJobProcess({ pid: 100, childPid: 200 }, 'SIGTERM', (target) => {
+      seen.push(target);
+    });
+    expect(outcome.killed).toBe(true);
+    expect(seen).toEqual([-100, -200]);
+    expect(outcome.detail).toContain('worker');
+    expect(outcome.detail).toContain('opencode');
+  });
+
+  it('은 childPid 만 있어도 그 그룹을 끊는다', () => {
+    const seen: number[] = [];
+    killJobProcess({ childPid: 200 }, 'SIGTERM', (target) => {
+      seen.push(target);
+    });
+    expect(seen).toEqual([-200]);
+  });
+
+  it('은 한쪽이 이미 죽어도 다른 쪽을 계속 끊는다', () => {
+    const seen: number[] = [];
+    const outcome = killJobProcess({ pid: 100, childPid: 200 }, 'SIGTERM', (target) => {
+      seen.push(target);
+      if (target === -100 || target === 100) {
+        throw new Error('ESRCH');
+      }
+    });
+    expect(seen).toEqual([-100, 100, -200]);
+    expect(outcome.killed).toBe(true);
+  });
+
   it('은 그룹이 없으면 단일 프로세스로 재시도한다', () => {
     const seen: number[] = [];
     const outcome = killJobProcess(4242, 'SIGTERM', (target) => {
@@ -157,5 +203,6 @@ describe('killJobProcess', () => {
   it('은 pid 가 없으면 아무것도 하지 않는다', () => {
     expect(killJobProcess(undefined).killed).toBe(false);
     expect(killJobProcess(0).killed).toBe(false);
+    expect(killJobProcess({}).killed).toBe(false);
   });
 });

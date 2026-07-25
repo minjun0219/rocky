@@ -19,7 +19,7 @@ bun run "${CLAUDE_PLUGIN_ROOT}/src/opencode-companion.ts" <status|result|cancel>
 
 - `status [id]` — 진행 중 잡(로그 최근 3줄 포함) + 최근 종료 잡.
 - `result [id]` — **종료된** 잡의 최종 출력. 아직 진행 중이면 결과 대신 그 사실을 알린다.
-- `cancel [id]` — 진행 중 잡의 프로세스 그룹을 SIGTERM 으로 끊고 `cancelled` 로 기록.
+- `cancel [id]` — 진행 중 잡의 워커 그룹과 opencode 그룹을 모두 SIGTERM 으로 끊고 `cancelled` 로 기록.
 
 ## 규칙
 

@@ -387,8 +387,9 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **What**: `/rocky:opencode --background` 로 띄운 위임 잡의 수명주기 조회·회수·취소.
   잡을 새로 만들지는 않는다.
 - **동작**: `status` — 진행 중 잡(로그 최근 3줄 포함) + 최근 종료 잡. `result` — **종료된** 잡의
-  최종 출력(진행 중이면 결과 대신 상태를 알린다). `cancel` — 진행 중 잡의 **프로세스 그룹**을
-  SIGTERM 으로 끊고 `cancelled` 로 기록.
+  최종 출력(진행 중이면 결과 대신 상태를 알린다). `cancel` — 진행 중 잡의 **워커 그룹과 opencode 그룹을 모두**
+  SIGTERM 으로 끊고 `cancelled` 로 기록 (opencode 는 타임아웃 시 손자 프로세스까지 정리하려고
+  별도 프로세스 그룹으로 뜨므로, 워커 그룹만 끊으면 고아로 남는다).
 - **잡 참조**: 정확한 id → 유일한 prefix → (생략 시) 최신 1건. prefix 가 여러 잡에 걸리면 조용히
   하나를 고르지 않고 후보를 나열하며 에러를 낸다.
 - **세션 격리**: 기본적으로 **현재 Claude 세션이 만든 잡만** 보인다 (`SessionStart` 훅이 주입한
@@ -396,7 +397,9 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **저장 위치**: `<ROCKY_OPENCODE_JOBS_DIR>` — 미지정 시 프로젝트별
   `~/.config/rocky/jobs/<project-key>` (worklog 와 같은 키 규칙). 인덱스 `state.json` +
   잡별 `jobs/<id>.json` payload + `jobs/<id>.log` 진행 로그. `opencode.maxJobs`(기본 50) 초과분은
-  파일까지 함께 정리된다.
+  파일까지 함께 정리되지만 **진행 중인 잡은 한도를 넘겨도 보존**한다 (활성 잡의 payload 를 지우면
+  워커가 완료를 기록하지 못해 결과 조회·취소가 모두 막힌다). 인덱스 갱신은 `state.lock` 으로
+  프로세스 간 직렬화된다 — 없으면 동시에 만든 잡이 인덱스에서 유실돼 고아 프로세스가 생긴다.
 - **Related config**: `ROCKY_OPENCODE_JOBS_DIR`, `ROCKY_OPENCODE_CLI`, `ROCKY_OPENCODE_TIMEOUT_MS`,
   `rocky.json` 의 `opencode.*`.
 - **Hosts**: Claude Code plugin 만 (MCP 도구 아님 — 도구 표면 불변).

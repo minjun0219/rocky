@@ -123,21 +123,70 @@ describe('JobStore 로그', () => {
 });
 
 describe('JobStore.prune', () => {
-  it('은 maxJobs 를 넘는 오래된 잡과 그 파일을 지운다', () => {
-    const small = new JobStore({ dir, maxJobs: 2 });
-    const a = small.create({
-      title: 'a',
+  function make(store: JobStore, title: string) {
+    return store.create({
+      title,
       workspaceRoot: '/r',
-      request: { prompt: 'a', worktree: '/r' },
+      request: { prompt: title, worktree: '/r' },
     });
+  }
+
+  it('은 maxJobs 를 넘는 오래된 **종료된** 잡과 그 파일을 지운다', () => {
+    const small = new JobStore({ dir, maxJobs: 2 });
+    const a = make(small, 'a');
     small.appendLog(a.id, 'x');
-    small.create({ title: 'b', workspaceRoot: '/r', request: { prompt: 'b', worktree: '/r' } });
-    small.create({ title: 'c', workspaceRoot: '/r', request: { prompt: 'c', worktree: '/r' } });
+    small.update(a.id, { status: 'completed' });
+    const b = make(small, 'b');
+    small.update(b.id, { status: 'completed' });
+    const c = make(small, 'c');
+    small.update(c.id, { status: 'completed' });
 
     expect(small.list()).toHaveLength(2);
     expect(small.get(a.id)).toBeNull();
     expect(existsSync(join(dir, 'jobs', `${a.id}.json`))).toBe(false);
     expect(existsSync(join(dir, 'jobs', `${a.id}.log`))).toBe(false);
+  });
+
+  // 활성 잡을 지우면 워커가 완료를 기록할 때 update() 가 던지고, 사용자는 결과 조회도
+  // 취소도 못 하며 SessionEnd 도 그 프로세스를 못 찾는다 (고아 opencode).
+  it('은 진행 중인 잡을 한도를 넘겨도 보존한다', () => {
+    const small = new JobStore({ dir, maxJobs: 1 });
+    const a = make(small, 'a');
+    small.update(a.id, { status: 'running', pid: 111 });
+    const b = make(small, 'b');
+    small.update(b.id, { status: 'running', pid: 222 });
+
+    const ids = small.list().map((job) => job.id);
+    expect(ids).toContain(a.id);
+    expect(ids).toContain(b.id);
+    expect(small.get(a.id)?.pid).toBe(111);
+  });
+
+  it('은 활성 잡이 한도를 채우면 종료된 잡부터 비운다', () => {
+    const small = new JobStore({ dir, maxJobs: 2 });
+    const done = make(small, 'done');
+    small.update(done.id, { status: 'completed' });
+    const r1 = make(small, 'r1');
+    small.update(r1.id, { status: 'running' });
+    const r2 = make(small, 'r2');
+    small.update(r2.id, { status: 'running' });
+
+    const ids = small.list().map((job) => job.id);
+    expect(ids).toContain(r1.id);
+    expect(ids).toContain(r2.id);
+    expect(ids).not.toContain(done.id);
+  });
+
+  it('은 queued 잡도 활성으로 보고 보존한다', () => {
+    const small = new JobStore({ dir, maxJobs: 1 });
+    const a = make(small, 'a');
+    const b = make(small, 'b');
+    expect(
+      small
+        .list()
+        .map((job) => job.id)
+        .sort(),
+    ).toEqual([a.id, b.id].sort());
   });
 });
 

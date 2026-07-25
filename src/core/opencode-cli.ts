@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import type { JobRequest } from './opencode-jobs';
 
 /**
@@ -19,9 +20,51 @@ export interface OpencodeRunResult {
   exitCode: number;
 }
 
+/** 실행 옵션. */
+export interface OpencodeRunOptions {
+  cwd?: string;
+  timeoutMs?: number;
+  /**
+   * opencode 프로세스가 뜨는 즉시 그 pid 를 알린다.
+   *
+   * 호출자(runJob)가 이 pid 를 잡에 기록해야 `cancel` / `SessionEnd` 가 opencode 를 정확히
+   * 끊을 수 있다 — opencode 는 자체 프로세스 그룹으로 떨어져 나가므로 워커 그룹을 끊는 것만으로는
+   * 닿지 않는다.
+   */
+  onSpawn?: (pid: number) => void;
+}
+
 /** spawn 을 추상화한 실행기. 테스트는 이 인터페이스를 fake 로 구현한다. */
 export interface OpencodeExecutor {
-  run(args: string[], options?: { cwd?: string; timeoutMs?: number }): Promise<OpencodeRunResult>;
+  run(args: string[], options?: OpencodeRunOptions): Promise<OpencodeRunResult>;
+}
+
+/**
+ * 프로세스 **그룹** 전체에 신호를 보낸다 (`kill(-pid)`).
+ *
+ * 단일 pid 만 죽이면 그 프로세스가 띄운 자식들이 살아남는다 — opencode 는 `bash` 같은 도구
+ * 프로세스를 띄우므로, 그것들이 남으면 실패를 보고한 뒤에도 worktree 를 계속 수정할 수 있다.
+ * worktree 격리가 유일한 봉쇄 수단인 설계에서 이건 치명적이라 항상 그룹 단위로 끊는다.
+ *
+ * 그룹이 없으면(detached 로 안 떴거나 이미 리핑됨) 단일 프로세스로 재시도한다.
+ */
+export function killProcessGroup(
+  pid: number,
+  signal: NodeJS.Signals = 'SIGTERM',
+  kill: (target: number, sig: NodeJS.Signals) => void = process.kill,
+): { killed: boolean; detail: string } {
+  try {
+    kill(-pid, signal);
+    return { killed: true, detail: `프로세스 그룹 ${pid} 에 ${signal} 전송` };
+  } catch (groupError) {
+    try {
+      kill(pid, signal);
+      return { killed: true, detail: `프로세스 ${pid} 에 ${signal} 전송 (그룹 없음)` };
+    } catch {
+      const message = groupError instanceof Error ? groupError.message : String(groupError);
+      return { killed: false, detail: `이미 종료됐거나 죽일 수 없습니다: ${message}` };
+    }
+  }
 }
 
 export const OPENCODE_DEFAULT_BIN = 'opencode';
@@ -103,37 +146,65 @@ export function opencodeTimeoutMs(env: NodeJS.ProcessEnv = process.env): number 
 }
 
 /**
- * Bun.spawn 백엔드.
+ * `node:child_process` 백엔드.
  *
- * 타임아웃은 AbortSignal 대신 **hard-timeout race** 로 건다: `signal` 은 SIGTERM 만 보내므로
- * 자식이 무시하거나 손자가 stdout 파이프를 상속하면 스트림이 EOF 를 못 받아 매달린다.
- * 타임아웃이 이기면 SIGKILL 로 확실히 끊는다. (`notion-cli.ts` 와 같은 이유·같은 처방.)
+ * `Bun.spawn` 이 아니라 node API 를 쓰는 이유는 **`detached`** 때문이다. opencode 를 자체
+ * 프로세스 그룹의 리더로 띄워야 타임아웃 시 `kill(-pid)` 로 opencode 가 만든 도구 프로세스
+ * (`bash` 등)까지 한 번에 끊을 수 있다. 단일 pid 만 죽이면 손자들이 살아남아, 잡이 `failed` 로
+ * 기록된 뒤에도 worktree 를 계속 건드린다.
+ *
+ * 그 대가로 opencode 는 더 이상 워커의 프로세스 그룹에 속하지 않는다 — 그래서 실행 즉시
+ * `onSpawn` 으로 pid 를 넘겨 잡에 기록하고, `cancel` / `SessionEnd` 가 **워커 그룹과 opencode
+ * 그룹을 모두** 끊도록 한다.
+ *
+ * 타임아웃은 AbortSignal 이 아니라 직접 건다: `signal` 은 SIGTERM 만 보내므로 자식이 이를
+ * 무시하면 그대로 매달린다.
  */
 export function createOpencodeExecutor(bin: string = opencodeBin()): OpencodeExecutor {
   return {
-    async run(args, options) {
-      const proc = Bun.spawn([bin, ...args], {
-        cwd: options?.cwd,
-        stdin: 'ignore',
-        stdout: 'pipe',
-        stderr: 'pipe',
+    run(args, options) {
+      return new Promise<OpencodeRunResult>((resolve, reject) => {
+        const child = spawn(bin, args, {
+          cwd: options?.cwd,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
+        });
+        if (child.pid) {
+          options?.onSpawn?.(child.pid);
+        }
+
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr?.on('data', (chunk) => {
+          stderr += chunk;
+        });
+
+        const timeoutMs = options?.timeoutMs ?? opencodeTimeoutMs();
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          if (child.pid) {
+            killProcessGroup(child.pid, 'SIGKILL');
+          }
+          reject(new Error(`opencode 실행이 ${timeoutMs}ms 안에 끝나지 않아 중단했습니다.`));
+        }, timeoutMs);
+
+        child.on('error', (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child.on('close', (code, signal) => {
+          clearTimeout(timer);
+          if (timedOut) {
+            return; // 이미 reject 했다.
+          }
+          // 신호로 죽었으면 exit code 가 null 이다 — 성공(0)으로 오해하지 않게 별도 코드를 준다.
+          resolve({ stdout, stderr, exitCode: code ?? (signal ? 137 : 0) });
+        });
       });
-      const timeoutMs = options?.timeoutMs ?? opencodeTimeoutMs();
-      const timedOut = Symbol('opencode-timeout');
-      const collect = (async (): Promise<OpencodeRunResult> => {
-        const [stdout, stderr, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-          proc.exited,
-        ]);
-        return { stdout, stderr, exitCode };
-      })();
-      const winner = await Promise.race([collect, Bun.sleep(timeoutMs).then(() => timedOut)]);
-      if (winner === timedOut) {
-        proc.kill('SIGKILL');
-        throw new Error(`opencode 실행이 ${timeoutMs}ms 안에 끝나지 않아 중단했습니다.`);
-      }
-      return winner as OpencodeRunResult;
     },
   };
 }
