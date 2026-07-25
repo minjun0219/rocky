@@ -4,7 +4,7 @@
   "owner": {
     "name": "Minjun Kim"
   },
-  "description": "Marketplace serving the rocky Claude Code plugin — this repo is both the marketplace and the plugin source (source: \"./\").",
+  "description": "Marketplace serving rocky and its companion rocky-todo Claude Code plugins. rocky is this repo (source \"./\"); rocky-todo is served from its own repo (github source).",
   "plugins": [
     {
       "name": "rocky",
@@ -13,6 +13,17 @@
         "name": "Minjun Kim"
       },
       "description": "7 openapi_* tools (cache-first OpenAPI / Swagger spec inspection, endpoint search, tag list) + seo_validate + notion_* (ntn CLI-gated) + worklog_* (append-only local JSONL worklog, auto turn capture via Stop hook). Slash commands: /finish, /recall, /codex, /opencode, /issue, /soul."
+    },
+    {
+      "name": "rocky-todo",
+      "source": {
+        "source": "github",
+        "repo": "minjun0219/rocky-todo"
+      },
+      "author": {
+        "name": "Minjun Kim"
+      },
+      "description": "공유 todo/스크래치패드 상주 데몬 + 웹 UI + streamable HTTP MCP(5 도구) + CLI. 설치=활성화(SessionStart 훅이 데몬 기동). rocky 동반 플러그인 — dependencies:[\"rocky\"] 로 자동 동반. 별도 레포 minjun0219/rocky-todo 에서 서빙."
     }
   ]
 }
