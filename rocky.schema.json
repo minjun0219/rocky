@@ -131,6 +131,33 @@
       },
       "additionalProperties": false
     },
+    "opencode": {
+      "type": "object",
+      "description": "Settings for the /rocky:opencode delegation runtime (background jobs). Consumed by the slash commands + companion script, not by any MCP tool.",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "잡 상태 저장 디렉터리. Defaults to a per-project path under ~/.config/rocky/jobs/<project-key>. ROCKY_OPENCODE_JOBS_DIR wins."
+        },
+        "maxJobs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "보관할 최대 잡 수 (기본 50). 넘치면 오래된 것부터 payload/log 파일까지 지운다."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "기본 위임 모델 (provider/model). 명시 권장 — 미지정 시 opencode 가 '마지막에 쓴 모델'로 조용히 폴백한다."
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "기본 opencode agent 이름. 미지정 시 write 권한이 있는 build 로 폴백한다."
+        }
+      },
+      "additionalProperties": false
+    },
     "todo": {
       "type": "object",
       "description": "Companion plugin rocky-todo's settings (separate repo minjun0219/rocky-todo). rocky.json is shared across the rocky ecosystem, so rocky tolerates this key but does not consume it — the rocky-todo daemon reads it. See that plugin for the full shape (port / dir / expose / watch).",
