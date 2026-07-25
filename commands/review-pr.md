@@ -39,18 +39,30 @@ git branch --show-current
 
 ### 1. 리뷰 수집
 
+0단계에서 확인한 값을 먼저 변수로 잡는다 (플레이스홀더를 손으로 채우지 않는다).
+
 ```bash
-gh api graphql -f query='
-query($owner:String!, $repo:String!, $num:Int!) {
+OWNER=$(gh repo view --json owner --jq .owner.login)
+REPO=$(gh repo view --json name --jq .name)
+NUM=$(gh pr view $ARGUMENTS --json number --jq .number)
+
+gh api graphql -f owner="$OWNER" -f repo="$REPO" -F num="$NUM" -f query='
+query($owner:String!, $repo:String!, $num:Int!, $after:String) {
   repository(owner:$owner, name:$repo) { pullRequest(number:$num) {
-    reviewThreads(first:100){nodes{
-      id isResolved isOutdated path line
-      comments(first:10){nodes{author{login} body diffHunk}}
-    }}
+    reviewThreads(first:100, after:$after){
+      pageInfo{ hasNextPage endCursor }
+      nodes{
+        id isResolved isOutdated path line
+        comments(first:10){nodes{author{login} body diffHunk}}
+      }
+    }
   }}
-}' -f owner=<owner> -f repo=<repo> -F num=<번호>
+}'
 ```
 
+- **페이지네이션 필수.** `pageInfo.hasNextPage` 가 `true` 면 `-f after="<endCursor>"` 를 붙여 다음
+  페이지를 이어서 조회하고, `false` 가 될 때까지 반복해 전부 모은다. 한 페이지만 보고 판단하면
+  스레드가 100개를 넘는 PR 에서 남은 미해결을 놓친 채 "미해결 0" 으로 오판해 조기 종료한다.
 - `isResolved: false` 인 스레드만 대상으로 삼는다.
 - `isOutdated` 는 참고 정보로만 쓴다 — 자동 제외하지 않는다. 코드가 옮겨졌을 뿐 지적이 유효할
   수 있다.
