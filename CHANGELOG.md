@@ -1,5 +1,26 @@
 # @minjun0219/rocky
 
+## 0.17.0
+
+### Minor Changes
+
+- [#107](https://github.com/minjun0219/rocky/pull/107) [`efab755`](https://github.com/minjun0219/rocky/commit/efab75579b221dc87780c3265589c3da14c27ecf) Thanks [@minjun0219](https://github.com/minjun0219)! - opencode 위임 런타임 추가 — `/rocky:opencode` 백그라운드 실행 + `/rocky:opencode-jobs`
+
+  `/rocky:opencode` 의 dispatch 를 companion 런타임(`src/opencode-companion.ts`)이 맡는다. 프롬프트를
+  `--prompt-file` 로 넘겨 셸 인용 문제를 없애고, `--format json` NDJSON 을 파싱해 최종 텍스트와
+  opencode 세션 id 를 뽑는다. `--background` 를 붙이면 자기 자신을 detached `job-worker` 로 재실행해
+  즉시 잡 id 를 돌려주고, 잡 조회·회수·취소는 새 커맨드 `/rocky:opencode-jobs` 가 담당한다.
+
+  - 잡 상태는 `~/.config/rocky/jobs/<project-key>` 에 인덱스 + payload + 진행 로그로 저장
+    (`ROCKY_OPENCODE_JOBS_DIR` / `rocky.json` 의 `opencode.dir`, `opencode.maxJobs` 기본 50)
+  - `SessionStart`/`SessionEnd` 훅이 세션 id 를 주입해 잡을 세션별로 격리하고, 세션 종료 시
+    진행 중이던 워커의 프로세스 그룹을 정리한다 (잡 기록은 보존)
+  - 취소는 `kill(-pid)` 로 프로세스 그룹 전체를 끊어 opencode 자식까지 함께 종료
+  - `rocky.json` 에 `opencode` 블록 추가 (`dir` / `maxJobs` / `model` / `agent`)
+  - MCP 도구 표면은 변경 없음 — Codex / opencode 호스트에 영향 없다
+
+- [#108](https://github.com/minjun0219/rocky/pull/108) [`83c9777`](https://github.com/minjun0219/rocky/commit/83c9777a55de5aad5f3eca10aff10d0134e3276f) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-pr` 슬래시 커맨드 추가 — PR 에 붙은 리뷰(Copilot / Codex / 사람)를 미해결 0 까지 처리한다. 수집 → 분류 → 수정 + 게이트 → 라운드당 커밋 1개 푸시 → resolve → 재리뷰 대기를 반복하고, 판단이 갈리는 지적은 보류 큐에 모아 수렴 후 사용자와 상의해 승인된 반론만 코멘트 + resolve 한다. 미해결 0 + checks 통과 시 머지 가능 알림을 보내며, 머지 자체는 하지 않는다. `/rocky:finish` 의 후속 안내도 이 커맨드로 교체.
+
 ## 0.16.0
 
 ### Minor Changes
