@@ -93,7 +93,7 @@ gh pr create --base main --head <브랜치> --title "<Conventional 한국어 제
 ### 7. 마무리 & 다음 단계
 
 - 생성된 PR URL 을 출력한다.
-- 이어서 CI 실패·리뷰 코멘트 자동 반영까지 맡기려면 Claude Code 빌트인 `/autofix-pr` 을 안내한다 (PR 브랜치를 체크아웃한 상태에서 실행해야 한다 — main 에서는 실행 거부됨).
+- 이어서 리뷰 대응까지 맡기려면 `/rocky:review-pr` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람)를 미해결 0 까지 처리하고 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
 
 ## 실패 / 예외 처리
 
