@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -9,7 +10,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { appendFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { defaultProjectKey, expandTilde } from './worklog';
@@ -428,7 +428,9 @@ export class JobStore {
       phase: entry.phase,
       sessionId: entry.sessionId,
       workspaceRoot: entry.workspaceRoot,
-      request: { prompt: '', worktree: entry.workspaceRoot },
+      // payload 가 없으면 worktree 를 알 수 없다. `workspaceRoot`(레포 루트)로 대신 채우면
+      // 개념이 다른 경로를 사실인 양 보여주게 되므로 빈 값을 두고 렌더러가 "알 수 없음" 으로 표시한다.
+      request: { prompt: '', worktree: '' },
       logFile: this.logPath(entry.id),
       seq: entry.seq,
       createdAt: entry.createdAt,

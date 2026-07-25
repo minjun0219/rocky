@@ -81,6 +81,16 @@ describe('JobStore.list', () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]?.id).toBe(job.id);
   });
+
+  // workspaceRoot(레포 루트)와 worktree(격리 디렉터리)는 다른 개념이다 —
+  // 모르는 값을 레포 루트로 채워 사실인 양 보여주면 안 된다.
+  it('은 payload 가 없으면 worktree 를 지어내지 않는다', () => {
+    const job = seed('a');
+    unlinkSync(join(dir, 'jobs', `${job.id}.json`));
+    const listed = store.list();
+    expect(listed[0]?.request.worktree).toBe('');
+    expect(listed[0]?.request.worktree).not.toBe('/repo');
+  });
 });
 
 describe('JobStore.update', () => {

@@ -131,6 +131,20 @@ describe('runJob 실패 경로', () => {
     expect(done.completedAt).toBeTruthy();
   });
 
+  // 에러 이벤트 수는 opencode 가 정하므로 상한이 없다 — 로그가 무한정 커지면 안 된다.
+  it('은 에러 이벤트가 많아도 로그를 제한한다', async () => {
+    const job = seed();
+    const many = Array.from(
+      { length: 60 },
+      (_, i) => `{"type":"error","error":{"message":"e${i}"}}`,
+    ).join('\n');
+    await runJob(store, job.id, fake({ stdout: many }));
+    const log = store.readLogTail(job.id, 200);
+    const errorLines = log.filter((line) => line.includes('error: '));
+    expect(errorLines.length).toBeLessThanOrEqual(21);
+    expect(log.join('\n')).toContain('생략');
+  });
+
   it('은 없는 잡에 대해서만 던진다', async () => {
     await expect(runJob(store, 'oc-nope', fake({}))).rejects.toThrow(/oc-nope/);
   });

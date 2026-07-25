@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { JobRecord } from './opencode-jobs';
 import {
+  UNKNOWN_WORKTREE,
   buildStatusSnapshot,
   elapsedMs,
   formatDuration,
@@ -145,5 +146,22 @@ describe('renderResult', () => {
 
   it('은 실패 사유를 함께 보여준다', () => {
     expect(renderResult(job({ status: 'failed', errorMessage: '터짐' }), NOW)).toContain('터짐');
+  });
+
+  it('은 worktree 를 모르면 빈 값 대신 알 수 없음으로 표시한다', () => {
+    const lost = job({ request: { prompt: '', worktree: '' } });
+    expect(renderResult(lost, NOW)).toContain(UNKNOWN_WORKTREE);
+    expect(renderResult(lost, NOW)).not.toContain('worktree: \n');
+  });
+});
+
+describe('toSummary', () => {
+  it('은 worktree 가 비면 알 수 없음으로 채운다', () => {
+    const lost = job({ request: { prompt: '', worktree: '' } });
+    expect(toSummary(lost, NOW).worktree).toBe(UNKNOWN_WORKTREE);
+  });
+
+  it('은 worktree 가 있으면 그대로 쓴다', () => {
+    expect(toSummary(job(), NOW).worktree).toBe('/repo/wt');
   });
 });

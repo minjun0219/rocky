@@ -7,6 +7,9 @@ import {
 } from './opencode-cli';
 import type { JobRecord, JobStore } from './opencode-jobs';
 
+/** 진행 로그에 남길 에러 이벤트 최대 개수. 나머지는 건수만 요약한다. */
+const MAX_LOGGED_ERRORS = 20;
+
 /**
  * 잡 하나를 실제로 실행한다 — foreground 실행과 detached 워커가 **같은 코드**를 쓴다.
  * 두 실행 모드는 "누가 이 함수를 부르는가" 만 다르고 잡 기록 / 로그 / 상태 전이는 동일하다.
@@ -49,8 +52,12 @@ export async function runJob(
     });
     const summary = summarizeRunEvents(result.stdout);
     const rendered = renderRunOutput(result, summary);
-    for (const error of summary.errors) {
+    // 에러 이벤트 수는 opencode 가 정하므로 상한이 없다 — 로그가 무한정 커지지 않게 앞부분만 남긴다.
+    for (const error of summary.errors.slice(0, MAX_LOGGED_ERRORS)) {
       store.appendLog(jobId, `error: ${error}`);
+    }
+    if (summary.errors.length > MAX_LOGGED_ERRORS) {
+      store.appendLog(jobId, `error: ... 외 ${summary.errors.length - MAX_LOGGED_ERRORS}건 생략`);
     }
 
     // 종료 코드가 0 이어도 스트림에 에러 이벤트가 있으면 실패로 본다 — opencode 가 모델 오류를

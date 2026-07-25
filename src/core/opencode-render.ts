@@ -8,6 +8,9 @@ import { type JobRecord, isTerminal } from './opencode-jobs';
  * 같은 스냅샷 구조를 공유해야 둘이 어긋나지 않는다.
  */
 
+/** payload 가 소실돼 worktree 를 알 수 없을 때 표시할 값. */
+export const UNKNOWN_WORKTREE = '(알 수 없음)';
+
 /** `status` 가 만드는 스냅샷 — `--json` 출력이 이 모양 그대로 나간다. */
 export interface StatusSnapshot {
   running: JobSummary[];
@@ -67,7 +70,8 @@ export function toSummary(job: JobRecord, now: Date, logTail: string[] = []): Jo
     status: job.status,
     phase: job.phase,
     elapsedMs: elapsedMs(job, now),
-    worktree: job.request.worktree,
+    // payload 가 사라진 잡은 worktree 를 알 수 없다 — 빈 값을 그대로 노출하지 않는다.
+    worktree: job.request.worktree || UNKNOWN_WORKTREE,
     branch: job.request.branch,
     logTail,
     errorMessage: job.errorMessage,
@@ -148,7 +152,7 @@ export function renderResult(job: JobRecord, now: Date): string {
     elapsedMs(job, now),
   )})`;
   const body = job.result?.trim();
-  const lines = [header, `worktree: ${job.request.worktree}`];
+  const lines = [header, `worktree: ${job.request.worktree || UNKNOWN_WORKTREE}`];
   if (job.sessionRef) {
     lines.push(`opencode session: ${job.sessionRef} (이어가려면 --session ${job.sessionRef})`);
   }

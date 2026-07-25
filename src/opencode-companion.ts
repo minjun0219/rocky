@@ -184,15 +184,30 @@ async function handleTask(parsed: ParsedArgs): Promise<number> {
 
   if (parsed.flags.background === true) {
     const pid = spawnWorker(cwd, job.id);
+    // pid 가 없으면 워커가 뜨지 못한 것이다. 이걸 성공처럼 보고하면 잡이 영원히 queued 로
+    // 남아 사용자는 "시작됨" 만 보고 기다리게 된다 — 실패로 못박고 사유를 남긴다.
+    if (!pid) {
+      const failed = store.update(job.id, {
+        status: 'failed',
+        phase: 'done',
+        errorMessage: '백그라운드 워커를 띄우지 못했습니다 (pid 없음).',
+        completedAt: new Date().toISOString(),
+      });
+      store.appendLog(job.id, '백그라운드 워커 spawn 실패 (pid 없음)');
+      process.stderr.write(`백그라운드 워커를 띄우지 못했습니다: ${job.id}\n`);
+      output(failed, renderResult(failed, new Date()), parsed.flags.json === true);
+      return 1;
+    }
     const queued = store.update(job.id, { pid, phase: 'queued' });
     store.appendLog(job.id, `백그라운드 워커 spawn (pid ${pid})`);
+    const jobsCommand = `/rocky:opencode-jobs`;
     output(
       queued,
       [
         `백그라운드 잡 시작: ${job.id}`,
         `worktree: ${worktree}`,
-        `진행 확인: opencode-companion status ${job.id}`,
-        `결과 확인: opencode-companion result ${job.id}`,
+        `진행 확인: ${jobsCommand} status ${job.id}`,
+        `결과 확인: ${jobsCommand} result ${job.id}`,
       ].join('\n'),
       parsed.flags.json === true,
     );
@@ -321,7 +336,10 @@ async function handleCancel(parsed: ParsedArgs): Promise<number> {
 
 const USAGE = `rocky opencode companion — /rocky:opencode 위임 런타임
 
-  check                                  opencode CLI 사용 가능 여부
+실행: bun run "\${CLAUDE_PLUGIN_ROOT}/src/opencode-companion.ts" <서브커맨드> [옵션]
+(사용자는 보통 이걸 직접 부르지 않는다 — /rocky:opencode 와 /rocky:opencode-jobs 가 감싼다)
+
+  check                                opencode CLI 사용 가능 여부
   task --worktree <path> [옵션] <prompt>  위임 실행 (기본 foreground)
   status [job-ref]                       진행 중 / 최근 잡
   result [job-ref]                       종료된 잡의 최종 출력
