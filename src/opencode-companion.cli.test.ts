@@ -134,7 +134,7 @@ describe('task', () => {
 
 describe('status [job-ref]', () => {
   it('은 job-ref 를 주면 그 잡만 보여준다', async () => {
-    const first = await seedJob('첫째 작업');
+    await seedJob('첫째 작업');
     const second = await seedJob('둘째 작업');
 
     const all = await run(['status']);
