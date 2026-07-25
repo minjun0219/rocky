@@ -292,7 +292,7 @@ opencode mcp add rocky
 
 ## Claude Code 커맨드
 
-MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/rocky:finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/rocky:recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/rocky:codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/rocky:opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음). `/rocky:issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/rocky:finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/rocky:recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 감시·리뷰 반영은 Claude Code **빌트인 `/autofix-pr`** 에 위임한다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/rocky:codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/rocky:opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음) — v0.17 부터 dispatch 를 companion 런타임(`src/opencode-companion.ts`)이 맡아 `--background` 위임이 가능해졌고, 그렇게 띄운 잡의 조회·회수·취소는 짝 커맨드 `/rocky:opencode-jobs` 가 담당한다. `/rocky:issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.
 
 ### `/rocky:finish [힌트]`
 
@@ -339,6 +339,19 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **Related config**: `ROCKY_WORKLOG_AUTO_CAPTURE`, `rocky.json` 의 `worklog.autoCapture` / `worklog.captureMaxChars`.
 - **Hosts**: Claude Code plugin 만.
 
+### `SessionStart` / `SessionEnd` — opencode 위임 잡 세션 배선
+
+- **What**: `SessionStart` 는 `CLAUDE_ENV_FILE` 에 `ROCKY_SESSION_ID` 를 export 로 append 해,
+  이후 슬래시 커맨드의 Bash 호출이 만드는 위임 잡에 세션 id 가 박히게 한다 —
+  `/rocky:opencode-jobs` 가 **다른 세션의 잡을 건드리지 않게** 하는 근거다.
+  `SessionEnd` 는 이 세션이 띄운 진행 중 잡의 프로세스 그룹을 끊어 고아 워커를 막는다.
+- **matcher 없음(의도적)**: 소울 주입 훅과 달리 source 를 가리지 않는다. `resume` 에서 주입이
+  빠지면 재개된 세션의 잡이 전부 필터에서 새어 나가기 때문이다.
+- **Side effects**: env 파일 append + 진행 중 잡 SIGTERM. **잡 기록은 지우지 않는다**(사후 추적용,
+  오래된 것은 `opencode.maxJobs` prune 이 정리). 어떤 실패도 세션을 막지 않는다(fail-open).
+- **Related config**: `ROCKY_OPENCODE_JOBS_DIR`, `rocky.json` 의 `opencode.dir` / `opencode.maxJobs`.
+- **Hosts**: Claude Code plugin 만.
+
 ### `/rocky:codex <task>`
 
 - **What**: task 하나를 **Codex(`codex exec`)에 구현자로 위임**하고, Claude 가 **감독자**로서
@@ -362,6 +375,34 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `hooks/hook
 - **하지 않는 것**: 자동 병합·자동 push·PR 없음(승인 하 병합만, 이어서 `/rocky:finish`).
   Claude 가 구현 코드를 직접 쓰지 않음(위임·게이트·판정만).
 - **전제**: `opencode` CLI 설치(`opencode run` 지원), 워킹 트리 clean.
+- **위임 실행**: v0.17 부터 dispatch 는 companion 런타임(`src/opencode-companion.ts`)이 맡는다.
+  프롬프트는 `--prompt-file` 로 넘겨 셸 인용 문제를 피하고, 출력은 `--format json` NDJSON 을
+  파싱해 최종 텍스트 + opencode 세션 id 를 뽑는다. `--background` 를 붙이면 detached 워커로
+  띄우고 즉시 잡 id 를 돌려준다 (진행/회수는 `/rocky:opencode-jobs`).
+- **모델 명시 권장**: `rocky.json` 의 `opencode.model` 도 `--model` 도 없으면 opencode 는
+  "마지막에 쓴 모델" 로 조용히 폴백해 위임 결과가 재현되지 않는다.
+
+### `/rocky:opencode-jobs [status|result|cancel] [job-id]`
+
+- **What**: `/rocky:opencode --background` 로 띄운 위임 잡의 수명주기 조회·회수·취소.
+  잡을 새로 만들지는 않는다.
+- **동작**: `status` — 진행 중 잡(로그 최근 3줄 포함) + 최근 종료 잡. `result` — **종료된** 잡의
+  최종 출력(진행 중이면 결과 대신 상태를 알린다). `cancel` — 진행 중 잡의 **워커 그룹과 opencode 그룹을 모두**
+  SIGTERM 으로 끊고 `cancelled` 로 기록 (opencode 는 타임아웃 시 손자 프로세스까지 정리하려고
+  별도 프로세스 그룹으로 뜨므로, 워커 그룹만 끊으면 고아로 남는다).
+- **잡 참조**: 정확한 id → 유일한 prefix → (생략 시) 최신 1건. prefix 가 여러 잡에 걸리면 조용히
+  하나를 고르지 않고 후보를 나열하며 에러를 낸다.
+- **세션 격리**: 기본적으로 **현재 Claude 세션이 만든 잡만** 보인다 (`SessionStart` 훅이 주입한
+  `ROCKY_SESSION_ID` 기준). `--all` 로 전체 조회 가능.
+- **저장 위치**: `<ROCKY_OPENCODE_JOBS_DIR>` — 미지정 시 프로젝트별
+  `~/.config/rocky/jobs/<project-key>` (worklog 와 같은 키 규칙). 인덱스 `state.json` +
+  잡별 `jobs/<id>.json` payload + `jobs/<id>.log` 진행 로그. `opencode.maxJobs`(기본 50) 초과분은
+  파일까지 함께 정리되지만 **진행 중인 잡은 한도를 넘겨도 보존**한다 (활성 잡의 payload 를 지우면
+  워커가 완료를 기록하지 못해 결과 조회·취소가 모두 막힌다). 인덱스 갱신은 `state.lock` 으로
+  프로세스 간 직렬화된다 — 없으면 동시에 만든 잡이 인덱스에서 유실돼 고아 프로세스가 생긴다.
+- **Related config**: `ROCKY_OPENCODE_JOBS_DIR`, `ROCKY_OPENCODE_CLI`, `ROCKY_OPENCODE_TIMEOUT_MS`,
+  `rocky.json` 의 `opencode.*`.
+- **Hosts**: Claude Code plugin 만 (MCP 도구 아님 — 도구 표면 불변).
 
 ### `/rocky:issue [아이디어/버그 한 줄]`
 
@@ -418,7 +459,7 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `skills/` �
 
 ## 환경 변수
 
-`ROCKY_*` 변수는 **전체 표면 서버 진입점 (`src/index.ts`) 전용** — 이를 실행하는 모든 호스트(Claude Code plugin / Codex / opencode)에 적용되고, standalone `openapi-mcp` CLI 는 인지하지 않는다 (CLI 는 `openapi-mcp.json` config 파일 + XDG 표준 변수만 본다). **예외: `ROCKY_WORKLOG_AUTO_CAPTURE`** 는 서버가 아니라 Claude Code plugin 의 `Stop` hook (`src/hooks/log-turn.ts`)에서만 읽히므로 Claude Code 전용이다 (Codex/opencode 에는 훅이 없어 설정해도 무효).
+`ROCKY_*` 변수는 **전체 표면 서버 진입점 (`src/index.ts`) 전용** — 이를 실행하는 모든 호스트(Claude Code plugin / Codex / opencode)에 적용되고, standalone `openapi-mcp` CLI 는 인지하지 않는다 (CLI 는 `openapi-mcp.json` config 파일 + XDG 표준 변수만 본다). **예외**: 아래 표에서 적용 host 가 "Claude Code plugin" 인 변수들은 서버가 아니라 plugin 의 hook / companion 스크립트에서만 읽히므로 Claude Code 전용이다 (Codex/opencode 에는 이 훅·커맨드가 없어 설정해도 무효) — `ROCKY_WORKLOG_AUTO_CAPTURE`(`Stop` hook)와 `ROCKY_SESSION_ID` / `ROCKY_OPENCODE_*`(`/rocky:opencode` 위임 런타임)가 여기 해당한다.
 
 | 변수 | 기본값 | 적용 host | 영향 |
 | --- | --- | --- | --- |
@@ -434,6 +475,10 @@ MCP tool · 슬래시 커맨드와 별개로, Claude Code plugin 은 `skills/` �
 | `ROCKY_NOTION_CACHE_TTL` | `86400` (초, 24h) | 전체 표면 서버 | Notion 캐시 entry TTL 기본값. |
 | `ROCKY_WORKLOG_DIR` | `~/.config/rocky/worklog/<project-key>` | 전체 표면 서버 | 워크로그 JSONL 저장 디렉터리. 지정 시 프로젝트별 기본 경로 대신 이 값을 verbatim 사용. `rocky.json` 의 `worklog.dir` 보다 우선. |
 | `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` (on) | Claude Code plugin (`Stop` hook) | `Stop` hook 의 턴 자동 기록 on/off. `0` / `false` / `off` / `no` 값만 비활성, 그 외는 활성. `rocky.json` 의 `worklog.autoCapture` 보다 우선. |
+| `ROCKY_SESSION_ID` | (unset) | Claude Code plugin (`SessionStart` hook 주입) | 현재 Claude 세션 id. 위임 잡에 박혀 `/rocky:opencode-jobs` 의 세션 격리 기준이 된다. 직접 설정할 일은 없다. |
+| `ROCKY_OPENCODE_JOBS_DIR` | `~/.config/rocky/jobs/<project-key>` | Claude Code plugin (companion) | 위임 잡 상태 저장 디렉터리. 지정 시 verbatim 사용하며 `rocky.json` 의 `opencode.dir` 보다 우선. |
+| `ROCKY_OPENCODE_CLI` | `opencode` | Claude Code plugin (companion) | opencode CLI 바이너리 이름 / 경로. |
+| `ROCKY_OPENCODE_TIMEOUT_MS` | `1800000` (ms, 30분) | Claude Code plugin (companion) | 위임 1회의 hard timeout. 초과 시 SIGKILL 후 잡을 `failed` 로 기록. |
 | `XDG_CONFIG_HOME` | `~/.config` | standalone CLI | `openapi-mcp.json` 기본 검색 경로의 prefix. |
 | `XDG_CACHE_HOME` | `~/.cache` | standalone CLI | 디스크 캐시 디렉토리의 prefix (`openapi-mcp.json` 의 `cache.diskCachePath` 가 우선). |
 
@@ -469,6 +514,11 @@ standalone CLI 는 위 XDG 변수에 추가로 `openapi-mcp` CLI flag (`--config
     "captureMaxChars": 800,
     "digestThreshold": 40
   },
+  "opencode": {
+    "model": "anthropic/claude-sonnet-5",
+    "agent": "build",
+    "maxJobs": 50
+  },
   "todo": {
     "port": 8636,
     "dir": "~/.config/rocky/todo"
@@ -481,11 +531,12 @@ standalone CLI 는 위 XDG 변수에 추가로 `openapi-mcp` CLI flag (`--config
 - 핸들 규칙: `host:env:spec`. 각 식별자는 `^[a-zA-Z0-9_-]+$` — 콜론은 separator 예약.
 - `seo` (옵션): `seo_validate` 도구 기본값. `allowPrivateHosts` (boolean, 기본 false) / `timeoutMs` (1..30000). 두 값 모두 도구 호출 인자가 우선. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
 - `worklog` (옵션, v0.9 에서 `journal` 개명): `worklog_*` 기록 저장 위치(`dir`, env `ROCKY_WORKLOG_DIR` 가 우선), `Stop` hook 자동 기록 on/off(`autoCapture`, 기본 true, env `ROCKY_WORKLOG_AUTO_CAPTURE` 가 우선) + turn 항목 truncate 길이(`captureMaxChars`, 기본 800), `/rocky:recall` 의 Haiku↔Sonnet 임계(`digestThreshold`, 기본 40). 더 이상 `wikiDir` 는 없다 — 정리 결과는 워크로그 자체의 `kind:"digest"` 항목으로 남는다. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
+- `opencode` (옵션, v0.17): `/rocky:opencode` 위임 런타임 설정. 잡 저장 위치(`dir`, env `ROCKY_OPENCODE_JOBS_DIR` 가 우선), 보관 잡 수(`maxJobs`, 기본 50), 기본 위임 모델(`model`, `provider/model`), 기본 agent(`agent`). **`model` 명시를 권장** — 없으면 opencode 가 "마지막에 쓴 모델" 로 조용히 폴백해 위임이 재현되지 않는다. MCP 도구가 아니라 슬래시 커맨드 + companion 스크립트가 소비하므로 이 블록이 비어도 도구 표면은 달라지지 않는다. plugin 전용이며 단독 CLI 는 이 키를 읽지 않는다.
 - `todo` (옵션): **rocky-todo 동반 플러그인**(별도 레포 `minjun0219/rocky-todo`)의 설정 블록. rocky 본체는 이 키를 **관용만** 하고(파싱/검증/소비하지 않음 — 공유 rocky.json 이라 거부하지 않을 뿐) 실제 소비는 rocky-todo 데몬 몫이다. 키 모양(`port` / `dir` / `expose` / `watch`)은 그 레포 문서 참고.
 - leaf 는 string (URL only) 또는 object (`{ url, baseUrl?, format? }`). `baseUrl` 은 `openapi_endpoint` 의 `fullUrl` 합성에 사용. `format` 은 `openapi3` / `swagger2` / `auto` (기본 auto).
 - project (`./rocky.json`) 가 user (`~/.config/rocky/rocky.json`) 를 leaf 단위로 덮어쓴다.
 
-미지원 top-level 키는 즉시 reject 된다 (`$schema` / `soul` / `callsign` / `openapi` / `seo` / `worklog` / `todo` 만 허용 — `rocky.schema.json` 최상위 `additionalProperties:false` 와 런타임 `validateConfig` 둘 다 강제) — 오타 가드. 새 도메인이 재추가될 때는 이 허용 목록과 스키마를 함께 갱신해야 한다.
+미지원 top-level 키는 즉시 reject 된다 (`$schema` / `soul` / `callsign` / `openapi` / `seo` / `worklog` / `opencode` / `todo` 만 허용 — `rocky.schema.json` 최상위 `additionalProperties:false` 와 런타임 `validateConfig` 둘 다 강제) — 오타 가드. 새 도메인이 재추가될 때는 이 허용 목록과 스키마를 함께 갱신해야 한다.
 
 ### `openapi-mcp.json` (단독 CLI)
 

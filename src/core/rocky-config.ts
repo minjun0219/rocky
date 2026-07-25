@@ -108,6 +108,27 @@ export interface RockyConfig {
   };
   seo?: SeoConfig;
   worklog?: WorklogConfig;
+  opencode?: OpencodeConfig;
+}
+
+/**
+ * `/rocky:opencode` 위임 런타임 설정.
+ *
+ * MCP 도구가 아니라 슬래시 커맨드 + companion 스크립트가 소비한다 — 그래서 이 블록이
+ * 비어 있어도 rocky 의 도구 표면은 전혀 달라지지 않는다.
+ */
+export interface OpencodeConfig {
+  /** 잡 상태 저장 디렉터리. 미지정 시 프로젝트별 기본 경로(`~/.config/rocky/jobs/<key>`). */
+  dir?: string;
+  /** 보관할 최대 잡 수 (기본 50). 넘치면 오래된 것부터 파일까지 지운다. */
+  maxJobs?: number;
+  /**
+   * 기본 위임 모델 (`provider/model`). **명시를 권장** — 미지정 시 opencode 는
+   * "마지막에 쓴 모델" 로 조용히 폴백해 위임 결과가 재현되지 않는다.
+   */
+  model?: string;
+  /** 기본 opencode agent 이름. 미지정 시 opencode 가 write 권한 있는 `build` 로 폴백한다. */
+  agent?: string;
 }
 
 export interface LoadConfigOptions {
@@ -189,6 +210,9 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.worklog !== undefined) {
     validateWorklog(config.worklog, source);
   }
+  if (config.opencode !== undefined) {
+    validateOpencode(config.opencode, source);
+  }
   if (config.soul !== undefined) {
     validateSoul(config.soul, source);
   }
@@ -211,6 +235,7 @@ const ALLOWED_TOP_KEYS = new Set([
   'openapi',
   'seo',
   'worklog',
+  'opencode',
   'todo',
 ]);
 
@@ -274,6 +299,37 @@ function validateWorklog(worklog: unknown, source: string): void {
     if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 1)) {
       throw new Error(`${source}: worklog.${key} must be a positive integer`);
     }
+  }
+}
+
+/** `opencode` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
+const ALLOWED_OPENCODE_KEYS = new Set(['dir', 'maxJobs', 'model', 'agent']);
+
+/**
+ * `opencode` 객체 모양 검증. `/rocky:opencode` 위임 런타임 설정 — 미지원 key 는 reject.
+ * 기본값 적용은 소비 지점(companion 스크립트) 몫이라 여기서는 타입 / 범위만 본다.
+ */
+function validateOpencode(opencode: unknown, source: string): void {
+  if (opencode === null || typeof opencode !== 'object' || Array.isArray(opencode)) {
+    throw new Error(`${source}: opencode must be an object`);
+  }
+  const obj = opencode as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!ALLOWED_OPENCODE_KEYS.has(key)) {
+      throw new Error(`${source}: opencode: unknown key "${key}"`);
+    }
+  }
+  for (const key of ['dir', 'model', 'agent'] as const) {
+    const v = obj[key];
+    if (v !== undefined && (typeof v !== 'string' || v.trim().length === 0)) {
+      throw new Error(`${source}: opencode.${key} must be a non-empty string`);
+    }
+  }
+  if (
+    obj.maxJobs !== undefined &&
+    (typeof obj.maxJobs !== 'number' || !Number.isInteger(obj.maxJobs) || obj.maxJobs < 1)
+  ) {
+    throw new Error(`${source}: opencode.maxJobs must be a positive integer`);
   }
 }
 
@@ -460,6 +516,10 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   // worklog 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
   if (project.worklog) {
     out.worklog = { ...out.worklog, ...project.worklog };
+  }
+  // opencode 도 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
+  if (project.opencode) {
+    out.opencode = { ...out.opencode, ...project.opencode };
   }
   // soul / callsign 은 스칼라 — project 가 있으면 user 를 덮어쓴다.
   if (project.soul !== undefined) {

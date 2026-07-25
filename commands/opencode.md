@@ -1,6 +1,6 @@
 ---
 description: task 하나를 opencode(opencode run)에 위임해 격리된 git worktree 에서 구현시키고, Claude 가 게이트·MCP 도구 표면·diff 스코프를 감시해 rocky(Claude Code) 플러그인 동작을 깨지 않는지 검증한 뒤에만 현재 브랜치로 병합한다. 자동 병합·자동 push 없음.
-argument-hint: "<opencode 에게 맡길 구현 task>"
+argument-hint: "<opencode 에게 맡길 구현 task> [--background]"
 allowed-tools: Bash(opencode:*), Bash(git:*), Bash(bun:*), Bash(which:*), Read, Grep, Glob
 ---
 
@@ -31,7 +31,7 @@ rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 ope
 ```bash
 git rev-parse --abbrev-ref HEAD        # 현재 브랜치 확인
 git status --porcelain                 # 워킹 트리 clean 확인 (더러우면 먼저 정리 안내 후 멈춤)
-which opencode && opencode --version   # opencode CLI 존재 확인 (없으면 설치 안내 후 멈춤)
+bun run "${CLAUDE_PLUGIN_ROOT}/src/opencode-companion.ts" check   # opencode CLI 확인 (없으면 안내 후 멈춤)
 ```
 
 - 워킹 트리가 더러우면(커밋 안 된 변경) 병합 시 충돌·혼선이 나므로, 먼저 커밋/스태시하라고
@@ -45,22 +45,36 @@ git worktree add "$WT" -b "opencode/<slug>"
 
 ### 2. opencode 에 위임 (dispatch)
 
-가드레일을 담은 프롬프트로 opencode 를 비대화형 실행한다. `$ARGUMENTS` 변수를 통해 태스크를 전달한다.
-opencode 에는 `--output-last-message` 등가물이 없으므로 stdout/stderr 를 파일로 캡처한다:
+가드레일 프롬프트를 파일로 쓴 뒤 companion 런타임에 넘긴다. 프롬프트를 셸 인자로 조립하지
+않는 이유는 멀티라인/따옴표에서 곧바로 깨지기 때문이다 — `--prompt-file` 이 유일하게 안전한 경로다.
 
 ```bash
-opencode run --dir "$WT" --auto \
-  "너는 rocky 레포에서 한 task 를 구현하는 구현자다. 다음 불변식을 반드시 지켜라:
-   (1) rocky 의 MCP 도구 표면(도구 개수/이름)을 바꾸지 마라 — src/index.ts 의 registerTool 목록 불변.
-   (2) 게이트를 통과시켜라: bun run check && bun run typecheck && bun test 가 모두 green.
-   (3) 요청 스코프 밖 파일(특히 런타임 TS/plugin.json/package.json)을 건드리지 마라.
-   (4) 사용자 표면을 바꾸면 FEATURES.md(한글)와 AGENTS.md(영문)를 lockstep 으로 동기화하라.
-   (5) 커밋하지 마라 — 변경만 워킹 트리에 남겨라(감독자 Claude 가 검토 후 병합한다).
-   TASK: $ARGUMENTS" > "$WT/.opencode-last.txt" 2>&1
+cat > "$WT/.rocky-task.md" <<'PROMPT'
+너는 rocky 레포에서 한 task 를 구현하는 구현자다. 다음 불변식을 반드시 지켜라:
+(1) rocky 의 MCP 도구 표면(도구 개수/이름)을 바꾸지 마라 — src/index.ts 의 registerTool 목록 불변.
+(2) 게이트를 통과시켜라: bun run check && bun run typecheck && bun test 가 모두 green.
+(3) 요청 스코프 밖 파일(특히 런타임 TS/plugin.json/package.json)을 건드리지 마라.
+(4) 사용자 표면을 바꾸면 FEATURES.md(한글)와 AGENTS.md(영문)를 lockstep 으로 동기화하라.
+(5) 커밋하지 마라 — 변경만 워킹 트리에 남겨라(감독자 Claude 가 검토 후 병합한다).
+PROMPT
+# TASK 본문은 heredoc 밖에서 덧붙인다 ($ARGUMENTS 가 heredoc 안에서 확장되지 않게)
+printf '\nTASK: %s\n' "$ARGUMENTS" >> "$WT/.rocky-task.md"
+
+bun run "${CLAUDE_PLUGIN_ROOT}/src/opencode-companion.ts" task \
+  --worktree "$WT" --branch "opencode/<slug>" --auto \
+  --prompt-file "$WT/.rocky-task.md"
 ```
 
-- `--dir "$WT"` 로 worktree 를 작업 디렉터리로, `--auto` 로 권한 자동 승인. `.opencode-last.txt`(최종
-  출력)와 종료 코드를 확인한다. 비정상 종료면 로그를 인용하고 worktree 를 남긴 채 사용자에게 보고한다.
+- 기본은 **foreground** — 끝날 때까지 기다렸다가 최종 출력을 그대로 받는다.
+- 사용자가 `--background` 를 요청했으면 위 명령에 `--background` 를 붙인다. 즉시 잡 id 가 돌아오고,
+  이후 진행/회수는 `/rocky:opencode-jobs status|result <id>` 로 한다. **잡이 끝나기 전에는 3단계
+  감시를 시작하지 마라** — 아직 파일이 쓰이는 중일 수 있다.
+- **모델을 명시하라.** `rocky.json` 의 `opencode.model` 이 없고 `--model` 도 안 주면 opencode 는
+  "마지막에 쓴 모델" 로 조용히 폴백해 위임 결과가 재현되지 않는다. 사용자가 모델을 지정하지
+  않았고 config 에도 없으면 그 사실을 먼저 알리고 진행 여부를 묻는다.
+- 이미 `opencode serve` 가 떠 있으면 `--attach <url>` 을 붙인다 — 콜드 스타트로 도는 `opencode run`
+  이 MCP 부팅 때문에 수 분간 무출력으로 매달리는 사례가 실측됐다.
+- 실패로 끝나면(비정상 종료 / 에러 이벤트) 로그를 인용하고 worktree 를 남긴 채 사용자에게 보고한다.
 
 ### 3. 감시 (supervise)
 
@@ -81,7 +95,7 @@ bun test                               # src/index.test.ts 표면 가드 포함
 - [ ] `src/index.test.ts` 통과 → MCP 도구 표면(개수/이름/누수 가드) 무결.
 - [ ] `git diff` 에 `.claude-plugin/plugin.json` `mcpServers` 파손 없음, 예상 밖 런타임 코드
       변경 없음.
-- [ ] diff 파일 집합이 요청 task 스코프에 한정. (`.opencode-last.txt` 는 커밋 전에 지운다.)
+- [ ] diff 파일 집합이 요청 task 스코프에 한정. (`.rocky-task.md` 는 커밋 전에 지운다.)
 
 ### 4. 판정 & 병합 / 에스컬레이션
 
@@ -91,7 +105,7 @@ bun test                               # src/index.test.ts 표면 가드 포함
 
   ```bash
   # (사용자 승인 후) 임시 캡처 파일 정리 + worktree 에서 opencode 변경을 커밋
-  git -C "$WT" clean -fq -- .opencode-last.txt   # untracked 캡처 파일 제거 (rm 불필요 → allowed-tools 의 git 만 사용)
+  git -C "$WT" clean -fq -- .rocky-task.md   # untracked 프롬프트 파일 제거 (rm 불필요 → allowed-tools 의 git 만 사용)
   git -C "$WT" add -A
   git -C "$WT" commit -m "<한국어 커밋 제목>"
   # 메인 worktree 경로를 git 으로 계산해(OLDPWD/cwd 비의존) 그쪽에서 squash 병합
@@ -104,9 +118,9 @@ bun test                               # src/index.test.ts 표면 가드 포함
   git -C "$MAIN" branch -D "opencode/<slug>"
   ```
 - **하나라도 실패** → 무엇을 깼는지(게이트/표면/스코프)를 로그 인용과 함께 보고하고
-  **병합하지 않는다.** 선택지: (a) 가드레일을 보강해 같은 worktree 에서 opencode 재위임
-  (`opencode run --dir "$WT" -c --auto ...` 로 직전 세션 이어가기 또는 새 프롬프트), (b) worktree
-  폐기 후 사용자 에스컬레이션.
+  **병합하지 않는다.** 선택지: (a) 가드레일을 보강해 같은 worktree 에서 재위임 — 직전 opencode
+  세션을 이어가려면 `result` 가 알려준 세션 id 로 `... task --worktree "$WT" --session <id>
+  --prompt-file <새 프롬프트>` (id 를 모르면 `--continue`), (b) worktree 폐기 후 사용자 에스컬레이션.
 
   ```bash
   # 폐기할 때 (메인 worktree 에서 실행 — OLDPWD/cwd 비의존)
