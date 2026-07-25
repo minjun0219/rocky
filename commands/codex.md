@@ -31,7 +31,7 @@ rocky 플러그인 동작을 깨지 않는지 검증한다. `$ARGUMENTS` 는 Cod
 5. **Codex 출력을 진실로 옮기지 않는다.** 최종 메시지는 참고일 뿐이고, 실제 변경은 `git diff` 로
    내가 직접 확인한 뒤에만 보고한다. 실패했거나 미완이면 그대로 말한다.
 6. **자동 병합·push 없음.** 감시 통과 후 diff 를 사용자에게 제시하고 승인 하에만 병합한다.
-   원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/finish`).
+   원격 push / PR 은 이 커맨드가 하지 않는다(필요하면 이어서 `/rocky:finish`).
 7. **샌드박스 제한.** `-s workspace-write`(worktree 범위)로만 실행한다.
    `danger-full-access` / `--dangerously-bypass-approvals-and-sandbox` 는 쓰지 않는다.
    쓰기 범위는 `-C` 로 한정하고, 정말 필요할 때만 최소한의 `--add-dir` 로 넓힌다.

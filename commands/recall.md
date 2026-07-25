@@ -57,7 +57,7 @@ worklog_status
 ```
 worklog_append { kind: "digest", content: "<앵커 다이제스트>", tags: ["digest"] }
 ```
-- 이 엔트리 timestamp 가 다음 `/recall` 의 `since` 기준점.
+- 이 엔트리 timestamp 가 다음 `/rocky:recall` 의 `since` 기준점.
 
 ### 5. 마무리
 
