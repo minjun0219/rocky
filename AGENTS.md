@@ -25,9 +25,9 @@ Two entry points:
 All openapi handlers live once in `src/core/handlers.ts` so the two entry points can't drift.
 
 **Claude Code-only surfaces** (not MCP tools, invisible to Codex/opencode): slash commands in
-`commands/`, hooks in `hooks/`, bundled skills in `skills/`, souls in `souls/`, statusline templates in
-`statusline/`, and the opencode delegation runtime (`src/opencode-companion.ts`). This is a wiring
-choice, not a host limitation — see `docs/architecture.md`.
+`commands/`, hooks in `hooks/`, bundled skills in `skills/`, souls in `souls/`, and statusline
+templates in `statusline/`. This is a wiring choice, not a host limitation — see
+`docs/architecture.md`.
 
 > **Scope framing — read before calling a request out-of-scope.** rocky is a personal plugin, not an
 > OpenAPI-scoped product. The current surface is today's baseline, **not a ceiling**. When the owner
@@ -44,8 +44,8 @@ rocky/                          single package — @minjun0219/rocky
 ├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with src/core/rocky-config.ts
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
 ├── commands/                   ★ slash commands — brainstorm, review, finish, review-pr, recall,
-│                                 codex, opencode, opencode-jobs, issue, soul, statusline
-├── hooks/hooks.json            ★ SessionStart ×3 (inject-soul / sync-statusline / session-jobs)
+│                                 codex, issue, soul, statusline
+├── hooks/hooks.json            ★ SessionStart ×2 (inject-soul / sync-statusline)
 │                                 + Stop (log-turn). Matchers differ per hook — check before editing.
 ├── skills/                     ★ bundled skills — writing-cc-plugin, todoist
 ├── souls/                      ★ preset personas (rocky / senior / terse); custom → ~/.config/rocky/souls/
@@ -57,8 +57,7 @@ rocky/                          single package — @minjun0219/rocky
     ├── index.ts                ★ plugin entry — MCP registration only; logic lives in ./core
     ├── index.test.ts           surface guard: base 12 tools (+4 notion_* when ntn), REMOVED_TOOLS leak check
     ├── standalone.ts           standalone stdio MCP — 7 openapi tools + SpecRegistry
-    ├── opencode-companion.ts   ★ /rocky:opencode delegation CLI (check/task/job-worker/status/result/cancel)
-    ├── hooks/                  hook entries — inject-soul, sync-statusline, log-turn, session-jobs,
+    ├── hooks/                  hook entries — inject-soul, sync-statusline, log-turn,
     │                           transcript (pure parser). All fail-open.
     └── core/                   shared implementation (barrel: index.ts)
         ├── handlers.ts         ★ the 7 openapi handlers — single source for both entry points
@@ -67,8 +66,6 @@ rocky/                          single package — @minjun0219/rocky
         ├── notion:  notion-cli (ntn delegation), notion-cache, notion-chunking, notion-diff,
         │            notion-handlers
         ├── worklog: worklog (append-only JSONL), worklog-handlers
-        ├── opencode: opencode-jobs (file store + state.lock), opencode-cli (argv/NDJSON/spawn),
-        │            opencode-runner, opencode-render
         ├── rocky-config.ts     `rocky.json` loader (project > user)
         ├── seo-validate.ts     seo_validate core + handler (ogpeek, SSRF guard)
         ├── soul.ts / statusline.ts   pure + DI; consumed by hooks and slash commands
@@ -90,6 +87,9 @@ and the Claude Code-only surfaces. Mechanism details are in `FEATURES.md`; ratio
 - The old native `@opencode-ai/plugin` surface — once kept in-tree under `.archive/`, now removed
   (recover from git history if ever needed). Current opencode support is stdio MCP registration and
   is **not** a revival of it.
+- The `/rocky:opencode` delegation runtime (`opencode-companion.ts`, `opencode-{jobs,cli,runner,render}.ts`,
+  the `session-jobs` hook, the `opencode` config block). Removed in v0.19 — 1,737 LOC that had run a
+  single job. Codex delegation (`/rocky:codex`) stays. Recover from git history if it earns its place.
 - Anything rocky-todo (daemon / web UI / CLI / hooks / tools) — separate repo `minjun0219/rocky-todo`.
   `rocky.json` still **tolerates** a `todo` block because the file is shared; rocky just ignores it.
 - Exposing worklog digests as MCP tools (`wiki_*`), worklog in the standalone CLI, auto-promotion into

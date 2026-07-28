@@ -128,6 +128,12 @@ describe('validateConfig', () => {
     );
   });
 
+  it('rejects the opencode key — 위임 런타임과 함께 걷어냈다', () => {
+    expect(() => validateConfig({ opencode: { model: 'x/y' } } as any, 'test')).toThrow(
+      /unknown top-level key "opencode"/,
+    );
+  });
+
   it('accepts a valid soul name', () => {
     expect(validateConfig({ soul: 'rocky' }, 'test')).toEqual({ soul: 'rocky' });
   });

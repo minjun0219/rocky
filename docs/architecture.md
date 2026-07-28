@@ -1,8 +1,25 @@
 # Architecture notes
 
 Design rationale that is **not** derivable from reading the code. Load this on demand — `AGENTS.md`
-stays short and points here. If you are touching opencode delegation, worklog, notion, souls, or the
-statusline, read the matching section first.
+stays short and points here. If you are touching worklog, notion, souls, or the statusline, read the
+matching section first.
+
+## MCP tools are nearly free in context — do not "slim the surface" to save tokens
+
+Claude Code's [Tool Search](https://code.claude.com/docs/ko/mcp#scale-with-mcp-tool-search) is **on by
+default**: at session start only tool *names* and server instructions load; a tool's full definition
+enters context when the model calls `ToolSearch` for it. rocky's 16 tool definitions are ~9,000
+characters, but the standing cost is 16 names — roughly 200 tokens.
+
+This was measured the hard way in 2026-07: a slimming pass got as far as deleting the entire MCP
+surface on the premise that it cost ~2,900 tokens per session, then reverted. If you propose removing
+tools, the argument must be **maintenance cost or absence of real use** — never context savings.
+(Tool Search is off under a non-first-party `ANTHROPIC_BASE_URL`, on Bedrock / Vertex / Foundry, or
+with `ENABLE_TOOL_SEARCH=false`. rocky's owner runs none of those.)
+
+What *does* cost context on every session is the `SessionStart` soul injection — measured at 1,310
+characters (≈400-600 tokens), re-injected on `clear` and `compact`. That is the surface to trim if
+the session budget ever matters.
 
 ## Host support: what is a rocky choice vs a host limitation
 
@@ -40,41 +57,6 @@ same policy as the `gh`-based slash commands.
 
 This shape — external CLI delegation instead of in-process auth — is the **template for any future
 auth-bearing domain**. Inject the executor via `buildServer({ notionCli })` so tests can fake it.
-
-## opencode delegation runtime (v0.17)
-
-### No broker, deliberately
-
-Unlike `codex app-server`, `opencode run` is one-shot. The entire broker / endpoint / PID layer that
-the official Codex plugin needs is unnecessary here. Do not add one.
-
-### `node:child_process`, not `Bun.spawn`
-
-`detached` support is required, and this single choice is what makes the process-group kill below
-work: opencode must be the leader of its own process group.
-
-### Kill **both** process groups
-
-`cancel` and `SessionEnd` must `kill(-pid)` the worker group **and** the opencode group. opencode
-sets itself `detached` so it can reap its own grandchildren (`bash`, …) on timeout — so killing only
-the worker group never reaches it. This is why a job record stores both the worker `pid` and the
-opencode `childPid`.
-
-### `state.lock` serializes the index
-
-The job index read-modify-write is serialized across processes via `state.lock` (mkdir atomicity).
-Without it, the parent's job creation and the worker's status update overwrite the same snapshot:
-**measured 6 of 8 concurrent jobs lost from the index**, each leaving an orphaned opencode process.
-
-### prune only terminated jobs
-
-Pruning an active job means its worker can never record completion.
-
-### IPC
-
-The job file is the **only** parent ↔ detached-worker channel. Prompts are passed via `--prompt-file`
-(avoids shell quoting); output is `--format json` NDJSON, parsed leniently for the final text plus
-the opencode session id.
 
 ## souls & statusline
 
@@ -135,7 +117,8 @@ template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped t
 - **v0.16** — `/rocky:codex` became self-contained; the `delegating-to-codex` skill was removed because
   the official `openai/codex-plugin-cc` plugin now covers general Codex delegation. rocky's remaining
   value there is worktree isolation + the plugin-surface integrity check.
-- **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks).
+- **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks). **Removed in
+  v0.19** — 1,737 LOC that ran a single job across its whole life; `/rocky:codex` covers delegation.
 - **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
   2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
   todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.
