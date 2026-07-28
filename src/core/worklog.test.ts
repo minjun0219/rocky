@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -7,6 +8,7 @@ import {
   createWorklogFromEnv,
   defaultProjectKey,
   expandTilde,
+  resolveRepoRoot,
   WORKLOG_FILE,
 } from './worklog';
 import {
@@ -279,15 +281,64 @@ describe('createWorklogFromEnv', () => {
 });
 
 describe('defaultProjectKey', () => {
+  /** git 이 아닌 디렉터리 — 실제 `git` 을 타지 않게 항상 null 을 돌려준다. */
+  const noGit = () => null;
+
   it('is a stable sanitized-basename + short hash', () => {
-    const a = defaultProjectKey('/Users/x/my project!/app');
-    const b = defaultProjectKey('/Users/x/my project!/app');
+    const a = defaultProjectKey('/Users/x/my project!/app', noGit);
+    const b = defaultProjectKey('/Users/x/my project!/app', noGit);
     expect(a).toBe(b);
     expect(a).toMatch(/^app-[0-9a-f]{8}$/);
   });
 
   it('distinguishes same basename under different paths', () => {
-    expect(defaultProjectKey('/a/app')).not.toBe(defaultProjectKey('/b/app'));
+    expect(defaultProjectKey('/a/app', noGit)).not.toBe(defaultProjectKey('/b/app', noGit));
+  });
+
+  it('folds a worktree onto its main workspace', () => {
+    // linked worktree 안에서도 --git-common-dir 은 주 워크트리의 .git 을 가리킨다.
+    const git = () => '/ws/my-repo/.git';
+    const fromWorktree = defaultProjectKey('/orca/workspaces/my-repo/eelpout', git);
+    const fromMain = defaultProjectKey('/ws/my-repo', () => '.git');
+    expect(fromWorktree).toBe(fromMain);
+    // 키는 worktree 이름(eelpout)이 아니라 레포 이름을 쓴다.
+    expect(fromWorktree).toMatch(/^my-repo-[0-9a-f]{8}$/);
+  });
+
+  it('falls back to cwd outside a git repo', () => {
+    expect(defaultProjectKey('/tmp/scratch', noGit)).toMatch(/^scratch-[0-9a-f]{8}$/);
+  });
+
+  it('uses the common dir itself when it is not named .git (separate-git-dir / bare)', () => {
+    const key = defaultProjectKey('/ws/app', () => '/elsewhere/store/app.git');
+    expect(key).toMatch(/^app-git-[0-9a-f]{8}$/);
+    // 같은 store 를 공유하는 다른 cwd 라면 같은 키여야 한다.
+    expect(defaultProjectKey('/ws/app-wt', () => '/elsewhere/store/app.git')).toBe(key);
+  });
+});
+
+describe('resolveRepoRoot — 실제 git worktree', () => {
+  it('worktree 와 원본이 같은 레포 루트로 접힌다', () => {
+    const root = mkdtempSync(join(tmpdir(), 'rocky-wt-'));
+    const repo = join(root, 'main-repo');
+    mkdirSync(repo, { recursive: true });
+    const run = (args: string[], cwd: string) =>
+      spawnSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+    run(['init', '-q', '-b', 'main'], repo);
+    run(['config', 'user.email', 't@example.com'], repo);
+    run(['config', 'user.name', 'T'], repo);
+    writeFileSync(join(repo, 'f.txt'), 'hi\n', 'utf8');
+    run(['add', '.'], repo);
+    run(['commit', '-qm', 'init'], repo);
+
+    const wt = join(root, 'eelpout');
+    const added = run(['worktree', 'add', '-q', '-b', 'feat', wt], repo);
+    expect(added.status).toBe(0);
+
+    // realpath 로 정규화 — macOS 의 /var → /private/var 심볼릭 링크 때문.
+    expect(realpathSync(resolveRepoRoot(wt))).toBe(realpathSync(repo));
+    expect(defaultProjectKey(wt)).toBe(defaultProjectKey(repo));
   });
 });
 

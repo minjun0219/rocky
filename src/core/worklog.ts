@@ -1,8 +1,9 @@
+import { spawnSync } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { appendFile, mkdir, open, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { resolveCacheKey } from './notion-cache';
 
 /**
@@ -20,7 +21,8 @@ import { resolveCacheKey } from './notion-cache';
  *   <baseDir>/worklog.jsonl   각 줄이 하나의 WorklogEntry
  *
  * baseDir 기본값은 `~/.config/rocky/worklog/<project-key>` — 프로젝트별로 격리한다
- * (cwd basename + cwd 절대경로 sha1 앞 8자). `ROCKY_WORKLOG_DIR` 로 통째로 덮어쓴다.
+ * (레포 루트 basename + 그 절대경로 sha1 앞 8자). git worktree 는 원본 워크스페이스와
+ * 같은 키로 접힌다 — `defaultProjectKey` 참고. `ROCKY_WORKLOG_DIR` 로 통째로 덮어쓴다.
  *
  * 동시 쓰기:
  *   `appendFile` 는 append 모드로 기록하지만, 라인 단위 비-interleaving 이 항상
@@ -36,12 +38,74 @@ export const DEFAULT_WORKLOG_ROOT = join(homedir(), '.config', 'rocky', 'worklog
 export const WORKLOG_FILE = 'worklog.jsonl';
 
 /**
- * cwd 로부터 프로젝트별 디렉터리 키를 만든다.
- * `<sanitized-basename>-<sha1(absolute cwd) 앞 8자>` — 이름 충돌(같은 basename 의 서로
- * 다른 경로)을 hash 로 가른다.
+ * cwd 가 속한 git 레포의 **주 워크트리 루트**를 돌려준다. git 레포가 아니면 cwd 자체.
+ *
+ * `git rev-parse --git-common-dir` 는 linked worktree 안에서도 **주 워크트리의** `.git`
+ * 을 가리킨다 — 이 성질 덕에 worktree 와 원본이 같은 루트로 접힌다. 본체에서는 상대
+ * 경로(`.git`)가 나오므로 cwd 기준으로 resolve 한다.
+ *
+ * `--separate-git-dir` / bare 처럼 common dir 의 이름이 `.git` 이 아닌 배치에서는 부모를
+ * 취하는 게 틀릴 수 있어, 그때는 common dir 자체를 식별자로 쓴다 (여전히 worktree 간
+ * 일치한다는 성질은 유지된다).
  */
-export function defaultProjectKey(cwd: string = process.cwd()): string {
-  const root = resolve(cwd);
+export function resolveRepoRoot(cwd: string = process.cwd(), git: GitCommonDir = gitCommonDir) {
+  const common = git(cwd);
+  if (!common) {
+    return canonical(cwd);
+  }
+  const abs = resolve(cwd, common);
+  return canonical(basename(abs) === '.git' ? dirname(abs) : abs);
+}
+
+/**
+ * 심볼릭 링크를 푼 절대 경로. worktree 의 `--git-common-dir` 은 이미 realpath 로 나오는데
+ * cwd 는 아닐 수 있어(macOS 의 `/tmp` → `/private/tmp`), 정규화하지 않으면 **같은 레포가
+ * 서로 다른 해시로 갈린다.** 경로가 아직 없으면 resolve 만 한 값을 쓴다.
+ */
+function canonical(p: string): string {
+  const abs = resolve(p);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+/** `git rev-parse --git-common-dir` 실행기. 테스트가 갈아끼울 수 있게 분리했다. */
+export type GitCommonDir = (cwd: string) => string | null;
+
+/**
+ * 실제 `git` 을 호출하는 기본 구현. git 이 없거나 레포가 아니면 `null` — 어떤 경우에도
+ * throw 하지 않는다 (worklog 기록이 git 유무로 실패하면 안 된다).
+ */
+export const gitCommonDir: GitCommonDir = (cwd) => {
+  try {
+    const r = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (r.status !== 0) {
+      return null;
+    }
+    const out = r.stdout?.trim();
+    return out ? out : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 프로젝트별 디렉터리 키를 만든다.
+ * `<sanitized-basename>-<sha1(레포 루트 절대경로) 앞 8자>` — 이름 충돌(같은 basename 의
+ * 서로 다른 경로)을 hash 로 가른다.
+ *
+ * 키의 기준은 cwd 가 아니라 **레포 루트**다. git worktree 에서 작업해도 원본 워크스페이스와
+ * 같은 워크로그에 쌓인다 — worktree 마다 히스토리가 조각나면 `/rocky:recall` 이 프로젝트
+ * 기억을 못 모은다. git 레포가 아니면 예전처럼 cwd 기준.
+ */
+export function defaultProjectKey(cwd: string = process.cwd(), git: GitCommonDir = gitCommonDir) {
+  const root = resolveRepoRoot(cwd, git);
   const base =
     basename(root)
       .replace(/[^a-zA-Z0-9_-]+/g, '-')
