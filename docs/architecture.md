@@ -1,20 +1,37 @@
 # Architecture notes
 
 Design rationale that is **not** derivable from reading the code. Load this on demand — `AGENTS.md`
-stays short and points here. If you are touching opencode delegation, worklog, notion, souls, or the
-statusline, read the matching section first.
+stays short and points here. If you are touching worklog or notion, read the matching section first.
+
+## MCP tools are nearly free in context — do not "slim the surface" to save tokens
+
+Claude Code's [Tool Search](https://code.claude.com/docs/ko/mcp#scale-with-mcp-tool-search) is **on by
+default**: at session start only tool *names* and server instructions load; a tool's full definition
+enters context when the model calls `ToolSearch` for it. rocky's 16 tool definitions are ~9,000
+characters, but the standing cost is 16 names — roughly 200 tokens.
+
+This was measured the hard way in 2026-07: a slimming pass got as far as deleting the entire MCP
+surface on the premise that it cost ~2,900 tokens per session, then reverted. If you propose removing
+tools, the argument must be **maintenance cost or absence of real use** — never context savings.
+(Tool Search is off under a non-first-party `ANTHROPIC_BASE_URL`, on Bedrock / Vertex / Foundry, or
+with `ENABLE_TOOL_SEARCH=false`. rocky's owner runs none of those.)
+
+As of v0.19 the plugin puts **nothing** in session context: souls were the only `SessionStart`
+injection (1,310 chars, compressed to 605, then removed with the feature). The `Stop` hook writes to
+disk and returns nothing to the model. So the standing cost of installing rocky is the 16 tool names
+and nothing else.
 
 ## Host support: what is a rocky choice vs a host limitation
 
 rocky exposes the full MCP tool surface to all three hosts (Claude Code / Codex CLI / opencode), but
-ships slash commands, hooks, skills, souls, and the statusline **only for Claude Code**.
+ships slash commands, the `Stop` hook, and skills **only for Claude Code**.
 
 This is a rocky wiring choice, not a host limitation. As of 2026 both Codex and opencode natively
 support commands / hooks / skills / subagents (Codex also has `.codex-plugin/plugin.json` bundles and
 a marketplace). Those surfaces are portable — rocky just has not shipped them there yet. Do not
 document them as "impossible on Codex/opencode".
 
-See `FEATURES.md`'s *호스트 지원 매트릭스* for the mechanism-by-host breakdown.
+See `docs/hosts.md` for the mechanism-by-host breakdown.
 
 ## worklog: the record ↔ organize split
 
@@ -41,67 +58,24 @@ same policy as the `gh`-based slash commands.
 This shape — external CLI delegation instead of in-process auth — is the **template for any future
 auth-bearing domain**. Inject the executor via `buildServer({ notionCli })` so tests can fake it.
 
-## opencode delegation runtime (v0.17)
+## souls & statusline (removed in v0.19)
 
-### No broker, deliberately
+Both are gone — `souls/*.md` + `soul.ts` + the `inject-soul` hook + `rocky.json`'s `soul`/`callsign`,
+and `statusline/*.sh` + `statusline.ts` + `sync-statusline`. They were personality and chrome, not
+load-bearing, and the soul was the one thing rocky injected into every session.
 
-Unlike `codex app-server`, `opencode run` is one-shot. The entire broker / endpoint / PID layer that
-the official Codex plugin needs is unnecessary here. Do not add one.
-
-### `node:child_process`, not `Bun.spawn`
-
-`detached` support is required, and this single choice is what makes the process-group kill below
-work: opencode must be the leader of its own process group.
-
-### Kill **both** process groups
-
-`cancel` and `SessionEnd` must `kill(-pid)` the worker group **and** the opencode group. opencode
-sets itself `detached` so it can reap its own grandchildren (`bash`, …) on timeout — so killing only
-the worker group never reaches it. This is why a job record stores both the worker `pid` and the
-opencode `childPid`.
-
-### `state.lock` serializes the index
-
-The job index read-modify-write is serialized across processes via `state.lock` (mkdir atomicity).
-Without it, the parent's job creation and the worker's status update overwrite the same snapshot:
-**measured 6 of 8 concurrent jobs lost from the index**, each leaving an orphaned opencode process.
-
-### prune only terminated jobs
-
-Pruning an active job means its worker can never record completion.
-
-### IPC
-
-The job file is the **only** parent ↔ detached-worker channel. Prompts are passed via `--prompt-file`
-(avoids shell quoting); output is `--format json` NDJSON, parsed leniently for the final text plus
-the opencode session id.
-
-## souls & statusline
-
-**Souls** are a layer over AGENTS.md/CLAUDE.md's gates and safety rules, **never an override** — on
-conflict those rules win. Injection is fail-open. Default (no `soul` set) is vanilla, no injection.
-The `SessionStart` matcher is `startup|clear|compact` so it re-injects on a fresh/cleared/compacted
-context but skips `resume`.
-
-`callsign` names what the soul calls the user; the hook appends it as one directive line that beats
-the soul body's default form of address. Ignored when no `soul` is set.
-
-**Statusline**: Claude Code's `statusLine` setting only lives in user `settings.json` (plugin
-`settings.json` supports only `agent`/`subagentStatusLine`). So `/rocky:statusline` copies the chosen
-template to the stable path `~/.config/rocky/statusline.sh` and points `statusLine.command` there —
-**never at the per-version plugin cache path**, which breaks on update. The `SessionStart` hook reads
-the installed copy's `# rocky-statusline-template: <name>` header marker (fallback `duo`) to propagate
-plugin updates from the same template. No-op until installed; fail-open.
-
-Neither souls nor the statusline add MCP tools.
+Two constraints worth keeping if either ever returns: a soul must be a *layer over* AGENTS.md's gates
+and safety rules, never an override (fail-open, no injection by default); and the statusline must be
+installed to a stable path (`~/.config/rocky/statusline.sh`) rather than pointed at the per-version
+plugin cache path, which breaks on every update. Recover from git history.
 
 ## Reintroduction strategy (archive → main)
 
 Previous toolkit surfaces (mysql / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills)
 live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim).
-The former native opencode plugin is archived in-tree at `.archive/agent-toolkit-opencode/` (excluded
-from all gates) — it was an in-process `@opencode-ai/plugin` surface, **not** the ancestor of current
-opencode support, which is plain stdio MCP registration.
+The former native opencode plugin used to sit in-tree at `.archive/agent-toolkit-opencode/`; it has
+been removed and lives only in git history now. It was an in-process `@opencode-ai/plugin` surface,
+**not** the ancestor of current opencode support, which is plain stdio MCP registration.
 
 Re-adding a domain is **always a separate PR** following this template:
 
@@ -115,7 +89,7 @@ Re-adding a domain is **always a separate PR** following this template:
    `rocky.schema.json` in lockstep.
 5. **Surface**: register tools in `src/index.ts` and update the `REMOVED_TOOLS` leak guard in
    `src/index.test.ts`.
-6. **Docs**: `FEATURES.md` tool/config tables, `README.md` surface count, `AGENTS.md` Layout + scope.
+6. **Docs**: `README.md` surface / config / env tables, `AGENTS.md` Layout + scope.
 
 Reference shapes already re-added: **notion** (v0.5, plugin-bound + `ntn` CLI-gated — the auth-bearing
 template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped template; renamed
@@ -132,10 +106,11 @@ template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped t
 - **v0.9** — `journal_*` → `worklog_*`; `Stop` hook turn auto-capture added; organize layer moved from
   an external wiki (`/curate`) to in-worklog `kind:"digest"` entries (`/rocky:recall`). `wikiDir` dropped.
 - **v0.13** — rocky-todo shared board daemon bundled here.
-- **v0.16** — `/rocky:codex` became self-contained; the `delegating-to-codex` skill was removed because
+- **v0.16** — `/rocky:codex` became self-contained (the command itself was removed in v0.19); the `delegating-to-codex` skill was removed because
   the official `openai/codex-plugin-cc` plugin now covers general Codex delegation. rocky's remaining
   value there is worktree isolation + the plugin-surface integrity check.
-- **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks).
+- **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks). **Removed in
+  v0.19** — 1,737 LOC that ran a single job across its whole life.
 - **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
   2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
   todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.

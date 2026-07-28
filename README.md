@@ -30,17 +30,17 @@
 
 동반 플러그인 [`rocky-todo`](https://github.com/minjun0219/rocky-todo) 는 별도 데몬 프로세스로 `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` 5 도구를 자신의 `/mcp` 엔드포인트에 노출한다 (별도 레포 — 설치/도구/설정은 그 레포 문서 참고).
 
-전 도구의 입출력 / side effect / 관련 설정은 [`FEATURES.md`](./FEATURES.md) 가 도구별 6-필드 형식으로 정리한 **사람용 단일 source of truth** 다.
+각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `src/index.ts` (전체 표면) / `src/standalone.ts` (단독 CLI) 의 등록부를 읽으면 된다.
 
 ### Claude Code 전용 표면 (MCP tool 아님)
 
 아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
-- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계, 필요할 때만 스펙 문서; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:review-pr` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 리뷰를 미해결 0 까지 처리 — 수정·게이트·푸시·resolve 반복, 반론은 모아 상의, 머지 가능 시 알림), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어), `/rocky:codex` · `/rocky:opencode` (task 를 각 CLI 에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·표면·diff 스코프 감시, 자동 병합 없음), `/rocky:opencode-jobs` (`/rocky:opencode --background` 로 띄운 위임 잡의 status/result/cancel — 세션별로 격리됨), `/rocky:issue` (다른 레포에서 떠오른 rocky 개선안을 GitHub Issue 로 캡처), `/rocky:soul` (소울 전환), `/rocky:statusline` (번들 statusline 설치/점검/해제). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
-- **훅** (`hooks/hooks.json`) — `SessionStart`: 활성 소울(페르소나) 자동 주입 + 설치된 statusline 스크립트 자동 동기화. `Stop`: 매 턴 종료 시 `kind:"turn"` 워크로그 자동 기록 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). `SessionStart`/`SessionEnd`: opencode 위임 잡의 세션 배선 — 세션 id 를 주입해 잡을 세션별로 격리하고, 세션이 끝나면 진행 중이던 워커를 정리한다(기록은 보존).
-- **소울(페르소나)** (`souls/`) — `rocky.json` 의 `soul` 필드로 고정하는 말투/작업 방식 레이어. 번들 프리셋 `rocky` / `senior` / `terse` + 커스텀 (`~/.config/rocky/souls/`). 게이트·안전 규칙을 덮어쓰지 않으며, 미설정 시 아무 것도 주입하지 않는다.
-- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git + worklog 교차, 쓰기는 컨벤션 + 확인 게이트. (공유 보드 사용 가이드 `board` 스킬은 동반 플러그인 rocky-todo 로, Codex 위임 메커니즘 `delegating-to-codex` 스킬은 공식 [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) 로 이관.)
-- **statusline** (`statusline/`) — statusLine 템플릿 3종: `duo` (2줄 — cwd+branch / model+ctx+세션 잔여율+리셋 타이머, 기본), `mini` (1줄 컴팩트), `full` (3줄 — git dirty/↑↓, ctx/left 임계값 경고색, 세션 비용(+시간당)·변경량·경과 추가). `/rocky:statusline` 이 고른 템플릿을 `~/.config/rocky/statusline.sh` 로 설치하고 user `settings.json` 을 1회 지정 — 이후 플러그인 업데이트는 `SessionStart` 훅이 같은 템플릿에서 자동 전파 (opt-in, 미설치 시 아무 것도 안 함).
+- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:review-pr` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 리뷰를 미해결 0 까지 처리 — 수정·게이트·푸시·resolve 반복, 반론은 모아 상의, 머지 가능 시 알림), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
+- **훅** (`hooks/hooks.json`) — `Stop` 하나뿐이다. 매 턴 종료 시 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). fail-open — 실패해도 세션을 막지 않는다. **세션 컨텍스트에 얹히는 것은 아무것도 없다.**
+- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git 교차, 쓰기는 컨벤션 + 확인 게이트.
+
+> **v0.19 에서 걷어낸 것** — 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅, opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다 — 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json` 의 `soul` / `callsign` / `opencode` 키도 함께 사라져 이제 거부되니, 예전 설정 파일에 남아 있으면 지워야 한다.
 
 ## 시작하기
 
@@ -88,25 +88,53 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 }
 ```
 
-`host:env:spec` 핸들 규칙, `soul` / `seo` / `worklog` / `todo` 키, `ROCKY_*` 환경 변수 전체 표는 [`FEATURES.md`](./FEATURES.md#설정-파일) 참고.
+허용 키는 아래 넷뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `src/core/rocky-config.ts` 가 lockstep 으로 들고 있다.
+
+| 키 | 내용 |
+| --- | --- |
+| `openapi.registry` | `host → env → spec → leaf` 평면 트리. 핸들 규칙은 `host:env:spec`, 각 식별자는 `^[a-zA-Z0-9_-]+$` (콜론은 separator 예약). leaf 는 URL 문자열 또는 `{ url, baseUrl?, format? }` |
+| `seo` | `seo_validate` 기본값 — `allowPrivateHosts` (기본 false) / `timeoutMs` (1..30000). 도구 호출 인자가 우선 |
+| `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
+| `todo` | 형제 플러그인 rocky-todo 몫. rocky 는 **관용만** 하고 읽지 않는다 (공유 파일이라 거부하지 않을 뿐) |
+
+### 환경 변수
+
+`ROCKY_*` 는 전체 표면 서버(`src/index.ts`) 전용이라 단독 `openapi-mcp` CLI 는 인지하지 않는다 (CLI 는 `openapi-mcp.json` + XDG 변수만 본다). 예외로 `ROCKY_WORKLOG_AUTO_CAPTURE` 는 서버가 아니라 `Stop` 훅이 읽으므로 Claude Code 전용이다.
+
+| 변수 | 기본값 | 영향 |
+| --- | --- | --- |
+| `ROCKY_CONFIG` | `~/.config/rocky/rocky.json` | user-level `rocky.json` 경로 override |
+| `ROCKY_OPENAPI_CACHE_DIR` | `~/.config/rocky/openapi-specs` | OpenAPI spec 디스크 캐시 위치 |
+| `ROCKY_OPENAPI_CACHE_TTL` | `300` (초) | spec 단위 `cacheTtlSeconds` 기본값 |
+| `ROCKY_OPENAPI_DOWNLOAD_TIMEOUT_MS` | `10000` | spec 다운로드 HTTP timeout |
+| `ROCKY_OPENAPI_INSECURE_TLS` | (unset) | `1`/`true` 면 TLS 검증 비활성 — 사내 self-signed 용, production 금지 |
+| `ROCKY_OPENAPI_EXTRA_CA_CERTS` | (unset) | 추가 CA pem 경로 (`:` 구분). insecureTls 보다 안전한 사내 CA 옵션 |
+| `ROCKY_NOTION_CLI` | `ntn` | Notion CLI 경로. 탐지될 때만 `notion_*` 4 도구가 등록된다 |
+| `ROCKY_NOTION_CLI_TIMEOUT_MS` | `15000` | `ntn` subprocess timeout |
+| `ROCKY_NOTION_CACHE_DIR` | `~/.config/rocky/notion-pages` | Notion 페이지 캐시 위치 |
+| `ROCKY_NOTION_CACHE_TTL` | `86400` (24h) | Notion 캐시 TTL |
+| `ROCKY_WORKLOG_DIR` | `~/.config/rocky/worklog/<project-key>` | 워크로그 JSONL 위치. `worklog.dir` 보다 우선 |
+| `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` | `Stop` 훅 턴 자동 기록 on/off. `0`/`false`/`off`/`no` 만 비활성 |
+| `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | `~/.config` / `~/.cache` | 단독 CLI 의 config 검색 · 디스크 캐시 prefix |
 
 ## 문서 맵
 
+이 README 가 사람용 진입점이고, 그보다 깊이 들어가는 문서는 아래가 전부다. 도구 하나하나의 입출력은 문서가 아니라 **도구 정의 자체**(`src/index.ts` / `src/standalone.ts`)가 단일 소스다 — 에이전트는 그걸 직접 읽는다.
+
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
-| [`FEATURES.md`](./FEATURES.md) | 사람 (한국어) | **단일 source of truth** — 전 도구 카탈로그 / 환경 변수 / 설정 파일 / Quick start |
-| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / Scope / coding rules / change checklist |
+| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / Scope / coding rules / change checklist / 리뷰 규약 |
 | [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐선 안 나오는 설계 근거 — 필요할 때만 읽는 심화 레퍼런스 |
-| [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 |
+| [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스 — 세 호스트의 확장 메커니즘 + rocky 표면 커버 현황 (실측) |
+| [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 전체 표면 서버를 쓰고 싶을 때 |
-| [`REVIEW.md`](./REVIEW.md) | 리뷰 에이전트 | 이 레포의 코드 리뷰 규칙 |
 
 ## 역사 / 아카이브
 
-v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 + 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있고, 활용 패턴이 잡히는 대로 [`docs/backlog.md`](./docs/backlog.md)의 후보 단위로 재추가한다 — notion은 v0.5 (`ntn` CLI 위임), journal은 v0.6 에 재추가되어 v0.9 에서 `worklog` 로 개명됐다. 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제 (게이트 제외) — 현재 opencode 지원은 이 플러그인의 부활이 아니라 stdio MCP 등록 방식이다.
+v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 + 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있고, 활용 패턴이 잡히는 대로 [`docs/backlog.md`](./docs/backlog.md)의 후보 단위로 재추가한다 — notion은 v0.5 (`ntn` CLI 위임), journal은 v0.6 에 재추가되어 v0.9 에서 `worklog` 로 개명됐다. 예전 네이티브 opencode plugin 은 in-tree `.archive/` 에 두었다가 걷어냈다 — 필요하면 git 히스토리에서 꺼낸다. 현재 opencode 지원은 이 플러그인의 부활이 아니라 stdio MCP 등록 방식이다.
 
-> 세 호스트에서 rocky 표면이 어디까지 커버되는지 (슬래시 커맨드·훅·스킬·소울 이식 가능 범위 포함) 는 [`FEATURES.md`](./FEATURES.md#호스트-지원-매트릭스) 의 *호스트 지원 매트릭스* 참고.
+> 세 호스트에서 rocky 표면이 어디까지 커버되는지 (슬래시 커맨드·훅·스킬·소울 이식 가능 범위 포함) 는 [`docs/hosts.md`](./docs/hosts.md) 참고.
 
 ## 개발
 

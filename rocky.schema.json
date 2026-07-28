@@ -10,18 +10,6 @@
       "type": "string",
       "description": "Reference to this JSON Schema. Editors use this for autocomplete and validation."
     },
-    "soul": {
-      "type": "string",
-      "pattern": "^[a-zA-Z0-9_-]+$",
-      "description": "활성 소울(페르소나) 이름. SessionStart 훅이 souls/<name>.md (번들) 또는 ~/.config/rocky/souls/<name>.md (커스텀) 를 찾아 세션 컨텍스트에 주입한다. 미설정 시 주입 없음(vanilla)."
-    },
-    "callsign": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 40,
-      "pattern": "^[^\\r\\n\\u2028\\u2029]*\\S[^\\r\\n\\u2028\\u2029]*$",
-      "description": "소울이 사용자를 부르는 호칭 (한글/공백 OK — 단 공백만은 불가, 한 줄, 최대 40자). SessionStart 훅이 소울 컨텍스트에 함께 주입하며, 소울 본문의 기본 호칭 규칙(예: rocky 의 \"친구\")보다 우선한다. 미설정 시 소울 본문의 기본 호칭을 따른다. /rocky:soul call <이름> 으로 변경. 런타임 검증(rocky-config.ts 의 validateCallsign)과 lockstep."
-    },
     "openapi": {
       "type": "object",
       "description": "OpenAPI / Swagger registry. Maps host:env:spec handles to spec download URLs.",
@@ -127,33 +115,6 @@
           "type": "integer",
           "minimum": 1,
           "description": "/rocky:recall Haiku↔Sonnet 임계 (기본 40)"
-        }
-      },
-      "additionalProperties": false
-    },
-    "opencode": {
-      "type": "object",
-      "description": "Settings for the /rocky:opencode delegation runtime (background jobs). Consumed by the slash commands + companion script, not by any MCP tool.",
-      "properties": {
-        "dir": {
-          "type": "string",
-          "minLength": 1,
-          "description": "잡 상태 저장 디렉터리. Defaults to a per-project path under ~/.config/rocky/jobs/<project-key>. ROCKY_OPENCODE_JOBS_DIR wins."
-        },
-        "maxJobs": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "보관할 최대 잡 수 (기본 50). 넘치면 오래된 것부터 payload/log 파일까지 지운다."
-        },
-        "model": {
-          "type": "string",
-          "minLength": 1,
-          "description": "기본 위임 모델 (provider/model). 명시 권장 — 미지정 시 opencode 가 '마지막에 쓴 모델'로 조용히 폴백한다."
-        },
-        "agent": {
-          "type": "string",
-          "minLength": 1,
-          "description": "기본 opencode agent 이름. 미지정 시 write 권한이 있는 build 로 폴백한다."
         }
       },
       "additionalProperties": false
