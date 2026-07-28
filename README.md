@@ -95,7 +95,8 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
 | [`FEATURES.md`](./FEATURES.md) | 사람 (한국어) | **단일 source of truth** — 전 도구 카탈로그 / 환경 변수 / 설정 파일 / Quick start |
-| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / MVP scope / coding rules / change checklist |
+| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / Scope / coding rules / change checklist |
+| [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐선 안 나오는 설계 근거 — 필요할 때만 읽는 심화 레퍼런스 |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 전체 표면 서버를 쓰고 싶을 때 |
