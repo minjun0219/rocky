@@ -358,7 +358,7 @@ Expected: 두 version 모두 `0.10.0` (설정 PR 은 버전 안 올림), `CHANGE
 - [ ] **Step 3: diff 스코프 확인**
 
 Run: `git diff --stat main...HEAD`
-Expected 변경 파일: `docs/superpowers/specs/...`, `docs/superpowers/plans/...`, `scripts/sync-plugin-version.ts`, `package.json`, `bun.lock`, `.changeset/config.json`, `.changeset/README.md`, `.github/workflows/release.yml`, `AGENTS.md`, `FEATURES.md`. (런타임 `src/**` 무변경.)
+Expected 변경 파일: `docs/design/specs/...`, `docs/design/plans/...`, `scripts/sync-plugin-version.ts`, `package.json`, `bun.lock`, `.changeset/config.json`, `.changeset/README.md`, `.github/workflows/release.yml`, `AGENTS.md`, `FEATURES.md`. (런타임 `src/**` 무변경.)
 
 - [ ] **Step 4: push + PR 생성**
 
@@ -375,7 +375,7 @@ changesets 로 버전 범프 + CHANGELOG 생성을 자동화한다 (접근 B). n
 - `bun run changeset:version` = `changeset version` + plugin.json sync
 - `.github/workflows/release.yml` — main push 시 "Version Packages" PR 자동 생성 (새 브랜치라 main PR-only 보호와 무충돌, publish 없음)
 - AGENTS.md / FEATURES.md 릴리스 플로우 문서화
-- 설계/계획: `docs/superpowers/{specs,plans}/2026-07-15-changesets-*`
+- 설계/계획: `docs/design/{specs,plans}/2026-07-15-changesets-*`
 
 이 PR 자체는 버전을 올리지 않음 (tooling chore). 첫 자동 범프는 다음 기능 PR 부터.
 

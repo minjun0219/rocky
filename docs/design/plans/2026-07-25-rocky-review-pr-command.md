@@ -8,7 +8,7 @@
 
 **Tech Stack:** Claude Code plugin 슬래시 커맨드 (frontmatter + 마크다운), `gh` CLI (GraphQL `reviewThreads` / `resolveReviewThread`), `Monitor` / `PushNotification` 도구.
 
-**설계 문서:** `docs/superpowers/specs/2026-07-25-rocky-review-pr-command-design.md` (근거·실측·비목표는 전부 여기)
+**설계 문서:** `docs/design/specs/2026-07-25-rocky-review-pr-command-design.md` (근거·실측·비목표는 전부 여기)
 
 ## Global Constraints
 

@@ -43,8 +43,8 @@ rocky/                          single package — @minjun0219/rocky
 │   └── plugin.json             ★ plugin metadata + the only MCP server rocky ships
 ├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with src/core/rocky-config.ts
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
-├── commands/                   ★ slash commands — finish, review-pr, recall, codex, opencode,
-│                                 opencode-jobs, issue, soul, statusline (gh CLI based where relevant)
+├── commands/                   ★ slash commands — brainstorm, review, finish, review-pr, recall,
+│                                 codex, opencode, opencode-jobs, issue, soul, statusline
 ├── hooks/hooks.json            ★ SessionStart ×3 (inject-soul / sync-statusline / session-jobs)
 │                                 + Stop (log-turn). Matchers differ per hook — check before editing.
 ├── skills/                     ★ bundled skills — writing-cc-plugin, todoist
@@ -52,6 +52,7 @@ rocky/                          single package — @minjun0219/rocky
 ├── statusline/                 ★ templates duo (default) / mini / full → docs/statusline.md
 ├── bin/openapi-mcp             bun shebang, arg parsing → src/standalone
 ├── docs/                       architecture, openapi-mcp, codex, opencode, statusline, backlog
+│   └── design/{specs,plans}/   설계·계획 산출물 (구 docs/superpowers/) — 과거분은 그대로 보존
 └── src/
     ├── index.ts                ★ plugin entry — MCP registration only; logic lives in ./core
     ├── index.test.ts           surface guard: base 12 tools (+4 notion_* when ntn), REMOVED_TOOLS leak check
