@@ -26,9 +26,8 @@ Two entry points:
 All openapi handlers live once in `src/core/handlers.ts` so the two entry points can't drift.
 
 **Claude Code-only surfaces** (not MCP tools, invisible to Codex/opencode): slash commands in
-`commands/`, hooks in `hooks/`, bundled skills in `skills/`, souls in `souls/`, and statusline
-templates in `statusline/`. This is a wiring choice, not a host limitation — see
-`docs/architecture.md`.
+`commands/`, the single `Stop` hook in `hooks/`, and bundled skills in `skills/`. This is a wiring
+choice, not a host limitation — see `docs/architecture.md`.
 
 > **Scope framing — read before calling a request out-of-scope.** rocky is a personal plugin, not an
 > OpenAPI-scoped product. The current surface is today's baseline, **not a ceiling**. When the owner
@@ -44,22 +43,18 @@ rocky/                          single package — @minjun0219/rocky
 │   └── plugin.json             ★ plugin metadata + the only MCP server rocky ships
 ├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with src/core/rocky-config.ts
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
-├── commands/                   ★ slash commands — brainstorm, review, finish, review-pr, recall,
-│                                 codex, issue, soul, statusline
-├── hooks/hooks.json            ★ SessionStart ×2 (inject-soul / sync-statusline)
-│                                 + Stop (log-turn). Matchers differ per hook — check before editing.
+├── commands/                   ★ slash commands — brainstorm, review, finish, review-pr, recall
+├── hooks/hooks.json            ★ Stop (log-turn) — the only hook. Nothing runs at SessionStart,
+│                                 so the plugin adds nothing to session context.
 ├── skills/                     ★ bundled skills — writing-cc-plugin, todoist
-├── souls/                      ★ preset personas (rocky / senior / terse); custom → ~/.config/rocky/souls/
-├── statusline/                 ★ templates duo (default) / mini / full → docs/statusline.md
 ├── bin/openapi-mcp             bun shebang, arg parsing → src/standalone
-├── docs/                       architecture, openapi-mcp, codex, opencode, statusline, backlog
+├── docs/                       architecture, openapi-mcp, codex, opencode, hosts, backlog
 │   └── design/{specs,plans}/   설계·계획 산출물 (구 docs/superpowers/) — 과거분은 그대로 보존
 └── src/
     ├── index.ts                ★ plugin entry — MCP registration only; logic lives in ./core
     ├── index.test.ts           surface guard: base 12 tools (+4 notion_* when ntn), REMOVED_TOOLS leak check
     ├── standalone.ts           standalone stdio MCP — 7 openapi tools + SpecRegistry
-    ├── hooks/                  hook entries — inject-soul, sync-statusline, log-turn,
-    │                           transcript (pure parser). All fail-open.
+    ├── hooks/                  hook entries — log-turn + transcript (pure parser). Fail-open.
     └── core/                   shared implementation (barrel: index.ts)
         ├── handlers.ts         ★ the 7 openapi handlers — single source for both entry points
         ├── openapi: adapter, cache, config-loader, fetcher, filter, indexer, logger,
@@ -69,7 +64,6 @@ rocky/                          single package — @minjun0219/rocky
         ├── worklog: worklog (append-only JSONL), worklog-handlers
         ├── rocky-config.ts     `rocky.json` loader (project > user)
         ├── seo-validate.ts     seo_validate core + handler (ogpeek, SSRF guard)
-        ├── soul.ts / statusline.ts   pure + DI; consumed by hooks and slash commands
         └── __fixtures__/ + *.test.ts
 ```
 
@@ -90,7 +84,13 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
   is **not** a revival of it.
 - The `/rocky:opencode` delegation runtime (`opencode-companion.ts`, `opencode-{jobs,cli,runner,render}.ts`,
   the `session-jobs` hook, the `opencode` config block). Removed in v0.19 — 1,737 LOC that had run a
-  single job. Codex delegation (`/rocky:codex`) stays. Recover from git history if it earns its place.
+  single job. Recover from git history if it earns its place.
+- Souls (`souls/`, `soul.ts`, the `inject-soul` hook, `rocky.json`'s `soul` / `callsign`) and the
+  statusline (`statusline/`, `statusline.ts`, `sync-statusline`) — removed in v0.19. They were fun,
+  not load-bearing; the soul was also the only thing rocky put in session context (605 chars after a
+  compression pass, then dropped entirely).
+- `/rocky:codex` and `/rocky:issue` — removed in v0.19. Codex delegation is covered by the official
+  `openai/codex-plugin-cc` plugin.
 - Anything rocky-todo (daemon / web UI / CLI / hooks / tools) — separate repo `minjun0219/rocky-todo`.
   `rocky.json` still **tolerates** a `todo` block because the file is shared; rocky just ignores it.
 - Exposing worklog digests as MCP tools (`wiki_*`), worklog in the standalone CLI, auto-promotion into

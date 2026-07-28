@@ -36,11 +36,11 @@
 
 아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
-- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계, 필요할 때만 스펙 문서; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:review-pr` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 리뷰를 미해결 0 까지 처리 — 수정·게이트·푸시·resolve 반복, 반론은 모아 상의, 머지 가능 시 알림), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어), `/rocky:codex` (task 를 Codex CLI 에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·표면·diff 스코프 감시, 자동 병합 없음), `/rocky:issue` (다른 레포에서 떠오른 rocky 개선안을 GitHub Issue 로 캡처), `/rocky:soul` (소울 전환), `/rocky:statusline` (번들 statusline 설치/점검/해제). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
-- **훅** (`hooks/hooks.json`) — 셋뿐이다. `SessionStart`: 활성 소울(페르소나) 자동 주입 (`startup|clear|compact`) + 설치된 statusline 스크립트 자동 동기화 (`startup`). `Stop`: 매 턴 종료 시 `kind:"turn"` 워크로그 자동 기록 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). 전부 fail-open — 실패해도 세션을 막지 않는다.
-- **소울(페르소나)** (`souls/`) — `rocky.json` 의 `soul` 필드로 고정하는 말투/작업 방식 레이어. 번들 프리셋 `rocky` / `senior` / `terse` + 커스텀 (`~/.config/rocky/souls/`). 게이트·안전 규칙을 덮어쓰지 않으며, 미설정 시 아무 것도 주입하지 않는다.
-- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git + worklog 교차, 쓰기는 컨벤션 + 확인 게이트. (공유 보드 사용 가이드 `board` 스킬은 동반 플러그인 rocky-todo 로, Codex 위임 메커니즘 `delegating-to-codex` 스킬은 공식 [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) 로 이관.)
-- **statusline** (`statusline/`) — statusLine 템플릿 3종: `duo` (2줄 — cwd+branch / model+ctx+세션 잔여율+리셋 타이머, 기본), `mini` (1줄 컴팩트), `full` (3줄 — git dirty/↑↓, ctx/left 임계값 경고색, 세션 비용(+시간당)·변경량·경과 추가). `/rocky:statusline` 이 고른 템플릿을 `~/.config/rocky/statusline.sh` 로 설치하고 user `settings.json` 을 1회 지정 — 이후 플러그인 업데이트는 `SessionStart` 훅이 같은 템플릿에서 자동 전파 (opt-in, 미설치 시 아무 것도 안 함).
+- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:review-pr` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 리뷰를 미해결 0 까지 처리 — 수정·게이트·푸시·resolve 반복, 반론은 모아 상의, 머지 가능 시 알림), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
+- **훅** (`hooks/hooks.json`) — `Stop` 하나뿐이다. 매 턴 종료 시 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). fail-open — 실패해도 세션을 막지 않는다. **세션 컨텍스트에 얹히는 것은 아무것도 없다.**
+- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git 교차, 쓰기는 컨벤션 + 확인 게이트.
+
+> **v0.19 에서 걷어낸 것** — 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅, opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다 — 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json` 의 `soul` / `callsign` / `opencode` 키도 함께 사라져 이제 거부되니, 예전 설정 파일에 남아 있으면 지워야 한다.
 
 ## 시작하기
 
@@ -88,12 +88,10 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 }
 ```
 
-허용 키는 아래 여섯뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `src/core/rocky-config.ts` 가 lockstep 으로 들고 있다.
+허용 키는 아래 넷뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `src/core/rocky-config.ts` 가 lockstep 으로 들고 있다.
 
 | 키 | 내용 |
 | --- | --- |
-| `soul` | 활성 소울 이름 (`^[a-zA-Z0-9_-]+$`). `SessionStart` 훅이 `souls/<name>.md` 또는 `~/.config/rocky/souls/<name>.md`(우선) 를 찾아 주입. 미설정 시 주입 없음 |
-| `callsign` | 소울이 사용자를 부르는 호칭. 한 줄, 최대 40자. `soul` 미설정 시 무시 |
 | `openapi.registry` | `host → env → spec → leaf` 평면 트리. 핸들 규칙은 `host:env:spec`, 각 식별자는 `^[a-zA-Z0-9_-]+$` (콜론은 separator 예약). leaf 는 URL 문자열 또는 `{ url, baseUrl?, format? }` |
 | `seo` | `seo_validate` 기본값 — `allowPrivateHosts` (기본 false) / `timeoutMs` (1..30000). 도구 호출 인자가 우선 |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
@@ -131,7 +129,6 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 전체 표면 서버를 쓰고 싶을 때 |
-| [`docs/statusline.md`](./docs/statusline.md) | 사람 | statusline 템플릿 3종 상세 |
 
 ## 역사 / 아카이브
 

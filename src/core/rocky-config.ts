@@ -96,13 +96,6 @@ export interface WorklogConfig {
 
 export interface RockyConfig {
   $schema?: string;
-  /** 활성 소울(페르소나) 이름. SessionStart 훅이 이 이름으로 소울 파일을 찾아 주입한다. */
-  soul?: string;
-  /**
-   * 소울이 사용자를 부르는 호칭. SessionStart 훅이 소울 컨텍스트에 함께 주입한다.
-   * 소울 본문의 기본 호칭 규칙(예: rocky 의 "친구")보다 우선. 미설정 시 주입 없음.
-   */
-  callsign?: string;
   openapi?: {
     registry?: OpenapiRegistry;
   };
@@ -189,12 +182,6 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
   if (config.worklog !== undefined) {
     validateWorklog(config.worklog, source);
   }
-  if (config.soul !== undefined) {
-    validateSoul(config.soul, source);
-  }
-  if (config.callsign !== undefined) {
-    validateCallsign(config.callsign, source);
-  }
   return config as RockyConfig;
 }
 
@@ -204,15 +191,7 @@ export function validateConfig(input: unknown, source: string): RockyConfig {
  * 형제 플러그인 rocky-todo 의 `todo` 블록이 함께 들어있어도 파일을 통째로 거부하면 안 된다.
  * rocky 는 파싱만 통과시키고 무시한다 (실제 소비는 rocky-todo 의 경량 로더 몫).
  */
-const ALLOWED_TOP_KEYS = new Set([
-  '$schema',
-  'soul',
-  'callsign',
-  'openapi',
-  'seo',
-  'worklog',
-  'todo',
-]);
+const ALLOWED_TOP_KEYS = new Set(['$schema', 'openapi', 'seo', 'worklog', 'todo']);
 
 /** `seo` 객체에서 허용하는 키 (오타 가드, 스키마 lockstep). */
 const ALLOWED_SEO_KEYS = new Set(['allowPrivateHosts', 'timeoutMs']);
@@ -274,48 +253,6 @@ function validateWorklog(worklog: unknown, source: string): void {
     if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 1)) {
       throw new Error(`${source}: worklog.${key} must be a positive integer`);
     }
-  }
-}
-
-/**
- * `soul` 필드 검증. 활성 소울 이름 — 파일명으로 쓰이므로 `ID_PATTERN`
- * (`[a-zA-Z0-9_-]+`) 만 허용한다 (경로 이스케이프 / 콜론 방지).
- */
-function validateSoul(soul: unknown, source: string): void {
-  if (typeof soul !== 'string') {
-    throw new Error(`${source}: soul must be a string`);
-  }
-  if (!ID_PATTERN.test(soul)) {
-    throw new Error(
-      `${source}: soul must match ${ID_PATTERN} (alphanumeric, "_" or "-" only) — got "${soul}"`,
-    );
-  }
-}
-
-/** 호칭 최대 길이 — 컨텍스트에 한 줄로 주입되므로 짧게 제한한다 (스키마 lockstep). */
-const CALLSIGN_MAX_LENGTH = 40;
-
-/**
- * `callsign` 필드 검증. 사용자를 부르는 호칭 — 컨텍스트에 한 줄로 주입되므로
- * 줄바꿈(유니코드 line separator 포함) 없는 문자열, 공백-only 불가, 원본 기준 최대
- * 40자만 허용한다. 한글 / 공백 OK — `soul` 과 달리 파일명으로 쓰이지 않아
- * `ID_PATTERN` 제약이 없다. 기준은 `rocky.schema.json` 의 `callsign` 과 lockstep —
- * 길이는 둘 다 원본(raw) 기준이라 에디터 검증과 런타임이 어긋나지 않는다.
- */
-function validateCallsign(callsign: unknown, source: string): void {
-  if (typeof callsign !== 'string') {
-    throw new Error(`${source}: callsign must be a string`);
-  }
-  if (/[\r\n\u2028\u2029]/.test(callsign)) {
-    throw new Error(`${source}: callsign must be a single line (no line breaks)`);
-  }
-  if (callsign.trim().length === 0) {
-    throw new Error(`${source}: callsign must be a non-empty string`);
-  }
-  if (callsign.length > CALLSIGN_MAX_LENGTH) {
-    throw new Error(
-      `${source}: callsign must be at most ${CALLSIGN_MAX_LENGTH} characters — got ${callsign.length}`,
-    );
   }
 }
 
@@ -460,13 +397,6 @@ export function mergeConfigs(user: RockyConfig, project: RockyConfig): RockyConf
   // worklog 도 seo 와 동일 — 필드 단위로 project 가 user 를 덮어쓴다.
   if (project.worklog) {
     out.worklog = { ...out.worklog, ...project.worklog };
-  }
-  // soul / callsign 은 스칼라 — project 가 있으면 user 를 덮어쓴다.
-  if (project.soul !== undefined) {
-    out.soul = project.soul;
-  }
-  if (project.callsign !== undefined) {
-    out.callsign = project.callsign;
   }
   return out;
 }
