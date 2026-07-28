@@ -21,6 +21,26 @@ injection (1,310 chars, compressed to 605, then removed with the feature). The `
 disk and returns nothing to the model. So the standing cost of installing rocky is the 16 tool names
 and nothing else.
 
+### The Sentry-style `search_*` / `execute_*` meta-tool pair is not worth adding either
+
+Same premise, different shape: "16 tools is a lot, hide them behind a catalog search like Sentry
+does." Measured against the real Sentry MCP in 2026-07, it does not pay off here.
+
+- **Sentry's reason does not apply.** It keeps *dozens* of operations in a catalog and surfaces only
+  the ~9 most-used as first-class tools; the rest live behind `search_sentry_tools` /
+  `execute_sentry_tool`. It is also a remote server serving every MCP client, including hosts with no
+  tool search. rocky has 16 tools — no long tail to hide — and one real host.
+- **The meta tool is not free.** One `search_sentry_tools` call returned the full JSON schema of 20
+  tools: ~30,000 characters, roughly 8,000 tokens — three times rocky's entire tool-definition
+  surface. Trading a 200-token standing cost for that plus an extra round trip per call is a loss.
+- **It hurts discoverability.** Tool Search matches on names and descriptions. `openapi_search` being
+  visible is what makes "find the endpoint in this spec" route to rocky at all. Behind a single
+  `rocky_execute`, the model never learns the capability exists — which is exactly why Sentry kept its
+  nine common tools first-class instead of hiding everything.
+
+Revisit only if rocky's tool count reaches ~40-50 (a genuine long tail appears), the primary host
+loses Tool Search, or rocky ships as a remote server for other people.
+
 ## Host support: what is a rocky choice vs a host limitation
 
 rocky exposes the full MCP tool surface to all three hosts (Claude Code / Codex CLI / opencode), but
