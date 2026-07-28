@@ -10,9 +10,15 @@
  *
  * 태그는 `gh release create` 가 직접 만든다(없으면 `--target` 커밋에 생성) → git user identity
  * 설정이 필요 없다. 전제: GitHub Actions 러너 (gh CLI + GH_TOKEN/GITHUB_TOKEN, contents:write).
+ *
+ * **이 스크립트는 push 된 커밋을 그대로 체크아웃한 별도 job 에서 돌려야 한다.** `changesets/action`
+ * 과 같은 job 에 두면 그 액션이 워킹 트리를 Version PR 브랜치로 옮긴 뒤라, 아직 머지되지도 않은
+ * 커밋에 태그가 박힌다 (실제로 v0.12.0~v0.18.0 이 그렇게 만들어졌다). `resolveTargetSha` 가 그
+ * 어긋남을 감지해 실패시킨다 — 자세한 경위는 `./release-target` 참고.
  */
 import { readFileSync } from 'node:fs';
 import { extractChangelogSection } from './changelog';
+import { assertTagMatchesTarget, resolveTargetSha } from './release-target';
 
 const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version?: string }).version;
 if (!version) {
@@ -34,7 +40,25 @@ try {
 }
 const notes = extractChangelogSection(changelog, version) || tag;
 
-const sha = Bun.spawnSync(['git', 'rev-parse', 'HEAD']).stdout.toString().trim();
+const sha = resolveTargetSha({
+  githubSha: process.env.GITHUB_SHA,
+  headSha: Bun.spawnSync(['git', 'rev-parse', 'HEAD']).stdout.toString(),
+});
+// 태그가 이미 있으면 gh 는 --target 을 무시한다 → 잘못된 커밋에 조용히 붙는 걸 막는다.
+// `commits/<ref>` 는 annotated / lightweight 태그를 모두 커밋 sha 로 풀어준다.
+const tagLookup = Bun.spawnSync([
+  'gh',
+  'api',
+  `repos/{owner}/{repo}/commits/${tag}`,
+  '--jq',
+  '.sha',
+]);
+assertTagMatchesTarget({
+  tag,
+  tagSha: tagLookup.success ? tagLookup.stdout.toString() : undefined,
+  targetSha: sha,
+});
+
 const created = Bun.spawnSync(
   ['gh', 'release', 'create', tag, '--target', sha, '--title', tag, '--notes', notes],
   { stdout: 'inherit', stderr: 'inherit' },
