@@ -1,5 +1,57 @@
 # @minjun0219/rocky
 
+## 0.19.0
+
+### Minor Changes
+
+- [#115](https://github.com/minjun0219/rocky/pull/115) [`9fda5c4`](https://github.com/minjun0219/rocky/commit/9fda5c44b08df5ab5de6457a5e493bc1c6a96abe) Thanks [@minjun0219](https://github.com/minjun0219)! - worklog 프로젝트 키를 cwd 가 아니라 **레포 루트** 기준으로 잡는다. git worktree 에서 작업해도
+  원본 워크스페이스와 같은 워크로그에 쌓인다.
+
+  `git rev-parse --git-common-dir` 는 linked worktree 안에서도 주 워크트리의 `.git` 을 가리킨다 —
+  그 경로를 해시하면 worktree 와 원본이 한 키로 접힌다. git 레포가 아니면 예전처럼 cwd 기준이고,
+  git 호출은 실패해도 throw 하지 않는다 (워크로그 기록이 git 유무로 깨지면 안 된다).
+
+  경로는 `realpathSync` 로 정규화한다 — worktree 의 common dir 은 realpath 로 나오는데 cwd 는
+  아닐 수 있어(macOS 의 `/tmp` → `/private/tmp`), 정규화하지 않으면 같은 레포가 여전히 두 해시로
+  갈린다.
+
+  **왜 고쳤나**: 실측 결과 `~/.config/rocky/worklog` 에 디렉터리가 58 개 쌓여 있었는데 실제
+  프로젝트는 15 개였다. 나머지는 worktree 마다 갈라진 조각과, 그 worktree 가 삭제된 뒤 남은
+  고아였다. 이 상태에서는 worktree 에서 `/rocky:recall` 을 돌려도 본체 히스토리를 못 읽어,
+  "프로젝트를 넘나드는 기억"이라는 워크로그의 존재 이유가 깨진다.
+
+  기존 디렉터리는 이름에서 원본 cwd 를 역산할 수 없어(sha1) 자동 마이그레이션이 제공되지 않는다.
+  본체에서 쌓은 워크로그는 키가 그대로라 영향이 없고, worktree 조각만 새 키로 다시 시작된다.
+
+- [#113](https://github.com/minjun0219/rocky/pull/113) [`5b08c06`](https://github.com/minjun0219/rocky/commit/5b08c062e0a2e1095fb7d98e189b37aaf9a40963) Thanks [@minjun0219](https://github.com/minjun0219)! - 소울(페르소나)과 statusline, 그리고 `/rocky:codex` · `/rocky:issue` 커맨드를 걷어냈다.
+
+  - **소울** — `souls/*.md` 3종, `soul.ts`, `inject-soul` 훅, `/rocky:soul`, `rocky.json` 의
+    `soul` / `callsign` 키. 재미로 넣은 기능이었고, 동시에 rocky 가 세션 컨텍스트에 넣던
+    **유일한** 것이었다 (주입 1,310자 → 605자로 압축했다가 기능째 제거).
+  - **statusline** — 템플릿 3종, `statusline.ts`, `sync-statusline` 훅, `/rocky:statusline`,
+    `docs/statusline.md`. 컨텍스트 비용은 0 이었지만 함께 정리했다.
+  - **커맨드** — `/rocky:codex` (Codex 위임은 공식 `openai/codex-plugin-cc` 가 덮는다),
+    `/rocky:issue`.
+
+  훅은 `Stop`(턴 자동 기록) 하나만 남는다 — **SessionStart 가 사라져 이제 플러그인이 세션
+  컨텍스트에 넣는 것이 아무것도 없다.** MCP 도구 16 종과 `/rocky:brainstorm` · `/rocky:review` ·
+  `/rocky:finish` · `/rocky:review-pr` · `/rocky:recall` 커맨드, 스킬 2종은 그대로다.
+
+  기존 `rocky.json` 에 `soul` / `callsign` 이 남아 있으면 unknown key 로 거부되니 지워야 한다.
+  `~/.claude/settings.json` 의 `statusLine` 설정과 `~/.config/rocky/statusline.sh` 도 직접 정리해야
+  한다 (rocky 는 사용자 설정을 건드리지 않는다).
+
+- [#113](https://github.com/minjun0219/rocky/pull/113) [`5b08c06`](https://github.com/minjun0219/rocky/commit/5b08c062e0a2e1095fb7d98e189b37aaf9a40963) Thanks [@minjun0219](https://github.com/minjun0219)! - opencode 위임 런타임을 걷어냈다. `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드, companion CLI,
+  잡 저장소, `SessionStart`/`SessionEnd` 잡 배선 훅, `rocky.json` 의 `opencode` 블록과
+  `ROCKY_OPENCODE_*` 환경 변수가 사라진다 (코드 1,737 LOC + 테스트 9 파일).
+
+  도입(v0.17) 이후 실제로 돈 위임 잡이 1 건뿐이었고, 커맨드 실행 흔적도 없었다. Codex 위임
+  (`/rocky:codex`)은 그대로 남는다. MCP 도구 16 종(openapi*\* 7 / seo_validate / notion*_ 4 /
+  worklog\__ 4)과 소울·statusline·`Stop` 훅도 전부 유지된다.
+
+  기존 `rocky.json` 에 `opencode` 블록이 남아 있으면 이제 unknown key 로 거부되니 지워야 한다.
+  `~/.config/rocky/jobs/` 의 기존 잡 기록 파일은 삭제하지 않았다.
+
 ## 0.18.0
 
 ### Minor Changes
