@@ -18,4 +18,9 @@ notion-pages/
 rocky.json
 # Claude Code 로컬 오버라이드 (권한/시크릿 보관 위치)
 .claude/settings.local.json
+# 외부 에이전트 하네스가 레포 안에 남기는 로컬 산출물 (추적 대상 아님)
+.superpowers/
+.opencode/
+# 구 monorepo 잔재가 다시 생기지 않도록
+packages/
 

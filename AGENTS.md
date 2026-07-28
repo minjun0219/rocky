@@ -87,8 +87,9 @@ and the Claude Code-only surfaces. Mechanism details are in `FEATURES.md`; ratio
 **Out** — do not re-add without an explicit request:
 
 - mysql / spec-pact / pr-watch / the old agents & skills — archived on `archive/pre-openapi-only-slim`.
-- The old native `@opencode-ai/plugin` surface (`.archive/agent-toolkit-opencode/`). Current opencode
-  support is stdio MCP registration and is **not** a revival of it.
+- The old native `@opencode-ai/plugin` surface — once kept in-tree under `.archive/`, now removed
+  (recover from git history if ever needed). Current opencode support is stdio MCP registration and
+  is **not** a revival of it.
 - Anything rocky-todo (daemon / web UI / CLI / hooks / tools) — separate repo `minjun0219/rocky-todo`.
   `rocky.json` still **tolerates** a `todo` block because the file is shared; rocky just ignores it.
 - Exposing worklog digests as MCP tools (`wiki_*`), worklog in the standalone CLI, auto-promotion into

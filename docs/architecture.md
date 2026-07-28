@@ -99,9 +99,9 @@ Neither souls nor the statusline add MCP tools.
 
 Previous toolkit surfaces (mysql / spec-pact / pr-watch + rocky / grace / mindy agents + 5 skills)
 live on [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim).
-The former native opencode plugin is archived in-tree at `.archive/agent-toolkit-opencode/` (excluded
-from all gates) — it was an in-process `@opencode-ai/plugin` surface, **not** the ancestor of current
-opencode support, which is plain stdio MCP registration.
+The former native opencode plugin used to sit in-tree at `.archive/agent-toolkit-opencode/`; it has
+been removed and lives only in git history now. It was an in-process `@opencode-ai/plugin` surface,
+**not** the ancestor of current opencode support, which is plain stdio MCP registration.
 
 Re-adding a domain is **always a separate PR** following this template:
 

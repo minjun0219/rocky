@@ -22,7 +22,7 @@
 - **런타임**: Bun ≥ 1.0. 빌드 단계 없음 (Bun 이 TS 직접 실행).
 
 > - v0.2 까지 존재하던 journal / mysql / notion / spec-pact / pr-watch 5 도메인 + rocky / grace / mindy 3 에이전트 + 5 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있다. 이 중 **notion 은 v0.5 에서 `ntn` CLI 위임으로, journal 은 v0.6 에서 재추가되어 v0.9 에서 `worklog` 로 개명됨** (아래 `notion_*` / `worklog_*` 참고).
-> - 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제되어 있다 (게이트에서 제외). 현재 opencode 지원은 이 플러그인의 부활이 아니라, `src/index.ts` stdio MCP 서버를 `opencode.json` 에 등록해 전체 표면을 소비하는 방식이다.
+> - 예전 네이티브 opencode plugin 은 in-tree `.archive/` 에 두었다가 걷어냈다 — 필요하면 git 히스토리에서 꺼낸다. 현재 opencode 지원은 이 플러그인의 부활이 아니라, `src/index.ts` stdio MCP 서버를 `opencode.json` 에 등록해 전체 표면을 소비하는 방식이다.
 >
 > 활용 패턴이 잡히면 `docs/backlog.md` 의 후보 단위로 재추가. 자세한 절차는 `docs/architecture.md` 의 *Reintroduction strategy*.
 
