@@ -36,7 +36,7 @@
 
 아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
-- **슬래시 커맨드** (`commands/`) — `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 리뷰를 미해결 0 까지 처리 — 수정·게이트·푸시·resolve 반복, 반론은 모아 상의, 머지 가능 시 알림), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어), `/rocky:codex` · `/rocky:opencode` (task 를 각 CLI 에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·표면·diff 스코프 감시, 자동 병합 없음), `/rocky:opencode-jobs` (`/rocky:opencode --background` 로 띄운 위임 잡의 status/result/cancel — 세션별로 격리됨), `/rocky:issue` (다른 레포에서 떠오른 rocky 개선안을 GitHub Issue 로 캡처), `/rocky:soul` (소울 전환), `/rocky:statusline` (번들 statusline 설치/점검/해제). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
+- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계, 필요할 때만 스펙 문서; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:review-pr` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 리뷰를 미해결 0 까지 처리 — 수정·게이트·푸시·resolve 반복, 반론은 모아 상의, 머지 가능 시 알림), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어), `/rocky:codex` · `/rocky:opencode` (task 를 각 CLI 에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·표면·diff 스코프 감시, 자동 병합 없음), `/rocky:opencode-jobs` (`/rocky:opencode --background` 로 띄운 위임 잡의 status/result/cancel — 세션별로 격리됨), `/rocky:issue` (다른 레포에서 떠오른 rocky 개선안을 GitHub Issue 로 캡처), `/rocky:soul` (소울 전환), `/rocky:statusline` (번들 statusline 설치/점검/해제). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
 - **훅** (`hooks/hooks.json`) — `SessionStart`: 활성 소울(페르소나) 자동 주입 + 설치된 statusline 스크립트 자동 동기화. `Stop`: 매 턴 종료 시 `kind:"turn"` 워크로그 자동 기록 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). `SessionStart`/`SessionEnd`: opencode 위임 잡의 세션 배선 — 세션 id 를 주입해 잡을 세션별로 격리하고, 세션이 끝나면 진행 중이던 워커를 정리한다(기록은 보존).
 - **소울(페르소나)** (`souls/`) — `rocky.json` 의 `soul` 필드로 고정하는 말투/작업 방식 레이어. 번들 프리셋 `rocky` / `senior` / `terse` + 커스텀 (`~/.config/rocky/souls/`). 게이트·안전 규칙을 덮어쓰지 않으며, 미설정 시 아무 것도 주입하지 않는다.
 - **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git + worklog 교차, 쓰기는 컨벤션 + 확인 게이트. (공유 보드 사용 가이드 `board` 스킬은 동반 플러그인 rocky-todo 로, Codex 위임 메커니즘 `delegating-to-codex` 스킬은 공식 [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc) 로 이관.)
@@ -95,7 +95,8 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
 | [`FEATURES.md`](./FEATURES.md) | 사람 (한국어) | **단일 source of truth** — 전 도구 카탈로그 / 환경 변수 / 설정 파일 / Quick start |
-| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / MVP scope / coding rules / change checklist |
+| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / Scope / coding rules / change checklist |
+| [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐선 안 나오는 설계 근거 — 필요할 때만 읽는 심화 레퍼런스 |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 전체 표면 서버를 쓰고 싶을 때 |

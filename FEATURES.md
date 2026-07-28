@@ -24,7 +24,7 @@
 > - v0.2 까지 존재하던 journal / mysql / notion / spec-pact / pr-watch 5 도메인 + rocky / grace / mindy 3 에이전트 + 5 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있다. 이 중 **notion 은 v0.5 에서 `ntn` CLI 위임으로, journal 은 v0.6 에서 재추가되어 v0.9 에서 `worklog` 로 개명됨** (아래 `notion_*` / `worklog_*` 참고).
 > - 예전 네이티브 opencode plugin 은 [`.archive/agent-toolkit-opencode/`](./.archive/agent-toolkit-opencode) 에 박제되어 있다 (게이트에서 제외). 현재 opencode 지원은 이 플러그인의 부활이 아니라, `src/index.ts` stdio MCP 서버를 `opencode.json` 에 등록해 전체 표면을 소비하는 방식이다.
 >
-> 활용 패턴이 잡히면 `docs/backlog.md` 의 후보 단위로 재추가. 자세한 절차는 `AGENTS.md` 의 *Reintroduction strategy*.
+> 활용 패턴이 잡히면 `docs/backlog.md` 의 후보 단위로 재추가. 자세한 절차는 `docs/architecture.md` 의 *Reintroduction strategy*.
 
 각 도구 entry 는 한 블록으로 인용할 수 있도록 6-필드 형식을 따른다:
 
@@ -293,7 +293,23 @@ opencode mcp add rocky
 
 ## Claude Code 커맨드
 
-MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/rocky:finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/rocky:recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 리뷰 대응은 `/rocky:review-pr` 이 맡는다 — Copilot / Codex / 사람 리뷰를 미해결 0 까지 처리하고 머지 가능해지면 알린다(머지는 하지 않음). CI 실패 자동 수정만 필요하면 Claude Code **빌트인 `/autofix-pr`** 이 별도 선택지다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/rocky:codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/rocky:opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음) — v0.17 부터 dispatch 를 companion 런타임(`src/opencode-companion.ts`)이 맡아 `--background` 위임이 가능해졌고, 그렇게 띄운 잡의 조회·회수·취소는 짝 커맨드 `/rocky:opencode-jobs` 가 담당한다. `/rocky:issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.
+MCP tool 과 별개로, Claude Code plugin 은 `commands/` 의 슬래시 커맨드를 노출한다. `/rocky:brainstorm` 은 아이디어를 구현 가능한 설계로 다듬는 커맨드다 — 맥락을 먼저 읽고, 한 번에 하나씩 묻고, 접근안 2~3개를 트레이드오프와 함께 놓은 뒤 설계를 제시한다. **강제 게이트가 아니라 사용자가 부를 때만 도는 도구**이며, 스펙 문서(`docs/design/specs/`)는 규모가 클 때만 남긴다. `/rocky:review` 는 완료를 선언하기 전에 **신선한 컨텍스트의 서브에이전트**로 현재 작업 diff 를 검토시키는 커맨드다 — 세션 히스토리 대신 diff + 요구사항만 넘겨 "내가 만든 걸 내가 검토하는" 편향을 피한다(이미 열린 PR 의 리뷰 스레드 대응은 `/rocky:review-pr` 로 별개). `/rocky:finish` 는 `gh` CLI 기반 — 게이트 통과 확인 후 커밋·푸시·PR 생성까지 마무리한다. `/rocky:recall` 은 `worklog_*` 를 읽어 앵커 히스토리 다이제스트로 정리하는 짝 커맨드다 (v0.9 에서 구 `/curate` 를 대체). 생성된 PR 의 리뷰 대응은 `/rocky:review-pr` 이 맡는다 — Copilot / Codex / 사람 리뷰를 미해결 0 까지 처리하고 머지 가능해지면 알린다(머지는 하지 않음). CI 실패 자동 수정만 필요하면 Claude Code **빌트인 `/autofix-pr`** 이 별도 선택지다 (클라우드 세션 + GitHub App webhook 기반 — rocky 커맨드가 아니며, 구 `/pr-watch` 는 v0.8 에서 제거됨). 그리고 `/rocky:codex` 는 task 하나를 Codex(`codex exec`)에 위임해 격리 worktree 에서 구현시키고 Claude 가 게이트·MCP 표면·diff 스코프를 감시하는 위임 커맨드다(자동 병합 없음). `/rocky:opencode` 는 같은 패턴으로 task 하나를 opencode(`opencode run`)에 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시한다(자동 병합 없음) — v0.17 부터 dispatch 를 companion 런타임(`src/opencode-companion.ts`)이 맡아 `--background` 위임이 가능해졌고, 그렇게 띄운 잡의 조회·회수·취소는 짝 커맨드 `/rocky:opencode-jobs` 가 담당한다. `/rocky:issue` 는 *다른* 레포에서 rocky 를 쓰다 떠오른 기능 제안·버그를 `minjun0219/rocky` GitHub Issue 로 캡처하는 `gh` 기반 커맨드다 — 현재 세션 맥락을 모으고 유사 이슈를 조회한 뒤 초안을 한 번 확인하고 생성한다(자동 생성 없음). `/rocky:soul` 은 소울(페르소나)을 고르는 커맨드다 — 목록 / 활성 소울 전환(`rocky.json` 의 `soul` 쓰기) / 미리보기 / 커스텀 소울 스캐폴딩.
+
+### `/rocky:brainstorm [만들려는 것]`
+
+- **What**: 아이디어를 구현 가능한 설계로 다듬는다 — ① 맥락 파악(관련 파일 / `AGENTS.md` / 최근 커밋, 워크로그가 있으면 같은 주제의 과거 결정 조회) → ② 스코프 판정(독립 하위 시스템 여럿이면 쪼갤 단위·순서부터 제안) → ③ 한 번에 하나씩 질문(가능하면 `AskUserQuestion` 선택지) → ④ 접근안 2~3개 + 추천안 먼저 → ⑤ 설계 제시(구조 / 경계 / 데이터 흐름 / 실패 처리 / 검증) → ⑥ 규모가 크면 `docs/design/specs/YYYY-MM-DD-<topic>-design.md` 저장.
+- **Input**: (옵션) 만들려는 것 / 다듬고 싶은 아이디어.
+- **하지 않는 것**: **강제 게이트가 아니다** — 작은 수정·버그 픽스·탐색적 작업에 이 절차를 요구하지 않고, 사용자가 부를 때만 돈다. 코드에 이미 답이 있는 걸 사용자에게 묻지 않는다. 답이 달라도 결과가 같은 질문은 하지 않는다. 무관한 리팩터는 설계에 넣지 않는다. localhost 브라우저 컴패니언은 제안하지 않는다(시각 자료가 필요하면 아티팩트로).
+- **의존성**: 없음. (`worklog_*` 가 있으면 과거 결정 조회에 활용)
+
+### `/rocky:review [비교 기준]`
+
+- **What**: 완료 선언 전 셀프 코드 리뷰 — 현재 브랜치의 작업 diff(**커밋되지 않은 변경 포함**)를 `Task` 로 띄운 `general-purpose` 서브에이전트에게 검토시킨다. 리뷰어에게는 세션 히스토리가 아니라 **결과물 + 요구사항 + 레포 규칙(`AGENTS.md` / `REVIEW.md`)** 만 넘긴다.
+- **Input**: (옵션) 비교 기준. 생략 시 `git merge-base HEAD origin/main`, 실패하면 `HEAD~1`.
+- **출력**: 잘된 점 → 🔴 Critical / 🟡 Important / 🟣 Minor (각 `file:line` + 문제 + 이유 + 고치는 법) → 머지 가능 판정. 한국어.
+- **하지 않는 것**: 리뷰어는 **읽기 전용**(워킹 트리·인덱스·HEAD·브랜치 불변, 다른 리비전이 필요하면 `git worktree add`), 실제로 읽지 않은 코드 지적 금지, 전부 Critical 로 올리지 않기, 뭉뚱그린 지적 금지. 리뷰어가 틀리면 근거를 대고 반박한다(무조건 수용 X). 사소한 수정에는 쓰지 않는다.
+- **구분**: 아직 리뷰받지 않은 **내 작업 diff** 가 대상이다. 이미 열린 PR 의 리뷰 스레드 처리는 `/rocky:review-pr`.
+- **의존성**: `Task` (서브에이전트 dispatch) + git. `gh` 불필요.
 
 ### `/rocky:finish [힌트]`
 

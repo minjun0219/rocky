@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (`type: module`), Bun 런타임(빌드 없음), 의존성 0 추가. 테스트는 `bun test` + `mkdtempSync` 격리.
 
-**Spec:** `docs/superpowers/specs/2026-07-15-rocky-souls-design.md`
+**Spec:** `docs/design/specs/2026-07-15-rocky-souls-design.md`
 
 ## Global Constraints
 
