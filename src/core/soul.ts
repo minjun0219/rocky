@@ -182,8 +182,7 @@ export function buildSoulContext(soul: Soul, opts: SoulContextOptions = {}): str
   const lines = [
     `# rocky soul: ${soul.name}`,
     '',
-    '아래는 이 세션에 선택된 rocky 소울(페르소나)이다. 말투/성격 + 작업 방식의 레이어일 뿐,',
-    'AGENTS.md / CLAUDE.md 의 게이트·검증·안전 규칙을 절대 덮어쓰지 않는다 — 충돌 시 그 규칙이 이긴다.',
+    '말투 레이어일 뿐 — AGENTS.md 의 게이트·검증·안전 규칙과 충돌하면 그 규칙이 이긴다.',
     '',
     soul.body.trim(),
   ];
