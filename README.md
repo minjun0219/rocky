@@ -30,7 +30,7 @@
 
 동반 플러그인 [`rocky-todo`](https://github.com/minjun0219/rocky-todo) 는 별도 데몬 프로세스로 `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` 5 도구를 자신의 `/mcp` 엔드포인트에 노출한다 (별도 레포 — 설치/도구/설정은 그 레포 문서 참고).
 
-전 도구의 입출력 / side effect / 관련 설정은 [`FEATURES.md`](./FEATURES.md) 가 도구별 6-필드 형식으로 정리한 **사람용 단일 source of truth** 다.
+각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `src/index.ts` (전체 표면) / `src/standalone.ts` (단독 CLI) 의 등록부를 읽으면 된다.
 
 ### Claude Code 전용 표면 (MCP tool 아님)
 
@@ -88,25 +88,56 @@ npm publish 는 아직 안 되어 있어 로컬 체크아웃 + `bun link` 로 �
 }
 ```
 
-`host:env:spec` 핸들 규칙, `soul` / `seo` / `worklog` / `todo` 키, `ROCKY_*` 환경 변수 전체 표는 [`FEATURES.md`](./FEATURES.md#설정-파일) 참고.
+허용 키는 아래 여섯뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `src/core/rocky-config.ts` 가 lockstep 으로 들고 있다.
+
+| 키 | 내용 |
+| --- | --- |
+| `soul` | 활성 소울 이름 (`^[a-zA-Z0-9_-]+$`). `SessionStart` 훅이 `souls/<name>.md` 또는 `~/.config/rocky/souls/<name>.md`(우선) 를 찾아 주입. 미설정 시 주입 없음 |
+| `callsign` | 소울이 사용자를 부르는 호칭. 한 줄, 최대 40자. `soul` 미설정 시 무시 |
+| `openapi.registry` | `host → env → spec → leaf` 평면 트리. 핸들 규칙은 `host:env:spec`, 각 식별자는 `^[a-zA-Z0-9_-]+$` (콜론은 separator 예약). leaf 는 URL 문자열 또는 `{ url, baseUrl?, format? }` |
+| `seo` | `seo_validate` 기본값 — `allowPrivateHosts` (기본 false) / `timeoutMs` (1..30000). 도구 호출 인자가 우선 |
+| `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
+| `todo` | 형제 플러그인 rocky-todo 몫. rocky 는 **관용만** 하고 읽지 않는다 (공유 파일이라 거부하지 않을 뿐) |
+
+### 환경 변수
+
+`ROCKY_*` 는 전체 표면 서버(`src/index.ts`) 전용이라 단독 `openapi-mcp` CLI 는 인지하지 않는다 (CLI 는 `openapi-mcp.json` + XDG 변수만 본다). 예외로 `ROCKY_WORKLOG_AUTO_CAPTURE` 는 서버가 아니라 `Stop` 훅이 읽으므로 Claude Code 전용이다.
+
+| 변수 | 기본값 | 영향 |
+| --- | --- | --- |
+| `ROCKY_CONFIG` | `~/.config/rocky/rocky.json` | user-level `rocky.json` 경로 override |
+| `ROCKY_OPENAPI_CACHE_DIR` | `~/.config/rocky/openapi-specs` | OpenAPI spec 디스크 캐시 위치 |
+| `ROCKY_OPENAPI_CACHE_TTL` | `300` (초) | spec 단위 `cacheTtlSeconds` 기본값 |
+| `ROCKY_OPENAPI_DOWNLOAD_TIMEOUT_MS` | `10000` | spec 다운로드 HTTP timeout |
+| `ROCKY_OPENAPI_INSECURE_TLS` | (unset) | `1`/`true` 면 TLS 검증 비활성 — 사내 self-signed 용, production 금지 |
+| `ROCKY_OPENAPI_EXTRA_CA_CERTS` | (unset) | 추가 CA pem 경로 (`:` 구분). insecureTls 보다 안전한 사내 CA 옵션 |
+| `ROCKY_NOTION_CLI` | `ntn` | Notion CLI 경로. 탐지될 때만 `notion_*` 4 도구가 등록된다 |
+| `ROCKY_NOTION_CLI_TIMEOUT_MS` | `15000` | `ntn` subprocess timeout |
+| `ROCKY_NOTION_CACHE_DIR` | `~/.config/rocky/notion-pages` | Notion 페이지 캐시 위치 |
+| `ROCKY_NOTION_CACHE_TTL` | `86400` (24h) | Notion 캐시 TTL |
+| `ROCKY_WORKLOG_DIR` | `~/.config/rocky/worklog/<project-key>` | 워크로그 JSONL 위치. `worklog.dir` 보다 우선 |
+| `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` | `Stop` 훅 턴 자동 기록 on/off. `0`/`false`/`off`/`no` 만 비활성 |
+| `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | `~/.config` / `~/.cache` | 단독 CLI 의 config 검색 · 디스크 캐시 prefix |
 
 ## 문서 맵
 
+이 README 가 사람용 진입점이고, 그보다 깊이 들어가는 문서는 아래가 전부다. 도구 하나하나의 입출력은 문서가 아니라 **도구 정의 자체**(`src/index.ts` / `src/standalone.ts`)가 단일 소스다 — 에이전트는 그걸 직접 읽는다.
+
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
-| [`FEATURES.md`](./FEATURES.md) | 사람 (한국어) | **단일 source of truth** — 전 도구 카탈로그 / 환경 변수 / 설정 파일 / Quick start |
-| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / Scope / coding rules / change checklist |
+| [`AGENTS.md`](./AGENTS.md) | 에이전트 (영문) | **단일 source of truth** — Layout / Scope / coding rules / change checklist / 리뷰 규약 |
 | [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐선 안 나오는 설계 근거 — 필요할 때만 읽는 심화 레퍼런스 |
-| [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 + 비전 메모 |
+| [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스 — 세 호스트의 확장 메커니즘 + rocky 표면 커버 현황 (실측) |
+| [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 |
 | [`docs/openapi-mcp.md`](./docs/openapi-mcp.md) | 사람 | 단독 CLI 설정 + host 별 등록 예시 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 전체 표면 서버를 쓰고 싶을 때 |
-| [`REVIEW.md`](./REVIEW.md) | 리뷰 에이전트 | 이 레포의 코드 리뷰 규칙 |
+| [`docs/statusline.md`](./docs/statusline.md) | 사람 | statusline 템플릿 3종 상세 |
 
 ## 역사 / 아카이브
 
 v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 + 스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 박제되어 있고, 활용 패턴이 잡히는 대로 [`docs/backlog.md`](./docs/backlog.md)의 후보 단위로 재추가한다 — notion은 v0.5 (`ntn` CLI 위임), journal은 v0.6 에 재추가되어 v0.9 에서 `worklog` 로 개명됐다. 예전 네이티브 opencode plugin 은 in-tree `.archive/` 에 두었다가 걷어냈다 — 필요하면 git 히스토리에서 꺼낸다. 현재 opencode 지원은 이 플러그인의 부활이 아니라 stdio MCP 등록 방식이다.
 
-> 세 호스트에서 rocky 표면이 어디까지 커버되는지 (슬래시 커맨드·훅·스킬·소울 이식 가능 범위 포함) 는 [`FEATURES.md`](./FEATURES.md#호스트-지원-매트릭스) 의 *호스트 지원 매트릭스* 참고.
+> 세 호스트에서 rocky 표면이 어디까지 커버되는지 (슬래시 커맨드·훅·스킬·소울 이식 가능 범위 포함) 는 [`docs/hosts.md`](./docs/hosts.md) 참고.
 
 ## 개발
 

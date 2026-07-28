@@ -81,7 +81,7 @@ codex exec -s workspace-write -C "$WT" \
    (1) rocky 의 MCP 도구 표면(도구 개수/이름)을 바꾸지 마라 — src/index.ts 의 registerTool 목록 불변.
    (2) 게이트를 통과시켜라: bun run check && bun run typecheck && bun test 가 모두 green.
    (3) 요청 스코프 밖 파일(특히 런타임 TS/plugin.json/package.json)을 건드리지 마라.
-   (4) 사용자 표면을 바꾸면 FEATURES.md(한글)와 AGENTS.md(영문)를 lockstep 으로 동기화하라.
+   (4) 사용자 표면을 바꾸면 README.md(한글)와 AGENTS.md(영문)를 lockstep 으로 동기화하라.
    (5) 커밋하지 마라 — 변경만 워킹 트리에 남겨라(감독자 Claude 가 검토 후 병합한다).
    TASK: <TASK>"
 ```

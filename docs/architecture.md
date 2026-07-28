@@ -31,7 +31,7 @@ support commands / hooks / skills / subagents (Codex also has `.codex-plugin/plu
 a marketplace). Those surfaces are portable — rocky just has not shipped them there yet. Do not
 document them as "impossible on Codex/opencode".
 
-See `FEATURES.md`'s *호스트 지원 매트릭스* for the mechanism-by-host breakdown.
+See `docs/hosts.md` for the mechanism-by-host breakdown.
 
 ## worklog: the record ↔ organize split
 
@@ -97,7 +97,7 @@ Re-adding a domain is **always a separate PR** following this template:
    `rocky.schema.json` in lockstep.
 5. **Surface**: register tools in `src/index.ts` and update the `REMOVED_TOOLS` leak guard in
    `src/index.test.ts`.
-6. **Docs**: `FEATURES.md` tool/config tables, `README.md` surface count, `AGENTS.md` Layout + scope.
+6. **Docs**: `README.md` surface / config / env tables, `AGENTS.md` Layout + scope.
 
 Reference shapes already re-added: **notion** (v0.5, plugin-bound + `ntn` CLI-gated — the auth-bearing
 template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped template; renamed

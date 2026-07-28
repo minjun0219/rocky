@@ -2,7 +2,7 @@
 
 `/rocky:statusline` 으로 설치하는 번들 statusline 템플릿 3종의 표시 내용 정리.
 설치·전파 메커니즘(안정 경로 `~/.config/rocky/statusline.sh`, 헤더 마커 기반 훅 sync)은
-[`FEATURES.md`](../FEATURES.md) 의 statusline 절과 `/rocky:statusline` 커맨드 문서 참고.
+[`README.md`](../README.md) 의 statusline 항목과 `/rocky:statusline` 커맨드 문서 참고.
 deps: `jq`, `git` (full 은 `awk` 추가 — POSIX 표준이라 별도 설치 불요).
 
 모든 값은 Claude Code 가 statusLine 스크립트 stdin 으로 주는 JSON 에서 읽는다.

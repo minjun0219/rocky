@@ -2,11 +2,12 @@
 
 Guide for AI coding agents (Claude Code, opencode, codex) working in **this repository**.
 
-> **Where things live.** Humans read [`FEATURES.md`](./FEATURES.md) (Korean — tools / config / quick start).
-> Agents read this file (English — layout, scope, rules, checklist). Design rationale that isn't
-> derivable from the code lives in [`docs/architecture.md`](./docs/architecture.md) — read it on demand,
-> not by default. Cross-project conventions (language, commit style, comment policy) live in the
-> user-scope `AGENTS.md`, not here.
+> **Where things live.** Humans read [`README.md`](./README.md) (Korean — surface, config, env vars,
+> quick start). Agents read this file (English — layout, scope, rules, checklist, review bar). Design
+> rationale that isn't derivable from the code lives in [`docs/architecture.md`](./docs/architecture.md)
+> — read it on demand, not by default. **Per-tool input/output is not documented in prose** — the tool
+> definitions in `src/index.ts` / `src/standalone.ts` are the single source; read them directly.
+> Cross-project conventions (language, commit style, comment policy) live in the user-scope `AGENTS.md`.
 
 ## What rocky is
 
@@ -78,7 +79,7 @@ rocky/                          single package — @minjun0219/rocky
 ## Scope (hold the line)
 
 **In** — everything under *What rocky is* above, plus the config surface (`rocky.json`, project > user)
-and the Claude Code-only surfaces. Mechanism details are in `FEATURES.md`; rationale in
+and the Claude Code-only surfaces. Surface details are in `README.md`; rationale in
 `docs/architecture.md`.
 
 **Out** — do not re-add without an explicit request:
@@ -149,17 +150,49 @@ deterministically, and a per-turn gate would just make every turn slow.
 ## Change checklist
 
 1. `bun run check`, `bun run typecheck`, `bun test` all pass.
-2. If the user-facing surface (tools / env vars / handles) changed, sync `FEATURES.md` (humans) and this
-   file (agents), plus `README.md` always, `docs/openapi-mcp.md` when the standalone CLI changed, and
+2. If the user-facing surface (tools / env vars / handles) changed, sync `README.md` (humans) and this
+   file (agents), plus `docs/openapi-mcp.md` when the standalone CLI changed, and
    `.claude-plugin/plugin.json` when the Claude Code surface changed.
 3. New env var → update its reading site (`src/core/cache.ts` / `config-loader.ts` / `rocky-config.ts`)
-   and the `FEATURES.md` env-var table.
+   and the `README.md` env-var table.
 4. Tool contract change → update registration in `src/index.ts` and/or `src/standalone.ts`, and the
    shared handler in `src/core/handlers.ts`.
 5. `rocky.json` shape change → update `rocky.schema.json` **and** `src/core/rocky-config.ts` in lockstep.
 6. Tool name surfacing again → update `REMOVED_TOOLS` in `src/index.test.ts` (currently guards
    mysql / spec-pact / pr-watch; `worklog_*` presence is asserted via `WORKLOG_TOOLS`).
 7. User-facing change → `bunx changeset`. Tooling-only chores need none.
+
+## Code review bar
+
+Applies to PR review on this repo (Claude Code Code Review included). **Write every comment in
+Korean**; keep identifiers, paths, and commands in English.
+
+**Format** — open the summary with a tally: `🔴 N important / 🟡 M nit / 🟣 K pre-existing`, or
+"중요 이슈 없음" when there are no Important findings. Each inline comment is three bullets:
+`문제 / 영향 / 제안`, with an applicable fix snippet where possible.
+
+**🔴 Important** — reserved for: a change pulling in anything under *Scope → Out* without an explicit
+request; an input/output break in the 7 `openapi_*` tools (shared by `src/index.ts` and
+`src/standalone.ts`); `rocky.json` shape changed without `rocky.schema.json` **and**
+`src/core/rocky-config.ts` moving in lockstep; a user-facing surface changed without the
+*Change checklist* doc sync; `__dirname` or `.js`/`.ts` extensions on local imports or any Node-only
+API that breaks the Bun-only assumption; secrets in logs, error messages missing identifying context,
+fs paths built from unsanitized external input; a new runtime dep where the stdlib or a Bun built-in
+would do. Everything else is Nit at most.
+
+**🟡 Nit** — cap 5 inline; collapse the rest into the summary as `유사 항목 N 개 더`. Style, naming,
+JSDoc gaps, test-file placement (`*.test.ts` next to its source), missing `mkdtempSync` isolation.
+
+**Do not report** — `bun.lock` and anything `.gitignore`d; type errors and test failures that
+`bun run typecheck` / `bun test` already catch (exception: a new `src/core/` module with no adjacent
+`*.test.ts` is a Nit); a PR that was *explicitly asked* to pull in a `docs/backlog.md` item is not a
+scope violation by that fact alone.
+
+**Citation bar** — behavior claims ("this code does X") need a `path:line` citation, not an inference
+from naming. Never raise an Important finding from naming alone.
+
+**Re-review convergence** — from the second review of the same PR onward, post no new Nits: only
+Important and newly introduced Pre-existing findings.
 
 ## Plugin source & dev loop
 
@@ -182,5 +215,6 @@ dev loop is push-based: edit → push to `main` → `claude plugin update rocky@
 repo-root `.mcp.json` would leak into the *installed* plugin's MCP config on top of `plugin.json`'s
 `mcpServers`. Keep such servers at user scope instead.
 
-**Single sources**: humans = `FEATURES.md`, agents = this file, rationale = `docs/architecture.md`. Do
-not add a new root-level sibling doc.
+**Single sources**: humans = `README.md`, agents = this file, rationale = `docs/architecture.md`,
+per-tool contracts = the tool definitions themselves. Do not add a new root-level sibling doc — that is
+exactly what `FEATURES.md` and `REVIEW.md` were before they were folded into these three.
