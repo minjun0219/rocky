@@ -1,5 +1,28 @@
 # @minjun0219/rocky
 
+## 0.20.0
+
+### Minor Changes
+
+- [#118](https://github.com/minjun0219/rocky/pull/118) [`9f3e68d`](https://github.com/minjun0219/rocky/commit/9f3e68df2d61f87c9ff0ce9f53c76ebca9b29582) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-pr` 에서 재리뷰 폴링 루프를 걷어냈다. PR 에 지금 붙어 있는 리뷰를 **한 번에
+  처리하고 끝난다** — 60초 간격 `Monitor` 폴링, 8분 수렴 판정, 라운드 상한, 진전 없음 감지가 모두
+  사라졌다 (249줄 → 205줄, `Monitor` 도구 의존도 제거).
+
+  원래 이 루프는 **Copilot 이 푸시마다 자동 재리뷰한다**는 전제 위에 있었다. 그 설정을 끄면서
+  전제가 사라졌고, 그대로 두면 오지 않을 재리뷰를 매번 8분씩 기다리게 된다. 무엇보다 라운드가
+  계속 쌓이는 방식 자체가 피로했다 — 한 PR 에서 라운드 6까지 간 적도 있다.
+
+  리뷰를 한 번 더 받고 싶으면 `@copilot review` / `@codex review` 를 직접 달고 커맨드를 다시 부른다.
+  미해결 스레드가 0 이면 머지 가능 판정으로 바로 넘어가고, 봇 리뷰 대기로 `BLOCKED` 이면 그 사실만
+  보고하고 끝낸다(기다리지 않는다).
+
+### Patch Changes
+
+- [#117](https://github.com/minjun0219/rocky/pull/117) [`459f5b8`](https://github.com/minjun0219/rocky/commit/459f5b89aa566d9ddb4a07a2f4a8abea718ae630) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:recall` 의 서브에이전트 모델 선택을 특정 모델 고정에서 **등급 선택**으로 일반화한다.
+  Haiku/Sonnet 은 예시(기본값)로 남고, 배치 크기 기준(작은 배치 → 더 저렴한 쪽, 큰 배치 → 더 큰
+  컨텍스트/품질)은 그대로다. 세션 환경이 다른 저비용 백엔드(예: 로컬 모델 위임)를 제공하면 스킬
+  지시와 충돌 없이 그쪽을 고를 수 있다. 다이제스트 출력 형식과 `kind:"digest"` 기록 방식은 변경 없다.
+
 ## 0.19.0
 
 ### Minor Changes
@@ -46,8 +69,8 @@
   `ROCKY_OPENCODE_*` 환경 변수가 사라진다 (코드 1,737 LOC + 테스트 9 파일).
 
   도입(v0.17) 이후 실제로 돈 위임 잡이 1 건뿐이었고, 커맨드 실행 흔적도 없었다. Codex 위임
-  (`/rocky:codex`)은 그대로 남는다. MCP 도구 16 종(openapi*\* 7 / seo_validate / notion*_ 4 /
-  worklog\__ 4)과 소울·statusline·`Stop` 훅도 전부 유지된다.
+  (`/rocky:codex`)은 그대로 남는다. MCP 도구 16 종(openapi*\* 7 / seo_validate / notion*\_ 4 /
+  worklog\_\_ 4)과 소울·statusline·`Stop` 훅도 전부 유지된다.
 
   기존 `rocky.json` 에 `opencode` 블록이 남아 있으면 이제 unknown key 로 거부되니 지워야 한다.
   `~/.config/rocky/jobs/` 의 기존 잡 기록 파일은 삭제하지 않았다.
