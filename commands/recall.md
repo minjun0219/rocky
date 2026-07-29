@@ -1,5 +1,5 @@
 ---
-description: 워크로그(worklog 의 kind:"turn" + 수동 decision/blocker)를 읽어 앵커 히스토리 다이제스트로 정리한다 — 마지막 digest 이후 항목만 증분 요약해 kind:"digest" 엔트리로 남기고, 각 앵커는 원본 엔트리 id 로 드릴다운 가능하게 한다. 배치 크기에 따라 Haiku/Sonnet 서브에이전트를 고른다.
+description: 워크로그(worklog 의 kind:"turn" + 수동 decision/blocker)를 읽어 앵커 히스토리 다이제스트로 정리한다 — 마지막 digest 이후 항목만 증분 요약해 kind:"digest" 엔트리로 남기고, 각 앵커는 원본 엔트리 id 로 드릴다운 가능하게 한다. 배치 크기에 따라 저렴한 실행 주체(예: Haiku/Sonnet)를 고른다.
 argument-hint: "[집중할 주제/힌트] (생략 가능)"
 allowed-tools: mcp__plugin_rocky_rocky__worklog_status, mcp__plugin_rocky_rocky__worklog_read, mcp__plugin_rocky_rocky__worklog_search, mcp__plugin_rocky_rocky__worklog_append, Task
 ---
@@ -38,10 +38,14 @@ worklog_status
 - `$ARGUMENTS` 힌트가 있으면 `worklog_search` 로 보강.
 - `kind:"digest"` 항목은 제외. 새 항목 수 `n` 을 센다. `n == 0` → no-op 종료 (watermark 안 남김).
 
-### 3. 적응적 모델로 서브에이전트 dispatch
+### 3. 적응적 등급으로 서브에이전트 dispatch
 
-- `worklog.digestThreshold`(기본 40) 기준: `n <= 40` → **Haiku**, `n > 40` → **Sonnet**.
-- `Task` 로 서브에이전트를 띄운다 (model 을 위 규칙대로). 수집 항목(각 `id`/`timestamp`/`kind`/
+- 다이제스트 요약은 저비용 작업이다 — 배치 크기로 **등급**만 고른다.
+  `worklog.digestThreshold`(기본 40) 기준: `n <= 40` → 더 저렴한 쪽(예: **Haiku**),
+  `n > 40` → 더 큰 컨텍스트/품질(예: **Sonnet**). 특정 모델 강제가 아니라 그 급의
+  저비용 실행 주체면 된다 — 세션 환경이 다른 저비용 백엔드(예: 로컬 모델 위임)를
+  제공하면 그쪽을 써도 좋다.
+- `Task` 로 서브에이전트를 띄운다 (등급을 위 규칙대로). 수집 항목(각 `id`/`timestamp`/`kind`/
   `content`)을 넘기고 아래 **앵커 다이제스트**를 만들게 한다:
   - raw 나열 금지 — 의미 있는 순간(결정/전환/blocker/사용자 답변)만.
   - 각 앵커 끝에 원본 `id:<id> (<ts>)`.
