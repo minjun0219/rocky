@@ -1,24 +1,27 @@
 ---
-description: PR 에 붙은 리뷰(Copilot / Codex / 사람)를 미해결 0 까지 처리한다 — 수정·게이트·푸시·resolve 를 반복하고, 반론은 모아 마지막에 상의한 뒤 코멘트한다. 머지 가능해지면 알림.
+description: PR 에 붙은 리뷰(Copilot / Codex / 사람)를 한 번에 처리한다 — 수정·게이트·푸시·resolve 후 반론은 모아 상의하고, 머지 가능해지면 알림. 재리뷰를 기다리지 않는다.
 argument-hint: "[PR 번호] (생략 시 현재 브랜치의 PR)"
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, Monitor, PushNotification
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification
 ---
 
-# review-pr — PR 리뷰 대응 루프
+# review-pr — PR 리뷰 대응
 
-PR 에 붙은 리뷰를 미해결 0 까지 처리한다. `$ARGUMENTS` 는 PR 번호(있으면). 출력·코멘트는
+PR 에 지금 붙어 있는 리뷰를 처리한다. `$ARGUMENTS` 는 PR 번호(있으면). 출력·코멘트는
 **한국어** (코드 identifier / 경로 / 명령어는 영어 그대로).
+
+**한 번 돌고 끝난다.** 재리뷰를 폴링하지 않는다 — 리뷰를 한 번 더 받고 싶으면 사용자가
+`@copilot review` / `@codex review` 를 직접 달고 이 커맨드를 다시 부른다. 봇 자동 재리뷰를 켜 두고
+루프를 도는 방식은 라운드가 계속 쌓여 피로해서 걷어냈다.
 
 ## 원칙
 
-1. **이 커맨드 호출 자체가 수정·커밋·푸시·resolve 승인이다.** 라운드마다 채팅에 사후 요약만
-   올린다. 매 수정마다 확인을 받지 않는다.
+1. **이 커맨드 호출 자체가 수정·커밋·푸시·resolve 승인이다.** 채팅에 사후 요약만 올린다. 매
+   수정마다 확인을 받지 않는다.
 2. **머지는 절대 하지 않는다.** 머지 가능 판정 + 알림까지가 끝. `gh pr merge` 를 쓰지 않는다.
 3. **게이트 실패 = 푸시 없음.** `--no-verify` 우회 금지, force push 금지.
 4. **코멘트는 필요한 사항만.** 수정 반영 건은 코멘트 없이 resolve 만 한다. 커맨드가 코멘트를
-   남기는 경우는 둘뿐 — (a) 사용자가 승인한 반론의 근거, (b) 사용자가 승인한 `@codex review`
-   트리거. 둘 다 9단계에서 명시 승인을 받은 뒤에만 단다.
-5. **반론은 혼자 결정하지 않는다.** 판단이 갈리는 리뷰는 보류 큐에 쌓고, 루프가 수렴한 뒤
+   남기는 경우는 하나뿐 — 사용자가 7단계에서 승인한 반론의 근거.
+5. **반론은 혼자 결정하지 않는다.** 판단이 갈리는 리뷰는 보류 큐에 쌓고, 처리를 마친 뒤
    사용자와 상의해 결정한다.
 
 ## 절차
@@ -68,7 +71,8 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
   수 있다.
 - 봇(`copilot-pull-request-reviewer` / `chatgpt-codex-connector`)과 사람 스레드를 모두 모은다.
   **사람 리뷰어의 지적이 봇보다 우선순위가 높다.**
-- 이전 라운드에서 보류 큐에 넣은 스레드는 다시 분류하지 않는다.
+- **미해결이 0 이면 8단계(머지 가능 판정)로 바로 간다.** 봇 리뷰가 아직 안 왔을 수도 있으니, 그
+  사실을 보고에 적는다.
 
 ### 2. 분류
 
@@ -76,8 +80,8 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
 
 | 판정 | 처리 |
 | --- | --- |
-| **수정** | 이번 라운드에서 고친다 |
-| **반론** | 보류 큐에 넣는다 — 이 라운드에서 코멘트도 resolve 도 하지 않는다 |
+| **수정** | 고친다 |
+| **반론** | 보류 큐에 넣는다 — 코멘트도 resolve 도 하지 않는다 |
 | **무효** | 이미 해결됐거나 대상 코드가 사라짐 → 코멘트 없이 resolve |
 
 ### 3. 수정 + 게이트
@@ -95,14 +99,14 @@ bun test
 
 ### 4. 커밋 · 푸시
 
-- 라운드당 커밋 1개. Conventional Commits 한국어 제목(`fix(review): …`), 본문에 처리한 스레드 요약.
+- 커밋 1개. Conventional Commits 한국어 제목(`fix(review): …`), 본문에 처리한 스레드 요약.
 - 커밋 메시지 말미에 반드시:
 
   ```
   Co-Authored-By: Claude <noreply@anthropic.com>
   ```
 
-- 이번 라운드에 해당하는 변경만 스테이지한다 (`git add -A` 금지).
+- 이번 처리에 해당하는 변경만 스테이지한다 (`git add -A` 금지).
 
 ```bash
 git push
@@ -121,10 +125,10 @@ for THREAD_ID in $RESOLVE_IDS; do
 done
 ```
 
-### 6. 라운드 보고 (채팅)
+### 6. 처리 보고 (채팅)
 
 ```
-라운드 N — 처리 3 / 반론 보류 1 / 무효 1
+처리 3 / 반론 보류 1 / 무효 1
   ✅ src/core/worklog.ts:42  …지적 요약… → …어떻게 고쳤는지…
   ⏸  AGENTS.md:12           …지적 요약… → 보류 (근거: …)
   ⊘  docs/codex.md:8        outdated, 코드 이동됨 → resolve
@@ -133,48 +137,7 @@ done
 
 장문 리포트를 쓰지 않는다. 스레드당 한 줄.
 
-### 7. 재리뷰 대기
-
-`Monitor` 로 60초 간격 폴링한다. 5단계에서 resolve 를 마쳤으니 이 시점의 미해결은 **보류 큐가
-전부**다. 따라서 판정 기준은 **`미해결 id 집합 − 보류 큐 id 집합`이 비어 있지 않은가** 하나다.
-
-들고 다니는 목록은 **보류 큐 id 집합(`HELD`) 하나뿐**이다. 처리 완료한 스레드 id 목록은 들지
-않는다 — 라운드마다 낡아서 이미 resolve 한 스레드를 새것으로 다시 알린다. 반대로 보류 큐는
-9단계까지 유지되는 명시적 집합이라 낡지 않는다.
-
-```bash
-HELD=""   # 보류 큐 스레드 id 를 공백으로 이어 붙인 값 (없으면 빈 문자열)
-
-for i in $(seq 1 8); do
-  sleep 60
-  ids=$(gh api graphql -f owner="$OWNER" -f repo="$REPO" -F num="$NUM" -f query='
-  query($owner:String!, $repo:String!, $num:Int!) {
-    repository(owner:$owner, name:$repo) { pullRequest(number:$num) {
-      reviewThreads(first:100){nodes{id isResolved}}
-    }}
-  }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)|.id') || ids=""
-  new=0
-  for id in $ids; do
-    case " $HELD " in *" $id "*) ;; *) new=$((new+1)) ;; esac
-  done
-  if [ "$new" -gt 0 ]; then echo "NEW REVIEW: 새 스레드 ${new}건 (${i}분 경과)"; exit 0; fi
-done
-echo "CONVERGED: 8분간 새 리뷰 없음"
-```
-
-- **8분간 새 스레드가 없으면 리뷰 종료로 판정**하고 9단계로 간다.
-  (Copilot 은 푸시마다 자동 재리뷰하며 실측 지연이 2~5분이다.)
-- **트리거 코멘트를 달지 않는다.** Copilot 은 이미 자동으로 돌고, Codex 는 사용자가 의도적으로
-  수동 게이트로 막아둔 것이다.
-
-### 8. 루프
-
-- 새 리뷰가 있으면 1단계로 복귀한다.
-- 보류 큐를 제외한 미해결이 0 이고 8분간 새 리뷰가 없으면 수렴으로 본다.
-- **라운드 상한 5.** 초과하면 멈추고 현재 상태를 보고한다.
-- **진전 없음 감지**: 같은 스레드를 두 라운드 연속 못 고치면 중단하고 보고한다.
-
-### 9. 반론 상의 (수렴 후)
+### 7. 반론 상의
 
 보류 큐를 채팅에서 하나씩 사용자와 정리한다. 스레드마다 지적 요약 + 반론 근거를 보여주고 묻는다.
 
@@ -193,15 +156,9 @@ echo "CONVERGED: 8분간 새 리뷰 없음"
   '
   ```
 
-- 반론 **반려** → 수정 대상으로 전환하고 3단계로 복귀한다 (라운드 카운트는 이어서 센다).
-- 이 자리에서 **"Codex 재리뷰를 돌릴까?"** 도 함께 묻는다. 사용자가 승인할 때만 `@codex review`
-  코멘트를 달고 7단계로 돌아간다. 승인이 없으면 달지 않는다.
+- 반론 **반려** → 수정 대상으로 전환하고 3단계로 돌아가 처리한다.
 
-  ```bash
-  gh pr comment "$NUM" --body "@codex review"
-  ```
-
-### 10. 머지 가능 판정 + 알림
+### 8. 머지 가능 판정 + 알림
 
 ```bash
 gh pr checks "$NUM"
@@ -223,8 +180,8 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 
   - 승인 리뷰 부족(`required_approving_review_count` 미달)처럼 **사람이 풀어야 하는 사유**면 그대로
     보고한다.
-  - 봇 리뷰 대기처럼 **시간이 풀어주는 사유**면 7단계로 돌아가 한 번 더 대기한 뒤 재판정한다
-    (이 재판정도 라운드 상한에 포함).
+  - 봇 리뷰 대기처럼 **시간이 풀어주는 사유**면 그 사실을 보고하고 끝낸다. 기다리지 않는다 —
+    잠시 뒤 이 커맨드를 다시 부르면 된다.
 - 충족 → `PushNotification` 으로 알리고 채팅에 최종 요약을 남긴다.
 
   ```
@@ -242,8 +199,7 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 | `main` 브랜치 / PR head 불일치 | 즉시 중단, 체크아웃 안내 |
 | `gh` 미인증 | 즉시 중단 |
 | PR 없음 | 중단하고 `/rocky:finish` 안내 |
+| 미해결 스레드 0 | 8단계로 바로 이동, 보고에 명시 |
 | 게이트 실패 | 푸시 없이 중단, 실패 로그 인용 |
 | push 거부 (원격이 앞서 있음) | 에러 그대로 인용하고 중단. force push 금지 |
-| 라운드 상한 5 초과 | 중단 + 상태 보고 |
-| 같은 스레드 2라운드 연속 미해결 | 중단 + 보고 |
-| 폴링 8분 무반응 | 정상 수렴으로 간주하고 9단계로 |
+| 반론 반려로 3단계 복귀가 3회 넘음 | 중단 + 상태 보고 |
