@@ -21,6 +21,11 @@ rocky 의 worklog 는 **기록(logbook)** 레이어다 — `Stop` hook 이 매 �
    필요하면 `worklog_read` 로 원문을 찾아가게 한다.
 5. **네이티브 메모리와 별개.** 이 다이제스트는 worklog 안에 산다. Claude Code 글로벌 메모리를
    건드리지 않는다.
+6. **한 실행은 한 프로젝트만 건드린다.** worklog 도구가 쓰는 키는 **MCP 서버 프로세스의
+   `process.cwd()`** 에서 나온다(`defaultProjectKey`). rocky MCP 서버는 프로젝트마다 따로
+   뜨므로, 세션이 붙은 인스턴스가 바뀌면 **한 실행 안에서도 읽는 프로젝트와 쓰는 프로젝트가
+   갈릴 수 있다.** 그래서 `projectKey` 를 실행 내내 고정값으로 취급하지 말고 append 직전에
+   다시 확인한다 (2026-07-29 실제 사고: A 를 읽고 B 에 써서 B 의 watermark 를 오염시켰다).
 
 ## 절차
 
@@ -30,6 +35,7 @@ rocky 의 worklog 는 **기록(logbook)** 레이어다 — `Stop` hook 이 매 �
 worklog_status
 ```
 - `totalEntries` 가 0 이면 "정리할 워크로그 없음" 후 종료.
+- **응답의 `projectKey` 를 적어둔다** — 4단계에서 이 값과 대조한다 (원칙 6).
 - 마지막 watermark: `worklog_read { kind: "digest", limit: 1 }` → 있으면 그 `timestamp`, 없으면 첫 실행.
 
 ### 2. 새 워크로그 수집 (증분)
@@ -56,7 +62,17 @@ worklog_status
     - <blocker 해결> → id:<entry-id> (<ts>)
     ```
 
-### 4. 다이제스트 append (watermark 겸용)
+### 4. 프로젝트 확인 → 다이제스트 append (watermark 겸용)
+
+**append 하기 직전에 `worklog_status` 를 한 번 더 부른다.**
+
+```
+worklog_status        # → projectKey 가 1단계와 같은가?
+```
+- **다르면 append 하지 말고 중단**한다. 읽은 프로젝트와 쓸 프로젝트가 갈렸다는 뜻이라, 그대로
+  쓰면 엉뚱한 워크로그에 남의 히스토리를 박고 그쪽 watermark 까지 오염시킨다(원칙 6). 두 키를
+  모두 밝혀 사용자에게 보고하고 판단을 받는다.
+- 같으면 append 한다:
 
 ```
 worklog_append { kind: "digest", content: "<앵커 다이제스트>", tags: ["digest"] }
@@ -71,3 +87,8 @@ worklog_append { kind: "digest", content: "<앵커 다이제스트>", tags: ["di
 
 - `totalEntries == 0` 또는 새 항목 0 → no-op 종료 (watermark 안 남김).
 - 서브에이전트 실패 → 다이제스트 append 하지 말고 실패만 알린다 (watermark 오염 방지).
+- **4단계의 `projectKey` 가 1단계와 불일치** → append 하지 말고 중단. 두 키를 밝혀 보고한다.
+  이미 오염이 일어난 뒤라면 워크로그는 불변이므로 지우지 말고, ① 오배송 항목의 id 를 짚는
+  `kind:"note"` 정정을 남기고 ② 올바른 범위로 다시 만든 digest 를 append 해 watermark 를
+  덮는다 — 그 프로젝트의 digest 가 오염된 것 하나뿐이면 증분이 아니라 **전체 범위**로 다시
+  만들어야 그 이전 항목이 영구히 건너뛰어지지 않는다.
