@@ -36,7 +36,7 @@
 
 아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
-- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:review-pr` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:review-pr` (PR 에 붙은 리뷰를 한 번에 처리 — 수정·게이트·푸시·resolve, 반론은 모아 상의, 머지 가능 시 알림. 재리뷰를 기다리지 않는다), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
+- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:resolve-reviews` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:resolve-reviews` (PR 에 붙은 리뷰를 한 번에 처리 — 수정·게이트·푸시·resolve, 반론은 모아 상의, 머지 가능 시 알림. 재리뷰를 기다리지 않는다), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
 - **훅** (`hooks/hooks.json`) — `Stop` 하나뿐이다. 매 턴 종료 시 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). fail-open — 실패해도 세션을 막지 않는다. **세션 컨텍스트에 얹히는 것은 아무것도 없다.**
 - **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git 교차, 쓰기는 컨벤션 + 확인 게이트.
 

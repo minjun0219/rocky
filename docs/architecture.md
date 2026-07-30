@@ -121,7 +121,7 @@ template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped t
 
 - **v0.5** — notion re-added, first domain back from the archive. CLI-gated on `ntn`.
 - **v0.6** — journal re-added (record layer `journal_*` + organize layer `/curate` writing to a wiki dir).
-- **v0.8** — `/pr-watch` removed. PR review handling later became `/rocky:review-pr`; Claude Code's
+- **v0.8** — `/pr-watch` removed. PR review handling later became `/rocky:resolve-reviews`; Claude Code's
   built-in `/autofix-pr` remains a separate option for CI-failure autofixes.
 - **v0.9** — `journal_*` → `worklog_*`; `Stop` hook turn auto-capture added; organize layer moved from
   an external wiki (`/curate`) to in-worklog `kind:"digest"` entries (`/rocky:recall`). `wikiDir` dropped.
@@ -131,6 +131,9 @@ template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped t
   value there is worktree isolation + the plugin-surface integrity check.
 - **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks). **Removed in
   v0.19** — 1,737 LOC that ran a single job across its whole life.
+- **2026-07-30** — `/rocky:review-pr` renamed to `/rocky:resolve-reviews`. The old name parsed as
+  verb + object ("review the PR" — which is what the built-in `/review` does), so it kept getting
+  confused with `/rocky:review`. The new name says what it does to what: it resolves review threads.
 - **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
   2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
   todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.

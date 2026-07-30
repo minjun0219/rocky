@@ -1,5 +1,5 @@
 ---
-description: 완료를 선언하기 전에 신선한 컨텍스트의 서브에이전트로 지금 작업 diff 를 검토시킨다. 세션 히스토리 대신 diff + 요구사항만 넘겨 "내가 만든 걸 내가 검토하는" 편향을 피한다. PR 리뷰 대응은 /rocky:review-pr.
+description: 완료를 선언하기 전에 신선한 컨텍스트의 서브에이전트로 지금 작업 diff 를 검토시킨다. 세션 히스토리 대신 diff + 요구사항만 넘겨 "내가 만든 걸 내가 검토하는" 편향을 피한다. PR 리뷰 대응은 /rocky:resolve-reviews.
 argument-hint: "[비교 기준 (기본: origin/main 또는 HEAD~1)]"
 allowed-tools: Task, Bash(git diff:*), Bash(git log:*), Bash(git rev-parse:*), Bash(git status:*), Bash(git merge-base:*), Read, Glob, Grep
 ---
@@ -17,7 +17,7 @@ allowed-tools: Task, Bash(git diff:*), Bash(git log:*), Bash(git rev-parse:*), B
 사소한 수정에는 쓰지 않는다.
 
 **구분.** 이 커맨드는 아직 리뷰받지 않은 **내 작업 diff** 를 본다. 이미 열린 PR 의 리뷰 스레드를
-처리하는 건 `/rocky:review-pr` 다.
+처리하는 건 `/rocky:resolve-reviews` 다.
 
 ## 절차
 
