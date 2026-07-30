@@ -43,7 +43,7 @@ rocky/                          single package — @minjun0219/rocky
 │   └── plugin.json             ★ plugin metadata + the only MCP server rocky ships
 ├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with src/core/rocky-config.ts
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
-├── commands/                   ★ slash commands — brainstorm, review, finish, review-pr, recall
+├── commands/                   ★ slash commands — brainstorm, review, finish, resolve-reviews, recall
 ├── hooks/hooks.json            ★ Stop (log-turn) — the only hook. Nothing runs at SessionStart,
 │                                 so the plugin adds nothing to session context.
 ├── skills/                     ★ bundled skills — writing-cc-plugin, todoist
