@@ -40,6 +40,8 @@
 - **훅** (`hooks/hooks.json`) — `Stop` 하나뿐이다. 매 턴 종료 시 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). fail-open — 실패해도 세션을 막지 않는다. **세션 컨텍스트에 얹히는 것은 아무것도 없다.**
 - **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스. `todoist`: 세션에 연결된 Todoist MCP 로 현재 레포의 작업 목록을 파악·등록·마감하는 연동 스킬 — 다음 작업 제안은 Todoist + git 교차, 쓰기는 컨벤션 + 확인 게이트.
 
+- **서브에이전트** (`agents/`) — `reviewer`: 신선한 컨텍스트에서 **diff 와 요구사항만** 받아 검토하는 읽기 전용 리뷰어. `/rocky:review` 가 이 에이전트를 띄우고, "리뷰해줘" 처럼 직접 부를 수도 있다. 돌려본 것만 통과라고 쓰고(검증 후 단언), 통과처럼 보이는 실패(false pass) 함정을 따로 챙기며, 파일을 고치거나 머지하지 않는다.
+
 > **v0.19 에서 걷어낸 것** — 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅, opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다 — 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json` 의 `soul` / `callsign` / `opencode` 키도 함께 사라져 이제 거부되니, 예전 설정 파일에 남아 있으면 지워야 한다.
 
 ## 시작하기

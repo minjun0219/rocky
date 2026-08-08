@@ -26,7 +26,8 @@ Two entry points:
 All openapi handlers live once in `src/core/handlers.ts` so the two entry points can't drift.
 
 **Claude Code-only surfaces** (not MCP tools, invisible to Codex/opencode): slash commands in
-`commands/`, the single `Stop` hook in `hooks/`, and bundled skills in `skills/`. This is a wiring
+`commands/`, the single `Stop` hook in `hooks/`, bundled skills in `skills/`, and subagents in
+`agents/`. This is a wiring
 choice, not a host limitation — see `docs/architecture.md`.
 
 > **Scope framing — read before calling a request out-of-scope.** rocky is a personal plugin, not an
@@ -43,6 +44,8 @@ rocky/                          single package — @minjun0219/rocky
 │   └── plugin.json             ★ plugin metadata + the only MCP server rocky ships
 ├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with src/core/rocky-config.ts
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
+├── agents/                     ★ subagents — reviewer (fresh-context diff review; /rocky:review
+│                                 dispatches it, and it is callable directly). Read-only role.
 ├── commands/                   ★ slash commands — brainstorm, review, finish, resolve-reviews, recall
 ├── hooks/hooks.json            ★ Stop (log-turn) — the only hook. Nothing runs at SessionStart,
 │                                 so the plugin adds nothing to session context.
@@ -79,6 +82,8 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
 **Out** — do not re-add without an explicit request:
 
 - mysql / spec-pact / pr-watch / the old agents & skills — archived on `archive/pre-openapi-only-slim`.
+  Those agents (`rocky` / `grace` / `mindy`) were opencode-format **persona & routing** agents; the
+  current `agents/reviewer.md` is a role extracted from `/rocky:review`, not a revival of them.
 - The old native `@opencode-ai/plugin` surface — once kept in-tree under `.archive/`, now removed
   (recover from git history if ever needed). Current opencode support is stdio MCP registration and
   is **not** a revival of it.
