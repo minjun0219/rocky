@@ -99,7 +99,7 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
 - Anything rocky-todo (daemon / web UI / CLI / hooks / tools) — separate repo `minjun0219/rocky-todo`.
   `rocky.json` still **tolerates** a `todo` block because the file is shared; rocky just ignores it.
 - **Any external task-service integration** (Todoist, Linear, Jira, …) — the `todoist` bundled skill
-  was removed and moved to the owner's `harness` repo. The owner's task list is the
+  was removed and moved to the owner's private plugin repo. The owner's task list is the
   rocky-todo board and the record is `worklog_*`; rocky ships nothing else. This holds even for a
   skill that only borrows a connected MCP and ships no credentials — the point is that rocky's public
   surface names one task system. Do not name such a service in docs, manifest keywords, or PR titles.
