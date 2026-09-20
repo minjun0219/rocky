@@ -54,6 +54,23 @@ describe('parsePointer', () => {
   it('뒤집힌 범위는 실패한다', () => {
     expect(() => parsePointer('src/index.ts:58-42')).toThrow(/줄 범위가 잘못됐다/);
   });
+
+  it('경로를 저장소 루트 기준으로 정규화한다', () => {
+    expect(parsePointer('./src/index.ts:42')).toEqual({
+      path: 'src/index.ts',
+      line: { start: 42, end: 42 },
+    });
+    expect(parsePointer('src/core/../index.ts')).toEqual({ path: 'src/index.ts' });
+  });
+
+  it('저장소 밖을 가리키는 포인터는 파일을 열기 전에 막는다', () => {
+    expect(() => parsePointer('../../etc/passwd:root')).toThrow(/저장소 밖을 가리킨다/);
+    expect(() => parsePointer('/etc/passwd:root')).toThrow(/상대 경로여야 한다/);
+  });
+
+  it('정규화 후 남는 경로가 없으면 실패한다', () => {
+    expect(() => parsePointer('./:42')).toThrow(/경로가 없다/);
+  });
 });
 
 describe('resolveSymbolLine', () => {

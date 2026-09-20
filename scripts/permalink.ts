@@ -48,19 +48,56 @@ export function parseRepoSlug(remoteUrl: string): RepoSlug {
 }
 
 /**
- * `경로:심볼` / `경로:42` / `경로:42-58` / `경로` 를 파싱한다.
+ * 포인터 경로를 저장소 루트 기준 상대 경로로 정규화한다.
  *
- * @throws 경로가 비었거나 줄 범위가 뒤집힌 경우.
+ * 두 가지를 동시에 막는다 — `./commands/finish.md` 처럼 군더더기가 붙으면 `buildDiffLink` 의
+ * sha256 앵커가 GitHub 의 실제 앵커(루트 기준 경로)와 어긋나 링크가 조용히 깨지고, `../` 로
+ * 루트를 벗어나는 경로는 저장소 밖 파일을 읽게 한다.
+ *
+ * @throws 절대 경로이거나 `..` 가 루트를 벗어나는 경우, 정규화 결과가 빈 경로인 경우.
+ */
+function normalizePointerPath(path: string, raw: string): string {
+  if (path.startsWith('/')) {
+    throw new Error(`포인터 경로는 저장소 루트 기준 상대 경로여야 한다 — 입력=${raw}`);
+  }
+
+  const segments: string[] = [];
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') {
+      continue;
+    }
+    if (segment !== '..') {
+      segments.push(segment);
+      continue;
+    }
+    if (segments.length === 0) {
+      throw new Error(`포인터가 저장소 밖을 가리킨다 — 입력=${raw}`);
+    }
+    segments.pop();
+  }
+
+  if (segments.length === 0) {
+    throw new Error(`포인터에 경로가 없다 — 입력=${raw}`);
+  }
+  return segments.join('/');
+}
+
+/**
+ * `경로:심볼` / `경로:42` / `경로:42-58` / `경로` 를 파싱한다. 경로는 저장소 루트 기준으로
+ * 정규화된다 — 이후 단계(해시 앵커, 파일 읽기, 라벨)는 모두 이 값을 쓴다.
+ *
+ * @throws 경로가 비었거나 루트를 벗어나거나 줄 범위가 뒤집힌 경우.
  */
 export function parsePointer(raw: string): Pointer {
   const trimmed = raw.trim();
   const cut = trimmed.lastIndexOf(':');
-  const path = cut === -1 ? trimmed : trimmed.slice(0, cut);
+  const rawPath = cut === -1 ? trimmed : trimmed.slice(0, cut);
   const suffix = cut === -1 ? '' : trimmed.slice(cut + 1);
 
-  if (!path) {
+  if (!rawPath) {
     throw new Error(`포인터에 경로가 없다 — 입력=${raw}`);
   }
+  const path = normalizePointerPath(rawPath, raw);
   if (!suffix) {
     return { path };
   }
