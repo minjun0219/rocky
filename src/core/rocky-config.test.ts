@@ -29,96 +29,29 @@ describe('validateConfig', () => {
     expect(validateConfig({}, 'test')).toEqual({});
   });
 
-  it('accepts a registry with valid identifiers', () => {
-    const config: RockyConfig = {
-      openapi: {
-        registry: {
-          acme: { dev: { users: 'https://example.com/users.json' } },
-        },
-      },
-    };
-    expect(validateConfig(config, 'test')).toEqual(config);
-  });
-
   it('rejects non-object root', () => {
     expect(() => validateConfig(null, 'p')).toThrow(/must be a JSON object/);
     expect(() => validateConfig([], 'p')).toThrow(/must be a JSON object/);
     expect(() => validateConfig('str', 'p')).toThrow(/must be a JSON object/);
   });
 
-  it('rejects host name with colon', () => {
-    expect(() =>
-      validateConfig({ openapi: { registry: { 'ac:me': { dev: { users: 'u' } } } } }, 'p'),
-    ).toThrow(/host name/);
-  });
-
-  it('rejects env name with whitespace', () => {
-    expect(() =>
-      validateConfig({ openapi: { registry: { acme: { 'de v': { users: 'u' } } } } }, 'p'),
-    ).toThrow(/env name/);
-  });
-
-  it('rejects empty / whitespace-only URL', () => {
-    expect(() =>
-      validateConfig({ openapi: { registry: { acme: { dev: { users: '' } } } } }, 'p'),
-    ).toThrow(/non-empty URL/);
-    expect(() =>
-      validateConfig({ openapi: { registry: { acme: { dev: { users: '   ' } } } } }, 'p'),
-    ).toThrow(/non-empty URL/);
-  });
-
-  it('rejects non-string URL', () => {
-    expect(() =>
-      validateConfig({ openapi: { registry: { acme: { dev: { users: 42 } } } } }, 'p'),
-    ).toThrow(/non-empty URL/);
-  });
-
-  it('rejects unparseable URL string', () => {
-    expect(() =>
-      validateConfig(
-        {
-          openapi: { registry: { acme: { dev: { users: 'not a url' } } } },
-        },
-        'p',
-      ),
-    ).toThrow(/not a valid URL/);
-  });
-
-  it('rejects unsupported URL scheme', () => {
-    expect(() =>
-      validateConfig(
-        {
-          openapi: {
-            registry: {
-              acme: { dev: { users: 'ftp://example.com/spec.json' } },
-            },
-          },
-        },
-        'p',
-      ),
-    ).toThrow(/unsupported scheme/);
-  });
-
-  it('accepts http / https / file URLs', () => {
-    for (const url of [
-      'http://example.com/spec.json',
-      'https://example.com/spec.json',
-      'file:///tmp/spec.json',
-    ]) {
-      expect(() =>
-        validateConfig({ openapi: { registry: { acme: { dev: { users: url } } } } }, 'p'),
-      ).not.toThrow();
-    }
-  });
-
   it('rejects unknown top-level keys', () => {
-    // top-level 은 명시적 allowlist ($schema/openapi/seo/worklog) 로 좁혔다 — 오타 /
-    // 제거된 도메인 키(mysql 등)는 즉시 reject 되어야 한다.
+    // top-level 은 명시적 allowlist ($schema/worklog/todo) 로 좁혔다 — 오타 /
+    // 제거된 도메인 키는 즉시 reject 되어야 한다.
     expect(() => validateConfig({ futureFeature: { foo: 'bar' } } as any, 'p')).toThrow(
       /unknown top-level key "futureFeature"/,
     );
     expect(() => validateConfig({ mysql: { connections: {} } } as any, 'p')).toThrow(
       /unknown top-level key "mysql"/,
+    );
+  });
+
+  it('rejects the openapi / seo keys — v0.23 에서 도구와 함께 걷어냈다', () => {
+    expect(() =>
+      validateConfig({ openapi: { registry: { acme: { dev: { users: 'u' } } } } } as any, 'p'),
+    ).toThrow(/unknown top-level key "openapi"/);
+    expect(() => validateConfig({ seo: { timeoutMs: 5000 } } as any, 'p')).toThrow(
+      /unknown top-level key "seo"/,
     );
   });
 
@@ -131,112 +64,6 @@ describe('validateConfig', () => {
   it('rejects the opencode key — 위임 런타임과 함께 걷어냈다', () => {
     expect(() => validateConfig({ opencode: { model: 'x/y' } } as any, 'test')).toThrow(
       /unknown top-level key "opencode"/,
-    );
-  });
-});
-
-describe('mergeConfigs', () => {
-  it('project overrides user at the leaf', () => {
-    const user: RockyConfig = {
-      openapi: {
-        registry: {
-          acme: {
-            dev: {
-              users: 'https://user/u.json',
-              orders: 'https://user/o.json',
-            },
-          },
-        },
-      },
-    };
-    const project: RockyConfig = {
-      openapi: {
-        registry: {
-          acme: { dev: { users: 'https://project/u.json' } },
-        },
-      },
-    };
-    const merged = mergeConfigs(user, project);
-    expect(merged.openapi?.registry?.acme?.dev?.users).toBe('https://project/u.json');
-    // user-only spec survives.
-    expect(merged.openapi?.registry?.acme?.dev?.orders).toBe('https://user/o.json');
-  });
-
-  it('project can introduce new host / env / spec', () => {
-    const user: RockyConfig = {
-      openapi: {
-        registry: { acme: { dev: { users: 'https://u.example/u.json' } } },
-      },
-    };
-    const project: RockyConfig = {
-      openapi: {
-        registry: {
-          acme: { prod: { users: 'https://p.example/u.json' } },
-          beta: { dev: { svc: 'https://b.example/svc.json' } },
-        },
-      },
-    };
-    const merged = mergeConfigs(user, project);
-    expect(merged.openapi?.registry?.acme?.prod?.users).toBe('https://p.example/u.json');
-    expect(merged.openapi?.registry?.beta?.dev?.svc).toBe('https://b.example/svc.json');
-    expect(merged.openapi?.registry?.acme?.dev?.users).toBe('https://u.example/u.json');
-  });
-
-  it('returns a deep clone — mutating the result does not touch input', () => {
-    const user: RockyConfig = {
-      openapi: { registry: { acme: { dev: { users: 'https://u/u.json' } } } },
-    };
-    const merged = mergeConfigs(user, {});
-    merged.openapi!.registry!.acme!.dev!.users = 'MUTATED';
-    expect(user.openapi?.registry?.acme?.dev?.users).toBe('https://u/u.json');
-  });
-
-  it('project seo fields override user seo, field by field', () => {
-    const user: RockyConfig = { seo: { allowPrivateHosts: true, timeoutMs: 5000 } };
-    const project: RockyConfig = { seo: { timeoutMs: 9000 } };
-    const merged = mergeConfigs(user, project);
-    // timeoutMs 는 project 값, allowPrivateHosts 는 user 값 유지.
-    expect(merged.seo?.timeoutMs).toBe(9000);
-    expect(merged.seo?.allowPrivateHosts).toBe(true);
-  });
-});
-
-describe('validateConfig — seo', () => {
-  it('accepts a well-formed seo block', () => {
-    const config = { seo: { allowPrivateHosts: true, timeoutMs: 8000 } };
-    expect(validateConfig(config, 'test')).toEqual(config);
-  });
-
-  it('accepts an empty / omitted seo block', () => {
-    expect(() => validateConfig({ seo: {} }, 'test')).not.toThrow();
-  });
-
-  it('rejects a non-object seo', () => {
-    expect(() => validateConfig({ seo: 'nope' } as any, 'p')).toThrow(/seo must be an object/);
-    expect(() => validateConfig({ seo: [] } as any, 'p')).toThrow(/seo must be an object/);
-  });
-
-  it('rejects unknown seo keys', () => {
-    expect(() => validateConfig({ seo: { retries: 3 } } as any, 'p')).toThrow(
-      /unknown key "retries"/,
-    );
-  });
-
-  it('rejects a non-boolean allowPrivateHosts', () => {
-    expect(() => validateConfig({ seo: { allowPrivateHosts: 'yes' } } as any, 'p')).toThrow(
-      /seo.allowPrivateHosts must be a boolean/,
-    );
-  });
-
-  it('rejects out-of-range / non-integer timeoutMs', () => {
-    expect(() => validateConfig({ seo: { timeoutMs: 0 } } as any, 'p')).toThrow(
-      /between 1 and 30000/,
-    );
-    expect(() => validateConfig({ seo: { timeoutMs: 30001 } } as any, 'p')).toThrow(
-      /between 1 and 30000/,
-    );
-    expect(() => validateConfig({ seo: { timeoutMs: 12.5 } } as any, 'p')).toThrow(
-      /between 1 and 30000/,
     );
   });
 });
@@ -303,22 +130,28 @@ describe('validateConfig — worklog', () => {
   });
 });
 
-describe('validateConfig — todo (sibling plugin key)', () => {
-  it('rocky.json 의 todo 블록을 관용한다 — 형제 rocky-todo 몫이라 거부하지 않고 무시', () => {
-    // rocky 는 todo 를 파싱/검증하지 않지만, 공유 rocky.json 에 있어도 파일을 거부하면 안 된다.
-    const config = { seo: { timeoutMs: 5000 }, todo: { port: 8636, anything: true } };
+describe('validateConfig — todo (daemon key)', () => {
+  it('rocky.json 의 todo 블록을 통과시킨다 — Rust 데몬이 읽는 키라 여기서 검증하지 않는다', () => {
+    const config = { worklog: { dir: '/w' }, todo: { port: 8636, anything: true } };
     expect(() => validateConfig(config as any, 'test')).not.toThrow();
-    expect(validateConfig(config as any, 'test').seo?.timeoutMs).toBe(5000);
+    expect(validateConfig(config as any, 'test').worklog?.dir).toBe('/w');
   });
 });
 
-describe('mergeConfigs — worklog', () => {
+describe('mergeConfigs', () => {
   it('project worklog fields override user worklog, field by field', () => {
     const user: RockyConfig = { worklog: { dir: '/u/w', autoCapture: true } };
     const project: RockyConfig = { worklog: { autoCapture: false } };
     const merged = mergeConfigs(user, project);
     expect(merged.worklog?.dir).toBe('/u/w');
     expect(merged.worklog?.autoCapture).toBe(false);
+  });
+
+  it('returns a deep clone — mutating the result does not touch input', () => {
+    const user: RockyConfig = { worklog: { dir: '/u/w' } };
+    const merged = mergeConfigs(user, {});
+    merged.worklog!.dir = 'MUTATED';
+    expect(user.worklog?.dir).toBe('/u/w');
   });
 });
 
@@ -330,36 +163,25 @@ describe('loadConfig', () => {
   });
 
   it('loads user-only when project is absent', async () => {
-    writeUser({
-      openapi: { registry: { acme: { dev: { users: 'https://u/u.json' } } } },
-    });
+    writeUser({ worklog: { dir: '/u/w' } });
     const r = await loadConfig({ userPath, projectRoot });
-    expect(r.config.openapi?.registry?.acme?.dev?.users).toBe('https://u/u.json');
+    expect(r.config.worklog?.dir).toBe('/u/w');
     expect(r.errors).toEqual([]);
   });
 
   it('loads project-only when user is absent', async () => {
-    writeProject({
-      openapi: { registry: { acme: { prod: { users: 'https://p/u.json' } } } },
-    });
+    writeProject({ worklog: { dir: '/p/w' } });
     const r = await loadConfig({ userPath, projectRoot });
-    expect(r.config.openapi?.registry?.acme?.prod?.users).toBe('https://p/u.json');
+    expect(r.config.worklog?.dir).toBe('/p/w');
     expect(r.errors).toEqual([]);
   });
 
   it('merges with project taking precedence', async () => {
-    writeUser({
-      openapi: {
-        registry: { acme: { dev: { users: 'https://user/u.json' } } },
-      },
-    });
-    writeProject({
-      openapi: {
-        registry: { acme: { dev: { users: 'https://project/u.json' } } },
-      },
-    });
+    writeUser({ worklog: { dir: '/u/w', captureMaxChars: 400 } });
+    writeProject({ worklog: { dir: '/p/w' } });
     const r = await loadConfig({ userPath, projectRoot });
-    expect(r.config.openapi?.registry?.acme?.dev?.users).toBe('https://project/u.json');
+    expect(r.config.worklog?.dir).toBe('/p/w');
+    expect(r.config.worklog?.captureMaxChars).toBe(400);
   });
 
   it('reports malformed JSON in errors[] without throwing', async () => {
@@ -372,39 +194,29 @@ describe('loadConfig', () => {
   });
 
   it('reports schema-violating config in errors[] without throwing', async () => {
-    writeUser({
-      openapi: { registry: { 'bad:host': { dev: { users: 'u' } } } } as any,
-    });
+    writeUser({ worklog: { dir: '' } } as any);
     const r = await loadConfig({ userPath, projectRoot });
     expect(r.errors.length).toBe(1);
-    expect(r.errors[0]?.message).toMatch(/host name/);
+    expect(r.errors[0]?.message).toMatch(/worklog.dir must be a non-empty string/);
   });
 
   it('preserves valid project config when user file is malformed', async () => {
     writeFileSync(userPath, '{ broken', 'utf8');
-    writeProject({
-      openapi: {
-        registry: { acme: { prod: { users: 'https://api.acme/u.json' } } },
-      },
-    });
+    writeProject({ worklog: { dir: '/p/w' } });
     const r = await loadConfig({ userPath, projectRoot });
     expect(r.errors.length).toBe(1);
     expect(r.errors[0]?.source).toBe(userPath);
-    expect(r.config.openapi?.registry?.acme?.prod?.users).toBe('https://api.acme/u.json');
+    expect(r.config.worklog?.dir).toBe('/p/w');
   });
 
   it('preserves valid user config when project file is malformed', async () => {
-    writeUser({
-      openapi: {
-        registry: { acme: { dev: { users: 'https://dev.acme/u.json' } } },
-      },
-    });
+    writeUser({ worklog: { dir: '/u/w' } });
     const projectFile = join(projectRoot, 'rocky.json');
     writeFileSync(projectFile, '{ also broken', 'utf8');
     const r = await loadConfig({ userPath, projectRoot });
     expect(r.errors.length).toBe(1);
     expect(r.errors[0]?.source).toBe(projectFile);
-    expect(r.config.openapi?.registry?.acme?.dev?.users).toBe('https://dev.acme/u.json');
+    expect(r.config.worklog?.dir).toBe('/u/w');
   });
 
   it('collects errors from both files when both are malformed', async () => {

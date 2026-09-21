@@ -22,10 +22,7 @@ codex mcp add rocky -- bun run /abs/path/to/rocky/src/index.ts
 
 Codex 에서는 `src/index.ts` 의 전체 MCP tool surface 를 쓴다.
 
-- `openapi_*` 7개: `openapi_get` / `openapi_refresh` / `openapi_status` / `openapi_search` / `openapi_envs` / `openapi_endpoint` / `openapi_tags`
-- `seo_validate` 1개
 - `worklog_*` 4개: `worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`
-- `notion_*` 4개: `notion_get` / `notion_refresh` / `notion_status` / `notion_extract` (`ntn` CLI 탐지 시에만)
 
 ## 주의점
 
@@ -37,9 +34,8 @@ Codex 에서는 `src/index.ts` 의 전체 MCP tool surface 를 쓴다.
 [mcp_servers.rocky]
 command = "bun"
 args = ["run", "/abs/path/to/rocky/src/index.ts"]
-env = { ROCKY_WORKLOG_DIR = "...", ROCKY_NOTION_CACHE_DIR = "..." }
+env = { ROCKY_WORKLOG_DIR = "..." }
 ```
 
 - `bun` 이 Codex 가 보는 `PATH` 에 있어야 한다.
-- `notion_*` 4 도구는 공식 Notion CLI `ntn` 이 서버 기동 시 탐지될 때만 노출된다.
 - `/rocky:finish` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. Codex 에서는 rocky 가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky 의 현재 배선 선택이지 Codex 의 한계가 아니다 — Codex 자체는 2026 기준 hooks · skills · subagents · `.codex-plugin/plugin.json` 번들 + 마켓플레이스를 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.

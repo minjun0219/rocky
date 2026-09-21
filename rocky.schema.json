@@ -2,96 +2,13 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/minjun0219/rocky/main/rocky.schema.json",
   "title": "rocky config",
-  "description": "Plugin-wide configuration for the rocky Claude Code plugin — `rocky.json`. Project config (./rocky.json) overrides user config (~/.config/rocky/rocky.json) at the leaf level. The standalone openapi-mcp CLI uses a separate file (`openapi-mcp.json`) with a different shape — see src/core/schema.ts and docs/openapi-mcp.md.",
+  "description": "Configuration for rocky — `rocky.json`. Project config (./rocky.json) overrides user config (~/.config/rocky/rocky.json) field by field. The `worklog` block is read by the TypeScript worklog server; the `todo` block is read by the Rust daemon.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
       "description": "Reference to this JSON Schema. Editors use this for autocomplete and validation."
-    },
-    "openapi": {
-      "type": "object",
-      "description": "OpenAPI / Swagger registry. Maps host:env:spec handles to spec download URLs.",
-      "properties": {
-        "registry": {
-          "type": "object",
-          "description": "host name → environment name → spec name → spec URL. Names must match ^[a-zA-Z0-9_-]+$ (handles are colon-separated, so colons are reserved).",
-          "patternProperties": {
-            "^[a-zA-Z0-9_-]+$": {
-              "type": "object",
-              "description": "Environments under one logical host (project / platform).",
-              "minProperties": 1,
-              "patternProperties": {
-                "^[a-zA-Z0-9_-]+$": {
-                  "type": "object",
-                  "description": "Spec name → spec URL.",
-                  "minProperties": 1,
-                  "patternProperties": {
-                    "^[a-zA-Z0-9_-]+$": {
-                      "description": "Spec leaf. 두 모양 중 하나: (1) URL 문자열만 (legacy / 간단한 경우) (2) `{ url, baseUrl?, format? }` — baseUrl 은 `openapi_endpoint` 의 fullUrl 합성에 사용. format 은 'openapi3' / 'swagger2' / 'auto' (기본 auto). YAML / JSON 둘 다 지원.",
-                      "oneOf": [
-                        {
-                          "type": "string",
-                          "format": "uri",
-                          "minLength": 1,
-                          "description": "Direct URL (https / http / file) to the OpenAPI / Swagger document."
-                        },
-                        {
-                          "type": "object",
-                          "description": "Spec leaf object with optional baseUrl / format.",
-                          "properties": {
-                            "url": {
-                              "type": "string",
-                              "format": "uri",
-                              "minLength": 1,
-                              "description": "Direct URL (https / http / file) to the OpenAPI / Swagger document."
-                            },
-                            "baseUrl": {
-                              "type": "string",
-                              "format": "uri",
-                              "pattern": "^https?://",
-                              "minLength": 1,
-                              "description": "Real API base URL — `openapi_endpoint` 의 fullUrl 합성에 사용. http / https URL 만 허용."
-                            },
-                            "format": {
-                              "type": "string",
-                              "enum": ["openapi3", "swagger2", "auto"],
-                              "description": "Spec format hint. 미지정 시 본문의 openapi / swagger 필드로 자동 감지."
-                            }
-                          },
-                          "required": ["url"],
-                          "additionalProperties": false
-                        }
-                      ]
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        }
-      }
-    },
-    "seo": {
-      "type": "object",
-      "description": "Defaults for the seo_validate tool. Every field is overridden by the tool call arguments.",
-      "properties": {
-        "allowPrivateHosts": {
-          "type": "boolean",
-          "description": "When true, allow fetching private / loopback / link-local hosts (SSRF guard off). Default false. The tool arg `allowPrivateHosts` wins."
-        },
-        "timeoutMs": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 30000,
-          "description": "Fetch timeout in ms (1..30000). The tool arg `timeoutMs` wins. ogpeek default is 8000."
-        }
-      },
-      "additionalProperties": false
     },
     "worklog": {
       "type": "object",
@@ -121,7 +38,7 @@
     },
     "todo": {
       "type": "object",
-      "description": "Companion plugin rocky-todo's settings (separate repo minjun0219/rocky-todo). rocky.json is shared across the rocky ecosystem, so rocky tolerates this key but does not consume it — the rocky-todo daemon reads it. See that plugin for the full shape (port / dir / expose / watch).",
+      "description": "Board daemon settings, read by the Rust daemon (port / dir / expose / watch / statusline). The TypeScript loader passes this block through without validating it; the daemon owns the shape.",
       "additionalProperties": true
     }
   }

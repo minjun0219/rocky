@@ -24,7 +24,7 @@ rocky 표면이 Claude Code / Codex CLI / opencode 에서 각각 어디까지 �
 
 | rocky 표면 | Claude Code | Codex | opencode | 메모 |
 | --- | --- | --- | --- | --- |
-| MCP 도구 (openapi 7 + `seo_validate` + worklog 4 + notion 4 = 16) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | 공유 코어 — 이미 3-호스트 완결 |
+| MCP 도구 (worklog 4) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | 공유 코어 — 이미 3-호스트 완결 |
 | `/rocky:finish` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:resolve-reviews` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
