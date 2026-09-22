@@ -7,7 +7,7 @@
 각 도메인은 별도 PR. 재추가 시점에 다음 둘 중 하나의 shape 를 정한다:
 
 - **(a) plugin 직접 합류** — 도메인 코드를 `src/core/` 에 두고, 전체 표면 서버 진입점 (`src/index.ts`) 의 surface 에 도구를 등록한다. 별도 CLI 진입점은 만들지 않음.
-- **(b) 별도 CLI 진입점 분리** — `openapi-mcp` 옆에 `bin/<domain>-mcp` + `src/<domain>.ts` standalone 진입점을 추가한다. 도메인이 plugin 외 host (Cursor / Continue / Claude Desktop) 에서도 자주 쓰일 때.
+- **(b) 별도 CLI 진입점 분리** — `bin/<domain>-mcp` + `src/<domain>.ts` standalone 진입점을 추가한다 (v0.23 에 제거된 `openapi-mcp` 가 이 모양이었다). 도메인이 plugin 외 host (Cursor / Continue / Claude Desktop) 에서도 자주 쓰일 때.
 
 결정 기준은 활용 패턴 — host 독립성이 높으면 (b), plugin 안에서만 쓰이면 (a).
 

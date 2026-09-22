@@ -9,7 +9,7 @@ import type {
 
 /**
  * worklog_* 도구 핸들러 — 진입점(`src/index.ts`)은 등록만, 실제 동작은 여기에 위임한다
- * (notion / openapi 와 동일 패턴). 모두 로컬 파일시스템만 만지고 remote 호출은 없다.
+ * 모두 로컬 파일시스템만 만지고 remote 호출은 없다.
  */
 
 /** 도구 핸들러: 저널에 한 줄 append. */

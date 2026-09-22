@@ -6,7 +6,7 @@ Guide for AI coding agents (Claude Code, opencode, codex) working in **this repo
 > quick start). Agents read this file (English — layout, scope, rules, checklist, review bar). Design
 > rationale that isn't derivable from the code lives in [`docs/architecture.md`](./docs/architecture.md)
 > — read it on demand, not by default. **Per-tool input/output is not documented in prose** — the tool
-> definitions in `src/index.ts` / `src/standalone.ts` are the single source; read them directly.
+> definitions in `src/index.ts` are the single source; read them directly.
 > Cross-project conventions (language, commit style, comment policy) live in the user-scope `AGENTS.md`.
 
 ## What rocky is
@@ -14,24 +14,21 @@ Guide for AI coding agents (Claude Code, opencode, codex) working in **this repo
 **rocky** (named after Project Hail Mary's Rocky) — the owner's personal Claude Code plugin, shipped as
 a **single Bun package** (no workspaces, no `packages/`, no build step).
 
-Two entry points:
+One entry point — the **stdio MCP server** (`src/index.ts`), launched by the Claude Code plugin
+(`.claude-plugin/plugin.json`'s `mcpServers`) and registerable directly by Codex CLI and opencode.
+Tools: 4 `worklog_*`. That is the whole MCP surface.
 
-- **Full-surface stdio MCP server** (`src/index.ts`) — launched by the Claude Code plugin
-  (`.claude-plugin/plugin.json`'s `mcpServers`), and registerable directly by Codex CLI and opencode.
-  Tools: 7 `openapi_*` + `seo_validate` + 4 `worklog_*`, plus 4 `notion_*` **only when the `ntn` CLI is
-  detected at startup**.
-- **`openapi-mcp` standalone CLI** (`bin/openapi-mcp` → `src/standalone.ts`, npm) — the same 7
-  `openapi_*` tools, nothing else.
-
-All openapi handlers live once in `src/core/handlers.ts` so the two entry points can't drift.
+> **v0.23 removed** `openapi_*` (7), `seo_validate`, `notion_*` (4) and the `openapi-mcp` standalone
+> CLI. A count over 39 repos / 5,216 logged turns found zero calls. They live in git history only —
+> see *Scope → Out*.
 
 **Claude Code-only surfaces** (not MCP tools, invisible to Codex/opencode): slash commands in
 `commands/`, the single `Stop` hook in `hooks/`, bundled skills in `skills/`, and subagents in
 `agents/`. This is a wiring
 choice, not a host limitation — see `docs/architecture.md`.
 
-> **Scope framing — read before calling a request out-of-scope.** rocky is a personal plugin, not an
-> OpenAPI-scoped product. The current surface is today's baseline, **not a ceiling**. When the owner
+> **Scope framing — read before calling a request out-of-scope.** rocky is a personal plugin, not a
+> product scoped to whatever tools it ships today. The current surface is today's baseline, **not a ceiling**. When the owner
 > asks for a domain or feature, **build it**. The "hold the line" discipline below guards only against
 > *unrequested* scope creep; it never overrides an explicit owner request.
 
@@ -50,28 +47,20 @@ rocky/                          single package — @minjun0219/rocky
 ├── hooks/hooks.json            ★ Stop (log-turn) — the only hook. Nothing runs at SessionStart,
 │                                 so the plugin adds nothing to session context.
 ├── skills/                     ★ bundled skills — writing-cc-plugin
-├── bin/openapi-mcp             bun shebang, arg parsing → src/standalone
-├── docs/                       architecture, openapi-mcp, codex, opencode, hosts, backlog
+├── docs/                       architecture, codex, opencode, hosts, backlog
 │   └── design/{specs,plans}/   설계·계획 산출물 (구 docs/superpowers/) — 과거분은 그대로 보존
 └── src/
     ├── index.ts                ★ plugin entry — MCP registration only; logic lives in ./core
-    ├── index.test.ts           surface guard: base 12 tools (+4 notion_* when ntn), REMOVED_TOOLS leak check
-    ├── standalone.ts           standalone stdio MCP — 7 openapi tools + SpecRegistry
+    ├── index.test.ts           surface guard: 4 worklog_* tools, REMOVED_TOOLS leak check
     ├── hooks/                  hook entries — log-turn + transcript (pure parser). Fail-open.
     └── core/                   shared implementation (barrel: index.ts)
-        ├── handlers.ts         ★ the 7 openapi handlers — single source for both entry points
-        ├── openapi: adapter, cache, config-loader, fetcher, filter, indexer, logger,
-        │            openapi-registry, parser, registry, schema, url
-        ├── notion:  notion-cli (ntn delegation), notion-cache, notion-chunking, notion-diff,
-        │            notion-handlers
-        ├── worklog: worklog (append-only JSONL), worklog-handlers
+        ├── worklog.ts          append-only JSONL journal — the record layer
+        ├── worklog-handlers.ts the 4 worklog_* handlers
         ├── rocky-config.ts     `rocky.json` loader (project > user)
-        ├── seo-validate.ts     seo_validate core + handler (ogpeek, SSRF guard)
-        └── __fixtures__/ + *.test.ts
+        └── *.test.ts
 ```
 
-**Imports**: all relative. Plugin entry uses the barrel `./core`; standalone and `bin/` use
-`./core/<file>` subpaths. The `@minjun0219/openapi-core` workspace name is gone.
+**Imports**: all relative. Plugin entry uses the barrel `./core`; hooks use `../core/<file>` subpaths.
 
 ## Scope (hold the line)
 
@@ -106,8 +95,10 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
 - Exposing worklog digests as MCP tools (`wiki_*`), worklog in the standalone CLI, auto-promotion into
   native memory, polling-based auto-digest. Record = `worklog_*` + the `Stop` hook; organize =
   `/rocky:recall` only.
-- Notion DB / child-page recursion, YAML frontmatter parsing, any Notion path other than `ntn`.
-- OpenAPI YAML stream parsing, SDK codegen, multi-spec merge, mock servers / UI.
+- `openapi_*` / `seo_validate` / `notion_*` and the `openapi-mcp` standalone CLI — removed in v0.23
+  after a usage count (39 repos, 5,216 turns) found zero calls. 4,145 LOC and six runtime deps
+  (`swagger-parser`, `swagger2openapi`, `js-yaml`, `openapi-types`, `pino`, `ogpeek`) went with them.
+  Recover from git history; the `ntn` CLI-delegation shape is documented in `docs/architecture.md`.
 - npm publish automation (GitHub Release ≠ npm publish).
 
 ## Common commands
@@ -148,11 +139,10 @@ deterministically, and a per-turn gate would just make every turn slow.
 - **Errors**: include context — input value, timeout, status code, handle mismatch.
 - **Dependencies**: avoid adding any. Prefer the standard library and Bun built-ins; HTTP goes through
   Bun's native `fetch` (with the `tls` option). Existing prod-dep exceptions:
-  `@modelcontextprotocol/sdk` + `zod`, `@apidevtools/swagger-parser` + `swagger2openapi` + `js-yaml` +
-  `openapi-types` + `pino`, and `ogpeek`. Dev-only tooling is fine (`husky`, `lint-staged`). Any new
+  `@modelcontextprotocol/sdk` + `zod`. Dev-only tooling is fine (`husky`, `lint-staged`). Any new
   runtime dep is a separate scope discussion.
 - **Tests**: `*.test.ts` next to the source, run with `bun test`. Isolate fs-dependent tests with
-  `mkdtempSync`. Handler behavior is tested in `src/core/handlers.test.ts`; `src/index.test.ts` only
+  `mkdtempSync`. Worklog behavior is tested in `src/core/worklog.test.ts`; `src/index.test.ts` only
   guards the surface (tool count / leak regression).
 - **JSDoc**: write it on exported functions and classes when touching this repo, but it is not a hard
   lint gate.
@@ -160,16 +150,15 @@ deterministically, and a per-turn gate would just make every turn slow.
 ## Change checklist
 
 1. `bun run check`, `bun run typecheck`, `bun test` all pass.
-2. If the user-facing surface (tools / env vars / handles) changed, sync `README.md` (humans) and this
-   file (agents), plus `docs/openapi-mcp.md` when the standalone CLI changed, and
-   `.claude-plugin/plugin.json` when the Claude Code surface changed.
-3. New env var → update its reading site (`src/core/cache.ts` / `config-loader.ts` / `rocky-config.ts`)
-   and the `README.md` env-var table.
-4. Tool contract change → update registration in `src/index.ts` and/or `src/standalone.ts`, and the
-   shared handler in `src/core/handlers.ts`.
+2. If the user-facing surface (tools / env vars) changed, sync `README.md` (humans) and this file
+   (agents), and `.claude-plugin/plugin.json` when the Claude Code surface changed.
+3. New env var → update its reading site (`src/core/worklog.ts` / `rocky-config.ts` /
+   `src/hooks/log-turn.ts`) and the `README.md` env-var table.
+4. Tool contract change → update registration in `src/index.ts` and the handler in
+   `src/core/worklog-handlers.ts`.
 5. `rocky.json` shape change → update `rocky.schema.json` **and** `src/core/rocky-config.ts` in lockstep.
 6. Tool name surfacing again → update `REMOVED_TOOLS` in `src/index.test.ts` (currently guards
-   mysql / spec-pact / pr-watch; `worklog_*` presence is asserted via `WORKLOG_TOOLS`).
+   openapi / seo / notion / mysql / spec-pact / pr-watch; `worklog_*` presence is asserted via `WORKLOG_TOOLS`).
 7. User-facing change → `bunx changeset`. Tooling-only chores need none.
 
 ## Code review bar
@@ -182,8 +171,7 @@ Korean**; keep identifiers, paths, and commands in English.
 `문제 / 영향 / 제안`, with an applicable fix snippet where possible.
 
 **🔴 Important** — reserved for: a change pulling in anything under *Scope → Out* without an explicit
-request; an input/output break in the 7 `openapi_*` tools (shared by `src/index.ts` and
-`src/standalone.ts`); `rocky.json` shape changed without `rocky.schema.json` **and**
+request; an input/output break in the `worklog_*` tools; `rocky.json` shape changed without `rocky.schema.json` **and**
 `src/core/rocky-config.ts` moving in lockstep; a user-facing surface changed without the
 *Change checklist* doc sync; `__dirname` or `.js`/`.ts` extensions on local imports or any Node-only
 API that breaks the Bun-only assumption; secrets in logs, error messages missing identifying context,

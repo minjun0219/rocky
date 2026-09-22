@@ -4,7 +4,6 @@ import { existsSync, realpathSync } from 'node:fs';
 import { appendFile, mkdir, open, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { resolveCacheKey } from './notion-cache';
 
 /**
  * Append-only 에이전트 저널 — 기록(記錄) 레이어.
@@ -30,6 +29,27 @@ import { resolveCacheKey } from './notion-cache';
  *   없이 끝날 수 있어, append 단계에서 마지막 바이트를 peek 해 newline 이 아니면
  *   leading `\n` 을 붙이고, read 단계에서는 파싱되지 않는 줄을 graceful skip 한다.
  */
+
+/**
+ * `pageId` 필드 정규화 — 입력(Notion page id 또는 URL)에서 32자 hex 를 뽑아 8-4-4-4-12 소문자로
+ * 맞춘다. notion_* 도구가 있던 시절 캐시 키 함수를 그대로 옮긴 것 — 기존 엔트리의 `pageId` 와
+ * 같은 형태를 유지해야 `worklog_read { pageId }` 필터가 과거 기록에도 맞는다.
+ *
+ * @throws 32자 hex 를 찾지 못한 입력.
+ */
+function normalizePageId(input: string): string {
+  const trimmed = input.trim();
+  const hexWithDash = trimmed.match(
+    /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/,
+  );
+  const hexNoDash = trimmed.match(/[0-9a-fA-F]{32}/);
+  const raw = hexWithDash ? hexWithDash[0].replace(/-/g, '') : hexNoDash ? hexNoDash[0] : undefined;
+  if (raw?.length !== 32) {
+    throw new Error(`worklog: cannot extract a Notion page id from pageId "${input}"`);
+  }
+  const lower = raw.toLowerCase();
+  return `${lower.slice(0, 8)}-${lower.slice(8, 12)}-${lower.slice(12, 16)}-${lower.slice(16, 20)}-${lower.slice(20)}`;
+}
 
 /** 프로젝트별 저널 디렉터리의 부모. `ROCKY_WORKLOG_DIR` 로 통째로 덮어쓴다. */
 export const DEFAULT_WORKLOG_ROOT = join(homedir(), '.config', 'rocky', 'worklog');
@@ -277,7 +297,7 @@ export class Worklog {
   /**
    * 저널에 한 줄 append.
    *
-   * `content` 는 trim 후 비어 있으면 throw. `pageId` 가 들어오면 `resolveCacheKey` 로
+   * `content` 는 trim 후 비어 있으면 throw. `pageId` 가 들어오면 `normalizePageId` 로
    * 정규화 후 저장 → 입력이 URL 이든 dash-less hex 든 같은 키로 묶인다.
    */
   async append(input: WorklogAppendInput): Promise<WorklogEntry> {
@@ -299,7 +319,7 @@ export class Worklog {
       : [];
     let pageId: string | undefined;
     if (typeof input.pageId === 'string' && input.pageId.trim().length > 0) {
-      pageId = resolveCacheKey(input.pageId).pageId;
+      pageId = normalizePageId(input.pageId);
     }
     const entry: WorklogEntry = {
       id: `${Date.now()}-${randomBytes(3).toString('hex')}`,
@@ -348,7 +368,7 @@ export class Worklog {
    * 가장 최근 항목부터 `limit` 개를 반환. 필터는 AND 결합.
    * - `kind`: 정확 일치
    * - `tag`: 태그 배열 안에 포함 (정확 일치)
-   * - `pageId`: `resolveCacheKey` 로 정규화 후 정확 일치
+   * - `pageId`: `normalizePageId` 로 정규화 후 정확 일치
    * - `since`: 해당 시각 *이후* 항목만 (Date.parse 실패 시 필터 무시)
    */
   async read(options: WorklogReadOptions = {}): Promise<WorklogEntry[]> {
@@ -369,7 +389,7 @@ export class Worklog {
     if (typeof options.pageId === 'string') {
       const rawPageId = options.pageId.trim();
       if (rawPageId.length > 0) {
-        const pid = resolveCacheKey(rawPageId).pageId;
+        const pid = normalizePageId(rawPageId);
         filtered = filtered.filter((e) => e.pageId === pid);
       }
     }

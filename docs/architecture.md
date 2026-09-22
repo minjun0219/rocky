@@ -1,14 +1,15 @@
 # Architecture notes
 
 Design rationale that is **not** derivable from reading the code. Load this on demand — `AGENTS.md`
-stays short and points here. If you are touching worklog or notion, read the matching section first.
+stays short and points here. If you are touching worklog, read the matching section first.
 
 ## MCP tools are nearly free in context — do not "slim the surface" to save tokens
 
 Claude Code's [Tool Search](https://code.claude.com/docs/ko/mcp#scale-with-mcp-tool-search) is **on by
 default**: at session start only tool *names* and server instructions load; a tool's full definition
-enters context when the model calls `ToolSearch` for it. rocky's 16 tool definitions are ~9,000
-characters, but the standing cost is 16 names — roughly 200 tokens.
+enters context when the model calls `ToolSearch` for it. At the time this was measured rocky shipped
+16 tools (~9,000 characters of definitions) and the standing cost was 16 names — roughly 200 tokens.
+Since v0.23 it is 4 names.
 
 This was measured the hard way in 2026-07: a slimming pass got as far as deleting the entire MCP
 surface on the premise that it cost ~2,900 tokens per session, then reverted. If you propose removing
@@ -18,7 +19,7 @@ with `ENABLE_TOOL_SEARCH=false`. rocky's owner runs none of those.)
 
 As of v0.19 the plugin puts **nothing** in session context: souls were the only `SessionStart`
 injection (1,310 chars, compressed to 605, then removed with the feature). The `Stop` hook writes to
-disk and returns nothing to the model. So the standing cost of installing rocky is the 16 tool names
+disk and returns nothing to the model. So the standing cost of installing rocky is the tool names
 and nothing else.
 
 ### The Sentry-style `search_*` / `execute_*` meta-tool pair is not worth adding either
@@ -33,8 +34,8 @@ does." Measured against the real Sentry MCP in 2026-07, it does not pay off here
 - **The meta tool is not free.** One `search_sentry_tools` call returned the full JSON schema of 20
   tools: ~30,000 characters, roughly 8,000 tokens — three times rocky's entire tool-definition
   surface. Trading a 200-token standing cost for that plus an extra round trip per call is a loss.
-- **It hurts discoverability.** Tool Search matches on names and descriptions. `openapi_search` being
-  visible is what makes "find the endpoint in this spec" route to rocky at all. Behind a single
+- **It hurts discoverability.** Tool Search matches on names and descriptions. `worklog_search` being
+  visible is what makes "what did we decide about X" route to rocky at all. Behind a single
   `rocky_execute`, the model never learns the capability exists — which is exactly why Sentry kept its
   nine common tools first-class instead of hiding everything.
 
@@ -69,14 +70,18 @@ The `Stop` hook (`src/hooks/log-turn.ts`) auto-appends a `kind:"turn"` entry per
 Auto-capture is Claude Code-only because rocky ships no Codex/opencode hooks — but the `worklog_*`
 tools themselves work on all three hosts.
 
-## notion: external CLI delegation, no tokens in rocky
+## openapi / seo / notion (removed in v0.23)
 
-All Notion page access is delegated to `ntn pages get <id> --json`. rocky never touches Notion
-tokens or OAuth. The tools are registered only when `ntn` is detected at startup (CLI-gated), the
-same policy as the `gh`-based slash commands.
+Removed together after the worklog itself answered the question: across 39 repos and 5,216 logged
+turns, `openapi_*`, `seo_validate` and `notion_*` were called zero times while `worklog_read` alone
+was called 78 times. That is the "absence of real use" argument the section above demands — not a
+token argument. They are in git history (`git log --all -- src/core/notion-cli.ts` etc.).
 
-This shape — external CLI delegation instead of in-process auth — is the **template for any future
-auth-bearing domain**. Inject the executor via `buildServer({ notionCli })` so tests can fake it.
+One shape from that era is worth keeping in mind: **external CLI delegation instead of in-process
+auth**. notion never touched tokens or OAuth — every page read went through `ntn pages get`, the
+tools registered only when `ntn` was detected at startup, and tests injected a fake executor via
+`buildServer({ notionCli })`. Any future auth-bearing domain should copy that, the same way the
+`gh`-based slash commands already do.
 
 ## souls & statusline (removed in v0.19)
 
@@ -100,20 +105,22 @@ been removed and lives only in git history now. It was an in-process `@opencode-
 Re-adding a domain is **always a separate PR** following this template:
 
 1. **Decision**: (a) join the plugin directly (`src/core/` code + `src/index.ts` registration) or
-   (b) a separate CLI entry alongside `openapi-mcp` (`bin/<domain>-mcp` + `src/<domain>.ts`, when host
-   independence is high). Record the decision in one line in the PR description.
+   (b) a separate stdio entry (`bin/<domain>-mcp` + `src/<domain>.ts`, when host independence is
+   high — the shape the removed `openapi-mcp` CLI had). Record the decision in one line in the PR
+   description.
 2. **Port from archive**: `git checkout archive/pre-openapi-only-slim -- <files>`. Old `lib/<domain>.ts`
    becomes `src/core/<domain>.ts`.
-3. **Shared handler**: put the domain handler next to `src/core/handlers.ts` — entry points register only.
+3. **Shared handler**: put the domain handler in `src/core/<domain>-handlers.ts` (as
+   `worklog-handlers.ts`) — the entry point registers only.
 4. **Config shape**: if `rocky.json` gains a domain key, update `src/core/rocky-config.ts` and
    `rocky.schema.json` in lockstep.
 5. **Surface**: register tools in `src/index.ts` and update the `REMOVED_TOOLS` leak guard in
    `src/index.test.ts`.
 6. **Docs**: `README.md` surface / config / env tables, `AGENTS.md` Layout + scope.
 
-Reference shapes already re-added: **notion** (v0.5, plugin-bound + `ntn` CLI-gated — the auth-bearing
-template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped template; renamed
-`worklog` in v0.9).
+Reference shape still in tree: **journal** (v0.6, plugin-bound, always-on — the memory-shaped
+template; renamed `worklog` in v0.9). The auth-bearing template (**notion**, v0.5 → removed v0.23) is
+in git history.
 
 ## Version history (why things look the way they do)
 
@@ -134,6 +141,8 @@ template) and **journal** (v0.6, plugin-bound, always-on — the memory-shaped t
 - **2026-07-30** — `/rocky:review-pr` renamed to `/rocky:resolve-reviews`. The old name parsed as
   verb + object ("review the PR" — which is what the built-in `/review` does), so it kept getting
   confused with `/rocky:review`. The new name says what it does to what: it resolves review threads.
+- **v0.23** — `openapi_*` / `seo_validate` / `notion_*` and the `openapi-mcp` CLI removed (zero usage
+  measured from the worklog; 4,145 LOC, six runtime deps). The MCP surface is `worklog_*` only.
 - **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
   2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
   todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.
