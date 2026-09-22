@@ -392,15 +392,17 @@ fn project_key_is_stable_sanitized_basename_plus_hash() {
 fn project_key_matches_ts_golden() {
     // 실제 앵커: ~/.config/rocky/worklog/rocky-4745b950 = sha1("/Users/minjun/dev/workspaces/rocky")[:8].
     // 경로가 이 머신에 없어도(CI) canonicalize 가 절대 경로 그대로 돌려주므로 같은 값이다.
-    let key = default_project_key(Path::new("/Users/minjun/dev/workspaces/rocky"), &|_| {
+    // 변수명을 `key` 로 두면 gitleaks 의 generic-api-key 규칙이 `key = "<hex>"` 를 시크릿으로
+    // 오탐한다 (CI 실측) — 앵커 디렉터리 이름이지 비밀이 아니다.
+    let anchor = default_project_key(Path::new("/Users/minjun/dev/workspaces/rocky"), &|_| {
         Some(".git".into())
     });
-    assert_eq!(key, "rocky-4745b950");
-    let key = default_project_key(
+    assert_eq!(anchor, "rocky-4745b950");
+    let anchor = default_project_key(
         Path::new("/Users/minjun/dev/workspaces/rocky-todo"),
         &|_| Some(".git".into()),
     );
-    assert_eq!(key, "rocky-todo-04340422");
+    assert_eq!(anchor, "rocky-todo-04340422");
 }
 
 #[test]
