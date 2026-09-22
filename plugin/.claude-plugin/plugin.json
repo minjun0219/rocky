@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "rocky",
-  "version": "0.22.2",
+  "version": "0.23.0",
   "description": "rocky — the owner's personal agent tool: a Rust daemon (shared todo board + streamable HTTP MCP, 127.0.0.1:8636) with this plugin as its thin Claude Code client. Board tools todo_list / todo_write / todo_status / note_list / note_write come from the daemon; worklog_* (append-only local JSONL agent journal, per project) is served by the CLI's stdio MCP server (`rocky-todo mcp worklog`). Hooks: SessionStart boots the daemon (version-aware restart), UserPromptSubmit injects human board changes, Stop claims handoffs and auto-captures the turn into the worklog. Slash commands: /rocky:next (pick the next board item), /rocky:brainstorm, /rocky:review, /rocky:finish, /rocky:resolve-reviews, /rocky:recall. Skills: board, writing-cc-plugin. Subagent: reviewer. Absorbed the former rocky-todo plugin/repo (D-046).",
   "author": {
     "name": "Minjun Kim"
