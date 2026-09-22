@@ -57,6 +57,9 @@ fn run(argv: &[String]) -> Result<(), String> {
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
         "daemon" => commands::cmd_daemon(&ctx, &rest, expose_lan, expose_ts),
+        "mcp" if rest.first().map(String::as_str) == Some("worklog") => {
+            rocky_todo_cli::worklog_mcp::serve_stdio()
+        }
         "mcp" => commands::cmd_mcp(&ctx, &rest),
         "tailscale" => commands::cmd_tailscale(&ctx, &rest),
         // 훅 엔트리 — hooks.json 이 부른다. 셋 다 fail-open 이라 항상 Ok.
@@ -66,9 +69,11 @@ fn run(argv: &[String]) -> Result<(), String> {
                 Some("ensure-daemon") => hooks::hook_ensure_daemon(&ctx),
                 Some("notify-todo") => hooks::hook_notify_todo(&ctx, todo_config.watch),
                 Some("handoff-stop") => hooks::hook_handoff_stop(&ctx),
+                Some("log-turn") => hooks::hook_log_turn(),
                 _ => {
                     return Err(
-                        "usage: rocky-todo hook ensure-daemon|notify-todo|handoff-stop".into(),
+                        "usage: rocky-todo hook ensure-daemon|notify-todo|handoff-stop|log-turn"
+                            .into(),
                     )
                 }
             }

@@ -1057,10 +1057,13 @@ dependencies = [
  "chrono",
  "libc",
  "ring",
+ "rmcp",
  "rocky-todo-core",
+ "schemars",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "ureq",
 ]
 
@@ -1070,6 +1073,7 @@ version = "0.22.2"
 dependencies = [
  "chrono",
  "rand 0.9.5",
+ "ring",
  "rusqlite",
  "schemars",
  "serde",

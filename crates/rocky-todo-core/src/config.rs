@@ -193,3 +193,67 @@ pub fn resolve_runtime_config(env: &EnvMap, todo: &TodoConfig) -> TodoRuntimeCon
         statusline_template,
     }
 }
+
+/// `rocky.json` 의 `worklog` 블록 — TS `rocky-config.ts` 의 `WorklogConfig`.
+/// user(`~/.config/rocky/rocky.json`) 위에 project(`<cwd>/rocky.json`)가 필드 단위로 덮인다.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorklogConfig {
+    /// 저널 JSONL 디렉터리. 미지정 시 프로젝트별 기본 경로.
+    pub dir: Option<String>,
+    /// Stop 훅 자동 기록 on/off. 기본 true. env `ROCKY_WORKLOG_AUTO_CAPTURE` 우선.
+    pub auto_capture: Option<bool>,
+    /// turn 엔트리 req/did 최대 글자 수. 기본 800.
+    pub capture_max_chars: Option<usize>,
+    /// `/rocky:recall` 의 Haiku↔Sonnet 임계. 기본 40.
+    pub digest_threshold: Option<usize>,
+}
+
+impl WorklogConfig {
+    /// 필드 단위 덮어쓰기 — `other` 에 있는 값만 이긴다.
+    pub fn merged_with(&self, other: &WorklogConfig) -> WorklogConfig {
+        WorklogConfig {
+            dir: other.dir.clone().or_else(|| self.dir.clone()),
+            auto_capture: other.auto_capture.or(self.auto_capture),
+            capture_max_chars: other.capture_max_chars.or(self.capture_max_chars),
+            digest_threshold: other.digest_threshold.or(self.digest_threshold),
+        }
+    }
+}
+
+/// 한 파일의 `worklog` 블록. 파일 없음 / 파싱 실패 / 블록 없음은 기본값(fail-open).
+pub fn load_worklog_block(config_path: &Path) -> WorklogConfig {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return WorklogConfig::default();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return WorklogConfig::default();
+    };
+    let Some(block) = parsed.get("worklog").and_then(|v| v.as_object()) else {
+        return WorklogConfig::default();
+    };
+    let positive = |key: &str| {
+        block
+            .get(key)
+            .and_then(|v| v.as_u64())
+            .filter(|n| *n >= 1)
+            .and_then(|n| usize::try_from(n).ok())
+    };
+    WorklogConfig {
+        dir: block
+            .get("dir")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        auto_capture: block.get("autoCapture").and_then(|v| v.as_bool()),
+        capture_max_chars: positive("captureMaxChars"),
+        digest_threshold: positive("digestThreshold"),
+    }
+}
+
+/// user + project 를 병합한 `worklog` 설정. project 는 `<project_root>/rocky.json`.
+pub fn load_worklog_config(user_path: &Path, project_root: &Path) -> WorklogConfig {
+    let user = load_worklog_block(user_path);
+    let project = load_worklog_block(&project_root.join("rocky.json"));
+    user.merged_with(&project)
+}

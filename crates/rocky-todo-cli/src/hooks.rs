@@ -8,11 +8,14 @@
 use std::io::Read;
 use std::time::Duration;
 
+use rocky_todo_core::config::{load_worklog_config, user_config_path};
 use rocky_todo_core::handoff::build_handoff_prompt;
 use rocky_todo_core::notify::{
     build_notify_context, filter_human_changes, merge_context, read_cursor, write_cursor,
 };
+use rocky_todo_core::transcript::{build_turn_content, extract_turn, should_capture};
 use rocky_todo_core::types::{ChangesSince, ClaimedHandoff};
+use rocky_todo_core::worklog::{Worklog, WorklogAppendInput};
 use serde_json::json;
 
 use crate::client::{daemon_health, ensure_daemon, stop_daemon, CliContext};
@@ -221,4 +224,44 @@ pub fn hook_handoff_stop(ctx: &CliContext) {
         "{}",
         json!({ "decision": "block", "reason": build_handoff_prompt(&claimed) })
     );
+}
+
+/// Stop: 트랜스크립트에서 이번 턴을 뽑아 `kind:"turn"` 한 줄을 워크로그에 append 한다.
+/// TS 원본 `src/hooks/log-turn.ts`. 결정론적(LLM 0), 어떤 실패도 턴을 막지 않는다.
+///
+/// 저널 위치·키는 훅 입력의 `cwd`(세션 프로젝트) 기준 — `worklog_*` MCP 서버가 같은
+/// cwd 로 뜨므로 같은 앵커에 쌓인다.
+pub fn hook_log_turn() {
+    let input = read_stdin_json();
+    let cwd = input
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok());
+    let Some(cwd) = cwd else {
+        return;
+    };
+    let config = load_worklog_config(&user_config_path(), &cwd);
+    let env_toggle = std::env::var("ROCKY_WORKLOG_AUTO_CAPTURE").ok();
+    if !should_capture(env_toggle.as_deref(), config.auto_capture) {
+        return;
+    }
+    let Some(path) = input.get("transcript_path").and_then(|v| v.as_str()) else {
+        return;
+    };
+    let Ok(transcript) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Some(parts) = extract_turn(&transcript) else {
+        return;
+    };
+    let content = build_turn_content(&parts, config.capture_max_chars.unwrap_or(800));
+    let env_dir = std::env::var("ROCKY_WORKLOG_DIR").ok();
+    let worklog = Worklog::from_env(env_dir.as_deref(), config.dir.as_deref(), Some(cwd));
+    let _ = worklog.append(&WorklogAppendInput {
+        content,
+        kind: Some("turn".into()),
+        tags: Some(vec!["turn".into()]),
+        page_id: None,
+    });
 }

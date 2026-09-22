@@ -25,7 +25,8 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "time", "net"] }
 axum = "0.8"
 tower-http = { version = "0.6", features = ["fs"] }
-rmcp = { version = "3", features = ["server", "transport-streamable-http-server"] }
+# transport-io: CLI 의 `mcp worklog` stdio 서버용.
+rmcp = { version = "3", features = ["server", "transport-streamable-http-server", "transport-io"] }
 schemars = "1"
 ureq = { version = "3", features = ["json"] }
 # 이미 의존 그래프에 있던 크레이트다(tokio 등이 끌어온다) — 직접 선언해도 빌드에

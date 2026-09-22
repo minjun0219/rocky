@@ -17,7 +17,9 @@ pub mod refs;
 pub mod sessions;
 pub mod statusline;
 pub mod store;
+pub mod transcript;
 pub mod types;
+pub mod worklog;
 
 pub use ids::{new_id, ID_LENGTH};
 pub use store::{StoreError, StoreResult, TodoStore};

@@ -12,6 +12,8 @@ thiserror.workspace = true
 chrono.workspace = true
 rand.workspace = true
 schemars.workspace = true
+# sha1 — worklog 프로젝트 키(`<basename>-<sha1[:8]>`). 이미 의존 그래프에 있는 크레이트다.
+ring.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -13,6 +13,7 @@ pub mod format;
 pub mod hooks;
 pub mod launchd;
 pub mod system;
+pub mod worklog_mcp;
 
 /// `help` 출력 — TS `src/cli.ts` 의 HELP 를 그대로 옮겼다.
 pub const HELP: &str = r#"rocky-todo — 공유 todo/스크래치패드 보드 (데몬 + 웹 UI + MCP 의 CLI 표면)
@@ -41,6 +42,7 @@ pub const HELP: &str = r#"rocky-todo — 공유 todo/스크래치패드 보드 (
   rocky-todo open                              접속 주소 출력 (로컬/내부망/테일넷 — 링크 클릭으로 열기)
   rocky-todo daemon run|start|stop|status|install|uninstall
   rocky-todo mcp setup                         호스트별 MCP 등록 안내
+  rocky-todo mcp worklog                       worklog_* 4 도구 stdio MCP 서버 (플러그인이 띄운다)
   rocky-todo tailscale on|off|status           테일넷 한정 HTTPS 노출 (옵션, 기본 off)
 
 REF 는 12 (현재 보드) 또는 rocky-12 (보드 지정) 또는 raw id 를 받는다.

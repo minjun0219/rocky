@@ -21,3 +21,7 @@ ureq.workspace = true
 libc.workspace = true
 ring.workspace = true
 tempfile.workspace = true
+# `mcp worklog` stdio MCP 서버 — 데몬과 같은 rmcp, 전송만 stdio.
+rmcp.workspace = true
+tokio.workspace = true
+schemars.workspace = true
