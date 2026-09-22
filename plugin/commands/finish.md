@@ -84,7 +84,7 @@ NUM=$(gh pr create --base main --head <브랜치> \
   --title "<Conventional 한국어 제목>" --body "<본문 초안>" | grep -o '[0-9]*$')
 
 # 2) 그 번호로 링크를 만들어 본문을 갱신
-bun "${CLAUDE_PLUGIN_ROOT:-.}/scripts/permalink.ts" --pr "$NUM" <포인터> ...
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr "$NUM" <포인터> ...
 gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ```
 
@@ -153,7 +153,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 
      ```bash
      # PR 번호를 주면 Files changed 위치로, 안 주면 blob permalink 로 건다
-     bun "${CLAUDE_PLUGIN_ROOT:-.}/scripts/permalink.ts" --pr 127 \
+     bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr 127 \
        src/core/handlers.ts:handleOpenapiSearch commands/finish.md:12-18
      ```
 

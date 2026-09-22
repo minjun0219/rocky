@@ -16,3 +16,12 @@ rocky-todo 히스토리에 남는다. GUI 는 Swift 또는 TUI 로 별도 결정
 릴리스 tarball 은 바이너리 둘만 담고, `bin/rocky-todo` 부트스트랩은 이 레포의 Release 에서
 받는다. `package.json` · `plugin.json` · `Cargo.toml` · `Cargo.lock` 버전이 lockstep 이어야
 한다(`ensure-daemon` 이 정확 일치로 구버전을 판정).
+
+worklog 도 Rust 로 간다 — `worklog_*` 4 도구는 CLI 의 stdio MCP 서버(`rocky-todo mcp worklog`),
+Stop 훅의 턴 기록은 `rocky-todo hook log-turn`. 저장 형식(JSONL)·경로·프로젝트 키
+(`<basename>-<sha1[:8]>`)는 TS 판과 바이트 동일해 기존 앵커가 그대로 이어진다. 데몬이 아니라
+CLI 인 이유는 워크로그가 프로젝트별인데 데몬은 호출자의 cwd 를 모르기 때문. 이로써 런타임 TS
+가 사라지고 `package.json` 은 개발 도구(biome·changesets·릴리스 스크립트)만 남는다.
+
+플러그인 표면은 `plugin/` 로 모이고 마켓플레이스 소스가 `./plugin` 이 된다 — 설치본에
+`crates/`·`target/`·`node_modules` 가 더 이상 복사되지 않는다.

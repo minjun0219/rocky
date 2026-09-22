@@ -4,11 +4,11 @@
   "owner": {
     "name": "Minjun Kim"
   },
-  "description": "Marketplace serving the rocky Claude Code plugin — this repo, source \"./\". rocky-todo was absorbed into rocky (D-046).",
+  "description": "Marketplace serving the rocky Claude Code plugin — this repo, source \"./plugin\". rocky-todo was absorbed into rocky (D-046).",
   "plugins": [
     {
       "name": "rocky",
-      "source": "./",
+      "source": "./plugin",
       "author": {
         "name": "Minjun Kim"
       },

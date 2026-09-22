@@ -1,7 +1,7 @@
 {
   "name": "@minjun0219/rocky",
   "version": "0.22.2",
-  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, with this package as the thin Claude Code plugin: worklog_* tools (append-only local JSONL agent journal, moving into the daemon next), Stop-hook turn capture, /rocky:recall, and the /rocky:next / brainstorm / review / finish / resolve-reviews workflow commands. Absorbed rocky-todo (D-046).",
+  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/. This package only holds the Bun dev tooling (biome, changesets, release scripts) — there is no TypeScript runtime code left.",
   "license": "MIT",
   "author": "Minjun Kim",
   "homepage": "https://github.com/minjun0219/rocky",
@@ -10,16 +10,6 @@
     "url": "git+https://github.com/minjun0219/rocky.git"
   },
   "type": "module",
-  "main": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "files": [
-    "src",
-    "commands",
-    ".claude-plugin",
-    "README.md"
-  ],
   "engines": {
     "bun": ">=1.0.0"
   },
@@ -40,7 +30,7 @@
     "format": "biome format --write .",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
-    "test": "bun test ./src ./scripts",
+    "test": "bun test ./scripts ./plugin/scripts",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "changeset": "bunx changeset",
     "changeset:version": "bunx changeset version && bun scripts/sync-plugin-version.ts",
@@ -49,10 +39,6 @@
   },
   "lint-staged": {
     "*.{ts,json,jsonc,md}": "biome check --write --no-errors-on-unmatched"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

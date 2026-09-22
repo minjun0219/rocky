@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/minjun0219/rocky/main/rocky.schema.json",
   "title": "rocky config",
-  "description": "Configuration for rocky — `rocky.json`. Project config (./rocky.json) overrides user config (~/.config/rocky/rocky.json) field by field. The `worklog` block is read by the TypeScript worklog server; the `todo` block is read by the Rust daemon.",
+  "description": "Configuration for rocky — `rocky.json`. Project config (./rocky.json) overrides user config (~/.config/rocky/rocky.json) field by field. The `worklog` block is read by the worklog stdio MCP server and the Stop hook (`rocky-todo mcp worklog` / `rocky-todo hook log-turn`); the `todo` block by the daemon. Both live in crates/ — see crates/rocky-todo-core/src/config.rs.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -38,7 +38,7 @@
     },
     "todo": {
       "type": "object",
-      "description": "Board daemon settings, read by the Rust daemon (port / dir / expose / watch / statusline). The TypeScript loader passes this block through without validating it; the daemon owns the shape.",
+      "description": "Board daemon settings (port / dir / expose / watch / statusline). Shape is owned by crates/rocky-todo-core/src/config.rs.",
       "additionalProperties": true
     }
   }

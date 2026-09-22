@@ -10,7 +10,7 @@ dist/
 .env.*
 *.tsbuildinfo
 # bun build 가 outfile 미지정 시 만드는 sibling artifacts (예: bin/rocky-todo-<hash>)
-bin/rocky-todo-*
+plugin/bin/rocky-todo-*
 # 로컬 전용 DB (ROCKY_TODO_DIR 가 in-tree 로 향할 때 대비)
 *.db
 *.db-*

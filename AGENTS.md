@@ -6,7 +6,8 @@ Guide for AI coding agents (Claude Code, opencode, codex) working in **this repo
 > quick start). Agents read this file (English — layout, scope, rules, checklist, review bar). Design
 > rationale that isn't derivable from the code lives in [`docs/architecture.md`](./docs/architecture.md)
 > — read it on demand, not by default. **Per-tool input/output is not documented in prose** — the tool
-> definitions in `src/index.ts` are the single source; read them directly.
+> definitions (`#[tool]` in `crates/rocky-todod/src/mcp.rs` and `crates/rocky-todo-cli/src/worklog_mcp.rs`)
+> are the single source; read them directly.
 > Cross-project conventions (language, commit style, comment policy) live in the user-scope `AGENTS.md`.
 
 ## What rocky is
@@ -22,8 +23,12 @@ repo (hail-mary D-046, 2026-09-22); the merge kept both histories.
 - **CLI `rocky-todo`** (`crates/rocky-todo-cli`) — thin HTTP client + the three hook entries
   (`hook ensure-daemon` / `notify-todo` / `handoff-stop`). `bin/rocky-todo` is a sh bootstrap that
   downloads the release tarball for the plugin's version and execs the binary.
-- **worklog stdio MCP server** (`src/index.ts`, Bun) — 4 `worklog_*` tools. **Temporary**: it moves
-  into the daemon next (PR B), and the TypeScript under `src/` goes with it.
+- **worklog stdio MCP server** (`rocky-todo mcp worklog`, `crates/rocky-todo-cli/src/worklog_mcp.rs`) —
+  4 `worklog_*` tools, per project. It lives in the CLI, not the daemon, because the worklog is keyed
+  by the caller's repo root and the daemon cannot see the caller's cwd; a plugin stdio server is spawned
+  in the session's project directory. `hook log-turn` (Stop) appends the turn from the same crate.
+- **No TypeScript runtime code.** `package.json` only carries dev tooling (biome, changesets, the
+  release / bootstrap / permalink scripts under `scripts/` and `plugin/scripts/`).
 - Names are pre-rename (`rocky-todo`, `rocky-todod`, crate names) on purpose — a separate rename PR.
 
 > **v0.23 removed** `openapi_*` (7), `seo_validate`, `notion_*` (4) and the `openapi-mcp` standalone
@@ -44,34 +49,23 @@ choice, not a host limitation — see `docs/architecture.md`.
 
 ```
 rocky/                          single package — @minjun0219/rocky
-├── .claude-plugin/
-│   ├── marketplace.json        ★ this repo is its own marketplace (rocky-marketplace, source "./")
-│   └── plugin.json             ★ plugin metadata + two MCP servers (rocky = daemon http, worklog = stdio)
+├── .claude-plugin/marketplace.json  ★ this repo is its own marketplace — plugin source "./plugin"
+├── plugin/                     ★ the Claude Code plugin — the only thing copied into the plugin cache
+│   ├── .claude-plugin/plugin.json  plugin metadata + two MCP servers (rocky = daemon http, worklog = stdio)
+│   ├── bin/rocky-todo          sh bootstrap → release tarball → native binary (hooks + CLI + MCP entry)
+│   ├── hooks/hooks.json        SessionStart (ensure-daemon), UserPromptSubmit (notify-todo), Stop (handoff-stop → log-turn)
+│   ├── commands/ skills/ agents/   slash commands, bundled skills, reviewer subagent
+│   └── scripts/permalink.ts    /rocky:finish uses it — must live inside the plugin to exist after install
 ├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-todo-core · rocky-todod · rocky-todo-cli
-├── crates/                     ★ the daemon, CLI and core (see docs/rewrite/ for the port record)
-├── bin/rocky-todo              sh bootstrap → release tarball → native binary (hooks + CLI entry)
-├── rocky.schema.json           `rocky.json` JSON Schema — `worklog` lockstep with src/core/rocky-config.ts, `todo` read by the daemon
+├── crates/                     ★ the daemon, CLI (incl. worklog MCP + hooks) and core (see docs/rewrite/)
+├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with crates/rocky-todo-core/src/config.rs
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
 ├── agents/                     ★ subagents — reviewer (fresh-context diff review; /rocky:review
 │                                 dispatches it, and it is callable directly). Read-only role.
-├── commands/                   ★ slash commands — next, brainstorm, review, finish, resolve-reviews, recall
-├── hooks/hooks.json            ★ SessionStart (ensure-daemon), UserPromptSubmit (notify-todo),
-│                                 Stop (handoff-stop, then log-turn)
-├── skills/                     ★ bundled skills — board, writing-cc-plugin
 ├── docs/                       architecture, codex, opencode, hosts, backlog, rocky-todo (board), rewrite/ (port record)
 │   └── design/{specs,plans}/   설계·계획 산출물 (구 docs/superpowers/) — 과거분은 그대로 보존
-└── src/
-    ├── index.ts                ★ plugin entry — MCP registration only; logic lives in ./core
-    ├── index.test.ts           surface guard: 4 worklog_* tools, REMOVED_TOOLS leak check
-    ├── hooks/                  hook entries — log-turn + transcript (pure parser). Fail-open.
-    └── core/                   shared implementation (barrel: index.ts)
-        ├── worklog.ts          append-only JSONL journal — the record layer
-        ├── worklog-handlers.ts the 4 worklog_* handlers
-        ├── rocky-config.ts     `rocky.json` loader (project > user)
-        └── *.test.ts
+└── scripts/                    Bun dev scripts — release-github, sync-plugin-version, check-changesets, bootstrap.test
 ```
-
-**Imports**: all relative. Plugin entry uses the barrel `./core`; hooks use `../core/<file>` subpaths.
 
 ## Scope (hold the line)
 
@@ -155,20 +149,22 @@ deterministically, and a per-turn gate would just make every turn slow.
 
 ## Coding rules
 
-- **Language**: TypeScript (`type: module`). Bun runs `.ts` directly — no build, no `dist/`.
-- **Imports**: no `.js` / `.ts` extensions (`moduleResolution: Bundler` + `allowImportingTsExtensions`).
-  External packages that require a `.js` subpath (`@modelcontextprotocol/sdk/...js`) stay as-is.
-- **ESM safety**: never `__dirname`. Use `import.meta.url` + `fileURLToPath`, or Bun's `import.meta.dir`.
-- **Errors**: include context — input value, timeout, status code, handle mismatch.
-- **Dependencies**: avoid adding any. Prefer the standard library and Bun built-ins; HTTP goes through
-  Bun's native `fetch` (with the `tls` option). Existing prod-dep exceptions:
-  `@modelcontextprotocol/sdk` + `zod`. Dev-only tooling is fine (`husky`, `lint-staged`). Any new
-  runtime dep is a separate scope discussion.
-- **Tests**: `*.test.ts` next to the source, run with `bun test`. Isolate fs-dependent tests with
-  `mkdtempSync`. Worklog behavior is tested in `src/core/worklog.test.ts`; `src/index.test.ts` only
-  guards the surface (tool count / leak regression).
-- **JSDoc**: write it on exported functions and classes when touching this repo, but it is not a hard
-  lint gate.
+- **Language**: Rust (edition 2021, stable toolchain via `rust-toolchain.toml`) for everything that runs
+  — daemon, CLI, hooks, MCP servers. TypeScript survives only as Bun dev scripts (`scripts/`,
+  `plugin/scripts/`) and the plugin's markdown surfaces.
+- **Rust rules**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings` are gates
+  (clippy sees tests too). Pure decision logic goes in `rocky-todo-core` with integration tests in
+  `crates/*/tests/`; the daemon and CLI only wire it. Fail-open in hooks — no `Result` out of a hook
+  entry. Errors include context (input value, path, status code).
+- **Dependencies**: avoid adding any. Workspace deps are declared once in the root `Cargo.toml`; prefer
+  a crate already in `Cargo.lock` (e.g. `ring` for SHA-1 rather than a new `sha1`). A new runtime dep
+  is a separate scope discussion. Dev-only Bun tooling is fine.
+- **TS scripts**: no `.js` / `.ts` extensions on local imports, never `__dirname` (use
+  `import.meta.dir`), tests as `*.test.ts` next to the script, fs isolation via `mkdtempSync`.
+- **Contract fidelity**: the worklog on disk (JSONL shape, key order, project key
+  `<basename>-<sha1[:8]>`) and the board REST/MCP surface (`docs/rewrite/contract.md`) are
+  compatibility contracts with the old TypeScript implementations — golden tests pin them
+  (`crates/rocky-todo-core/tests/worklog_test.rs::project_key_matches_ts_golden`).
 
 ## Change checklist
 
@@ -176,13 +172,16 @@ deterministically, and a per-turn gate would just make every turn slow.
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` all pass.
 2. If the user-facing surface (tools / env vars) changed, sync `README.md` (humans) and this file
    (agents), and `.claude-plugin/plugin.json` when the Claude Code surface changed.
-3. New env var → update its reading site (`src/core/worklog.ts` / `rocky-config.ts` /
-   `src/hooks/log-turn.ts`) and the `README.md` env-var table.
-4. Tool contract change → update registration in `src/index.ts` and the handler in
-   `src/core/worklog-handlers.ts`.
-5. `rocky.json` shape change → update `rocky.schema.json` **and** `src/core/rocky-config.ts` in lockstep.
-6. Tool name surfacing again → update `REMOVED_TOOLS` in `src/index.test.ts` (currently guards
-   openapi / seo / notion / mysql / spec-pact / pr-watch; `worklog_*` presence is asserted via `WORKLOG_TOOLS`).
+3. New env var → update its reading site (`crates/rocky-todo-core/src/config.rs` /
+   `crates/rocky-todo-cli/src/hooks.rs` / `worklog_mcp.rs`) and the `README.md` env-var table.
+4. Tool contract change → update the `#[tool]` definition (`crates/rocky-todod/src/mcp.rs` for the
+   board, `crates/rocky-todo-cli/src/worklog_mcp.rs` for worklog) and the matching test
+   (`mcp_test.rs` / `worklog_mcp_test.rs`).
+5. `rocky.json` shape change → update `rocky.schema.json` **and** `crates/rocky-todo-core/src/config.rs`
+   in lockstep.
+6. Tool name surfacing again → the surface tests pin the exact tool lists (`TOOLS` in
+   `crates/rocky-todod/tests/mcp_test.rs`, `crates/rocky-todo-cli/tests/worklog_mcp_test.rs`); removed
+   names (openapi / seo / notion / mysql / spec-pact / pr-watch) must not reappear.
 7. User-facing change → `bunx changeset`. Tooling-only chores need none.
 
 ## 데몬/설치 모델 (핵심)
@@ -368,7 +367,7 @@ Korean**; keep identifiers, paths, and commands in English.
 
 **🔴 Important** — reserved for: a change pulling in anything under *Scope → Out* without an explicit
 request; an input/output break in the `worklog_*` tools; `rocky.json` shape changed without `rocky.schema.json` **and**
-`src/core/rocky-config.ts` moving in lockstep; a user-facing surface changed without the
+`crates/rocky-todo-core/src/config.rs` moving in lockstep; a user-facing surface changed without the
 *Change checklist* doc sync; `__dirname` or `.js`/`.ts` extensions on local imports or any Node-only
 API that breaks the Bun-only assumption; secrets in logs, error messages missing identifying context,
 fs paths built from unsanitized external input; a new runtime dep where the stdlib or a Bun built-in
@@ -378,8 +377,8 @@ would do. Everything else is Nit at most.
 JSDoc gaps, test-file placement (`*.test.ts` next to its source), missing `mkdtempSync` isolation.
 
 **Do not report** — `bun.lock` and anything `.gitignore`d; type errors and test failures that
-`bun run typecheck` / `bun test` already catch (exception: a new `src/core/` module with no adjacent
-`*.test.ts` is a Nit); a PR that was *explicitly asked* to pull in a `docs/backlog.md` item is not a
+`cargo clippy` / `cargo test` / `bun test` already catch (exception: a new `crates/*/src/` module with no
+test in `crates/*/tests/` is a Nit); a PR that was *explicitly asked* to pull in a `docs/backlog.md` item is not a
 scope violation by that fact alone.
 
 **Citation bar** — behavior claims ("this code does X") need a `path:line` citation, not an inference

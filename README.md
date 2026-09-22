@@ -14,7 +14,7 @@
 
 ## 한눈에
 
-MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 임시 stdio 서버(`src/index.ts`, worklog 4 도구; 데몬으로 옮기는 중). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/rocky-todo.md`](./docs/rocky-todo.md).
+MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 CLI 의 stdio 서버(`rocky-todo mcp worklog`, worklog 4 도구 — 프로젝트별이라 세션 cwd 를 아는 쪽이 연다). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/rocky-todo.md`](./docs/rocky-todo.md).
 
 ### MCP 도구 표면
 
@@ -23,7 +23,7 @@ MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도�
 | `todo_*` / `note_*` | 5 | 공유 todo / 스크래치패드 보드 — `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. Rust 데몬(`crates/rocky-todod`)의 `/mcp`. 삭제 없음(아카이브만), 전 mutation 히스토리 기록. | 데몬 기동 시 |
 | `worklog_*` | 4 | append-only 로컬 JSONL **기록(記錄)** 레이어 — 결정 / blocker / 답변 / 메모를 turn 을 넘겨 남긴다 (`append` / `read` / `search` / `status`). 외부 의존 0. | 항상 |
 
-각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `src/index.ts` 의 등록부를 읽으면 된다.
+각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `crates/rocky-todod/src/mcp.rs`(보드) / `crates/rocky-todo-cli/src/worklog_mcp.rs`(worklog) 의 `#[tool]` 정의를 읽으면 된다.
 
 ### Claude Code 전용 표면 (MCP tool 아님)
 
@@ -55,7 +55,7 @@ claude plugin install rocky@rocky-marketplace
 
 원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일하게 설치한다. 설치본은 GitHub `main`에서 clone되므로 코드 변경은 push 후 `claude plugin update rocky`로 반영된다.
 
-설치본이 쓰는 MCP 서버는 `.claude-plugin/plugin.json`의 `mcpServers` (`${CLAUDE_PLUGIN_ROOT}/src/index.ts`) 하나뿐 — 저장소에 `.mcp.json`을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
+플러그인 소스는 `plugin/` 디렉토리다(마켓플레이스 `source: "./plugin"`) — 설치본에는 `crates/`·`target/`·`node_modules` 가 복사되지 않는다. 설치본이 쓰는 MCP 서버는 `plugin/.claude-plugin/plugin.json` 의 `mcpServers` 둘뿐이고, 저장소에 `.mcp.json` 을 두지 않는 이유는 그게 설치본 MCP 설정으로 새기 때문이다.
 
 설치하면 그 뒤로는 손댈 게 없다 — 매 턴이 `Stop` 훅으로 워크로그에 쌓이고, 쌓인 것을 `/rocky:recall` 로 정리한다.
 
@@ -70,7 +70,7 @@ claude plugin install rocky@rocky-marketplace
 }
 ```
 
-허용 키는 아래 둘뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드. 제거된 `openapi` / `seo` 도 이제 거부되니 옛 설정 파일에 남아 있으면 지운다). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `src/core/rocky-config.ts` 가 lockstep 으로 들고 있다.
+허용 키는 아래 둘뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드. 제거된 `openapi` / `seo` 도 이제 거부되니 옛 설정 파일에 남아 있으면 지운다). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `crates/rocky-todo-core/src/config.rs` 가 lockstep 으로 들고 있다.
 
 | 키 | 내용 |
 | --- | --- |
@@ -89,7 +89,7 @@ claude plugin install rocky@rocky-marketplace
 
 ## 문서 맵
 
-이 README 가 사람용 진입점이고, 그보다 깊이 들어가는 문서는 아래가 전부다. 도구 하나하나의 입출력은 문서가 아니라 **도구 정의 자체**(`src/index.ts`)가 단일 소스다 — 에이전트는 그걸 직접 읽는다.
+이 README 가 사람용 진입점이고, 그보다 깊이 들어가는 문서는 아래가 전부다. 도구 하나하나의 입출력은 문서가 아니라 **도구 정의 자체**(`crates/*/src/*mcp*.rs` 의 `#[tool]`)가 단일 소스다 — 에이전트는 그걸 직접 읽는다.
 
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
@@ -110,10 +110,10 @@ v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 +
 ## 개발
 
 ```bash
-bun install        # 의존성 (husky pre-commit / pre-push 훅도 함께 배선)
-bun run check      # Biome 검증
+bun install        # 개발 도구 (biome · changesets · husky 훅 배선). 런타임 TS 는 없다
+bun run check      # Biome 검증 (scripts/ · plugin/scripts/)
 bun run typecheck  # tsc --noEmit
-bun test           # 단위 + smoke 테스트
+bun test           # 릴리스·부트스트랩·permalink 스크립트 테스트
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 cargo build --workspace   # target/debug/{rocky-todo,rocky-todod}; ROCKY_TODO_BIN=target/debug/rocky-todo 로 부트스트랩을 우회
 ```

@@ -66,7 +66,7 @@ inside a rocky tool.
 Digests live **inside** the worklog as `kind:"digest"` entries linking back to source entry ids —
 not in an external wiki. `wikiDir` was removed in v0.9 when `/curate` became `/rocky:recall`.
 
-The `Stop` hook (`src/hooks/log-turn.ts`) auto-appends a `kind:"turn"` entry per turn, deterministically.
+The `Stop` hook (`rocky-todo hook log-turn`, `crates/rocky-todo-cli/src/hooks.rs`) auto-appends a `kind:"turn"` entry per turn, deterministically.
 Auto-capture is Claude Code-only because rocky ships no Codex/opencode hooks — but the `worklog_*`
 tools themselves work on all three hosts.
 

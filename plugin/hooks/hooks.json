@@ -32,7 +32,7 @@
           },
           {
             "type": "command",
-            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/src/hooks/log-turn.ts\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook log-turn"
           }
         ]
       }

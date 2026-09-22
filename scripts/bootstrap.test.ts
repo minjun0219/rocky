@@ -9,7 +9,7 @@ import { join } from 'node:path';
  * 존재하지 않는 미러(`ROCKY_TODO_RELEASE_BASE`)와 격리된 `XDG_DATA_HOME` 으로
  * "받아야 하는데 못 받는" 상황을 만든다.
  */
-const bin = join(import.meta.dir, '..', 'bin', 'rocky-todo');
+const bin = join(import.meta.dir, '..', 'plugin', 'bin', 'rocky-todo');
 
 let dir: string;
 beforeEach(() => {
@@ -70,7 +70,7 @@ describe('bin/rocky-todo bootstrap', () => {
   });
 
   test('바이너리가 없을 때 SessionStart 가 아닌 훅은 조용히 0 으로 끝난다', () => {
-    const root = join(import.meta.dir, '..');
+    const root = join(import.meta.dir, '..', 'plugin');
     for (const hook of ['notify-todo', 'handoff-stop']) {
       const r = run(['hook', hook], { CLAUDE_PLUGIN_ROOT: root });
       expect(r.code).toBe(0);
@@ -80,14 +80,16 @@ describe('bin/rocky-todo bootstrap', () => {
   });
 
   test('ensure-daemon 은 받으려 하고, 실패하면 fail-open(0) + stderr 한 줄', () => {
-    const r = run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: join(import.meta.dir, '..') });
+    const r = run(['hook', 'ensure-daemon'], {
+      CLAUDE_PLUGIN_ROOT: join(import.meta.dir, '..', 'plugin'),
+    });
     expect(r.code).toBe(0);
     // Apple Silicon 이 아닌 러너(CI 의 ubuntu)는 다운로드 전에 플랫폼에서 걸린다
     expect(r.err).toMatch(/다운로드 실패|미지원 플랫폼/);
   });
 
   test('CLI 직접 실행은 같은 실패를 exit 1 로 낸다', () => {
-    const r = run(['ls'], { CLAUDE_PLUGIN_ROOT: join(import.meta.dir, '..') });
+    const r = run(['ls'], { CLAUDE_PLUGIN_ROOT: join(import.meta.dir, '..', 'plugin') });
     expect(r.code).toBe(1);
     expect(r.err).toMatch(/다운로드 실패|미지원 플랫폼/);
   });

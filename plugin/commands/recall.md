@@ -1,7 +1,7 @@
 ---
 description: 워크로그(worklog 의 kind:"turn" + 수동 decision/blocker)를 읽어 앵커 히스토리 다이제스트로 정리한다 — 마지막 digest 이후 항목만 증분 요약해 kind:"digest" 엔트리로 남기고, 각 앵커는 원본 엔트리 id 로 드릴다운 가능하게 한다. 배치 크기에 따라 저렴한 실행 주체(예: Haiku/Sonnet)를 고른다.
 argument-hint: "[집중할 주제/힌트] (생략 가능)"
-allowed-tools: mcp__plugin_rocky_rocky__worklog_status, mcp__plugin_rocky_rocky__worklog_read, mcp__plugin_rocky_rocky__worklog_search, mcp__plugin_rocky_rocky__worklog_append, Task
+allowed-tools: mcp__plugin_rocky_worklog__worklog_status, mcp__plugin_rocky_worklog__worklog_read, mcp__plugin_rocky_worklog__worklog_search, mcp__plugin_rocky_worklog__worklog_append, Task
 ---
 
 # recall — 워크로그 → 앵커 히스토리 다이제스트
@@ -21,9 +21,9 @@ rocky 의 worklog 는 **기록(logbook)** 레이어다 — `Stop` hook 이 매 �
    필요하면 `worklog_read` 로 원문을 찾아가게 한다.
 5. **네이티브 메모리와 별개.** 이 다이제스트는 worklog 안에 산다. Claude Code 글로벌 메모리를
    건드리지 않는다.
-6. **한 실행은 한 프로젝트만 건드린다.** worklog 도구가 쓰는 키는 **MCP 서버 프로세스의
-   `process.cwd()`** 에서 나온다(`defaultProjectKey`). rocky MCP 서버는 프로젝트마다 따로
-   뜨므로, 세션이 붙은 인스턴스가 바뀌면 **한 실행 안에서도 읽는 프로젝트와 쓰는 프로젝트가
+6. **한 실행은 한 프로젝트만 건드린다.** worklog 도구가 쓰는 키는 **worklog MCP 서버
+   프로세스(`rocky-todo mcp worklog`)의 cwd** 에서 나온다(`default_project_key`). 이 서버는
+   프로젝트마다 따로 뜨므로, 세션이 붙은 인스턴스가 바뀌면 **한 실행 안에서도 읽는 프로젝트와 쓰는 프로젝트가
    갈릴 수 있다.** 그래서 `projectKey` 를 실행 내내 고정값으로 취급하지 말고 append 직전에
    다시 확인한다 (2026-07-29 실제 사고: A 를 읽고 B 에 써서 B 의 watermark 를 오염시켰다).
 
