@@ -22,7 +22,7 @@ rocky 의 worklog 는 **기록(logbook)** 레이어다 — `Stop` hook 이 매 �
 5. **네이티브 메모리와 별개.** 이 다이제스트는 worklog 안에 산다. Claude Code 글로벌 메모리를
    건드리지 않는다.
 6. **한 실행은 한 프로젝트만 건드린다.** worklog 도구가 쓰는 키는 **worklog MCP 서버
-   프로세스(`rocky-todo mcp worklog`)의 cwd** 에서 나온다(`default_project_key`). 이 서버는
+   프로세스(`rocky mcp worklog`)의 cwd** 에서 나온다(`default_project_key`). 이 서버는
    프로젝트마다 따로 뜨므로, 세션이 붙은 인스턴스가 바뀌면 **한 실행 안에서도 읽는 프로젝트와 쓰는 프로젝트가
    갈릴 수 있다.** 그래서 `projectKey` 를 실행 내내 고정값으로 취급하지 말고 append 직전에
    다시 확인한다 (2026-07-29 실제 사고: A 를 읽고 B 에 써서 B 의 watermark 를 오염시켰다).

@@ -20,13 +20,13 @@ codex mcp add rocky -- /abs/path/to/rocky/target/release/rocky-todo mcp worklog
 
 ## 노출되는 도구
 
-Codex 에서는 `rocky-todo mcp worklog` 의 worklog 도구를 쓴다 (보드 도구는 데몬 `http://127.0.0.1:8636/mcp` 에 따로 등록).
+Codex 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도구는 데몬 `http://127.0.0.1:8636/mcp` 에 따로 등록).
 
 - `worklog_*` 4개: `worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`
 
 ## 주의점
 
-- `/abs/path/to/rocky/target/release/rocky-todo` 는 `cargo build --release` 산출물(또는 플러그인 캐시의 `plugin/bin/rocky-todo` 부트스트랩) 경로로 바꾼다.
+- `/abs/path/to/rocky/target/release/rocky-todo` 는 `cargo build --release` 산출물(또는 플러그인 캐시의 `plugin/bin/rocky` 부트스트랩) 경로로 바꾼다.
 - `cwd` 가 중요하다. `rocky.json` 의 project scope 해석과 worklog 프로젝트별 기본 저장 경로는 MCP 서버 프로세스의 `cwd` 기준이다. Codex 가 워크스페이스를 `cwd` 로 spawn 하면 프로젝트별로 동작한다. 고정하려면 `[mcp_servers.rocky]` 에 `cwd` 를 추가한다.
 - 경로는 `env` 로 오버라이드할 수 있다:
 

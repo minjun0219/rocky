@@ -4,16 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /**
- * `bin/rocky-todo`(셸 부트스트랩) 스모크 — 다운로드 없이 검증할 수 있는 경로만 본다.
+ * `bin/rocky`(셸 부트스트랩) 스모크 — 다운로드 없이 검증할 수 있는 경로만 본다.
  * 실제 tarball 을 받는 경로는 GitHub 에 닿아야 해서 테스트에 넣지 않는다 — 대신
- * 존재하지 않는 미러(`ROCKY_TODO_RELEASE_BASE`)와 격리된 `XDG_DATA_HOME` 으로
+ * 존재하지 않는 미러(`ROCKY_RELEASE_BASE`)와 격리된 `XDG_DATA_HOME` 으로
  * "받아야 하는데 못 받는" 상황을 만든다.
  */
-const bin = join(import.meta.dir, '..', 'plugin', 'bin', 'rocky-todo');
+const bin = join(import.meta.dir, '..', 'plugin', 'bin', 'rocky');
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'rocky-todo-bootstrap-'));
+  dir = mkdtempSync(join(tmpdir(), 'rocky-bootstrap-'));
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -29,7 +29,7 @@ function run(args: string[], env: Record<string, string>) {
       HOME: dir,
       XDG_DATA_HOME: join(dir, 'data'),
       // 진짜 릴리스에 닿지 않게 — 아무도 안 듣는 루프백 포트
-      ROCKY_TODO_RELEASE_BASE: 'http://127.0.0.1:9/none',
+      ROCKY_RELEASE_BASE: 'http://127.0.0.1:9/none',
       ...env,
     },
   });
@@ -37,15 +37,15 @@ function run(args: string[], env: Record<string, string>) {
 }
 
 function fakeBinary(): string {
-  const path = join(dir, 'fake-rocky-todo');
+  const path = join(dir, 'fake-rocky');
   writeFileSync(path, '#!/bin/sh\necho "fake:$*"\nexit 7\n');
   chmodSync(path, 0o755);
   return path;
 }
 
-describe('bin/rocky-todo bootstrap', () => {
-  test('ROCKY_TODO_BIN 이 있으면 그 바이너리로 인자 그대로 exec 한다', () => {
-    const r = run(['hook', 'notify-todo', '--x'], { ROCKY_TODO_BIN: fakeBinary() });
+describe('bin/rocky bootstrap', () => {
+  test('ROCKY_BIN 이 있으면 그 바이너리로 인자 그대로 exec 한다', () => {
+    const r = run(['hook', 'notify-todo', '--x'], { ROCKY_BIN: fakeBinary() });
     expect(r.out).toBe('fake:hook notify-todo --x\n');
     expect(r.code).toBe(7);
   });
@@ -56,12 +56,12 @@ describe('bin/rocky-todo bootstrap', () => {
     mkdirSync(join(root, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(root, '.claude-plugin', 'plugin.json'),
-      JSON.stringify({ name: 'rocky-todo', version, description: 'version 단어 함정' }),
+      JSON.stringify({ name: 'rocky', version, description: 'version 단어 함정' }),
     );
-    const installed = join(dir, 'data', 'rocky-todo', `v${version}`);
+    const installed = join(dir, 'data', 'rocky', `v${version}`);
     mkdirSync(installed, { recursive: true });
-    writeFileSync(join(installed, 'rocky-todo'), '#!/bin/sh\necho "installed:$*"\n');
-    chmodSync(join(installed, 'rocky-todo'), 0o755);
+    writeFileSync(join(installed, 'rocky'), '#!/bin/sh\necho "installed:$*"\n');
+    chmodSync(join(installed, 'rocky'), 0o755);
 
     const r = run(['ls'], { CLAUDE_PLUGIN_ROOT: root });
     expect(r.err).toBe('');

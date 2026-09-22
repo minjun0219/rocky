@@ -28,10 +28,10 @@ rocky 표면이 Claude Code / Codex CLI / opencode 에서 각각 어디까지 �
 | `/rocky:finish` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:resolve-reviews` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
-| 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | `crates/rocky-todo-core/src/transcript.rs` 를 호스트별 재작성해야 (실제 비용) |
+| 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | `crates/rocky-core/src/transcript.rs` 를 호스트별 재작성해야 (실제 비용) |
 | skill `writing-cc-plugin` | ✅ | ◐ 스펙 호환하나 내용이 CC 전용 | ✅ `.claude/skills/` 자동 발견 | 메커니즘은 커버, 내용 가치는 CC 한정 |
 | 단일 설치 유닛 | ✅ `.claude-plugin/` + `rocky-marketplace` | ◐ `.codex-plugin/plugin.json` 로 번들화 가능 (`codex plugin` 서브커맨드 실재) | ✗ 우산 없음 → config 트리 / npm plugin | Codex 가 새로 연 길 |
-| 동반 플러그인 `rocky-todo` (별도 레포) | ✅ 같은 마켓 2번째 entry | ◐ 데몬 MCP 가 HTTP 라 등록만 하면 됨 | ◐ 동일 | 데몬·웹UI 는 호스트 무관, 플러그인 배선과 훅만 CC 전용 |
+| 보드 데몬 MCP (`rockyd`, `/mcp`) | ✅ plugin.json 의 http 서버 | ◐ HTTP 라 등록만 하면 됨 | ◐ 동일 | 데몬은 호스트 무관, 플러그인 배선과 훅만 CC 전용 |
 
 범례: ✅ rocky 가 이미 배포 · ◐ 호스트는 지원, rocky 미구현(커버 가능) · ✗ 등가물 없음 · — 무의미.
 

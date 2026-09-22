@@ -6,7 +6,7 @@ Guide for AI coding agents (Claude Code, opencode, codex) working in **this repo
 > quick start). Agents read this file (English — layout, scope, rules, checklist, review bar). Design
 > rationale that isn't derivable from the code lives in [`docs/architecture.md`](./docs/architecture.md)
 > — read it on demand, not by default. **Per-tool input/output is not documented in prose** — the tool
-> definitions (`#[tool]` in `crates/rocky-todod/src/mcp.rs` and `crates/rocky-todo-cli/src/worklog_mcp.rs`)
+> definitions (`#[tool]` in `crates/rockyd/src/mcp.rs` and `crates/rocky-cli/src/worklog_mcp.rs`)
 > are the single source; read them directly.
 > Cross-project conventions (language, commit style, comment policy) live in the user-scope `AGENTS.md`.
 
@@ -16,20 +16,19 @@ Guide for AI coding agents (Claude Code, opencode, codex) working in **this repo
 daemon + CLI (`crates/`) and this thin Claude Code plugin on top. Absorbed the former `rocky-todo`
 repo (hail-mary D-046, 2026-09-22); the merge kept both histories.
 
-- **Daemon `rocky-todod`** (`crates/rocky-todod`) — system-wide single instance on `127.0.0.1:8636`,
+- **Daemon `rockyd`** (`crates/rockyd`) — system-wide single instance on `127.0.0.1:8636`,
   SQLite at `~/.config/rocky/todo/`. Serves the board REST + SSE and a streamable HTTP MCP with
   `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. **No web UI in this repo**
   — the React/Tauri UI stayed in rocky-todo's history; a Swift or TUI app comes later.
-- **CLI `rocky-todo`** (`crates/rocky-todo-cli`) — thin HTTP client + the three hook entries
-  (`hook ensure-daemon` / `notify-todo` / `handoff-stop`). `bin/rocky-todo` is a sh bootstrap that
+- **CLI `rocky`** (`crates/rocky-cli`) — thin HTTP client + the three hook entries
+  (`hook ensure-daemon` / `notify-todo` / `handoff-stop`). `bin/rocky` is a sh bootstrap that
   downloads the release tarball for the plugin's version and execs the binary.
-- **worklog stdio MCP server** (`rocky-todo mcp worklog`, `crates/rocky-todo-cli/src/worklog_mcp.rs`) —
+- **worklog stdio MCP server** (`rocky mcp worklog`, `crates/rocky-cli/src/worklog_mcp.rs`) —
   4 `worklog_*` tools, per project. It lives in the CLI, not the daemon, because the worklog is keyed
   by the caller's repo root and the daemon cannot see the caller's cwd; a plugin stdio server is spawned
   in the session's project directory. `hook log-turn` (Stop) appends the turn from the same crate.
 - **No TypeScript runtime code.** `package.json` only carries dev tooling (biome, changesets, the
   release / bootstrap / permalink scripts under `scripts/` and `plugin/scripts/`).
-- Names are pre-rename (`rocky-todo`, `rocky-todod`, crate names) on purpose — a separate rename PR.
 
 > **v0.23 removed** `openapi_*` (7), `seo_validate`, `notion_*` (4) and the `openapi-mcp` standalone
 > CLI. A count over 39 repos / 5,216 logged turns found zero calls. They live in git history only —
@@ -52,17 +51,17 @@ rocky/                          single package — @minjun0219/rocky
 ├── .claude-plugin/marketplace.json  ★ this repo is its own marketplace — plugin source "./plugin"
 ├── plugin/                     ★ the Claude Code plugin — the only thing copied into the plugin cache
 │   ├── .claude-plugin/plugin.json  plugin metadata + two MCP servers (rocky = daemon http, worklog = stdio)
-│   ├── bin/rocky-todo          sh bootstrap → release tarball → native binary (hooks + CLI + MCP entry)
+│   ├── bin/rocky          sh bootstrap → release tarball → native binary (hooks + CLI + MCP entry)
 │   ├── hooks/hooks.json        SessionStart (ensure-daemon), UserPromptSubmit (notify-todo), Stop (handoff-stop → log-turn)
 │   ├── commands/ skills/ agents/   slash commands, bundled skills, reviewer subagent
 │   └── scripts/permalink.ts    /rocky:finish uses it — must live inside the plugin to exist after install
-├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-todo-core · rocky-todod · rocky-todo-cli
+├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-core · rockyd · rocky-cli
 ├── crates/                     ★ the daemon, CLI (incl. worklog MCP + hooks) and core (see docs/rewrite/)
-├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with crates/rocky-todo-core/src/config.rs
+├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with crates/rocky-core/src/config.rs
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)
 ├── agents/                     ★ subagents — reviewer (fresh-context diff review; /rocky:review
 │                                 dispatches it, and it is callable directly). Read-only role.
-├── docs/                       architecture, codex, opencode, hosts, backlog, rocky-todo (board), rewrite/ (port record)
+├── docs/                       architecture, codex, opencode, hosts, backlog, board, rewrite/ (port record)
 │   └── design/{specs,plans}/   설계·계획 산출물 (구 docs/superpowers/) — 과거분은 그대로 보존
 └── scripts/                    Bun dev scripts — release-github, sync-plugin-version, check-changesets, bootstrap.test
 ```
@@ -96,7 +95,7 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
   crates are the implementation; the contract is `docs/rewrite/contract.md`.
 - **Any external task-service integration** (Todoist, Linear, Jira, …) — the `todoist` bundled skill
   was removed and moved to the owner's private plugin repo. The owner's task list is the
-  rocky-todo board and the record is `worklog_*`; rocky ships nothing else. This holds even for a
+  rocky board and the record is `worklog_*`; rocky ships nothing else. This holds even for a
   skill that only borrows a connected MCP and ships no credentials — the point is that rocky's public
   surface names one task system. Do not name such a service in docs, manifest keywords, or PR titles.
 - Exposing worklog digests as MCP tools (`wiki_*`), worklog in the standalone CLI, auto-promotion into
@@ -121,12 +120,12 @@ bunx changeset      # user-facing 변경의 버전 의도 선언 (patch/minor/ma
 cargo fmt --all --check                                   # Rust 포맷
 cargo clippy --workspace --all-targets -- -D warnings     # Rust 린트 (경고 = 실패)
 cargo test --workspace                                    # Rust 테스트
-cargo build --workspace                                   # target/debug/{rocky-todo,rocky-todod}
+cargo build --workspace                                   # target/debug/{rocky,rockyd}
 ```
 
 **Version lockstep.** `package.json` = `.claude-plugin/plugin.json` = `Cargo.toml` (workspace) =
 `Cargo.lock` members. `ensure-daemon` compares the daemon's reported `CARGO_PKG_VERSION` with its
-own by exact string, and `bin/rocky-todo` picks the release tarball by `plugin.json`'s version.
+own by exact string, and `bin/rocky` picks the release tarball by `plugin.json`'s version.
 `bun run changeset:version` runs `scripts/sync-plugin-version.ts` to keep the four in step.
 
 `lint` / `lint:fix` / `format` exist too for narrower runs.
@@ -153,7 +152,7 @@ deterministically, and a per-turn gate would just make every turn slow.
   — daemon, CLI, hooks, MCP servers. TypeScript survives only as Bun dev scripts (`scripts/`,
   `plugin/scripts/`) and the plugin's markdown surfaces.
 - **Rust rules**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings` are gates
-  (clippy sees tests too). Pure decision logic goes in `rocky-todo-core` with integration tests in
+  (clippy sees tests too). Pure decision logic goes in `rocky-core` with integration tests in
   `crates/*/tests/`; the daemon and CLI only wire it. Fail-open in hooks — no `Result` out of a hook
   entry. Errors include context (input value, path, status code).
 - **Dependencies**: avoid adding any. Workspace deps are declared once in the root `Cargo.toml`; prefer
@@ -164,7 +163,7 @@ deterministically, and a per-turn gate would just make every turn slow.
 - **Contract fidelity**: the worklog on disk (JSONL shape, key order, project key
   `<basename>-<sha1[:8]>`) and the board REST/MCP surface (`docs/rewrite/contract.md`) are
   compatibility contracts with the old TypeScript implementations — golden tests pin them
-  (`crates/rocky-todo-core/tests/worklog_test.rs::project_key_matches_ts_golden`).
+  (`crates/rocky-core/tests/worklog_test.rs::project_key_matches_ts_golden`).
 
 ## Change checklist
 
@@ -172,32 +171,32 @@ deterministically, and a per-turn gate would just make every turn slow.
    `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` all pass.
 2. If the user-facing surface (tools / env vars) changed, sync `README.md` (humans) and this file
    (agents), and `.claude-plugin/plugin.json` when the Claude Code surface changed.
-3. New env var → update its reading site (`crates/rocky-todo-core/src/config.rs` /
-   `crates/rocky-todo-cli/src/hooks.rs` / `worklog_mcp.rs`) and the `README.md` env-var table.
-4. Tool contract change → update the `#[tool]` definition (`crates/rocky-todod/src/mcp.rs` for the
-   board, `crates/rocky-todo-cli/src/worklog_mcp.rs` for worklog) and the matching test
+3. New env var → update its reading site (`crates/rocky-core/src/config.rs` /
+   `crates/rocky-cli/src/hooks.rs` / `worklog_mcp.rs`) and the `README.md` env-var table.
+4. Tool contract change → update the `#[tool]` definition (`crates/rockyd/src/mcp.rs` for the
+   board, `crates/rocky-cli/src/worklog_mcp.rs` for worklog) and the matching test
    (`mcp_test.rs` / `worklog_mcp_test.rs`).
-5. `rocky.json` shape change → update `rocky.schema.json` **and** `crates/rocky-todo-core/src/config.rs`
+5. `rocky.json` shape change → update `rocky.schema.json` **and** `crates/rocky-core/src/config.rs`
    in lockstep.
 6. Tool name surfacing again → the surface tests pin the exact tool lists (`TOOLS` in
-   `crates/rocky-todod/tests/mcp_test.rs`, `crates/rocky-todo-cli/tests/worklog_mcp_test.rs`); removed
+   `crates/rockyd/tests/mcp_test.rs`, `crates/rocky-cli/tests/worklog_mcp_test.rs`); removed
    names (openapi / seo / notion / mysql / spec-pact / pr-watch) must not reappear.
 7. User-facing change → `bunx changeset`. Tooling-only chores need none.
 
 ## 데몬/설치 모델 (핵심)
 
-> rocky-todo `AGENTS.md` 에서 그대로 옮겨 왔다. 파일 경로가 `src/*.ts` 로 적힌 곳은 지금은 `crates/` 의 같은 이름 모듈이고(`src/local-request.ts` → `rocky_todo_core::local_request`), 웹 UI 서술은 이 레포에 웹 UI 가 없으므로 계약 설명으로만 읽는다. 이름·경로 정리는 개명 PR 에서 한다.
+> rocky `AGENTS.md` 에서 그대로 옮겨 왔다. 파일 경로가 `src/*.ts` 로 적힌 곳은 지금은 `crates/` 의 같은 이름 모듈이고(`src/local-request.ts` → `rocky_core::local_request`), 웹 UI 서술은 이 레포에 웹 UI 가 없으므로 계약 설명으로만 읽는다.
 
-- **설치 = 활성화**: `todo.enabled` 스위치 없음. `claude plugin disable rocky-todo` 로 끈다.
+- **설치 = 활성화**: `todo.enabled` 스위치 없음. `claude plugin disable rocky` 로 끈다.
 - **데몬 기동**: SessionStart(startup) 훅 `ensure-daemon.ts` 가 health→없으면 detached spawn.
-  CLI 도 온디맨드 spawn. 상시 상주는 `rocky-todo daemon install`(launchd KeepAlive).
-- **버전 인식 재기동**: 데몬은 플러그인 캐시의 **버전 디렉터리**(`.../rocky-todo/<v>/src/daemon.ts`)
+  CLI 도 온디맨드 spawn. 상시 상주는 `rocky daemon install`(launchd KeepAlive).
+- **버전 인식 재기동**: 데몬은 플러그인 캐시의 **버전 디렉터리**(`.../rocky/<v>/bin/rocky`)
   에서 실행되고 프로세스는 그 설치본보다 오래 산다. 그래서 훅은 health 유무만 보지 않고
   `/api/health` 의 `version` 을 자기 `package.json` 버전과 비교해, 다르면 `pid` 로 SIGTERM →
   종료 확인 → 현재 버전으로 재기동한다 (version 미보고 데몬 ≤0.1.0 도 stale 취급). 못 내리면
   재기동하지 않는다 — 보드가 없는 것보다 구버전이라도 있는 게 낫다.
   한계: **버전이 같으면 경로가 달라도 재기동하지 않는다** — 로컬 레포 데몬과 설치본 버전이
-  같을 때(개발 중) 서로 갈아치우지 않는 건 의도된 동작. 강제 교체는 `rocky-todo daemon stop`.
+  같을 때(개발 중) 서로 갈아치우지 않는 건 의도된 동작. 강제 교체는 `rocky daemon stop`.
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed` 는 `/mcp` retry / 다음 세션 / launchd 로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json 의 todo 블록만.
@@ -212,12 +211,12 @@ deterministically, and a per-turn gate would just make every turn slow.
   전역 설정을 일부러 태우고 싶을 때만 맨손으로 부른다.
 - **serve 자동 보장은 남의 노출을 빼앗지 않는다**(위 사고의 코드 측 방어, `src/tailscale.ts`):
   기동 시 `serve status --json` 의 루트 프록시 포트를 보고 `decideServeAction` 이 판정한다 —
-  빈 자리면 `claim`, 내 포트면 `keep`, **살아 있는 다른 rocky-todo 데몬**이면 `yield`(그
+  빈 자리면 `claim`, 내 포트면 `keep`, **살아 있는 다른 rocky 데몬**이면 `yield`(그
   인스턴스는 노출 없이 뜬다), 아무도 안 듣는 죽은 포트면 `reclaim`. `reclaim` 이 있어야
   한 번 빼앗긴 노출이 정상 데몬 재기동으로 복구된다 — 무조건 양보로 만들면 stale 설정이
   영구화된다. 점유자 판별은 `daemonHealth`(신원 검증 포함)라 무관한 서비스가 그 포트를
   물고 있어도 `reclaim` 이 아니라 그쪽을 데몬으로 오인하지 않는다. **수동 경로
-  (`rocky-todo tailscale on` → `tailscaleServeOn`)는 가드하지 않는다** — 사용자가 명시적으로
+  (`rocky tailscale on` → `tailscaleServeOn`)는 가드하지 않는다** — 사용자가 명시적으로
   넘기라고 한 것이다.
 - **이슈 생성은 로컬 요청 전용**: 보드는 무인증이고 `todo.expose` 로 노출하는 대상이지만,
   이슈 생성은 데몬 사용자의 `gh` 인증을 빌려 외부에 되돌릴 수 없는 글을 쓴다 — 보드 쓰기
@@ -367,7 +366,7 @@ Korean**; keep identifiers, paths, and commands in English.
 
 **🔴 Important** — reserved for: a change pulling in anything under *Scope → Out* without an explicit
 request; an input/output break in the `worklog_*` tools; `rocky.json` shape changed without `rocky.schema.json` **and**
-`crates/rocky-todo-core/src/config.rs` moving in lockstep; a user-facing surface changed without the
+`crates/rocky-core/src/config.rs` moving in lockstep; a user-facing surface changed without the
 *Change checklist* doc sync; `__dirname` or `.js`/`.ts` extensions on local imports or any Node-only
 API that breaks the Bun-only assumption; secrets in logs, error messages missing identifying context,
 fs paths built from unsanitized external input; a new runtime dep where the stdlib or a Bun built-in

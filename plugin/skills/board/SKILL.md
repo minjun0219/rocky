@@ -1,9 +1,9 @@
 ---
 name: board
-description: Use when managing the shared rocky-todo board from a session — planning work the user should see live in the web UI ("보드에 올려둬", "todo 정리해줘"), starting/finishing tracked work items, or leaving scratchpad notes for the user. Covers the rocky-todo daemon's MCP tools (todo_list / todo_write / todo_status / note_list / note_write) and the rocky-todo CLI fallback, the start→done etiquette that powers the "처리중" indicator, link-attachment conventions (GitHub issue / Todoist URLs), and the archive-only rule (no deletion exists).
+description: Use when managing the shared rocky board from a session — planning work the user should see live in the web UI ("보드에 올려둬", "todo 정리해줘"), starting/finishing tracked work items, or leaving scratchpad notes for the user. Covers the rocky daemon's MCP tools (todo_list / todo_write / todo_status / note_list / note_write) and the rocky CLI fallback, the start→done etiquette that powers the "처리중" indicator, link-attachment conventions (GitHub issue / Todoist URLs), and the archive-only rule (no deletion exists).
 ---
 
-# rocky-todo — 공유 작업 보드
+# rocky 보드 — 공유 작업 보드
 
 로키(에이전트)와 호출자(사람)가 하나의 보드를 공유한다: 에이전트는 MCP/CLI 로 쓰고,
 호출자는 웹브라우저(`http://127.0.0.1:8636`)에서 실시간(SSE)으로 보고 편집한다.
@@ -26,17 +26,17 @@ claude plugin install rocky@rocky-marketplace
 ## 도구 게이트 (먼저 확인)
 
 - 세션에 `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` MCP 도구가
-  연결되어 있으면 그것을 쓴다 (rocky-todo 데몬의 `/mcp`).
-- MCP 도구가 없으면 CLI 로 폴백: `rocky-todo <cmd>` (Bash). CLI 는 데몬이 죽어 있으면
-  자동 기동한다. 레포에서 직접 실행할 땐 `cargo run -p rocky-todo-cli -- <cmd>` 도 동일.
+  연결되어 있으면 그것을 쓴다 (rocky 데몬 `rockyd` 의 `/mcp`).
+- MCP 도구가 없으면 CLI 로 폴백: `rocky <cmd>` (Bash). CLI 는 데몬이 죽어 있으면
+  자동 기동한다. 레포에서 직접 실행할 땐 `cargo run -p rocky-cli -- <cmd>` 도 동일.
 - 도구도 CLI 도 없으면 위 "설치 = 활성화" 를 안내하고 멈춘다.
-- 데몬 기동이 실패하면 중단하고 `rocky-todo daemon status` 를 안내. 가짜 진행을 만들지 않는다.
+- 데몬 기동이 실패하면 중단하고 `rocky daemon status` 를 안내. 가짜 진행을 만들지 않는다.
 
 ## Todoist 와의 역할 구분
 
-코딩 세션의 작업 추적은 **rocky-todo 가 기본**이다. 알림·반복 일정·마감 리마인더가
+코딩 세션의 작업 추적은 **rocky 보드가 기본**이다. 알림·반복 일정·마감 리마인더가
 필요하거나 사용자가 명시적으로 "todoist" 를 언급하면 `todoist` 스킬로 라우팅한다.
-두 시스템을 잇는 건 링크 필드 — rocky-todo 항목에 Todoist task URL 을 첨부한다.
+두 시스템을 잇는 건 링크 필드 — 보드 항목에 Todoist task URL 을 첨부한다.
 
 ## 보드 결정
 
@@ -73,7 +73,7 @@ claude plugin install rocky@rocky-marketplace
    `description` (markdown) 에.
 5. **삭제는 없다** — 잘못 만든 항목도 `archive` 만 한다. 메모도 동일 (`note_write` 의
    `mode: "archive"`).
-6. **보드에서 넘어온 요청**: `# rocky-todo: 보드에서 도착한 작업 요청` 블록이 보이면
+6. **보드에서 넘어온 요청**: `# rocky: 보드에서 도착한 작업 요청` 블록이 보이면
    사용자가 보드에서 명시적으로 넘긴 것이다. 착수 전 재확인은 필요 없지만, `todo_status`
    의 `start` 로 표시는 반드시 남긴다 — 사용자는 그 뱃지로 진행을 확인한다.
 
@@ -100,7 +100,7 @@ note_write { board: "rocky", title: "조사 메모", content: "...", actor: "cla
 note_write { id: "rocky-7", content: "추가 발견", mode: "append", actor: "claude-code" }
 ```
 
-CLI 대응: `rocky-todo ls` / `add "제목" --section 설계 --priority p2 --link URL` /
+CLI 대응: `rocky ls` / `add "제목" --section 설계 --priority p2 --link URL` /
 `start REF` / `done REF` / `comment REF "본문"` / `note add "제목" --content "..."` /
 `history REF`.
 
@@ -129,7 +129,7 @@ REF 로 알아듣고 처리하면 된다.
 ## 호출자 편집의 자동 전달 (Claude Code)
 
 Claude Code 에서는 `UserPromptSubmit` 훅이 "마지막 확인 이후 호출자(사람)의 보드 변경"을
-자동 주입한다 — `# rocky-todo: 마지막 확인 이후 호출자의 보드 변경` 블록이 보이면 그게
+자동 주입한다 — `# rocky: 마지막 확인 이후 호출자의 보드 변경` 블록이 보이면 그게
 호출자의 웹 편집분이다. 지시로 해석될 수 있는 항목(새 todo 등)은 임의 실행하지 말고
 사용자에게 확인 후 진행한다. 훅이 없는 호스트(Codex/opencode)에서는 작업 단위 시작
 전에 `todo_list` 로 직접 확인한다.
@@ -155,7 +155,7 @@ rt_line=$(curl -sf --max-time 0.3 --get \
 - **`todo.port` 를 바꿔 썼다면 URL 의 포트도 바꾼다.** 안 그러면 조용히 무출력이다.
 
 렌더는 데몬이 하므로 표시 내용을 바꾸는 건 스크립트가 아니라 `rocky.json` 의
-`todo.statusline.template` 이다 (`docs/rocky-todo.md` 의 placeholder 표 참고).
+`todo.statusline.template` 이다 (`docs/board.md` 의 placeholder 표 참고).
 보여줄 게 없으면 빈 본문이라 아무것도 찍히지 않는다.
 
 Claude Code 전용이다 — `statusLine` 자체가 Claude Code 기능이고, 기본 템플릿이 쓰는
@@ -172,7 +172,7 @@ Claude Code 전용이다 — `statusLine` 자체가 Claude Code 기능이고, �
   같은 감각으로 다루면 안 된다.
 - 메모(스크래치패드)는 자유롭게 쓰고 고쳐도 되지만, 사용자가 작성한 메모 내용을 통째로
   교체할 땐 `append` 를 우선 고려한다 (히스토리에는 남지만 예의의 문제).
-- 웹 UI 주소 안내가 필요하면 `rocky-todo open` 출력(기본 `http://127.0.0.1:8636`)을 준다.
+- 웹 UI 주소 안내가 필요하면 `rocky open` 출력(기본 `http://127.0.0.1:8636`)을 준다.
 - **task id 를 레포에 남기지 않는다.** 커밋 메시지, PR 제목·본문, 브랜치명, 코드 주석,
   changeset 어디에도 `rocky-12` 같은 참조를 적지 않는다. 보드 번호는 사용자 로컬
   데몬의 것이라 레포를 보는 다른 사람에게는 해석 불가능하고, 보드가 재생성되면 번호가

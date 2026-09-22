@@ -87,7 +87,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
 
   # 릴리스가 새로 생긴 push(또는 태그를 지정한 수동 실행)에서만 돈다 — macOS 러너에서
-  # CLI/데몬 바이너리를 만들어 그 릴리스에 첨부한다. 플러그인 부트스트랩(bin/rocky-todo)이
+  # CLI/데몬 바이너리를 만들어 그 릴리스에 첨부한다. 플러그인 부트스트랩(bin/rocky)이
   # 이 tarball 을 받는다.
   #
   # 러너는 Apple Silicon 이미지를 명시한다 — 산출물 이름·문서가 aarch64-apple-darwin 하나를
@@ -114,7 +114,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build CLI + daemon
-        run: cargo build --release --locked -p rocky-todo-cli -p rocky-todod
+        run: cargo build --release --locked -p rocky-cli -p rockyd
 
       - name: Package
         id: package
@@ -127,10 +127,10 @@ jobs:
             exit 1
           fi
           mkdir -p out
-          # tarball = CLI + 데몬. 플러그인 부트스트랩(bin/rocky-todo)이 이 레이아웃 그대로 설치한다.
+          # tarball = CLI + 데몬. 플러그인 부트스트랩(bin/rocky)이 이 레이아웃 그대로 설치한다.
           # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
-          COPYFILE_DISABLE=1 tar -czf "out/rocky-todo-${TAG}-${TARGET}.tar.gz" \
-            -C target/release rocky-todo rocky-todod
+          COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
+            -C target/release rocky rockyd
           (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
           ls -la out
 
