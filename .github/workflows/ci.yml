@@ -31,6 +31,11 @@ jobs:
       - name: Test
         run: bun run test
 
+      # changeset 의 패키지 이름이 workspace 와 어긋나면 여기서 죽는다.
+      # 이 검증이 없으면 main 에 머지된 뒤 Release 워크플로의 version 스텝에서야 터진다.
+      - name: Changeset package name
+        run: bun run check:changesets
+
   gitleaks:
     name: secret scan
     runs-on: ubuntu-latest
@@ -43,3 +48,24 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  rust:
+    name: rust fmt + clippy + test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace

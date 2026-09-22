@@ -5,8 +5,8 @@
  * 과 릴리스 스텝을 **같은 job** 에서 돌리던 시절, changesets 가 워킹 트리의 `package.json` 을
  * 미리 범프하고 Version PR 브랜치로 커밋해버렸다. 뒤이어 실행된 릴리스 스크립트는 그 브랜치
  * 커밋을 `HEAD` 로 읽어 태그를 박았고, 그 브랜치는 스쿼시 머지 후 삭제돼 커밋이 고아가 됐다.
- * 결과적으로 changesets 도입(v0.11.0) 직후인 v0.12.0 부터 v0.18.0 까지 모든 태그가 main 에 없는
- * 커밋을 가리켰고, 릴리스는 Version PR 머지보다 먼저 생성됐다 (v0.18.0 기준 41분).
+ * 결과적으로 v0.5.0~v0.8.0 의 모든 태그가 main 에 없는 커밋을 가리켰고, 릴리스는 PR 머지보다
+ * 2시간 먼저 생성됐다.
  *
  * 그래서 CI 에서는 `GITHUB_SHA`(= push 된 main 커밋)를 진실로 삼고, 워킹 트리의 `HEAD` 가
  * 거기서 벗어나 있으면 **조용히 다른 커밋에 태그를 박는 대신 실패**한다.
@@ -51,7 +51,7 @@ export function resolveTargetSha({ githubSha, headSha }: ResolveTargetInput): st
  * get created... Use --target to point to a different branch or commit for the automatic tag
  * creation"). 태그가 이미 있으면 조용히 그 태그의 커밋에 릴리스가 붙는다.
  *
- * 그래서 과거의 잘못된 태그(v0.12.0~v0.18.0 처럼 main 밖 커밋을 가리키는)를 지우고 릴리스만
+ * 그래서 과거의 잘못된 태그(v0.5.0~v0.8.0 처럼 main 밖 커밋을 가리키는)를 지우고 릴리스만
  * 다시 만들면, 잘못된 연결이 그대로 되살아난다. 어긋나면 멈추고 사람이 판단하게 한다.
  *
  * @param tagSha 원격에 이미 있는 태그가 가리키는 커밋. 태그가 없으면 `undefined`.
@@ -75,4 +75,14 @@ export function assertTagMatchesTarget({
       'gh 는 태그가 이미 있으면 --target 을 무시하므로, 이대로 두면 잘못된 커밋에 릴리스가 붙는다. ' +
       `의도한 커밋이 맞다면 태그를 먼저 지우고(git push origin :refs/tags/${tag}) 다시 실행하라.`,
   );
+}
+
+/**
+ * semver 프리릴리즈 판정 — `-` 이 붙은 버전(`0.15.0-next.0`). changesets pre 모드가 내는
+ * 형태가 이것이고, GitHub Release 의 `--prerelease` 와 "latest" 표시가 여기서 갈린다.
+ * 빌드 메타(`+sha`)만 붙은 버전은 정식이다.
+ */
+export function isPrerelease(version: string): boolean {
+  const core = version.trim().split('+')[0] ?? '';
+  return core.includes('-');
 }

@@ -1,7 +1,7 @@
 {
   "name": "@minjun0219/rocky",
   "version": "0.22.2",
-  "description": "rocky (named after Project Hail Mary) — the owner's personal Claude Code plugin. 4 worklog_* tools (append-only local JSONL agent journal — the record layer) with a Stop hook auto-capturing each turn and a /rocky:recall command distilling the worklog into an anchored history digest, plus the /rocky:brainstorm / review / finish / resolve-reviews workflow commands, the writing-cc-plugin skill and the reviewer subagent. openapi_* / seo_validate / notion_* were removed in v0.23 (zero usage) and live in git history; mysql / spec-pact / pr-watch on archive/pre-openapi-only-slim.",
+  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, with this package as the thin Claude Code plugin: worklog_* tools (append-only local JSONL agent journal, moving into the daemon next), Stop-hook turn capture, /rocky:recall, and the /rocky:next / brainstorm / review / finish / resolve-reviews workflow commands. Absorbed rocky-todo (D-046).",
   "license": "MIT",
   "author": "Minjun Kim",
   "homepage": "https://github.com/minjun0219/rocky",
@@ -26,9 +26,12 @@
   "keywords": [
     "claude-code",
     "mcp",
+    "todo",
+    "board",
+    "daemon",
     "worklog",
-    "stdio",
     "rocky",
+    "rust",
     "bun"
   ],
   "scripts": {
@@ -41,7 +44,8 @@
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "changeset": "bunx changeset",
     "changeset:version": "bunx changeset version && bun scripts/sync-plugin-version.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:changesets": "bun scripts/check-changesets.ts"
   },
   "lint-staged": {
     "*.{ts,json,jsonc,md}": "biome check --write --no-errors-on-unmatched"
