@@ -2,14 +2,18 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "rocky",
   "version": "0.22.2",
-  "description": "rocky Claude Code plugin (Bun runtime). worklog_* tools (append-only local JSONL agent journal — the record layer; always registered). A Stop hook auto-captures each turn as a kind:\"turn\" worklog entry — the plugin's only hook. Slash commands: /rocky:brainstorm (shape an idea into a design — context first, one question at a time, 2-3 approaches; a tool, not a gate), /rocky:review (dispatch the reviewer subagent to review the current working diff before claiming done), /rocky:finish (gates → commit → push → PR, gh CLI), /rocky:resolve-reviews (resolve the reviews already on a PR — fixes what needs no caller judgment, leaves anything the caller must decide open and reports it in chat; 👀 reaction only, no comments or resolves unless told; never merges, gh CLI), /rocky:recall (distills the worklog into an anchored history digest — the organize layer). Bundled skills: writing-cc-plugin (Claude Code plugin authoring guide + reference). Bundled subagents: reviewer (read-only fresh-context review of a diff against its requirements — dispatched by /rocky:review, also callable directly; never edits, never merges). The rocky-todo shared board daemon lives in its own plugin/repo (minjun0219/rocky-todo). Removed and recoverable from git history: openapi_* / seo_validate / notion_* (v0.23, zero usage), souls / statusline / the opencode delegation runtime / the /rocky:codex and /rocky:issue commands / the todoist skill. rocky integrates with no external task service — the task list is the rocky-todo board, the record is worklog_*.",
+  "description": "rocky — the owner's personal agent tool: a Rust daemon (shared todo board + streamable HTTP MCP, 127.0.0.1:8636) with this plugin as its thin Claude Code client. Board tools todo_list / todo_write / todo_status / note_list / note_write come from the daemon; worklog_* (append-only local JSONL agent journal) is served by a stdio server until it moves into the daemon. Hooks: SessionStart boots the daemon (version-aware restart), UserPromptSubmit injects human board changes, Stop claims handoffs and auto-captures the turn into the worklog. Slash commands: /rocky:next (pick the next board item), /rocky:brainstorm, /rocky:review, /rocky:finish, /rocky:resolve-reviews, /rocky:recall. Skills: board, writing-cc-plugin. Subagent: reviewer. Absorbed the former rocky-todo plugin/repo (D-046).",
   "author": {
     "name": "Minjun Kim"
   },
   "license": "MIT",
-  "keywords": ["worklog", "rocky", "bun", "mcp"],
+  "keywords": ["todo", "board", "daemon", "worklog", "rocky", "mcp", "rust"],
   "mcpServers": {
     "rocky": {
+      "type": "http",
+      "url": "http://127.0.0.1:8636/mcp"
+    },
+    "worklog": {
       "type": "stdio",
       "command": "bun",
       "args": ["run", "${CLAUDE_PLUGIN_ROOT}/src/index.ts"]

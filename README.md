@@ -4,7 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Runtime: Bun](https://img.shields.io/badge/Runtime-Bun%20%E2%89%A5%201.0-black)](https://bun.sh)
 
-에이전트 코딩 세션을 위한 **개인용 Claude Code 플러그인** — 에이전트 워크로그(기록↔정리)와 PR 워크플로 커맨드를 하나의 Bun 패키지로 묶었다. 이름은 *Project Hail Mary* 의 Rocky 에서. 공유 todo 보드는 동반 플러그인 [`minjun0219/rocky-todo`](https://github.com/minjun0219/rocky-todo) 로 분리돼 있다.
+개인용 에이전트 도구 — **Rust 상주 데몬(공유 todo 보드 + MCP) + CLI** 가 본체이고, 그 위의 얇은 Claude Code 플러그인이 워크로그(기록↔정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary* 의 Rocky 에서. 2026-09 에 별도 레포였던 rocky-todo 를 흡수했다(hail-mary D-046) — 웹 UI 는 그쪽 히스토리에 두고 오지 않았고, GUI 는 Swift 또는 TUI 로 뒤에 정한다.
+
+> **이름은 아직 옛것이다** — 데몬 `rocky-todod`, CLI `rocky-todo`, 크레이트 `rocky-todo-*`. 개명은 별도 PR.
 
 > **v0.23 에서 걷어낸 것** — `openapi_*` 7종, `seo_validate`, `notion_*` 4종과 단독 CLI `openapi-mcp`. 39개 레포 5,216 턴의 워크로그를 세어 보니 호출이 0회였다. 전부 git 히스토리에 있으니 필요해지면 거기서 꺼낸다.
 
@@ -12,17 +14,14 @@
 
 ## 한눈에
 
-stdio MCP 서버 하나(`src/index.ts`)가 아래 도구 표면을 노출한다 — Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로, Codex / opencode 는 직접 등록해서 쓴다.
-
-공유 todo / 스크래치패드 보드 데몬은 **동반 플러그인 [`rocky-todo`](https://github.com/minjun0219/rocky-todo)** 로 분리됐다 (v0.13 번들 → 별도 레포). 같은 rocky 마켓플레이스가 서빙하니 `claude plugin install rocky-todo@rocky-marketplace` 로 설치한다 (설치=활성화, rocky 자동 동반).
+MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 임시 stdio 서버(`src/index.ts`, worklog 4 도구; 데몬으로 옮기는 중). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/rocky-todo.md`](./docs/rocky-todo.md).
 
 ### MCP 도구 표면
 
 | 도구군 | 개수 | 하는 일 | 등록 조건 |
 | --- | --- | --- | --- |
+| `todo_*` / `note_*` | 5 | 공유 todo / 스크래치패드 보드 — `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. Rust 데몬(`crates/rocky-todod`)의 `/mcp`. 삭제 없음(아카이브만), 전 mutation 히스토리 기록. | 데몬 기동 시 |
 | `worklog_*` | 4 | append-only 로컬 JSONL **기록(記錄)** 레이어 — 결정 / blocker / 답변 / 메모를 turn 을 넘겨 남긴다 (`append` / `read` / `search` / `status`). 외부 의존 0. | 항상 |
-
-동반 플러그인 [`rocky-todo`](https://github.com/minjun0219/rocky-todo) 는 별도 데몬 프로세스로 `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` 5 도구를 자신의 `/mcp` 엔드포인트에 노출한다 (별도 레포 — 설치/도구/설정은 그 레포 문서 참고).
 
 각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `src/index.ts` 의 등록부를 읽으면 된다.
 
@@ -30,15 +29,14 @@ stdio MCP 서버 하나(`src/index.ts`)가 아래 도구 표면을 노출한다 
 
 아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
-- **슬래시 커맨드** (`commands/`) — `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:resolve-reviews` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:resolve-reviews` (PR 에 붙은 리뷰를 해소 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 👀 리액션만 남긴 채 전부 열어 둔 뒤 채팅으로 보고. GitHub 코멘트와 resolve 는 사용자가 지시할 때만. 머지 가능 시 알림, 머지는 하지 않는다. 재리뷰를 기다리지 않는다), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
-- **훅** (`hooks/hooks.json`) — `Stop` 하나뿐이다. 매 턴 종료 시 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). fail-open — 실패해도 세션을 막지 않는다. **세션 컨텍스트에 얹히는 것은 아무것도 없다.**
-- **스킬** (`skills/`) — `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스.
+- **슬래시 커맨드** (`commands/`) — `/rocky:next` (보드에서 다음 작업 고르기 → start 표시 → 착수), `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review` (완료 선언 전 신선한 컨텍스트 서브에이전트로 현재 작업 diff 셀프 리뷰 — PR 스레드 대응인 `/rocky:resolve-reviews` 과 별개), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:resolve-reviews` (PR 에 붙은 리뷰를 해소 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 👀 리액션만 남긴 채 전부 열어 둔 뒤 채팅으로 보고. GitHub 코멘트와 resolve 는 사용자가 지시할 때만. 머지 가능 시 알림, 머지는 하지 않는다. 재리뷰를 기다리지 않는다), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
+- **훅** (`hooks/hooks.json`) — `SessionStart` 가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit` 이 사람이 보드에서 바꾼 것을 세션에 주입하고, `Stop` 이 핸드오프를 집어 온 뒤 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). 전부 fail-open.
+- **스킬** (`skills/`) — `board`: 보드 에티켓(start→done, 링크 첨부, 아카이브만) + MCP/CLI 폴백; `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스.
 
 - **서브에이전트** (`agents/`) — `reviewer`: 신선한 컨텍스트에서 **diff 와 요구사항만** 받아 검토하는 읽기 전용 리뷰어. `/rocky:review` 가 이 에이전트를 띄우고, "리뷰해줘" 처럼 직접 부를 수도 있다. 돌려본 것만 통과라고 쓰고(검증 후 단언), 통과처럼 보이는 실패(false pass) 함정을 따로 챙기며, 파일을 고치거나 머지하지 않는다.
 
-> **작업 목록은 rocky-todo 하나다.** rocky 는 외부 태스크 서비스와 연동하지 않는다 —
-> 작업 목록은 [rocky-todo](https://github.com/minjun0219/rocky-todo) 보드, 작업 기록은
-> `worklog_*` 다. 전에 번들로 있던 `todoist` 스킬은 제거했다.
+> **작업 목록은 보드 하나다.** rocky 는 외부 태스크 서비스와 연동하지 않는다 —
+> 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*` 다. 전에 번들로 있던 `todoist` 스킬은 제거했다.
 
 > **v0.19 에서 걷어낸 것** — 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅, opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다 — 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json` 의 `soul` / `callsign` / `opencode` 키도 함께 사라져 이제 거부되니, 예전 설정 파일에 남아 있으면 지워야 한다.
 
@@ -77,7 +75,7 @@ claude plugin install rocky@rocky-marketplace
 | 키 | 내용 |
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
-| `todo` | 형제 플러그인 rocky-todo 몫. rocky 는 **관용만** 하고 읽지 않는다 (공유 파일이라 거부하지 않을 뿐) |
+| `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/rocky-todo.md`](./docs/rocky-todo.md) |
 
 ### 환경 변수
 
@@ -99,6 +97,8 @@ claude plugin install rocky@rocky-marketplace
 | [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐선 안 나오는 설계 근거 — 필요할 때만 읽는 심화 레퍼런스 |
 | [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스 — 세 호스트의 확장 메커니즘 + rocky 표면 커버 현황 (실측) |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 |
+| [`docs/rocky-todo.md`](./docs/rocky-todo.md) | 사람 | 보드 데몬 — 설치·기동·CLI·설정·핸드오프·spawn (rocky-todo 에서 옮겨 옴, 웹 UI 절은 역사) |
+| [`docs/rewrite/`](./docs/rewrite/) | 에이전트 | TS → Rust 포팅 기록 — `contract.md`(외부 표면 계약, 정본) · `decisions.md` · `rust-notes.md` |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 MCP 서버를 쓰고 싶을 때 |
 
 ## 역사 / 아카이브
@@ -114,6 +114,8 @@ bun install        # 의존성 (husky pre-commit / pre-push 훅도 함께 배선
 bun run check      # Biome 검증
 bun run typecheck  # tsc --noEmit
 bun test           # 단위 + smoke 테스트
+cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+cargo build --workspace   # target/debug/{rocky-todo,rocky-todod}; ROCKY_TODO_BIN=target/debug/rocky-todo 로 부트스트랩을 우회
 ```
 
 같은 게이트를 `.husky/pre-commit` (lint-staged + 시크릿 스캔) / `.husky/pre-push` (typecheck + test) 와 CI ([`ci.yml`](./.github/workflows/ci.yml)) 가 반복 실행한다. 기여 규칙·레이아웃은 [`AGENTS.md`](./AGENTS.md).

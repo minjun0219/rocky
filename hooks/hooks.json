@@ -1,8 +1,35 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook ensure-daemon"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook notify-todo",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook handoff-stop",
+            "timeout": 3
+          },
           {
             "type": "command",
             "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/src/hooks/log-turn.ts\""

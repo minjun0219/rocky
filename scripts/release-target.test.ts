@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { assertTagMatchesTarget, resolveTargetSha } from './release-target';
+import { assertTagMatchesTarget, isPrerelease, resolveTargetSha } from './release-target';
 
 const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const OTHER = 'fdbf9dd0000000000000000000000000000000ff';
@@ -50,16 +50,29 @@ describe('assertTagMatchesTarget', () => {
     ).not.toThrow();
   });
 
-  // v0.12.0~v0.18.0 정리 시 밟게 되는 함정: 릴리스만 지우고 재생성하면 잘못된 태그에 다시 붙는다.
+  // v0.5.0~v0.8.0 정리 시 밟게 되는 함정: 릴리스만 지우고 재생성하면 잘못된 태그에 다시 붙는다.
   it('기존 태그가 다른 커밋이면 멈춘다', () => {
-    expect(() => assertTagMatchesTarget({ tag: 'v0.18.0', tagSha: OTHER, targetSha: SHA })).toThrow(
+    expect(() => assertTagMatchesTarget({ tag: 'v0.8.0', tagSha: OTHER, targetSha: SHA })).toThrow(
       /이미 다른 커밋을 가리킨다/,
     );
   });
 
   it('실패 메시지가 태그 삭제 방법을 알려준다', () => {
-    expect(() => assertTagMatchesTarget({ tag: 'v0.18.0', tagSha: OTHER, targetSha: SHA })).toThrow(
-      /git push origin :refs\/tags\/v0\.18\.0/,
+    expect(() => assertTagMatchesTarget({ tag: 'v0.8.0', tagSha: OTHER, targetSha: SHA })).toThrow(
+      /git push origin :refs\/tags\/v0\.8\.0/,
     );
+  });
+});
+
+describe('isPrerelease', () => {
+  it('changesets pre 모드의 next 버전은 프리릴리즈다', () => {
+    expect(isPrerelease('0.15.0-next.0')).toBe(true);
+    expect(isPrerelease('1.0.0-rc.1')).toBe(true);
+  });
+
+  it('정식 버전과 빌드 메타만 붙은 버전은 아니다', () => {
+    expect(isPrerelease('0.15.0')).toBe(false);
+    expect(isPrerelease('0.15.0+abc123')).toBe(false);
+    expect(isPrerelease(' 0.14.0 ')).toBe(false);
   });
 });
