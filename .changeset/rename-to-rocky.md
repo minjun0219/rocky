@@ -11,6 +11,6 @@
 그대로 두는 것: 보드 key(데이터), `~/.config/rocky/todo`, 설정 env `ROCKY_TODO_*`(`todo` 블록의
 키), MCP 도구명 `todo_*` / `note_*`, 역사 문서.
 
-**업그레이드 주의**: 새 CLI 는 옛 이름(`name: "rocky-todo"`)으로 응답하는 0.23.0 이하 데몬도
-자기 데몬으로 알아보고 버전 불일치로 재기동한다 — 안 그러면 포트 충돌로 옛 데몬이 영영 남는다.
-`~/.local/share/rocky-todo/` 의 옛 설치본은 더 이상 안 쓰이니 지워도 된다.
+**업그레이드 주의**: 옛 이름(`name: "rocky-todo"`)으로 응답하는 0.23.0 이하 데몬은 새 CLI 가
+자기 데몬으로 보지 않는다 — 업데이트 전에 `pkill -f rocky-todod` 로 내려야 새 데몬이 포트를
+잡는다. `~/.local/share/rocky-todo/` 의 옛 설치본은 지워도 된다.

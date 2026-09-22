@@ -48,10 +48,7 @@ pub fn daemon_health(base_url: &str) -> Option<serde_json::Value> {
     let mut response = agent.get(format!("{base_url}/api/health")).call().ok()?;
     let body: serde_json::Value = response.body_mut().read_json().ok()?;
     if body.get("ok") != Some(&serde_json::Value::Bool(true))
-        || !matches!(
-            body.get("name").and_then(|n| n.as_str()),
-            Some("rocky" | "rocky-todo")
-        )
+        || body.get("name").and_then(|n| n.as_str()) != Some("rocky")
     {
         return None;
     }

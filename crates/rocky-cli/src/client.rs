@@ -67,8 +67,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
 ///
 /// **신원 검증**: 설정된 포트에 rocky 가 아닌 서비스가 떠 2xx JSON 을 돌려줄 수
 /// 있으므로 `ok == true` 와 `name == "rocky"` 를 확인한 응답만 데몬으로 인정한다.
-/// 옛 이름 `"rocky-todo"`(≤0.23.0 데몬)도 받는다 — 이 CLI 가 처음 뜰 때 돌고 있는 데몬을
-/// 못 알아보면 stale 교체 대신 포트 충돌로 끝나 옛 데몬이 영영 남는다.
+/// 옛 이름(`rocky-todo`, ≤0.23.0)은 받지 않는다 — 그 데몬은 개명 릴리스 때 손으로 내린다.
 /// (version/pid 는 ≤0.1.0 데몬엔 없어 stale 판별의 근거라 검증 대상이 아니다.) 이 가드가
 /// 없으면 호출자가 무관한 프로세스의 pid 에 SIGTERM 을 보낼 수 있다.
 ///
@@ -79,7 +78,7 @@ pub fn daemon_health(base_url: &str) -> Option<DaemonHealth> {
         .call()
         .ok()?;
     let body: DaemonHealth = response.body_mut().read_json().ok()?;
-    if !body.ok || !matches!(body.name.as_deref(), Some("rocky" | "rocky-todo")) {
+    if !body.ok || body.name.as_deref() != Some("rocky") {
         return None;
     }
     Some(body)
