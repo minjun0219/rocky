@@ -30,7 +30,6 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
  *   leading `\n` 을 붙이고, read 단계에서는 파싱되지 않는 줄을 graceful skip 한다.
  */
 
-/** 프로젝트별 저널 디렉터리의 부모. `ROCKY_WORKLOG_DIR` 로 통째로 덮어쓴다. */
 /**
  * `pageId` 필드 정규화 — 입력(Notion page id 또는 URL)에서 32자 hex 를 뽑아 8-4-4-4-12 소문자로
  * 맞춘다. notion_* 도구가 있던 시절 캐시 키 함수를 그대로 옮긴 것 — 기존 엔트리의 `pageId` 와
@@ -52,6 +51,7 @@ function normalizePageId(input: string): string {
   return `${lower.slice(0, 8)}-${lower.slice(8, 12)}-${lower.slice(12, 16)}-${lower.slice(16, 20)}-${lower.slice(20)}`;
 }
 
+/** 프로젝트별 저널 디렉터리의 부모. `ROCKY_WORKLOG_DIR` 로 통째로 덮어쓴다. */
 export const DEFAULT_WORKLOG_ROOT = join(homedir(), '.config', 'rocky', 'worklog');
 
 /** 저널 파일 이름 — 한 디렉터리에 단일 파일을 둔다 (MVP). */
