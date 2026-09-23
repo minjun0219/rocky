@@ -3,10 +3,10 @@ import { syncCargoLock, syncCargoToml, syncPluginJson } from './sync-version';
 
 describe('syncPluginJson', () => {
   const plugin = `{
-  "name": "rocky-todo",
+  "name": "rocky",
   "version": "0.14.0",
   "description": "버전 인식 재기동 — version 이 다르면 재기동한다",
-  "mcpServers": { "rocky-todo": { "url": "http://127.0.0.1:8636/mcp" } }
+  "mcpServers": { "rocky": { "url": "http://127.0.0.1:8636/mcp" } }
 }
 `;
 
@@ -28,7 +28,7 @@ describe('syncPluginJson', () => {
 
 describe('syncCargoToml', () => {
   const cargo = `[workspace]
-members = ["crates/rocky-todo-core"]
+members = ["crates/rocky-core"]
 resolver = "2"
 
 [workspace.package]
@@ -64,15 +64,15 @@ version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "rocky-todo-cli"
+name = "rocky-cli"
 version = "0.15.0-dev"
 
 [[package]]
-name = "rocky-todo-core"
+name = "rocky-core"
 version = "0.15.0-dev"
 
 [[package]]
-name = "rocky-todod"
+name = "rockyd"
 version = "0.15.0-dev"
 `;
 
@@ -84,7 +84,7 @@ version = "0.15.0-dev"
   });
 
   it('멤버 항목이 하나라도 없으면 실패한다', () => {
-    const missing = lock.replace('name = "rocky-todod"\nversion = "0.15.0-dev"\n', '');
-    expect(() => syncCargoLock(missing, '1.0.0')).toThrow(/rocky-todod/);
+    const missing = lock.replace('name = "rockyd"\nversion = "0.15.0-dev"\n', '');
+    expect(() => syncCargoLock(missing, '1.0.0')).toThrow(/rockyd/);
   });
 });

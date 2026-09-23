@@ -8,7 +8,7 @@
  */
 
 /** Cargo.lock 에서 버전을 고칠 워크스페이스 멤버 — path 의존이라 lock 에는 이름+버전만 있다. */
-export const WORKSPACE_MEMBERS = ['rocky-todo-core', 'rocky-todod', 'rocky-todo-cli'] as const;
+export const WORKSPACE_MEMBERS = ['rocky-core', 'rockyd', 'rocky-cli'] as const;
 
 /**
  * plugin.json 의 최상위 `"version"` 만 바꾼다. 줄 시작 앵커(^…/m)로 최상위 라인만 잡고 콜론

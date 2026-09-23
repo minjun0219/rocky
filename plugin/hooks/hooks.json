@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook ensure-daemon"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky\" hook ensure-daemon"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook notify-todo",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky\" hook notify-todo",
             "timeout": 5
           }
         ]
@@ -27,12 +27,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook handoff-stop",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky\" hook handoff-stop",
             "timeout": 3
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky-todo\" hook log-turn"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky\" hook log-turn"
           }
         ]
       }

@@ -6,24 +6,22 @@
 
 개인용 에이전트 도구 — **Rust 상주 데몬(공유 todo 보드 + MCP) + CLI** 가 본체이고, 그 위의 얇은 Claude Code 플러그인이 워크로그(기록↔정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary* 의 Rocky 에서. 2026-09 에 별도 레포였던 rocky-todo 를 흡수했다(hail-mary D-046) — 웹 UI 는 그쪽 히스토리에 두고 오지 않았고, GUI 는 Swift 또는 TUI 로 뒤에 정한다.
 
-> **이름은 아직 옛것이다** — 데몬 `rocky-todod`, CLI `rocky-todo`, 크레이트 `rocky-todo-*`. 개명은 별도 PR.
-
 > **v0.23 에서 걷어낸 것** — `openapi_*` 7종, `seo_validate`, `notion_*` 4종과 단독 CLI `openapi-mcp`. 39개 레포 5,216 턴의 워크로그를 세어 보니 호출이 0회였다. 전부 git 히스토리에 있으니 필요해지면 거기서 꺼낸다.
 
 > **공개에 관하여** — 이 저장소는 소유자가 혼자 쓰려고 만든 개인 플러그인이다. 누구나 참고·포크·설치할 수 있도록 MIT로 공개하지만, 범용 제품이 아니라서 표면과 규칙이 소유자의 워크플로우에 맞춰 바뀐다. 구조와 패턴(단일 패키지 MCP 서버, CLI 위임, 기록↔정리 분리 등)을 참고 자료로 보는 쪽을 권한다.
 
 ## 한눈에
 
-MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 CLI 의 stdio 서버(`rocky-todo mcp worklog`, worklog 4 도구 — 프로젝트별이라 세션 cwd 를 아는 쪽이 연다). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/rocky-todo.md`](./docs/rocky-todo.md).
+MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 CLI 의 stdio 서버(`rocky mcp worklog`, worklog 4 도구 — 프로젝트별이라 세션 cwd 를 아는 쪽이 연다). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md).
 
 ### MCP 도구 표면
 
 | 도구군 | 개수 | 하는 일 | 등록 조건 |
 | --- | --- | --- | --- |
-| `todo_*` / `note_*` | 5 | 공유 todo / 스크래치패드 보드 — `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. Rust 데몬(`crates/rocky-todod`)의 `/mcp`. 삭제 없음(아카이브만), 전 mutation 히스토리 기록. | 데몬 기동 시 |
+| `todo_*` / `note_*` | 5 | 공유 todo / 스크래치패드 보드 — `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. Rust 데몬(`crates/rockyd`)의 `/mcp`. 삭제 없음(아카이브만), 전 mutation 히스토리 기록. | 데몬 기동 시 |
 | `worklog_*` | 4 | append-only 로컬 JSONL **기록(記錄)** 레이어 — 결정 / blocker / 답변 / 메모를 turn 을 넘겨 남긴다 (`append` / `read` / `search` / `status`). 외부 의존 0. | 항상 |
 
-각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `crates/rocky-todod/src/mcp.rs`(보드) / `crates/rocky-todo-cli/src/worklog_mcp.rs`(worklog) 의 `#[tool]` 정의를 읽으면 된다.
+각 도구의 입출력과 side effect 는 별도 문서가 아니라 **도구 정의 자체**가 단일 소스다 — `crates/rockyd/src/mcp.rs`(보드) / `crates/rocky-cli/src/worklog_mcp.rs`(worklog) 의 `#[tool]` 정의를 읽으면 된다.
 
 ### Claude Code 전용 표면 (MCP tool 아님)
 
@@ -70,12 +68,12 @@ claude plugin install rocky@rocky-marketplace
 }
 ```
 
-허용 키는 아래 둘뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드. 제거된 `openapi` / `seo` 도 이제 거부되니 옛 설정 파일에 남아 있으면 지운다). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `crates/rocky-todo-core/src/config.rs` 가 lockstep 으로 들고 있다.
+허용 키는 아래 둘뿐이다 (그 외 top-level 키는 즉시 reject — 오타 가드. 제거된 `openapi` / `seo` 도 이제 거부되니 옛 설정 파일에 남아 있으면 지운다). 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json) 과 `crates/rocky-core/src/config.rs` 가 lockstep 으로 들고 있다.
 
 | 키 | 내용 |
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
-| `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/rocky-todo.md`](./docs/rocky-todo.md) |
+| `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수
 
@@ -97,7 +95,7 @@ claude plugin install rocky@rocky-marketplace
 | [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐선 안 나오는 설계 근거 — 필요할 때만 읽는 심화 레퍼런스 |
 | [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스 — 세 호스트의 확장 메커니즘 + rocky 표면 커버 현황 (실측) |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그 — 보류 항목 + 도메인 재추가 후보 |
-| [`docs/rocky-todo.md`](./docs/rocky-todo.md) | 사람 | 보드 데몬 — 설치·기동·CLI·설정·핸드오프·spawn (rocky-todo 에서 옮겨 옴, 웹 UI 절은 역사) |
+| [`docs/board.md`](./docs/board.md) | 사람 | 보드 데몬 — 설치·기동·CLI·설정·핸드오프·spawn |
 | [`docs/rewrite/`](./docs/rewrite/) | 에이전트 | TS → Rust 포팅 기록 — `contract.md`(외부 표면 계약, 정본) · `decisions.md` · `rust-notes.md` |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 host 에서 MCP 서버를 쓰고 싶을 때 |
 
@@ -115,7 +113,7 @@ bun run check      # Biome 검증 (scripts/ · plugin/scripts/)
 bun run typecheck  # tsc --noEmit
 bun test           # 릴리스·부트스트랩·permalink 스크립트 테스트
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
-cargo build --workspace   # target/debug/{rocky-todo,rocky-todod}; ROCKY_TODO_BIN=target/debug/rocky-todo 로 부트스트랩을 우회
+cargo build --workspace   # target/debug/{rocky,rockyd}; ROCKY_BIN=target/debug/rocky 로 부트스트랩을 우회
 ```
 
 같은 게이트를 `.husky/pre-commit` (lint-staged + 시크릿 스캔) / `.husky/pre-push` (typecheck + test) 와 CI ([`ci.yml`](./.github/workflows/ci.yml)) 가 반복 실행한다. 기여 규칙·레이아웃은 [`AGENTS.md`](./AGENTS.md).

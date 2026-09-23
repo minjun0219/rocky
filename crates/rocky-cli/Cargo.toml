@@ -1,0 +1,27 @@
+[package]
+name = "rocky-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "rocky_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rocky"
+path = "src/main.rs"
+
+[dependencies]
+rocky-core = { path = "../rocky-core" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+ureq.workspace = true
+libc.workspace = true
+ring.workspace = true
+tempfile.workspace = true
+# `mcp worklog` stdio MCP 서버 — 데몬과 같은 rmcp, 전송만 stdio.
+rmcp.workspace = true
+tokio.workspace = true
+schemars.workspace = true

@@ -66,7 +66,7 @@ inside a rocky tool.
 Digests live **inside** the worklog as `kind:"digest"` entries linking back to source entry ids —
 not in an external wiki. `wikiDir` was removed in v0.9 when `/curate` became `/rocky:recall`.
 
-The `Stop` hook (`rocky-todo hook log-turn`, `crates/rocky-todo-cli/src/hooks.rs`) auto-appends a `kind:"turn"` entry per turn, deterministically.
+The `Stop` hook (`rocky hook log-turn`, `crates/rocky-cli/src/hooks.rs`) auto-appends a `kind:"turn"` entry per turn, deterministically.
 Auto-capture is Claude Code-only because rocky ships no Codex/opencode hooks — but the `worklog_*`
 tools themselves work on all three hosts.
 
@@ -146,5 +146,5 @@ in git history.
 - **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
   2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
   todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.
-  `rocky.json` still **tolerates** a `todo` block (rocky ignores it; the rocky-todo daemon consumes it)
+  `rocky.json` still **tolerates** a `todo` block (rocky ignores it; the rocky daemon consumes it)
   because the file is shared across the ecosystem.

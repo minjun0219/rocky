@@ -1,10 +1,10 @@
-# rocky Rust workspace — 데몬(rocky-todod) · CLI(rocky-todo) · 코어. 재작성 경위는 docs/rewrite/ 참고.
+# rocky Rust workspace — 데몬(rockyd) · CLI(rocky) · 코어. 재작성 경위는 docs/rewrite/ 참고.
 [workspace]
 resolver = "2"
 members = [
-  "crates/rocky-todo-core",
-  "crates/rocky-todod",
-  "crates/rocky-todo-cli",
+  "crates/rocky-core",
+  "crates/rockyd",
+  "crates/rocky-cli",
 ]
 
 [workspace.package]

@@ -1051,14 +1051,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocky-todo-cli"
+name = "rocky-cli"
 version = "0.23.0"
 dependencies = [
  "chrono",
  "libc",
  "ring",
  "rmcp",
- "rocky-todo-core",
+ "rocky-core",
  "schemars",
  "serde",
  "serde_json",
@@ -1068,7 +1068,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocky-todo-core"
+name = "rocky-core"
 version = "0.23.0"
 dependencies = [
  "chrono",
@@ -1083,13 +1083,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocky-todod"
+name = "rockyd"
 version = "0.23.0"
 dependencies = [
  "axum",
  "chrono",
  "rmcp",
- "rocky-todo-core",
+ "rocky-core",
  "rusqlite",
  "schemars",
  "serde",
