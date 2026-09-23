@@ -12,5 +12,15 @@
 키), MCP 도구명 `todo_*` / `note_*`, 역사 문서.
 
 **업그레이드 주의**: 옛 이름(`name: "rocky-todo"`)으로 응답하는 0.23.0 이하 데몬은 새 CLI 가
-자기 데몬으로 보지 않는다 — 업데이트 전에 `pkill -f rocky-todod` 로 내려야 새 데몬이 포트를
-잡는다. `~/.local/share/rocky-todo/` 의 옛 설치본은 지워도 된다.
+자기 데몬으로 보지 않는다 — 업데이트 전에 옛 데몬을 내려야 새 데몬이 포트를 잡는다.
+`rocky-todo daemon install` 로 launchd 에 올려 뒀다면 `pkill` 은 KeepAlive 가 바로 되살리므로
+job 부터 내린다:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.rocky.todo" 2>/dev/null
+rm -f ~/Library/LaunchAgents/com.rocky.todo.plist
+pkill -f rocky-todod
+```
+
+상주가 필요하면 업데이트 뒤 `rocky daemon install` 로 새 라벨(`com.rocky.daemon`)을 등록한다.
+`~/.local/share/rocky-todo/` 의 옛 설치본은 지워도 된다.
