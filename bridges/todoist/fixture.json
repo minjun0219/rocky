@@ -1,0 +1,40 @@
+{
+  "results": [
+    {
+      "id": "6XGgmFVcrG5RRjVr",
+      "project_id": "6XGgm6PHrGgMpCFX",
+      "content": "Buy milk",
+      "description": "Pick up organic milk",
+      "checked": false,
+      "is_deleted": false,
+      "added_at": "2025-01-15T10:30:00Z",
+      "due": { "date": "2025-02-12", "lang": "en", "string": "Feb 12" },
+      "labels": ["errand"],
+      "priority": 1
+    },
+    {
+      "id": "6fFPHV272WWh3gpW",
+      "content": "  Datetime due, no description  ",
+      "description": "",
+      "checked": false,
+      "added_at": "2025-01-16T08:00:00Z",
+      "due": { "date": "2025-02-13T09:00:00", "lang": "en" }
+    },
+    {
+      "id": "6fFPHRxcmVqm4C84",
+      "content": "Already done — must be skipped",
+      "checked": true,
+      "added_at": "2025-01-10T00:00:00Z"
+    },
+    {
+      "id": "6fFPHQQQQQQQQQQQ",
+      "content": "",
+      "checked": false
+    },
+    {
+      "id": "6fFPHNoDue",
+      "content": "No due, no added_at"
+    }
+  ],
+  "next_cursor": null
+}

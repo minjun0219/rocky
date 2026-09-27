@@ -9,6 +9,7 @@
 | 디렉터리 | 무엇 |
 | --- | --- |
 | `file/` | JSON 파일을 그대로 내는 참조 구현 — 테스트·수동 확인용 |
+| `todoist/` | Todoist 미완료 작업(API v1, 필터 지원). 토큰은 `--op op://Agent Vault/<uuid>/credential` 로 `op read`. `python3` stdlib 만 |
 
 새 어댑터는 `bridges/<name>/` 에 두고, 토큰은 1Password Agent Vault 에서 `op read` 로 읽는다
 (홈의 평문 파일 금지). 공개 레포이므로 계정 식별자를 코드에 박지 않는다.
