@@ -229,7 +229,8 @@ TUI 가 직접 `gh` 를 부른다(데몬은 관여 없음 — 읽기이고 로�
 
 - `AGENTS.md` Scope Out 의 "외부 태스크 서비스 연동 금지" → **"연동 코드는 `bridges/<name>/` 에,
   데몬·CLI 는 규약(`/api/inbox` 명령 어댑터)으로만 안다. 데몬·CLI·MCP 도구에 특정 서비스
-  이름이 들어가면 위반"** 으로 고친다. Layout 에 `bridges/`, `crates/rocky-tui` 추가.
+  이름이 들어가면 위반"** 으로 고친다 — **이 PR 에서 함께 고쳤다**(규칙과 스펙이 어긋난 채로
+  머지되지 않게). Layout 에 `bridges/`, `crates/rocky-tui` 추가는 디렉터리가 생기는 PR 1·2 에서.
 - `README.md` 에 TUI 절과 `todo.inbox` 설정, `docs/board.md` 에 어댑터 규약(정본은 이 문서가
   아니라 그쪽 — 이 스펙은 결정 기록).
 - `rocky.schema.json` ↔ `config.rs` lockstep.
