@@ -7,8 +7,8 @@ use rocky_core::types::TodoLink;
 use rocky_core::types::{Board, Section, Todo, TodoPriority, TodoStatus};
 use rocky_tui::api::SessionOut;
 use rocky_tui::app::{
-    build_inbox_rows, build_rows, key_to_action, pick_board, promote_body, Action, App, InboxRow,
-    Picker, PickerOutcome, Row, Tab,
+    action_allowed, build_inbox_rows, build_rows, key_to_action, pick_board, promote_body, Action,
+    App, InboxRow, Picker, PickerOutcome, Row, Tab,
 };
 
 fn todo(n: i64, title: &str, section: Option<&str>, position: i64) -> TodoView {
@@ -442,4 +442,31 @@ fn gh_needed_filters_non_github_pending_and_cached() {
         app.gh_line("https://github.com/o/r/issues/2"),
         Some("이슈 #2 · open")
     );
+}
+
+#[test]
+fn board_only_actions_are_blocked_in_inbox_and_promote_only_there() {
+    for a in [
+        Action::Status("done"),
+        Action::Handoff,
+        Action::Spawn,
+        Action::Issue,
+    ] {
+        assert!(action_allowed(a, Tab::Board), "{a:?}");
+        assert!(!action_allowed(a, Tab::Inbox), "{a:?}");
+    }
+    assert!(action_allowed(Action::Promote, Tab::Inbox));
+    assert!(!action_allowed(Action::Promote, Tab::Board));
+    for a in [
+        Action::Down,
+        Action::Refresh,
+        Action::ToggleTab,
+        Action::NextBoard,
+        Action::Quit,
+    ] {
+        assert!(
+            action_allowed(a, Tab::Inbox) && action_allowed(a, Tab::Board),
+            "{a:?}"
+        );
+    }
 }

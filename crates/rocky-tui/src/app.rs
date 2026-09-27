@@ -85,6 +85,16 @@ pub fn key_to_action(key: KeyEvent) -> Action {
     }
 }
 
+/// 이 탭에서 실행해도 되는 액션인가 — 보드 항목을 바꾸는 키는 보드 탭에서만, `p` 는 수집함에서만.
+/// 수집함으로 넘어가도 보드 선택은 남아 있어서, 막지 않으면 **안 보이는** todo 를 바꾸게 된다.
+pub fn action_allowed(action: Action, tab: Tab) -> bool {
+    match action {
+        Action::Status(_) | Action::Handoff | Action::Spawn | Action::Issue => tab == Tab::Board,
+        Action::Promote => tab == Tab::Inbox,
+        _ => true,
+    }
+}
+
 /// 피커가 열려 있을 때의 키 결과.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickerOutcome {

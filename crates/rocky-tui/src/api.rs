@@ -11,11 +11,23 @@ use serde::Deserialize;
 pub const ACTOR: &str = "rocky-tui";
 
 const TIMEOUT: Duration = Duration::from_secs(5);
+/// 오래 걸릴 수 있는 라우트 — spawn 은 데몬이 `claude --bg` 를 최장 30초 기다리고, inbox 는 어댑터당
+/// 기본 10초, issue 는 `gh` 호출. 전역 5초로 끊으면 정상 실행이 에러로 보이고 재시도가 409 를 만든다.
+const SLOW_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Clone)]
 pub struct Api {
     pub base_url: String,
     agent: ureq::Agent,
+    slow_agent: ureq::Agent,
+}
+
+fn agent_with(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .build()
+        .into()
 }
 
 /// `GET /api/todos/:ref` 응답.
@@ -60,14 +72,10 @@ struct ErrorBody {
 
 impl Api {
     pub fn new(base_url: impl Into<String>) -> Self {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(TIMEOUT))
-            .http_status_as_error(false)
-            .build()
-            .into();
         Api {
             base_url: base_url.into(),
-            agent,
+            agent: agent_with(TIMEOUT),
+            slow_agent: agent_with(SLOW_TIMEOUT),
         }
     }
 
@@ -96,8 +104,15 @@ impl Api {
     }
 
     pub fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, String> {
-        let response = self
-            .agent
+        self.get_with(&self.agent, path)
+    }
+
+    fn get_with<T: serde::de::DeserializeOwned>(
+        &self,
+        agent: &ureq::Agent,
+        path: &str,
+    ) -> Result<T, String> {
+        let response = agent
             .get(self.url(path))
             .header("x-rocky-actor", ACTOR)
             .call()
@@ -110,8 +125,16 @@ impl Api {
         path: &str,
         body: &serde_json::Value,
     ) -> Result<T, String> {
-        let response = self
-            .agent
+        self.post_with(&self.agent, path, body)
+    }
+
+    fn post_with<T: serde::de::DeserializeOwned>(
+        &self,
+        agent: &ureq::Agent,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<T, String> {
+        let response = agent
             .post(self.url(path))
             .header("x-rocky-actor", ACTOR)
             .header("content-type", "application/json")
@@ -151,11 +174,14 @@ impl Api {
     }
 
     pub fn inbox(&self, refresh: bool) -> Result<InboxResponse, String> {
-        self.get(if refresh {
-            "/api/inbox?refresh=true"
-        } else {
-            "/api/inbox"
-        })
+        self.get_with(
+            &self.slow_agent,
+            if refresh {
+                "/api/inbox?refresh=true"
+            } else {
+                "/api/inbox"
+            },
+        )
     }
 
     pub fn create_todo(&self, body: &serde_json::Value) -> Result<TodoView, String> {
@@ -181,7 +207,8 @@ impl Api {
 
     /// 새 워크트리 세션 — 로컬 전용 라우트(TUI 는 루프백이라 통과). 409(60초 창)·400 은 메시지로.
     pub fn spawn(&self, todo_ref: &str) -> Result<serde_json::Value, String> {
-        self.post(
+        self.post_with(
+            &self.slow_agent,
             &format!("/api/todos/{}/spawn", encode(todo_ref)),
             &serde_json::json!({}),
         )
@@ -189,7 +216,8 @@ impl Api {
 
     /// GitHub 이슈 생성 — 로컬 전용. 중복이면 409 에 url 이 실려 온다(메시지에 포함).
     pub fn issue(&self, todo_ref: &str) -> Result<serde_json::Value, String> {
-        self.post(
+        self.post_with(
+            &self.slow_agent,
             &format!("/api/todos/{}/issue", encode(todo_ref)),
             &serde_json::json!({}),
         )

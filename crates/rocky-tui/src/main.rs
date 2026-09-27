@@ -9,7 +9,8 @@ use rocky_core::config::{
 };
 use rocky_tui::api::Api;
 use rocky_tui::app::{
-    key_to_action, pick_board, promote_body, Action, App, Picker, PickerOutcome, Tab,
+    action_allowed, key_to_action, pick_board, promote_body, Action, App, Picker, PickerOutcome,
+    Tab,
 };
 use rocky_tui::events::{self, Event};
 use rocky_tui::{github, ui};
@@ -148,12 +149,15 @@ fn start_handoff(app: &mut App, api: &Api) {
     });
 }
 
+/// 성공 안내는 **refetch 뒤에** 넣는다 — 성공한 refetch 가 notice 를 지우기 때문이다.
 fn send_handoff(app: &mut App, api: &Api, todo_ref: &str, session_id: &str) {
     match api.handoff(todo_ref, session_id) {
-        Ok(_) => app.notice = Some(format!("{todo_ref} → 세션에 넘김 — 다음 턴에 집어간다")),
+        Ok(_) => {
+            refetch(app, api);
+            app.notice = Some(format!("{todo_ref} → 세션에 넘김 — 다음 턴에 집어간다"));
+        }
         Err(error) => app.notice = Some(error),
     }
-    refetch(app, api);
 }
 
 fn main() -> Result<(), String> {
@@ -226,7 +230,11 @@ fn run(
                     }
                     continue;
                 }
-                match key_to_action(key) {
+                let action = key_to_action(key);
+                if !action_allowed(action, app.tab) {
+                    continue;
+                }
+                match action {
                     Action::None => {}
                     Action::Quit => return Ok(()),
                     Action::Down => app.move_selection(1),
@@ -264,31 +272,25 @@ fn run(
                         }
                     }
                     Action::Promote => {
-                        if app.tab == Tab::Inbox {
-                            if let Some((source, item)) = app.selected_inbox_item() {
-                                if app.is_promoted(item) {
-                                    app.notice = Some("이미 올라간 항목이다".into());
-                                } else {
-                                    let body = promote_body(&app.board, &source.name, item);
-                                    match api.create_todo(&body) {
-                                        Ok(todo) => {
-                                            app.notice = Some(format!(
-                                                "{} 로 올림: {}",
-                                                todo.r#ref, todo.todo.title
-                                            ));
-                                            refetch(app, api);
-                                        }
-                                        Err(error) => app.notice = Some(error),
+                        if let Some((source, item)) = app.selected_inbox_item() {
+                            if app.is_promoted(item) {
+                                app.notice = Some("이미 올라간 항목이다".into());
+                            } else {
+                                let body = promote_body(&app.board, &source.name, item);
+                                match api.create_todo(&body) {
+                                    Ok(todo) => {
+                                        refetch(app, api);
+                                        app.notice = Some(format!(
+                                            "{} 로 올림: {}",
+                                            todo.r#ref, todo.todo.title
+                                        ));
                                     }
+                                    Err(error) => app.notice = Some(error),
                                 }
                             }
                         }
                     }
-                    Action::Handoff => {
-                        if app.tab == Tab::Board {
-                            start_handoff(app, api);
-                        }
-                    }
+                    Action::Handoff => start_handoff(app, api),
                     Action::Spawn => {
                         if let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) {
                             match api.spawn(&todo_ref) {
@@ -299,12 +301,13 @@ fn run(
                                         .get("worktreePath")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("");
-                                    app.notice = Some(if reused {
+                                    let notice = if reused {
                                         format!("{todo_ref}: 이미 도는 세션에 넘김 ({path})")
                                     } else {
                                         format!("{todo_ref}: 새 세션을 띄웠다 ({path})")
-                                    });
+                                    };
                                     refetch(app, api);
+                                    app.notice = Some(notice);
                                 }
                                 Err(error) => app.notice = Some(error),
                             }
@@ -315,8 +318,9 @@ fn run(
                             match api.issue(&todo_ref) {
                                 Ok(out) => {
                                     let url = out.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                    app.notice = Some(format!("이슈 생성: {url}"));
+                                    let notice = format!("이슈 생성: {url}");
                                     refetch(app, api);
+                                    app.notice = Some(notice);
                                 }
                                 Err(error) => app.notice = Some(error),
                             }
