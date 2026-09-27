@@ -1,5 +1,34 @@
 # @minjun0219/rocky
 
+## 0.26.0
+
+### Minor Changes
+
+- [#148](https://github.com/minjun0219/rocky/pull/148) [`698e076`](https://github.com/minjun0219/rocky/commit/698e0767619607c5769e4c5218920aa1d946017f) Thanks [@minjun0219](https://github.com/minjun0219)! - 수집함 어댑터 첫 실물 — `bridges/todoist/inbox.py`. Todoist API v1 의 미완료 작업을 규약
+  `{ "items": [...] }` 로 낸다(`--filter` 로 Todoist 필터 문법, 커서 페이지 전부 수집, 완료·삭제
+  제외, 링크는 `app.todoist.com/app/task/<id>`). 토큰은 `--op op://…` 로 1Password Agent Vault
+  에서 읽고 값은 어디에도 찍지 않는다. `python3` stdlib 만, 의존 없음.
+
+- [#150](https://github.com/minjun0219/rocky/pull/150) [`cf0e145`](https://github.com/minjun0219/rocky/commit/cf0e1459de50a7d38cd4e2d09f2168e0dd1e239f) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드 요약 세 자리 — `rocky today`(마감·진행중·핸드오프·수집함 미올림 + 항목 4개, Claude Code 의
+  `! rocky today` 로 LLM 없이), SessionStart 훅이 같은 요약을 세션 컨텍스트에 넣기
+  (`todo.sessionSummary: false` 로 끔), statusline 템플릿 변수 `{due}`·`{collect}`. 뒤에서
+  `GET /api/summary` 와 `GET /api/inbox?cached=true`(기다리지 않는 수집함 조회 — 캐시만, 없으면
+  백그라운드 갱신)가 생겼다.
+
+- [#151](https://github.com/minjun0219/rocky/pull/151) [`b12051e`](https://github.com/minjun0219/rocky/commit/b12051e076e3ac7bb929004a85b4570560dc0fb3) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 복귀 — rocky-todo 시절의 React 보드 UI 를 `web/` 로 되살려 릴리스 tarball 에 `dist/` 로 동봉한다.
+  데몬이 실행 파일 옆 `dist/` 를 `http://127.0.0.1:8636/` 에 서빙한다(`ROCKY_TODO_UI_DIST` 로 override).
+  보드·섹션·상세 드로어(마크다운·댓글·타임라인)·핸드오프·이슈 생성·새 세션·메모 그대로. 이름만 rocky 로
+  (`/rocky:board` 복사, localStorage 키). 테일넷 없이 밖에서 닿는 길(Cloudflare Tunnel + Access)은 다음 조각.
+
+### Patch Changes
+
+- [#154](https://github.com/minjun0219/rocky/pull/154) [`505e1fb`](https://github.com/minjun0219/rocky/commit/505e1fb0784945c513022739a435f05b424d991e) Thanks [@minjun0219](https://github.com/minjun0219)! - TUI 의 GitHub 이슈·PR 상태를 `gh pr view` 프로세스 대신 GraphQL 한 요청으로 읽는다 — 토큰은
+  `gh auth token` 으로 한 번 받아 메모리에만(헤더로만 나감), 링크가 N 개여도 요청 하나(보드 rocky-21).
+
+- [#152](https://github.com/minjun0219/rocky/pull/152) [`59d7931`](https://github.com/minjun0219/rocky/commit/59d793191decc99fa704f1e05fcc604cce1f1e17) Thanks [@minjun0219](https://github.com/minjun0219)! - Cloudflare Tunnel·Access 가 붙이는 헤더(`cf-connecting-ip` / `cf-ray` / `cf-access-*`)를 중계 헤더로
+  본다 — 터널 경유 요청이 원격으로 분류되어 이슈 생성·spawn·claim 이 막힌다(의도). 테일넷 없이 웹 UI 에
+  닿는 설정 절차를 `docs/board.md` 에 적었다.
+
 ## 0.25.0
 
 ### Minor Changes
