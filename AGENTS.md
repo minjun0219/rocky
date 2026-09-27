@@ -335,7 +335,8 @@ deterministically, and a per-turn gate would just make every turn slow.
   "배달됐는데 미착수"(`is_unstarted`)에는 **시간 임계값이 없다** — 세션이 `gone`/`idle` 일
   때만 경고이고 `busy` 면 조용하다. 자동 만료·자동 재배달은 없고 표시만 하며, 다시 보낼지는
   사람이 정한다(새 핸드오프가 생기고 원본은 `delivered` 로 보존). UI 용 목록은
-  `/api/handoffs?open=true`(대기 중 + 미완료 배달).
+  `/api/handoffs?open=true`(대기 중 + 미완료 배달 — **보관된 todo 의 것은 제외**, 요약의
+  `handoffsOpen` 도 같은 규칙).
 - **statusline 세그먼트(`GET /api/statusline`)**: 보드를 보려고 창을 하나 더 띄우지 않으려는
   표면. `?cwd=&session=` 을 받아 **완성된 한 줄**을 `text/plain` 으로 낸다 — 렌더를 데몬이
   하는 이유는 소비자(Claude Code statusline 명령)를 `curl` 한 줄로 유지하려는 것이다.

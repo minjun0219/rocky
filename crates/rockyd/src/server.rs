@@ -1685,12 +1685,17 @@ async fn summary_of(
     };
     // "대기" = pending + 미수락 delivered. 스토어의 `open`(대기 + 미완료 배달)은 세션이 이미
     // 착수한 것까지 세므로 여기엔 맞지 않는다 — 사람이 볼 건 "아직 아무도 안 집어간 것" 이다.
+    // 보관된 todo 의 핸드오프는 제외 — `views` 가 미보관 목록이므로 그 id 로 거른다(스토어의
+    // `open` 과 같은 규칙).
+    let live_ids: std::collections::HashSet<&str> =
+        views.iter().map(|v| v.todo.id.as_str()).collect();
     let open = store
         .list_handoffs(&ListHandoffsFilter {
             board_id,
             ..Default::default()
         })?
         .iter()
+        .filter(|h| live_ids.contains(h.todo_id.as_str()))
         .filter(|h| match h.status {
             HandoffStatus::Pending => true,
             HandoffStatus::Delivered => h.accepted_at.is_none(),

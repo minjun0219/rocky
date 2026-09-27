@@ -2387,7 +2387,9 @@ impl TodoStore {
         pending_handoff_of_conn(&conn, todo_id)
     }
 
-    /// 큐 조회 — 최신순. `open` 은 대기 중이거나 배달됐는데 완료되지 않은 것.
+    /// 큐 조회 — 최신순. `open` 은 대기 중이거나 배달됐는데 완료되지 않은 것 — 단 todo 가
+    /// **보관되면 그 핸드오프는 열린 것이 아니다**. 보관은 "이 일은 더 안 본다" 이므로 그 위의
+    /// 미완료 배달·대기가 요약과 UI 에 영원히 남는 걸 막는다(해제하면 다시 열린다).
     pub fn list_handoffs(&self, filter: &ListHandoffsFilter) -> StoreResult<Vec<Handoff>> {
         let conn = self.lock();
         let mut clauses: Vec<&str> = Vec::new();
@@ -2396,6 +2398,7 @@ impl TodoStore {
             clauses.push(
                 "(h.status = 'pending' OR (h.status = 'delivered' AND h.completed_at IS NULL))",
             );
+            clauses.push("h.todo_id IN (SELECT id FROM todos WHERE archived_at IS NULL)");
         }
         if let Some(board_id) = &filter.board_id {
             clauses.push("h.todo_id IN (SELECT id FROM todos WHERE board_id = ?)");
