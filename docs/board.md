@@ -350,7 +350,8 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
 ```json
 { "todo": { "inbox": [
   { "name": "todoist", "command": ["python3", "/path/to/rocky/bridges/todoist/inbox.py",
-                                   "--op", "op://Agent Vault/<item-uuid>/credential", "--filter", "#Inbox"] },
+                                   "--op", "op://Agent Vault/<item-uuid>/credential", "--filter", "#Inbox"],
+    "timeoutMs": 30000 },
   { "name": "file",    "command": ["sh", "/path/to/rocky/bridges/file/inbox.sh", "~/inbox.json"], "timeoutMs": 5000 }
 ] } }
 ```
@@ -359,7 +360,7 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
 | --- | --- |
 | `name` | `[a-z0-9-]+`. 응답의 소스 키이자, 올린 항목의 링크 제목 접두사(`gtasks: …`) |
 | `command` | argv 배열. env 는 데몬 것을 물려받는다. **토큰은 어댑터가 스스로 읽는다** (`op read` — 홈의 평문 파일 금지) |
-| `timeoutMs` | 기본 10000. 넘기면 죽이고 그 소스만 `available:false` |
+| `timeoutMs` | 기본 10000. 넘기면 죽이고 그 소스만 `available:false`(실패도 60초 캐시). 자격 조회(`op read`) + 외부 API 를 순차로 하는 어댑터는 그 합보다 크게 준다 — todoist 예시가 30000 인 이유 |
 
 **어댑터 규약** — stdin 없음, stdout 에 JSON 하나, exit 0:
 

@@ -243,33 +243,3 @@ async fn remote_callers_get_exit_code_only() {
     .await;
     assert_eq!(body["sources"][1]["reason"], "exit 1");
 }
-
-#[tokio::test]
-async fn todoist_adapter_fixture_satisfies_contract() {
-    // bridges/todoist/inbox.py 를 `--from` 픽스처로 실제 실행 — 규약 파서를 통과해야 한다.
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bridges/todoist");
-    let provider = cached_inbox(
-        default_runner(),
-        vec![InboxSource {
-            name: "todoist".into(),
-            command: vec![
-                "python3".into(),
-                format!("{dir}/inbox.py"),
-                "--from".into(),
-                format!("{dir}/fixture.json"),
-            ],
-            timeout_ms: None,
-        }],
-        Duration::from_secs(60),
-    );
-    let f = fx_with(|o| o.inbox = Some(provider));
-    let (_, body) = get(&f.state, "/api/inbox").await;
-    assert_eq!(body["sources"][0]["available"], true, "{body}");
-    let items = body["sources"][0]["items"].as_array().unwrap();
-    assert_eq!(items.len(), 3);
-    assert_eq!(items[0]["due"], "2025-02-12");
-    assert!(items[0]["url"]
-        .as_str()
-        .unwrap()
-        .starts_with("https://app.todoist.com/app/task/"));
-}

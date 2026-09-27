@@ -8,7 +8,8 @@
       { "todo": { "inbox": [ { "name": "todoist",
           "command": ["python3", "<repo>/bridges/todoist/inbox.py",
                       "--op", "op://Agent Vault/<item-uuid>/credential",
-                      "--filter", "#Inbox"] } ] } }
+                      "--filter", "#Inbox"],
+          "timeoutMs": 30000 } ] } }
 
 토큰(1Password Agent Vault, hail-mary D-030):
   --op REF          `op read REF` 로 읽는다. 서비스 계정 토큰은 `~/.config/op/service-account-token`
@@ -38,7 +39,9 @@ import urllib.request
 API = "https://api.todoist.com/api/v1"
 TASK_URL = "https://app.todoist.com/app/task/{id}"
 HTTP_TIMEOUT = 8
+OP_TIMEOUT = 5
 PAGE = 200
+# 최악 합계: op read 5s + 페이지마다 8s. 데몬 기본 상한(10s)을 넘길 수 있으니 등록 예시는 timeoutMs 30000.
 
 
 def fail(message: str):
@@ -63,7 +66,7 @@ def read_token(op_ref: str | None) -> str:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=HTTP_TIMEOUT,
+                timeout=OP_TIMEOUT,
                 check=False,
             )
         except FileNotFoundError:

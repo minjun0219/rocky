@@ -48,6 +48,35 @@ describe('bridges/todoist/inbox.py', () => {
     });
   });
 
+  test('출력이 수집함 규약을 지킨다 — id·title 필수, due 는 YYYY-MM-DD, createdAt 은 RFC 3339', () => {
+    // 데몬(rocky_core::inbox::parse_inbox_output)이 거부하는 모양이면 소스 전체가 실패한다 —
+    // 서비스 이름을 crates/ 테스트에 넣지 않기로 했으니(AGENTS.md Scope) 규약 검사는 여기서 한다.
+    const { items } = JSON.parse(run(['--from', fixture]).out) as {
+      items: Record<string, unknown>[];
+    };
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(typeof item.id).toBe('string');
+      expect((item.id as string).length).toBeGreaterThan(0);
+      expect(typeof item.title).toBe('string');
+      expect((item.title as string).trim()).toBe(item.title);
+      if (item.due !== undefined) {
+        expect(item.due).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      if (item.createdAt !== undefined) {
+        expect(item.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      }
+      if (item.url !== undefined) {
+        expect(item.url).toMatch(/^https:\/\//);
+      }
+      expect(
+        Object.keys(item).every((k) =>
+          ['id', 'title', 'url', 'note', 'due', 'createdAt'].includes(k),
+        ),
+      ).toBe(true);
+    }
+  });
+
   test('--limit 이 항목 수를 자른다', () => {
     const r = run(['--from', fixture, '--limit', '1']);
     expect(JSON.parse(r.out).items).toHaveLength(1);
