@@ -7,4 +7,5 @@
 pub mod api;
 pub mod app;
 pub mod events;
+pub mod github;
 pub mod ui;

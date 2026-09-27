@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use rocky_core::inbox::InboxResponse;
 use rocky_core::refs::TodoView;
 use rocky_core::types::{Board, Comment, HistoryEntry, Section};
 use serde::Deserialize;
@@ -25,6 +26,31 @@ pub struct TodoDetail {
     pub history: Vec<HistoryEntry>,
     #[serde(default)]
     pub comments: Vec<Comment>,
+}
+
+/// `GET /api/sessions` 의 세션 하나 — `AgentSession` + `matched`. core 타입은 Serialize 만이라
+/// 여기서 읽기용으로 다시 정의한다(필요한 필드만).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOut {
+    pub session_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub cwd: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub matched: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionsOut {
+    pub available: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub sessions: Vec<SessionOut>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +147,51 @@ impl Api {
         self.post(
             &format!("/api/todos/{}/status", encode(todo_ref)),
             &serde_json::json!({ "action": action }),
+        )
+    }
+
+    pub fn inbox(&self, refresh: bool) -> Result<InboxResponse, String> {
+        self.get(if refresh {
+            "/api/inbox?refresh=true"
+        } else {
+            "/api/inbox"
+        })
+    }
+
+    pub fn create_todo(&self, body: &serde_json::Value) -> Result<TodoView, String> {
+        self.post("/api/todos", body)
+    }
+
+    pub fn sessions(&self, board: &str) -> Result<SessionsOut, String> {
+        self.get(&format!("/api/sessions?board={}", encode(board)))
+    }
+
+    /// 열린 핸드오프(대기 + 미수락 배달) — 표시용이라 느슨하게 Value 로.
+    pub fn open_handoffs(&self, board: &str) -> Result<Vec<serde_json::Value>, String> {
+        self.get(&format!("/api/handoffs?open=true&board={}", encode(board)))
+    }
+
+    /// 대상 세션을 지정해 넘긴다. 후보 판정은 호출자(TUI)가 데몬과 같은 기준으로 먼저 한다.
+    pub fn handoff(&self, todo_ref: &str, session_id: &str) -> Result<serde_json::Value, String> {
+        self.post(
+            &format!("/api/todos/{}/handoff", encode(todo_ref)),
+            &serde_json::json!({ "sessionId": session_id }),
+        )
+    }
+
+    /// 새 워크트리 세션 — 로컬 전용 라우트(TUI 는 루프백이라 통과). 409(60초 창)·400 은 메시지로.
+    pub fn spawn(&self, todo_ref: &str) -> Result<serde_json::Value, String> {
+        self.post(
+            &format!("/api/todos/{}/spawn", encode(todo_ref)),
+            &serde_json::json!({}),
+        )
+    }
+
+    /// GitHub 이슈 생성 — 로컬 전용. 중복이면 409 에 url 이 실려 온다(메시지에 포함).
+    pub fn issue(&self, todo_ref: &str) -> Result<serde_json::Value, String> {
+        self.post(
+            &format!("/api/todos/{}/issue", encode(todo_ref)),
+            &serde_json::json!({}),
         )
     }
 }
