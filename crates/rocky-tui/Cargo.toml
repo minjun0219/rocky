@@ -1,0 +1,26 @@
+[package]
+name = "rocky-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "rocky_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rocky-tui"
+path = "src/main.rs"
+
+[dependencies]
+rocky-core = { path = "../rocky-core" }
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+# TUI 전용 의존 둘 — 데몬·CLI·훅 바이너리에는 링크되지 않는다(별도 크레이트인 이유).
+ratatui.workspace = true
+crossterm.workspace = true
+
+[dev-dependencies]
+# 이미 의존 그래프에 있다(ratatui 가 끌어온다) — 렌더 테스트에서 폭 2 글자의 이어짐 셀을 건너뛰는 데만.
+unicode-width = "0.2"

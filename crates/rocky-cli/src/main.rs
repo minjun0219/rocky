@@ -62,6 +62,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         }
         "mcp" => commands::cmd_mcp(&ctx, &rest),
         "tailscale" => commands::cmd_tailscale(&ctx, &rest),
+        "tui" => commands::cmd_tui(&rest),
         // 훅 엔트리 — hooks.json 이 부른다. 셋 다 fail-open 이라 항상 Ok.
         "hook" => {
             use rocky_cli::hooks;

@@ -74,11 +74,15 @@ version = "0.15.0-dev"
 [[package]]
 name = "rockyd"
 version = "0.15.0-dev"
+
+[[package]]
+name = "rocky-tui"
+version = "0.15.0-dev"
 `;
 
-  it('워크스페이스 멤버 셋의 버전을 바꾸고 외부 크레이트는 건드리지 않는다', () => {
+  it('워크스페이스 멤버 넷의 버전을 바꾸고 외부 크레이트는 건드리지 않는다', () => {
     const next = syncCargoLock(lock, '0.15.0-next.0');
-    expect(next.match(/0\.15\.0-next\.0/g)).toHaveLength(3);
+    expect(next.match(/0\.15\.0-next\.0/g)).toHaveLength(4);
     expect(next).not.toContain('0.15.0-dev');
     expect(next).toContain('name = "axum"\nversion = "0.8.4"');
   });
