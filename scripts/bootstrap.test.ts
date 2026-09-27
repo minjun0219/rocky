@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -67,6 +76,46 @@ describe('bin/rocky bootstrap', () => {
     expect(r.err).toBe('');
     expect(r.out).toBe('installed:ls\n');
     expect(r.code).toBe(0);
+  });
+
+  describe('current 링크', () => {
+    function installed(version: string): string {
+      const root = join(dir, `plugin-${version}`);
+      mkdirSync(join(root, '.claude-plugin'), { recursive: true });
+      writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ version }));
+      const installDir = join(dir, 'data', 'rocky', `v${version}`);
+      mkdirSync(installDir, { recursive: true });
+      writeFileSync(join(installDir, 'rocky'), `#!/bin/sh\necho "${version}:$*"\n`);
+      chmodSync(join(installDir, 'rocky'), 0o755);
+      return root;
+    }
+    const link = () => join(dir, 'data', 'rocky', 'current');
+
+    test('SessionStart 가 current 를 자기 버전으로 걸고, 링크 너머 바이너리가 실행된다', () => {
+      const r = run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
+      expect(r.code).toBe(0);
+      expect(readlinkSync(link())).toBe('v1.0.0');
+      const via = Bun.spawnSync({ cmd: [join(link(), 'rocky'), 'mcp', 'worklog'] });
+      expect(via.stdout.toString()).toBe('1.0.0:mcp worklog\n');
+    });
+
+    test('다음 버전의 SessionStart 가 링크를 옮기고, 임시 링크를 남기지 않는다', () => {
+      run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
+      run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.1.0') });
+      expect(readlinkSync(link())).toBe('v1.1.0');
+      expect(readdirSync(join(dir, 'data', 'rocky')).sort()).toEqual([
+        'current',
+        'v1.0.0',
+        'v1.1.0',
+      ]);
+    });
+
+    test('SessionStart 가 아닌 호출은 링크를 건드리지 않는다', () => {
+      const root = installed('1.0.0');
+      run(['hook', 'notify-todo'], { CLAUDE_PLUGIN_ROOT: root });
+      run(['ls'], { CLAUDE_PLUGIN_ROOT: root });
+      expect(existsSync(link())).toBe(false);
+    });
   });
 
   test('바이너리가 없을 때 SessionStart 가 아닌 훅은 조용히 0 으로 끝난다', () => {

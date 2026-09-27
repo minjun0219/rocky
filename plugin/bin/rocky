@@ -57,13 +57,30 @@ data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 install_dir="$data_home/rocky/v$version"
 bin="$install_dir/rocky"
 
+is_hook=0
+case "${1:-}" in hook) is_hook=1 ;; esac
+is_session_start=0
+if [ "$is_hook" = 1 ] && [ "${2:-}" = "ensure-daemon" ]; then is_session_start=1; fi
+
+# `$data_home/rocky/current` → `v<version>` — 버전 없는 고정 진입점. 플러그인 밖에서 붙는
+# 쪽(`claude -p --strict-mcp-config` 배치 잡, Codex·opencode 설정)이 릴리스마다 경로를
+# 고치지 않게 `current/rocky mcp worklog` 를 가리키면 된다. 세션마다 한 번(SessionStart)만
+# 갱신하고, 마지막으로 세션을 연 설치본의 버전을 따른다. 임시 링크를 만든 뒤 `mv -h` 로
+# 바꿔 끼워(rename) 읽는 쪽이 링크가 없는 순간을 보지 않게 한다. 실패해도 훅을 막지 않는다.
+link_current() {
+  link="$data_home/rocky/current"
+  [ "$(readlink "$link" 2>/dev/null || true)" = "v$version" ] && return 0
+  ln -s "v$version" "$link.$$" 2>/dev/null || return 0
+  # `-h`(BSD/macOS) · `-T`(GNU) — 둘 다 "링크가 가리키는 디렉터리 안으로 옮기지 말라"
+  mv -fh "$link.$$" "$link" 2>/dev/null || mv -fT "$link.$$" "$link" 2>/dev/null || rm -f "$link.$$"
+}
+
 if [ -x "$bin" ]; then
+  if [ "$is_session_start" = 1 ]; then link_current; fi
   exec "$bin" "$@"
 fi
 
-is_hook=0
-case "${1:-}" in hook) is_hook=1 ;; esac
-if [ "$is_hook" = 1 ] && [ "${2:-}" != "ensure-daemon" ]; then
+if [ "$is_hook" = 1 ] && [ "$is_session_start" = 0 ]; then
   exit 0
 fi
 
@@ -111,4 +128,5 @@ fi
 
 # 지난 버전 디렉터리는 지우지 않는다 — 설치본 둘(마켓 + 로컬 레포)이 번갈아 뜨는 경우
 # 버전마다 한 번만 받고 끝나게. 정리는 `rm -rf ~/.local/share/rocky` 로 사용자가 한다.
+if [ "$is_session_start" = 1 ]; then link_current; fi
 exec "$bin" "$@"

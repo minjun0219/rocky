@@ -1,6 +1,6 @@
 # opencode 에서 rocky 쓰기
 
-rocky 의 전체 MCP 도구를 opencode 에서 쓰는 방법. `src/index.ts` 는 이미 host-agnostic stdio MCP 서버라 opencode 에서도 Claude Code plugin 과 같은 프로세스(`bun run <repo>/src/index.ts`)를 그대로 띄우면 된다.
+rocky 의 worklog MCP 를 opencode 에서 쓰는 방법. worklog 는 CLI 의 stdio MCP 서버(`rocky mcp worklog`)라 Claude Code 플러그인과 같은 바이너리를 그대로 띄우면 된다.
 
 ## 등록
 
@@ -12,7 +12,7 @@ opencode 설정 파일 `opencode.json` 의 `mcp` 섹션에 local stdio 서버로
   "mcp": {
     "rocky": {
       "type": "local",
-      "command": ["/abs/path/to/rocky/target/release/rocky", "mcp", "worklog"],
+      "command": ["/Users/you/.local/share/rocky/current/rocky", "mcp", "worklog"],
       "enabled": true
     }
   }
@@ -39,7 +39,7 @@ opencode 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도�
 
 ## 주의점
 
-- `/abs/path/to/rocky/target/release/rocky` 는 `cargo build --release` 산출물(또는 플러그인 캐시의 `plugin/bin/rocky` 부트스트랩) 경로로 바꾼다.
+- `/Users/you/.local/share/rocky/current/rocky` 의 `/Users/you` 는 자기 홈으로 바꾼다(설정 파일은 `~` 를 풀지 않는다). `current` 는 플러그인 부트스트랩이 SessionStart 마다 받아 둔 최신 버전(`v<version>`)으로 걸어 두는 링크라 **릴리스가 바뀌어도 이 경로는 그대로다** — Claude Code 에서 rocky 세션을 한 번 연 뒤라야 생긴다. 레포에서 직접 빌드한 걸 쓰려면 `<repo>/target/release/rocky`.
 - `cwd` 가 중요하다. `rocky.json` 의 project scope 해석과 worklog 프로젝트별 기본 저장 경로는 MCP 서버 프로세스의 `cwd` 기준이다. opencode 는 실행 디렉터리 기준으로 서버를 spawn 하므로 프로젝트별로 동작한다.
 - 경로는 `environment` 로 오버라이드할 수 있다:
 
@@ -49,7 +49,7 @@ opencode 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도�
   "mcp": {
     "rocky": {
       "type": "local",
-      "command": ["/abs/path/to/rocky/target/release/rocky", "mcp", "worklog"],
+      "command": ["/Users/you/.local/share/rocky/current/rocky", "mcp", "worklog"],
       "enabled": true,
       "environment": {
         "ROCKY_WORKLOG_DIR": "..."
