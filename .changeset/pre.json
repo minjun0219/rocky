@@ -1,8 +1,0 @@
-{
-  "mode": "pre",
-  "tag": "next",
-  "initialVersions": {
-    "@minjun0219/rocky": "0.23.0"
-  },
-  "changesets": []
-}
