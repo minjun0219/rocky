@@ -37,12 +37,30 @@ Cloudflare Worker 중계는 **선택지로만** 남긴다(필수 아님). 들어
 
 ## 구조
 
-```
-                 rocky.json todo.inbox[]            bridges/<name>/  (어댑터 = 명령)
-                        │                                    ▲
-   TUI (rocky-tui) ──REST/SSE──▶ rockyd ──argv 실행, stdout JSON──┘
-   /rocky:next · MCP ─REST─────▶  │  GET /api/inbox  (TTL 캐시)
-                                  └─ SQLite (정본)
+```mermaid
+flowchart LR
+  subgraph clients[클라이언트 — 별도 프로세스]
+    tui[rocky-tui]
+    next[/rocky:next · MCP/]
+  end
+  subgraph daemon[rockyd — 정본]
+    api[REST · SSE]
+    inbox[GET /api/inbox<br/>TTL 60s 캐시]
+    db[(SQLite)]
+    api --- db
+    inbox --- api
+  end
+  subgraph bridges[bridges/&lt;name&gt; — 어댑터 = 명령]
+    gt[gtasks]
+    fl[file]
+  end
+  cfg[/rocky.json<br/>todo.inbox[]/]
+  tui -- "REST / SSE" --> api
+  next -- REST --> api
+  cfg -. 등록 .-> inbox
+  inbox -- "argv 실행 → stdout JSON" --> gt
+  inbox -- "argv 실행 → stdout JSON" --> fl
+  gt -. "op read (토큰)" .-> vault[(1Password<br/>Agent Vault)]
 ```
 
 경계 판정 — 내부를 읽지 않고도 무엇을 하는지 알 수 있는가:
