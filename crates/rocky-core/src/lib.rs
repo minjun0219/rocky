@@ -9,6 +9,7 @@ pub mod doing;
 pub mod github;
 pub mod handoff;
 pub mod ids;
+pub mod inbox;
 pub mod local_request;
 pub mod migrations;
 pub mod next;

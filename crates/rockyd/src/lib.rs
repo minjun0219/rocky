@@ -5,6 +5,7 @@
 
 pub mod daemon;
 pub mod github;
+pub mod inbox_exec;
 pub mod mcp;
 pub mod runner;
 pub mod server;

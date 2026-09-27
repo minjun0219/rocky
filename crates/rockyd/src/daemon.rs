@@ -145,6 +145,7 @@ pub async fn run_daemon(
     let store = Arc::new(TodoStore::open(&runtime.dir.join("todo.db"))?);
     let state = build_server(ServerOptions {
         statusline_template: Some(runtime.statusline_template.clone()),
+        inbox_sources: runtime.inbox.clone(),
         ..ServerOptions::new(store)
     });
     let router = build_router(state, ui_dist.as_deref());

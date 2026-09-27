@@ -254,3 +254,59 @@ fn malformed_statusline_is_ignored() {
     let (_dir2, path2) = write_config(r#"{"todo":{"statusline":{"template":123}}}"#);
     assert!(load_todo_config(&path2).statusline_template.is_none());
 }
+
+// ── todo.inbox (수집함 어댑터 등록) ──
+
+#[test]
+fn inbox_sources_parse_and_bad_entries_are_skipped() {
+    let (_dir, path) = write_config(
+        r#"{"todo":{"inbox":[
+          {"name":"gtasks","command":["/bin/gtasks-inbox","--all"],"timeoutMs":5000},
+          {"name":"file","command":["sh","inbox.sh"]},
+          {"name":"Bad Name","command":["x"]},
+          {"name":"nocmd"},
+          {"name":"empty","command":[]},
+          {"name":"mixed","command":["sh",1]},
+          {"name":"zero","command":["x"],"timeoutMs":0},
+          "not an object"
+        ]}}"#,
+    );
+    let config = load_todo_config(&path);
+    assert_eq!(
+        config.inbox,
+        vec![
+            InboxSource {
+                name: "gtasks".into(),
+                command: vec!["/bin/gtasks-inbox".into(), "--all".into()],
+                timeout_ms: Some(5000),
+            },
+            InboxSource {
+                name: "file".into(),
+                command: vec!["sh".into(), "inbox.sh".into()],
+                timeout_ms: None,
+            },
+            // timeoutMs: 0 은 "미설정" 으로 — 항목 자체는 산다.
+            InboxSource {
+                name: "zero".into(),
+                command: vec!["x".into()],
+                timeout_ms: None,
+            },
+        ]
+    );
+}
+
+#[test]
+fn inbox_defaults_empty_and_flows_into_runtime() {
+    let (_dir, path) = write_config(r#"{"todo":{"port":9000}}"#);
+    let config = load_todo_config(&path);
+    assert!(config.inbox.is_empty());
+    let todo = TodoConfig {
+        inbox: vec![InboxSource {
+            name: "a".into(),
+            command: vec!["a".into()],
+            timeout_ms: None,
+        }],
+        ..Default::default()
+    };
+    assert_eq!(resolve_runtime_config(&env(&[]), &todo).inbox, todo.inbox);
+}
