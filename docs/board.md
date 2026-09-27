@@ -445,27 +445,37 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
 포트를 열지 않고, 앞단의 **Cloudflare Access** 가 본인 확인을 한다 — 데몬은 무인증이라 Access 가
 유일한 문이다. 워커 코드는 없다(정본은 여전히 로컬 데몬 하나).
 
-```bash
-brew install cloudflared
-cloudflared tunnel login                       # 브라우저에서 계정·존 선택 → ~/.cloudflared/cert.pem
-cloudflared tunnel create rocky-board          # 터널 UUID + 자격 JSON (~/.cloudflared/<uuid>.json)
-cloudflared tunnel route dns rocky-board board.<도메인>
-```
+**순서가 곧 안전이다 — Access 정책을 먼저, 터널 실행은 마지막에.** 호스트명이 DNS 에 붙은 채 터널을
+먼저 돌리면 Access 가 걸리기 전까지 무인증 보드가 인터넷에 그대로 열린다(중계 헤더 게이트는 이슈
+생성·spawn·claim 만 막는다 — 보드 읽기·쓰기는 그대로 된다).
 
-`~/.cloudflared/config.yml`:
+1. **Access 정책부터** — Cloudflare 대시보드 → Zero Trust → Access → Applications 에 `board.<도메인>` 을
+   Self-hosted 로 등록하고, 정책을 **본인 이메일(OTP) 또는 GitHub 로그인 한 계정**으로 건다. 아직 DNS 도
+   터널도 없으니 이 시점엔 아무것도 노출되지 않는다.
+2. 터널 만들기(아직 실행하지 않는다):
 
-```yaml
-tunnel: <uuid>
-credentials-file: /Users/<me>/.cloudflared/<uuid>.json
-ingress:
-  - hostname: board.<도메인>
-    service: http://127.0.0.1:8636
-  - service: http_status:404
-```
+   ```bash
+   brew install cloudflared
+   cloudflared tunnel login                       # 브라우저에서 계정·존 선택 → ~/.cloudflared/cert.pem
+   cloudflared tunnel create rocky-board          # 터널 UUID + 자격 JSON (~/.cloudflared/<uuid>.json)
+   ```
 
-`cloudflared tunnel run rocky-board` 로 확인한 뒤 `sudo cloudflared service install` 로 launchd 상주.
-Cloudflare 대시보드 → Zero Trust → Access → Applications 에 `board.<도메인>` 을 Self-hosted 로 등록하고
-정책을 **본인 이메일(OTP) 또는 GitHub 로그인 한 계정**으로 건다. 이게 없으면 보드가 인터넷에 통째로 열린다.
+   `~/.cloudflared/config.yml`:
+
+   ```yaml
+   tunnel: <uuid>
+   credentials-file: /Users/<me>/.cloudflared/<uuid>.json
+   ingress:
+     - hostname: board.<도메인>
+       service: http://127.0.0.1:8636
+     - service: http_status:404
+   ```
+
+3. DNS 를 붙인다 — `cloudflared tunnel route dns rocky-board board.<도메인>`. Access 앱이 1 에서 이미
+   이 호스트명을 덮고 있어야 한다.
+4. **정책 확인 뒤 실행** — `cloudflared tunnel run rocky-board` 로 띄우고, 로그아웃한 브라우저(또는 시크릿
+   창)에서 `https://board.<도메인>` 이 **Access 로그인 화면**으로 떨어지는지 먼저 본다. 보드가 바로 보이면
+   즉시 터널을 내리고(Ctrl-C) 1 로 돌아간다. 확인됐으면 `sudo cloudflared service install` 로 launchd 상주.
 
 - **데몬 쪽 판정** — cloudflared 는 `cf-connecting-ip`·`cf-ray`·`x-forwarded-for` 를, Access 는
   `cf-access-jwt-assertion`·`cf-access-authenticated-user-email` 을 붙인다. 전부 중계 헤더 목록에 있어
