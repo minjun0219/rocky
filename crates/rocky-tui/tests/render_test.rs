@@ -4,9 +4,11 @@
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 use rocky_core::doing::DoingState;
+use rocky_core::inbox::{InboxItem, InboxResponse, InboxSourceResult};
 use rocky_core::refs::TodoView;
 use rocky_core::types::{Board, Section, Todo, TodoLink, TodoPriority, TodoStatus};
-use rocky_tui::app::App;
+use rocky_tui::api::SessionOut;
+use rocky_tui::app::{App, Picker, Tab};
 use rocky_tui::ui;
 
 fn todo(n: i64, title: &str, status: TodoStatus, section: Option<&str>) -> TodoView {
@@ -133,7 +135,89 @@ fn board_screen_shows_tabs_rows_detail_and_help() {
     );
     assert!(has(&out, "↗ PR #143"), "링크");
     assert!(has(&out, "설명 첫 줄"), "설명");
-    assert!(has(&out, "j/k 이동"), "도움말 줄");
+    assert!(
+        has(&out, "j/k 이동") && has(&out, "h 핸드오프"),
+        "도움말 줄"
+    );
+
+    // GitHub 요약과 핸드오프 대기가 상세에 붙는다.
+    app.set_gh(
+        "https://github.com/minjun0219/rocky/pull/143".into(),
+        Some("PR #143 · merged".into()),
+    );
+    app.handoffs = vec![serde_json::json!({"todoId": "id20", "status": "pending"})];
+    terminal.draw(|f| ui::render(f, &app)).unwrap();
+    let out = lines(&terminal);
+    assert!(has(&out, "PR #143 · merged"), "gh 요약");
+    assert!(has(&out, "핸드오프 대기 1"), "핸드오프 표시");
+    assert!(has(&out, "⇢1"), "목록 배지");
+}
+
+#[test]
+fn inbox_tab_and_picker_overlay() {
+    let mut app = App::new("rocky".into());
+    app.tab = Tab::Inbox;
+    app.set_inbox(InboxResponse {
+        sources: vec![
+            InboxSourceResult {
+                name: "gtasks".into(),
+                available: true,
+                reason: None,
+                fetched_at: "t".into(),
+                items: vec![InboxItem {
+                    id: "a".into(),
+                    title: "폰에서 적은 것".into(),
+                    url: Some("https://x/a".into()),
+                    note: Some("본문 메모".into()),
+                    due: Some("2026-10-02".into()),
+                    created_at: None,
+                }],
+            },
+            InboxSourceResult {
+                name: "broken".into(),
+                available: false,
+                reason: Some("exit 1: token expired".into()),
+                fetched_at: "t".into(),
+                items: vec![],
+            },
+        ],
+    });
+    let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+    terminal.draw(|f| ui::render(f, &app)).unwrap();
+    let out = lines(&terminal);
+    assert!(has(&out, "[수집함]"), "탭");
+    assert!(has(&out, "# gtasks (1)"), "소스 머리글");
+    assert!(
+        has(&out, "# broken") && has(&out, "exit 1: token expired"),
+        "실패 소스 사유"
+    );
+    assert!(
+        has(&out, "○ 폰에서 적은 것") && has(&out, "2026-10-02"),
+        "항목"
+    );
+    assert!(has(&out, "p — rocky 보드 백로그로 올린다"), "올리기 안내");
+    assert!(has(&out, "본문 메모"), "메모");
+    assert!(has(&out, "p 보드로 올리기"), "도움말");
+
+    app.tab = Tab::Board;
+    app.picker = Some(Picker {
+        todo_ref: "rocky-9".into(),
+        choices: vec![SessionOut {
+            session_id: "abc".into(),
+            name: "rocky-1e".into(),
+            cwd: "/w/rocky".into(),
+            status: "idle".into(),
+            matched: true,
+        }],
+        selected: 0,
+    });
+    terminal.draw(|f| ui::render(f, &app)).unwrap();
+    let out = lines(&terminal);
+    assert!(has(&out, "rocky-9 를 넘길 세션"), "피커 제목");
+    assert!(
+        has(&out, "* rocky-1e") && has(&out, "/w/rocky"),
+        "피커 후보"
+    );
 }
 
 #[test]

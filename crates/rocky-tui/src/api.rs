@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use rocky_core::inbox::InboxResponse;
 use rocky_core::refs::TodoView;
 use rocky_core::types::{Board, Comment, HistoryEntry, Section};
 use serde::Deserialize;
@@ -10,11 +11,23 @@ use serde::Deserialize;
 pub const ACTOR: &str = "rocky-tui";
 
 const TIMEOUT: Duration = Duration::from_secs(5);
+/// 오래 걸릴 수 있는 라우트 — spawn 은 데몬이 `claude --bg` 를 최장 30초 기다리고, inbox 는 어댑터당
+/// 기본 10초, issue 는 `gh` 호출. 전역 5초로 끊으면 정상 실행이 에러로 보이고 재시도가 409 를 만든다.
+const SLOW_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Clone)]
 pub struct Api {
     pub base_url: String,
     agent: ureq::Agent,
+    slow_agent: ureq::Agent,
+}
+
+fn agent_with(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .build()
+        .into()
 }
 
 /// `GET /api/todos/:ref` 응답.
@@ -27,6 +40,31 @@ pub struct TodoDetail {
     pub comments: Vec<Comment>,
 }
 
+/// `GET /api/sessions` 의 세션 하나 — `AgentSession` + `matched`. core 타입은 Serialize 만이라
+/// 여기서 읽기용으로 다시 정의한다(필요한 필드만).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOut {
+    pub session_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub cwd: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub matched: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionsOut {
+    pub available: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub sessions: Vec<SessionOut>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ErrorBody {
     error: Option<String>,
@@ -34,14 +72,10 @@ struct ErrorBody {
 
 impl Api {
     pub fn new(base_url: impl Into<String>) -> Self {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(TIMEOUT))
-            .http_status_as_error(false)
-            .build()
-            .into();
         Api {
             base_url: base_url.into(),
-            agent,
+            agent: agent_with(TIMEOUT),
+            slow_agent: agent_with(SLOW_TIMEOUT),
         }
     }
 
@@ -70,8 +104,15 @@ impl Api {
     }
 
     pub fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, String> {
-        let response = self
-            .agent
+        self.get_with(&self.agent, path)
+    }
+
+    fn get_with<T: serde::de::DeserializeOwned>(
+        &self,
+        agent: &ureq::Agent,
+        path: &str,
+    ) -> Result<T, String> {
+        let response = agent
             .get(self.url(path))
             .header("x-rocky-actor", ACTOR)
             .call()
@@ -84,8 +125,16 @@ impl Api {
         path: &str,
         body: &serde_json::Value,
     ) -> Result<T, String> {
-        let response = self
-            .agent
+        self.post_with(&self.agent, path, body)
+    }
+
+    fn post_with<T: serde::de::DeserializeOwned>(
+        &self,
+        agent: &ureq::Agent,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<T, String> {
+        let response = agent
             .post(self.url(path))
             .header("x-rocky-actor", ACTOR)
             .header("content-type", "application/json")
@@ -121,6 +170,56 @@ impl Api {
         self.post(
             &format!("/api/todos/{}/status", encode(todo_ref)),
             &serde_json::json!({ "action": action }),
+        )
+    }
+
+    pub fn inbox(&self, refresh: bool) -> Result<InboxResponse, String> {
+        self.get_with(
+            &self.slow_agent,
+            if refresh {
+                "/api/inbox?refresh=true"
+            } else {
+                "/api/inbox"
+            },
+        )
+    }
+
+    pub fn create_todo(&self, body: &serde_json::Value) -> Result<TodoView, String> {
+        self.post("/api/todos", body)
+    }
+
+    pub fn sessions(&self, board: &str) -> Result<SessionsOut, String> {
+        self.get(&format!("/api/sessions?board={}", encode(board)))
+    }
+
+    /// 열린 핸드오프(대기 + 미수락 배달) — 표시용이라 느슨하게 Value 로.
+    pub fn open_handoffs(&self, board: &str) -> Result<Vec<serde_json::Value>, String> {
+        self.get(&format!("/api/handoffs?open=true&board={}", encode(board)))
+    }
+
+    /// 대상 세션을 지정해 넘긴다. 후보 판정은 호출자(TUI)가 데몬과 같은 기준으로 먼저 한다.
+    pub fn handoff(&self, todo_ref: &str, session_id: &str) -> Result<serde_json::Value, String> {
+        self.post(
+            &format!("/api/todos/{}/handoff", encode(todo_ref)),
+            &serde_json::json!({ "sessionId": session_id }),
+        )
+    }
+
+    /// 새 워크트리 세션 — 로컬 전용 라우트(TUI 는 루프백이라 통과). 409(60초 창)·400 은 메시지로.
+    pub fn spawn(&self, todo_ref: &str) -> Result<serde_json::Value, String> {
+        self.post_with(
+            &self.slow_agent,
+            &format!("/api/todos/{}/spawn", encode(todo_ref)),
+            &serde_json::json!({}),
+        )
+    }
+
+    /// GitHub 이슈 생성 — 로컬 전용. 중복이면 409 에 url 이 실려 온다(메시지에 포함).
+    pub fn issue(&self, todo_ref: &str) -> Result<serde_json::Value, String> {
+        self.post_with(
+            &self.slow_agent,
+            &format!("/api/todos/{}/issue", encode(todo_ref)),
+            &serde_json::json!({}),
         )
     }
 }

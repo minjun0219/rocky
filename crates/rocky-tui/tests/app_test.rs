@@ -1,9 +1,15 @@
 //! 순수 상태 — 키 매핑, 섹션 묶기, 선택 유지, 보드 고르기. 터미널·HTTP 없음.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use rocky_core::inbox::{InboxItem, InboxResponse, InboxSourceResult};
 use rocky_core::refs::TodoView;
+use rocky_core::types::TodoLink;
 use rocky_core::types::{Board, Section, Todo, TodoPriority, TodoStatus};
-use rocky_tui::app::{build_rows, key_to_action, pick_board, Action, App, Row};
+use rocky_tui::api::SessionOut;
+use rocky_tui::app::{
+    action_allowed, build_inbox_rows, build_rows, key_to_action, pick_board, promote_body, Action,
+    App, InboxRow, Picker, PickerOutcome, Row, Tab,
+};
 
 fn todo(n: i64, title: &str, section: Option<&str>, position: i64) -> TodoView {
     TodoView {
@@ -74,8 +80,13 @@ fn keys_map_to_actions() {
     );
     assert_eq!(key_to_action(key(KeyCode::Char('j'))), Action::Down);
     assert_eq!(key_to_action(key(KeyCode::Up)), Action::Up);
-    assert_eq!(key_to_action(key(KeyCode::Tab)), Action::NextBoard);
-    assert_eq!(key_to_action(key(KeyCode::BackTab)), Action::PrevBoard);
+    assert_eq!(key_to_action(key(KeyCode::Char(']'))), Action::NextBoard);
+    assert_eq!(key_to_action(key(KeyCode::Char('['))), Action::PrevBoard);
+    assert_eq!(key_to_action(key(KeyCode::Tab)), Action::ToggleTab);
+    assert_eq!(key_to_action(key(KeyCode::Char('p'))), Action::Promote);
+    assert_eq!(key_to_action(key(KeyCode::Char('h'))), Action::Handoff);
+    assert_eq!(key_to_action(key(KeyCode::Char('n'))), Action::Spawn);
+    assert_eq!(key_to_action(key(KeyCode::Char('i'))), Action::Issue);
     assert_eq!(
         key_to_action(key(KeyCode::Char('s'))),
         Action::Status("start")
@@ -231,4 +242,231 @@ fn pick_board_prefers_explicit_then_path_then_key_segment_then_git() {
         ),
         "forses"
     );
+}
+
+fn item(id: &str, title: &str, url: Option<&str>) -> InboxItem {
+    InboxItem {
+        id: id.into(),
+        title: title.into(),
+        url: url.map(str::to_string),
+        note: Some("메모".into()),
+        due: Some("2026-10-01".into()),
+        created_at: None,
+    }
+}
+
+fn inbox() -> InboxResponse {
+    InboxResponse {
+        sources: vec![
+            InboxSourceResult {
+                name: "gtasks".into(),
+                available: true,
+                reason: None,
+                fetched_at: "t".into(),
+                items: vec![item("a", "첫", Some("https://x/a")), item("b", "둘", None)],
+            },
+            InboxSourceResult {
+                name: "broken".into(),
+                available: false,
+                reason: Some("exit 1".into()),
+                fetched_at: "t".into(),
+                items: vec![],
+            },
+            InboxSourceResult {
+                name: "file".into(),
+                available: true,
+                reason: None,
+                fetched_at: "t".into(),
+                items: vec![item("c", "셋", Some("https://x/c"))],
+            },
+        ],
+    }
+}
+
+#[test]
+fn inbox_rows_and_selection_skip_source_headers() {
+    let rows = build_inbox_rows(&inbox());
+    assert_eq!(
+        rows,
+        vec![
+            InboxRow::Source(0),
+            InboxRow::Item(0, 0),
+            InboxRow::Item(0, 1),
+            InboxRow::Source(1),
+            InboxRow::Source(2),
+            InboxRow::Item(2, 0),
+        ]
+    );
+    let mut app = App::new("rocky".into());
+    app.tab = Tab::Inbox;
+    app.set_inbox(inbox());
+    assert_eq!(
+        app.selected_inbox_item().map(|(_, i)| i.id.as_str()),
+        Some("a")
+    );
+    app.move_selection(1);
+    app.move_selection(1); // 머리글 둘을 건너 c
+    assert_eq!(
+        app.selected_inbox_item()
+            .map(|(s, i)| (s.name.as_str(), i.id.as_str())),
+        Some(("file", "c"))
+    );
+    app.move_selection(1); // 끝
+    assert_eq!(
+        app.selected_inbox_item().map(|(_, i)| i.id.as_str()),
+        Some("c")
+    );
+    // refetch 로 순서가 바뀌어도 (소스, id) 로 유지.
+    let mut swapped = inbox();
+    swapped.sources.rotate_left(2);
+    app.set_inbox(swapped);
+    assert_eq!(
+        app.selected_inbox_item().map(|(_, i)| i.id.as_str()),
+        Some("c")
+    );
+}
+
+#[test]
+fn promoted_is_judged_by_board_links_and_url_presence() {
+    let mut app = App::new("rocky".into());
+    let mut t = todo(1, "올라간 것", None, 1);
+    t.todo.links = vec![TodoLink {
+        url: "https://x/a".into(),
+        title: Some("gtasks: 첫".into()),
+    }];
+    app.set_board_data(vec![], vec![t]);
+    assert!(app.is_promoted(&item("a", "첫", Some("https://x/a"))));
+    assert!(!app.is_promoted(&item("c", "셋", Some("https://x/c"))));
+    assert!(!app.is_promoted(&item("b", "둘", None))); // url 없으면 판정 불가
+}
+
+#[test]
+fn promote_body_shape() {
+    let body = promote_body("rocky", "gtasks", &item("a", "첫", Some("https://x/a")));
+    assert_eq!(body["board"], "rocky");
+    assert_eq!(body["title"], "첫");
+    assert_eq!(body["section"], "백로그");
+    assert_eq!(body["description"], "메모");
+    assert_eq!(body["due"], "2026-10-01");
+    assert_eq!(body["links"][0]["url"], "https://x/a");
+    assert_eq!(body["links"][0]["title"], "gtasks: 첫");
+    let bare = promote_body("rocky", "gtasks", &item("b", "둘", None));
+    assert!(bare.get("links").is_none());
+}
+
+#[test]
+fn picker_moves_confirms_and_cancels() {
+    let sess = |id: &str, matched: bool| SessionOut {
+        session_id: id.into(),
+        name: id.into(),
+        cwd: "/w".into(),
+        status: "idle".into(),
+        matched,
+    };
+    let mut picker = Picker {
+        todo_ref: "rocky-1".into(),
+        choices: vec![sess("s1", true), sess("s2", false)],
+        selected: 0,
+    };
+    assert_eq!(
+        picker.handle_key(key(KeyCode::Char('k'))),
+        PickerOutcome::None
+    );
+    assert_eq!(picker.selected, 0);
+    assert_eq!(
+        picker.handle_key(key(KeyCode::Char('j'))),
+        PickerOutcome::None
+    );
+    assert_eq!(
+        picker.handle_key(key(KeyCode::Char('j'))),
+        PickerOutcome::None
+    );
+    assert_eq!(picker.selected, 1); // 끝에서 멈춤
+    assert_eq!(
+        picker.handle_key(key(KeyCode::Enter)),
+        PickerOutcome::Confirm("rocky-1".into(), "s2".into())
+    );
+    assert_eq!(picker.handle_key(key(KeyCode::Esc)), PickerOutcome::Cancel);
+}
+
+#[test]
+fn open_handoffs_are_counted_per_todo() {
+    let mut app = App::new("rocky".into());
+    app.handoffs = vec![
+        serde_json::json!({"todoId": "id1", "status": "pending"}),
+        serde_json::json!({"todoId": "id1", "status": "delivered"}),
+        serde_json::json!({"todoId": "id2", "status": "pending"}),
+    ];
+    assert_eq!(app.open_handoffs_for("id1"), 2);
+    assert_eq!(app.open_handoffs_for("id9"), 0);
+}
+
+#[test]
+fn gh_needed_filters_non_github_pending_and_cached() {
+    let mut app = App::new("rocky".into());
+    let mut t = todo(1, "x", None, 1);
+    t.todo.links = vec![
+        TodoLink {
+            url: "https://github.com/o/r/pull/1".into(),
+            title: None,
+        },
+        TodoLink {
+            url: "https://github.com/o/r/issues/2".into(),
+            title: None,
+        },
+        TodoLink {
+            url: "https://github.com/o/r/blob/main/x.rs".into(),
+            title: None,
+        },
+        TodoLink {
+            url: "https://example.com".into(),
+            title: None,
+        },
+    ];
+    app.set_board_data(vec![], vec![t]);
+    assert_eq!(
+        app.gh_needed(),
+        vec![
+            "https://github.com/o/r/pull/1",
+            "https://github.com/o/r/issues/2"
+        ]
+    );
+    app.gh_pending
+        .insert("https://github.com/o/r/pull/1".into());
+    app.set_gh(
+        "https://github.com/o/r/issues/2".into(),
+        Some("이슈 #2 · open".into()),
+    );
+    assert!(app.gh_needed().is_empty());
+    assert_eq!(
+        app.gh_line("https://github.com/o/r/issues/2"),
+        Some("이슈 #2 · open")
+    );
+}
+
+#[test]
+fn board_only_actions_are_blocked_in_inbox_and_promote_only_there() {
+    for a in [
+        Action::Status("done"),
+        Action::Handoff,
+        Action::Spawn,
+        Action::Issue,
+    ] {
+        assert!(action_allowed(a, Tab::Board), "{a:?}");
+        assert!(!action_allowed(a, Tab::Inbox), "{a:?}");
+    }
+    assert!(action_allowed(Action::Promote, Tab::Inbox));
+    assert!(!action_allowed(Action::Promote, Tab::Board));
+    for a in [
+        Action::Down,
+        Action::Refresh,
+        Action::ToggleTab,
+        Action::NextBoard,
+        Action::Quit,
+    ] {
+        assert!(
+            action_allowed(a, Tab::Inbox) && action_allowed(a, Tab::Board),
+            "{a:?}"
+        );
+    }
 }

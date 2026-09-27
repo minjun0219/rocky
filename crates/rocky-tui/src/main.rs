@@ -8,9 +8,12 @@ use rocky_core::config::{
     env_snapshot, load_todo_config, resolve_runtime_config, user_config_path,
 };
 use rocky_tui::api::Api;
-use rocky_tui::app::{key_to_action, pick_board, Action, App};
+use rocky_tui::app::{
+    action_allowed, key_to_action, pick_board, promote_body, Action, App, Picker, PickerOutcome,
+    Tab,
+};
 use rocky_tui::events::{self, Event};
-use rocky_tui::ui;
+use rocky_tui::{github, ui};
 
 const USAGE: &str =
     "rocky-tui [--board KEY] [--port N]\n  보드를 터미널에 띄워 두고 본다. 보드는 cwd 로 유추한다.";
@@ -74,6 +77,10 @@ fn refetch(app: &mut App, api: &Api) {
             app.notice = Some(error);
         }
     }
+    // 열린 핸드오프 — 실패해도 목록은 그대로(표시만 빠진다).
+    if let Ok(handoffs) = api.open_handoffs(&app.board) {
+        app.handoffs = handoffs;
+    }
     // 상세는 **항상** 다시 — ref 가 같아도 댓글·히스토리는 다른 클라이언트가 바꿨을 수 있다
     // (목록의 comment_count 만 갱신되고 오른쪽 댓글이 오래된 채 남는 걸 막는다).
     if let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) {
@@ -86,6 +93,70 @@ fn refetch(app: &mut App, api: &Api) {
 fn refetch_boards(app: &mut App, api: &Api) {
     if let Ok(boards) = api.boards() {
         app.boards = boards;
+    }
+}
+
+fn refetch_inbox(app: &mut App, api: &Api, refresh: bool) {
+    match api.inbox(refresh) {
+        Ok(inbox) => app.set_inbox(inbox),
+        Err(error) => app.notice = Some(error),
+    }
+}
+
+/// 선택 항목의 GitHub 링크를 백그라운드에서 조회한다 — 화면은 막지 않는다.
+fn schedule_gh(app: &mut App, tx: &mpsc::Sender<Event>) {
+    for url in app.gh_needed() {
+        app.gh_pending.insert(url.clone());
+        github::spawn_fetch(url, tx.clone());
+    }
+}
+
+/// `h` — 후보가 정확히 1개면 바로, 아니면 피커.
+fn start_handoff(app: &mut App, api: &Api) {
+    let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) else {
+        return;
+    };
+    let sessions = match api.sessions(&app.board) {
+        Ok(s) => s,
+        Err(error) => {
+            app.notice = Some(error);
+            return;
+        }
+    };
+    if !sessions.available {
+        app.notice = Some(format!(
+            "세션 목록을 볼 수 없다: {}",
+            sessions.reason.unwrap_or_else(|| "claude CLI 없음".into())
+        ));
+        return;
+    }
+    let matched: Vec<_> = sessions.sessions.iter().filter(|s| s.matched).collect();
+    if matched.len() == 1 {
+        send_handoff(app, api, &todo_ref, &matched[0].session_id.clone());
+        return;
+    }
+    if sessions.sessions.is_empty() {
+        app.notice = Some("실행 중인 세션이 없다 — n 으로 새 세션을 띄운다".into());
+        return;
+    }
+    // 매칭된 세션을 앞에 — 피커의 첫 후보가 가장 그럴듯한 것이 되게.
+    let mut choices = sessions.sessions;
+    choices.sort_by_key(|s| !s.matched);
+    app.picker = Some(Picker {
+        todo_ref,
+        choices,
+        selected: 0,
+    });
+}
+
+/// 성공 안내는 **refetch 뒤에** 넣는다 — 성공한 refetch 가 notice 를 지우기 때문이다.
+fn send_handoff(app: &mut App, api: &Api, todo_ref: &str, session_id: &str) {
+    match api.handoff(todo_ref, session_id) {
+        Ok(_) => {
+            refetch(app, api);
+            app.notice = Some(format!("{todo_ref} → 세션에 넘김 — 다음 턴에 집어간다"));
+        }
+        Err(error) => app.notice = Some(error),
     }
 }
 
@@ -112,7 +183,8 @@ fn main() -> Result<(), String> {
     refetch(&mut app, &api);
 
     let (tx, rx) = mpsc::channel::<Event>();
-    events::spawn(api.base_url.clone(), tx);
+    events::spawn(api.base_url.clone(), tx.clone());
+    schedule_gh(&mut app, &tx);
 
     // ratatui::init 은 tty 가 아니면 패닉한다 — 파이프·CI 에서 부르면 사람이 읽을 한 줄로.
     {
@@ -122,7 +194,7 @@ fn main() -> Result<(), String> {
         }
     }
     let mut terminal = ratatui::init();
-    let result = run(&mut terminal, &mut app, &api, &rx);
+    let result = run(&mut terminal, &mut app, &api, &tx, &rx);
     ratatui::restore();
     result
 }
@@ -131,6 +203,7 @@ fn run(
     terminal: &mut ratatui::DefaultTerminal,
     app: &mut App,
     api: &Api,
+    tx: &mpsc::Sender<Event>,
     rx: &mpsc::Receiver<Event>,
 ) -> Result<(), String> {
     let mut last_retry = Instant::now();
@@ -145,7 +218,23 @@ fn run(
                 if key.kind != event::KeyEventKind::Press {
                     continue;
                 }
-                match key_to_action(key) {
+                // 피커가 열려 있으면 키는 전부 피커 것.
+                if let Some(picker) = app.picker.as_mut() {
+                    match picker.handle_key(key) {
+                        PickerOutcome::None => {}
+                        PickerOutcome::Cancel => app.picker = None,
+                        PickerOutcome::Confirm(todo_ref, session_id) => {
+                            app.picker = None;
+                            send_handoff(app, api, &todo_ref, &session_id);
+                        }
+                    }
+                    continue;
+                }
+                let action = key_to_action(key);
+                if !action_allowed(action, app.tab) {
+                    continue;
+                }
+                match action {
                     Action::None => {}
                     Action::Quit => return Ok(()),
                     Action::Down => app.move_selection(1),
@@ -160,14 +249,79 @@ fn run(
                             refetch(app, api);
                         }
                     }
+                    Action::ToggleTab => {
+                        app.toggle_tab();
+                        if app.tab == Tab::Inbox && app.inbox.is_none() {
+                            refetch_inbox(app, api, false);
+                        }
+                    }
                     Action::Refresh => {
                         refetch_boards(app, api);
                         refetch(app, api);
+                        if app.tab == Tab::Inbox {
+                            refetch_inbox(app, api, true);
+                        }
+                        app.gh.clear();
                     }
                     Action::Status(action) => {
                         if let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) {
                             match api.status(&todo_ref, action) {
                                 Ok(_) => refetch(app, api),
+                                Err(error) => app.notice = Some(error),
+                            }
+                        }
+                    }
+                    Action::Promote => {
+                        if let Some((source, item)) = app.selected_inbox_item() {
+                            if app.is_promoted(item) {
+                                app.notice = Some("이미 올라간 항목이다".into());
+                            } else {
+                                let body = promote_body(&app.board, &source.name, item);
+                                match api.create_todo(&body) {
+                                    Ok(todo) => {
+                                        refetch(app, api);
+                                        app.notice = Some(format!(
+                                            "{} 로 올림: {}",
+                                            todo.r#ref, todo.todo.title
+                                        ));
+                                    }
+                                    Err(error) => app.notice = Some(error),
+                                }
+                            }
+                        }
+                    }
+                    Action::Handoff => start_handoff(app, api),
+                    Action::Spawn => {
+                        if let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) {
+                            match api.spawn(&todo_ref) {
+                                Ok(out) => {
+                                    let reused =
+                                        out.get("reused").and_then(|v| v.as_bool()) == Some(true);
+                                    let path = out
+                                        .get("worktreePath")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let notice = if reused {
+                                        format!("{todo_ref}: 이미 도는 세션에 넘김 ({path})")
+                                    } else {
+                                        format!("{todo_ref}: 새 세션을 띄웠다 ({path})")
+                                    };
+                                    refetch(app, api);
+                                    app.notice = Some(notice);
+                                }
+                                Err(error) => app.notice = Some(error),
+                            }
+                        }
+                    }
+                    Action::Issue => {
+                        if let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) {
+                            match api.issue(&todo_ref) {
+                                Ok(out) => {
+                                    let url = out.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    let notice = format!("이슈 생성: {url}");
+                                    refetch(app, api);
+                                    app.notice = Some(notice);
+                                }
                                 Err(error) => app.notice = Some(error),
                             }
                         }
@@ -179,6 +333,7 @@ fn run(
                         Err(error) => app.notice = Some(error),
                     }
                 }
+                schedule_gh(app, tx);
             }
         }
 
@@ -194,6 +349,7 @@ fn run(
                 }
                 Event::Changed => need_refetch = true,
                 Event::Disconnected => app.connected = false,
+                Event::Gh(url, summary) => app.set_gh(url, summary),
             }
         }
         if need_boards {
@@ -201,6 +357,7 @@ fn run(
         }
         if need_refetch {
             refetch(app, api);
+            schedule_gh(app, tx);
         }
 
         // 데몬이 없으면 주기적으로 다시 두드린다 — SSE 재연결과 별개로 REST 도 회복해야 한다.

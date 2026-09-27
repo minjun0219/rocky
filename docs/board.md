@@ -100,15 +100,24 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 디렉터리**). 레포에서는 `cargo build -p rocky-tui` 뒤 `target/debug/rocky-tui`.
 
 - **보드 고르기** — `--board` > `boards.path` 하위 > key 가 cwd 경로 세그먼트 > git remote 유추
-  (CLI·statusline 과 같은 규약). `Tab`/`Shift-Tab` 으로 보드 전환.
-- **화면** — 왼쪽 섹션별 목록(진행중은 세션 판정까지 글리프로: ● live · ◐ idle · ◌ gone · ◍ unknown),
-  오른쪽 선택 항목 상세(설명·링크·댓글 최근 5개). 아래 줄은 키 안내 또는 마지막 에러.
-- **키** — `j`/`k` 이동 · `s` start · `x` stop · `d` done · `o` reopen · `a` archive · `r` 새로고침 · `q` 종료.
+  (CLI·statusline 과 같은 규약). `[`/`]` 로 보드 전환, `Tab` 으로 보드 ↔ 수집함 탭 전환.
+- **보드 탭** — 왼쪽 섹션별 목록(진행중은 세션 판정까지 글리프로: ● live · ◐ idle · ◌ gone · ◍ unknown,
+  열린 핸드오프는 `⇢N`), 오른쪽 선택 항목 상세(설명·링크·댓글 최근 5개). 링크가 GitHub 이슈·PR 이면
+  옆에 상태 한 줄(`PR #143 · open · CI ✓ · 리뷰 대기`) — TUI 가 `gh pr view`/`gh issue view` 를 백그라운드
+  스레드에서 읽는다(데몬 무관, 5분 캐시, `gh` 없으면 그 줄만 비움).
+- **수집함 탭** — `GET /api/inbox` 를 소스별로 보여준다(실패 소스는 사유와 함께). 이미 보드에 올라간
+  항목(현재 보드 todos 의 `links[].url` 에 같은 url)은 ✓ 올라감. `p` 가 선택 항목을 **백로그 섹션**에
+  `links: [{ url, title: "<소스>: <제목>" }]` 를 달아 올린다(`POST /api/todos`). 외부 앱 쪽은 건드리지 않는다.
+- **키** — `j`/`k` 이동 · `s` start · `x` stop · `d` done · `o` reopen · `a` archive · `h` 핸드오프 ·
+  `n` 새 세션(spawn) · `i` 이슈 생성 · `p` 보드로 올리기(수집함) · `r` 새로고침(수집함에서는 어댑터 다시
+  실행) · `q` 종료.
+- **핸드오프** — `h` 는 `GET /api/sessions?board=` 의 `matched` 후보가 **정확히 1개**면 바로 넘기고,
+  아니면 세션 피커(매칭된 것 먼저, `*` 표시)를 띄운다 — 데몬 라우트의 자동 매칭 기준과 같다. 넘긴 뒤
+  상세에 "핸드오프 대기 N — 세션이 다음 턴에 집어간다". `poke` 는 보내지 않는다(그건 에이전트 표면).
 - **갱신** — `GET /api/events`(SSE)를 별도 스레드가 읽고, 이벤트가 오면 보드를 **refetch** 한다
   (payload 는 보지 않는다 — 계약). 끊기면 1·2·4·8초 백오프로 재연결하고 붙을 때마다 전체 refetch
   (놓친 변경을 그렇게 따라잡는다). 데몬이 없으면 상단에 "데몬 없음" 을 띄우고 3초마다 다시
   두드린다 — **TUI 는 데몬을 띄우지 않는다**(그건 훅·CLI 몫).
-- 수집함 탭·핸드오프·새 세션·GitHub 상태는 다음 조각(스펙 PR 3).
 
 ## MCP 도구 5개 (에이전트)
 

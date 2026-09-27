@@ -9,7 +9,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     /// 스트림이 열렸다(재연결 포함) — 전체 refetch.
     Connected,
@@ -17,6 +17,8 @@ pub enum Event {
     Changed,
     /// 스트림이 끊겼다 — 화면에 경고, 재연결은 이 스레드가 알아서.
     Disconnected,
+    /// GitHub 링크 조회 결과 — (url, 한 줄 요약. None 은 실패).
+    Gh(String, Option<String>),
 }
 
 /// 백오프 단계(초). 마지막 값에서 머문다.
