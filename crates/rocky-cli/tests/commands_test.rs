@@ -65,3 +65,19 @@ fn returns_none_for_messages_that_are_not_that_error() {
 fn returns_none_when_the_prefix_matches_but_the_separator_is_missing() {
     assert!(board_key_from_missing_repo_error("board has no GitHub repo: rocky").is_none());
 }
+
+// ── tui — `--board` 전달 ──
+
+#[test]
+fn tui_args_forward_board_only_when_given() {
+    use rocky_cli::commands::tui_args;
+    let none: Vec<String> = vec![];
+    assert_eq!(tui_args(&none, None), Vec::<String>::new());
+    assert_eq!(tui_args(&none, Some("  ")), Vec::<String>::new());
+    assert_eq!(tui_args(&none, Some("tally")), vec!["--board", "tally"]);
+    let rest = vec!["extra".to_string()];
+    assert_eq!(
+        tui_args(&rest, Some("rocky")),
+        vec!["--board", "rocky", "extra"]
+    );
+}

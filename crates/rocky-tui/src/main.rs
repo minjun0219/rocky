@@ -74,7 +74,9 @@ fn refetch(app: &mut App, api: &Api) {
             app.notice = Some(error);
         }
     }
-    if let Some(todo_ref) = app.detail_needed() {
+    // 상세는 **항상** 다시 — ref 가 같아도 댓글·히스토리는 다른 클라이언트가 바꿨을 수 있다
+    // (목록의 comment_count 만 갱신되고 오른쪽 댓글이 오래된 채 남는 걸 막는다).
+    if let Some(todo_ref) = app.selected_todo().map(|t| t.r#ref.clone()) {
         if let Ok(detail) = api.detail(&todo_ref) {
             app.detail = Some(detail);
         }
