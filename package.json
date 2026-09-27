@@ -1,6 +1,6 @@
 {
   "name": "@minjun0219/rocky",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/. This package only holds the Bun dev tooling (biome, changesets, release scripts) — there is no TypeScript runtime code left.",
   "license": "MIT",
   "author": "Minjun Kim",
