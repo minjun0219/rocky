@@ -78,6 +78,7 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/handoffs` | `?board=&status=&open=true` | `HandoffView[]` | 없는 board 명시 → `[]`. stale/unstarted 판정은 아래 |
 | GET `/api/changes` | `?sinceId=&limit=` | `ChangeFeedEntry[]` | sinceId 음수/비정수 400 |
 | GET `/api/history` | `?entityId=&entity=&limit=` | `HistoryEntry[]` | |
+| GET `/api/inbox` | `?refresh=true` | `{sources: InboxSourceResult[]}` | **포팅 후 추가(0.25)** — TS 판에 없음. 수집함 어댑터 실행, 소스별 60초 캐시. `docs/board.md` "수집함" |
 
 ### 동적 (`:ref` 는 URL 디코드 후 ref 문법 해석)
 

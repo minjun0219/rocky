@@ -311,6 +311,61 @@ MCP `todo_write { id, createIssue: true }`
   를 그대로 따른다.
 - MCP 도구는 늘지 않았다 — spawn 은 사람이 보드에서 누르는 버튼으로만 남는다.
 
+## 수집함 — 외부 투두 앱 읽기 (`todo.inbox` → `GET /api/inbox`)
+
+외부 투두 앱(구글 투두·Todoist·…)은 rocky 와 **동기화하지 않는다.** 별개의 수집함으로 두고,
+rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(링크 자동) 참조만 한다. 설계 근거는
+[`design/specs/2026-09-27-bridges-and-tui-design.md`](./design/specs/2026-09-27-bridges-and-tui-design.md).
+
+읽는 쪽은 **어댑터 = 명령**이다. `rocky.json` 의 `todo.inbox[]` 에 등록하면 데몬이 argv 그대로
+실행해(셸 없음) stdout 의 JSON 을 읽는다. 어댑터 코드는 `bridges/<name>/` 에 두고, 데몬·CLI 는
+이 규약으로만 안다 — 특정 서비스 이름이 `crates/` 에 들어가면 위반이다(`AGENTS.md` Scope).
+
+```json
+{ "todo": { "inbox": [
+  { "name": "gtasks", "command": ["/Users/me/.local/bin/rocky-inbox-gtasks"] },
+  { "name": "file",   "command": ["sh", "/path/to/rocky/bridges/file/inbox.sh", "~/inbox.json"], "timeoutMs": 5000 }
+] } }
+```
+
+| 필드 | 의미 |
+| --- | --- |
+| `name` | `[a-z0-9-]+`. 응답의 소스 키이자, 올린 항목의 링크 제목 접두사(`gtasks: …`) |
+| `command` | argv 배열. env 는 데몬 것을 물려받는다. **토큰은 어댑터가 스스로 읽는다** (`op read` — 홈의 평문 파일 금지) |
+| `timeoutMs` | 기본 10000. 넘기면 죽이고 그 소스만 `available:false` |
+
+**어댑터 규약** — stdin 없음, stdout 에 JSON 하나, exit 0:
+
+```json
+{ "items": [
+  { "id": "MTIz", "title": "보드 TUI 수집함 탭", "url": "https://tasks.google.com/task/MTIz",
+    "note": "평문 본문(옵션)", "due": "2026-10-01", "createdAt": "2026-09-27T01:02:03Z" }
+] }
+```
+
+- `id`·`title` 필수(`id` 는 숫자여도 문자열로 받는다). `url`·`note`·`due`(`YYYY-MM-DD`)·
+  `createdAt`(RFC 3339) 옵션. 형식이 틀리면 **그 소스 전체가 실패**다 — 반쯤 통과시키지 않는다.
+- 완료된 항목은 내지 않는다. 정렬은 어댑터 몫.
+- exit ≠ 0 이면 stderr 첫 줄이 사유가 된다. 참조 구현: [`bridges/file/inbox.sh`](../bridges/file/inbox.sh)
+  (JSON 파일을 그대로 낸다 — 테스트·수동 확인용).
+
+**`GET /api/inbox?refresh=true`** — 소스를 **동시에** 실행하고 소스별 60초 캐시(실패도 캐시된다 —
+죽은 어댑터를 매 요청마다 때리지 않는다). `refresh=true` 는 캐시를 우회한다. 설정된 소스가 없으면
+`{ "sources": [] }`.
+
+```json
+{ "sources": [
+  { "name": "gtasks", "available": true,  "fetchedAt": "…", "items": [ … ] },
+  { "name": "file",   "available": false, "reason": "exit 1: no such file: …", "fetchedAt": "…", "items": [] }
+] }
+```
+
+로컬 전용이 **아니다** — 수집함 내용은 보드 내용과 같은 급이라 `todo.expose` 를 그대로 따른다.
+실행되는 명령은 요청이 아니라 설정에서 오므로 원격 요청으로 임의 명령을 돌릴 길은 없다.
+MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가 생기면 `/rocky:next` 가 REST 로 읽는다.
+보드로 올리는 건 클라이언트(TUI, 후속)가 `POST /api/todos` 에 `links: [{ url, title: "<name>: <title>" }]`
+를 붙여 한다 — 중복 판정도 클라이언트가 현재 보드 todos 의 `links[].url` 로 한다.
+
 ## 노출 범위 (`todo.expose` — 기본 이 머신만)
 
 보드에 **인증이 없으므로** 노출은 전부 opt-in 채널이다. user `rocky.json` 의
@@ -424,8 +479,10 @@ REF 는 id 대신 사람이 읽을 수 있는 참조를 받는다: `rocky-12`(�
 없다** (설치=활성화):
 
 ```json
-{ "todo": { "port": 8636, "dir": "~/.config/rocky/todo" } }
+{ "todo": { "port": 8636, "dir": "~/.config/rocky/todo", "inbox": [] } }
 ```
+
+`inbox` 는 위 "수집함" 절.
 
 | env | 의미 |
 | --- | --- |

@@ -56,6 +56,8 @@ rocky/                          single package — @minjun0219/rocky
 │   ├── commands/ skills/ agents/   slash commands, bundled skills, reviewer subagent
 │   └── scripts/permalink.ts    /rocky:finish uses it — must live inside the plugin to exist after install
 ├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-core · rockyd · rocky-cli
+├── bridges/                    수집함 어댑터 — `todo.inbox[]` 에 등록되는 명령(stdout JSON 규약, docs/board.md "수집함").
+│                                 외부 태스크 서비스 코드는 여기에만. file/ 은 규약의 참조 구현
 ├── crates/                     ★ the daemon, CLI (incl. worklog MCP + hooks) and core (see docs/rewrite/)
 ├── rocky.schema.json           `rocky.json` JSON Schema — lockstep with crates/rocky-core/src/config.rs
 ├── biome.json                  lint / format (excludes .sisyphus, .claude)

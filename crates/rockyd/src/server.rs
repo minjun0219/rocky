@@ -11,10 +11,12 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::response::Response;
+use rocky_core::config::InboxSource;
 use rocky_core::doing::{handoff_phase, is_unstarted, resolve_doing_state, HandoffPhase};
 use rocky_core::handoff::{
     build_handoff_poke, build_handoff_prompt_from, HandoffPokeInput, HandoffPromptInput,
 };
+use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
 use rocky_core::local_request::{
     is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
     NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
@@ -35,6 +37,7 @@ use tokio::sync::broadcast;
 use crate::github::{
     create_issue_for_todo, find_issue_link, is_repo_slug, IssueForTodoError, IssueForTodoOptions,
 };
+use crate::inbox_exec::{cached_inbox, InboxProvider};
 use crate::runner::{default_runner, Runner};
 use crate::sessions_exec::{cached_sessions, uncached_sessions, SessionsProvider};
 use crate::spawnctl::{
@@ -67,6 +70,10 @@ pub struct ServerOptions {
     pub path_exists: Option<PathExists>,
     pub real_path: Option<RealPath>,
     pub recent_spawns: Option<Arc<RecentSpawns>>,
+    /// 수집함 소스(`todo.inbox[]`). `inbox` 주입이 없을 때 기본 조회기가 이걸로 만들어진다.
+    pub inbox_sources: Vec<InboxSource>,
+    /// 수집함 조회기 — 테스트가 fake 를 넣는다.
+    pub inbox: Option<InboxProvider>,
 }
 
 impl ServerOptions {
@@ -82,6 +89,8 @@ impl ServerOptions {
             path_exists: None,
             real_path: None,
             recent_spawns: None,
+            inbox_sources: Vec::new(),
+            inbox: None,
         }
     }
 }
@@ -97,6 +106,7 @@ pub struct ServerState {
     path_exists: PathExists,
     real_path: RealPath,
     recent_spawns: Arc<RecentSpawns>,
+    inbox: InboxProvider,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
     /// 스토어 구독 해제용.
@@ -144,7 +154,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         sessions,
         spawn_sessions,
         statusline_sessions,
-        gh_runner: options.gh_runner.unwrap_or(default_gh),
+        gh_runner: options.gh_runner.unwrap_or(default_gh.clone()),
         spawn: options.spawn.unwrap_or_else(default_spawn_fn),
         path_exists: options
             .path_exists
@@ -155,6 +165,13 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         recent_spawns: options
             .recent_spawns
             .unwrap_or_else(|| Arc::new(RecentSpawns::new(RECENT_SPAWN_TTL))),
+        inbox: options.inbox.unwrap_or_else(|| {
+            cached_inbox(
+                default_gh.clone(),
+                options.inbox_sources,
+                Duration::from_secs(INBOX_CACHE_TTL_SECS),
+            )
+        }),
         events,
         _subscription: subscription,
     })
@@ -478,6 +495,11 @@ async fn dispatch(
     // ── statusline ──
     if *method == Method::GET && path == "/api/statusline" {
         return Ok(statusline_of(state, query).await);
+    }
+
+    // ── inbox (수집함 — 외부 투두 앱 읽기 전용) ──
+    if *method == Method::GET && path == "/api/inbox" {
+        return Ok(ok_json(&(state.inbox)(flag("refresh")).await));
     }
 
     // ── SSE ──

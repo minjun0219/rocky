@@ -36,6 +36,19 @@ pub struct TodoConfig {
     pub expose: Option<ExposeValue>,
     pub watch: Option<bool>,
     pub statusline_template: Option<String>,
+    /// 수집함 어댑터 — 모양이 틀린 항목은 건너뛴다(다른 필드와 같은 fail-open).
+    pub inbox: Vec<InboxSource>,
+}
+
+/// `todo.inbox[]` 항목 — 외부 투두 앱을 읽는 **명령** 하나. 규약은 `crate::inbox`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboxSource {
+    /// `[a-z0-9-]+` — 응답의 소스 이름이자 올린 항목의 링크 제목 접두사.
+    pub name: String,
+    /// argv 배열. 셸을 거치지 않는다.
+    pub command: Vec<String>,
+    /// 기본 `inbox::DEFAULT_INBOX_TIMEOUT_MS`.
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +66,8 @@ pub struct TodoRuntimeConfig {
     pub expose: Vec<ExposeChannel>,
     /// 항상 채워진다(기본값 폴백).
     pub statusline_template: String,
+    /// env 오버라이드 없음 — 설정 파일에서만 온다.
+    pub inbox: Vec<InboxSource>,
 }
 
 /// `~/...` 를 홈으로 확장한다.
@@ -109,7 +124,44 @@ pub fn load_todo_config(config_path: &Path) -> TodoConfig {
     {
         out.statusline_template = Some(template.to_string());
     }
+    if let Some(inbox) = todo.get("inbox").and_then(|v| v.as_array()) {
+        out.inbox = inbox.iter().filter_map(parse_inbox_source).collect();
+    }
     out
+}
+
+/// 소스 이름 규칙 — 보드 key 와 같은 `[a-z0-9-]+`. 링크 제목·응답 키에 그대로 들어간다.
+fn is_inbox_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn parse_inbox_source(value: &serde_json::Value) -> Option<InboxSource> {
+    let obj = value.as_object()?;
+    let name = obj.get("name")?.as_str()?.to_string();
+    if !is_inbox_name(&name) {
+        return None;
+    }
+    let command: Vec<String> = obj
+        .get("command")?
+        .as_array()?
+        .iter()
+        .map(|v| v.as_str().map(str::to_string))
+        .collect::<Option<Vec<_>>>()?;
+    if command.is_empty() {
+        return None;
+    }
+    let timeout_ms = obj
+        .get("timeoutMs")
+        .and_then(|v| v.as_u64())
+        .filter(|ms| *ms > 0);
+    Some(InboxSource {
+        name,
+        command,
+        timeout_ms,
+    })
 }
 
 fn parse_expose_value(value: &serde_json::Value) -> Option<ExposeValue> {
@@ -191,6 +243,7 @@ pub fn resolve_runtime_config(env: &EnvMap, todo: &TodoConfig) -> TodoRuntimeCon
         host: host.to_string(),
         expose,
         statusline_template,
+        inbox: todo.inbox.clone(),
     }
 }
 

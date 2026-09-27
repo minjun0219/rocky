@@ -38,8 +38,39 @@
     },
     "todo": {
       "type": "object",
-      "description": "Board daemon settings (port / dir / expose / watch / statusline). Shape is owned by crates/rocky-core/src/config.rs.",
-      "additionalProperties": true
+      "description": "Board daemon settings (port / dir / expose / watch / statusline / inbox). Shape is owned by crates/rocky-core/src/config.rs.",
+      "additionalProperties": true,
+      "properties": {
+        "inbox": {
+          "type": "array",
+          "description": "수집함 어댑터 — 외부 투두 앱을 읽는 명령. 데몬이 argv 그대로 실행해 stdout 의 `{\"items\":[...]}` 를 읽고 GET /api/inbox 로 합쳐 준다. 동기화 아님(읽기 전용). 규약은 docs/board.md \"수집함\".",
+          "items": {
+            "type": "object",
+            "required": ["name", "command"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$",
+                "description": "소스 이름 — 응답 키이자 올린 항목의 링크 제목 접두사."
+              },
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "argv 배열. 셸을 거치지 않는다. 토큰은 명령이 스스로(예: `op read`) 읽는다."
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "실행 시간 상한(ms). 기본 10000. 넘기면 그 소스만 available:false."
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
