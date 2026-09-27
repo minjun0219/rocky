@@ -1,0 +1,107 @@
+/*
+ * 할 일 한 줄 — 여기 남은 규칙은 유틸리티로 옮기지 **않는** 것들이다:
+ * - .todo-check: appearance 리셋과 ::after 체크마크가 한 몸 — 한 컨트롤을 두
+ *   시스템에 가르지 않는다.
+ * - .todo-ref: TodoItem 과 NoteCard 가 공유 + responsive 의 ::after 히트 확장 대상.
+ * - .chip 가족(.prio-p1~p3 · .chip-due · .chip-link): 여러 컴포넌트가 공유하는 어휘.
+ * - .is-archived / .todo-meta: 상태·responsive 훅.
+ */
+
+.todo-check {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: grid;
+  place-content: center;
+}
+
+.todo-check:checked {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.todo-check:checked::after {
+  content: "✓";
+  font-size: 11px;
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.todo-ref {
+  flex: 0 0 auto;
+  min-width: 3.2em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: pointer;
+}
+
+.todo-ref:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.is-archived {
+  opacity: 0.45;
+}
+
+/* ── chips ──────────────────────────────────────── */
+
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.prio-p1 {
+  color: var(--p1);
+  border-color: var(--p1);
+  /* 긴급만 면을 깐다 — 외곽선뿐인 p2/p3 과 무게가 갈려 스캔에서 먼저 잡힌다.
+     doing-badge 의 8% 틴트와 같은 수법. */
+  background: color-mix(in srgb, var(--p1) 14%, transparent);
+}
+
+.prio-p2 {
+  color: var(--p2);
+  border-color: var(--p2);
+}
+
+.prio-p3 {
+  color: var(--p3);
+  border-color: var(--p3);
+}
+
+.chip-due.is-overdue {
+  color: var(--p1);
+  border-color: var(--p1);
+}
+
+.chip-link {
+  text-decoration: none;
+  color: var(--cool);
+}
+
+.chip-link:hover {
+  border-color: var(--cool);
+}
+
+/* 메타 칩 묶음.
+   넓은 화면에서는 `display: contents` — 칩들이 그대로 `.todo-row` 의 flex 아이템이라
+   래퍼가 생겨도 레이아웃이 바뀌지 않는다. 좁은 화면에서만 실제 박스가 된다
+   (`responsive.css` 의 grid 배치). */
+.todo-meta {
+  display: contents;
+}

@@ -1,0 +1,207 @@
+// 데몬 REST 응답 타입 — Rust `rocky_core::types`/`refs` 의 JSON 모양(camelCase)을 그대로 옮긴 것.
+// 정본은 Rust 쪽이고(`docs/rewrite/contract.md`), 여기는 UI 가 typecheck 에 쓰는 사본이다.
+// 옛 TS 데몬(`src/store.ts` 등)의 선언에서 필요한 것만 모았다.
+
+export type TodoStatus = 'todo' | 'doing' | 'done';
+
+export type TodoPriority = 'p1' | 'p2' | 'p3' | 'p4';
+
+export type StatusAction = 'start' | 'stop' | 'done' | 'reopen' | 'archive' | 'unarchive';
+
+export type HistoryEntity = 'board' | 'section' | 'todo' | 'note';
+
+export interface TodoLink {
+  url: string;
+  title?: string;
+}
+
+export interface Board {
+  id: string;
+  key: string;
+  title: string;
+  /** 이 보드가 무엇인가 — 한 줄 설명. 설정 전에는 undefined. */
+  description?: string;
+  /** `owner/name` — GitHub 이슈 생성 대상. 설정 전에는 undefined. */
+  repo?: string;
+  /** 메인 레포의 절대경로 — 백그라운드 세션을 띄우는 자리. 설정 전에는 undefined. */
+  path?: string;
+  /**
+   * 이 보드가 예전에 쓰던 key 들 — {@link TodoStore.updateBoard} 의 key 변경이 남긴다.
+   * 옛 참조(`gotgan-12`)와 옛 `board` 인자가 계속 이 보드로 풀린다. 없으면 생략된다.
+   */
+  previousKeys?: string[];
+  createdAt: string;
+  archivedAt?: string;
+}
+
+export interface Section {
+  id: string;
+  boardId: string;
+  title: string;
+  position: number;
+  archivedAt?: string;
+}
+
+export interface Todo {
+  id: string;
+  /** 보드별 순번 — 사람이 읽고 부르는 참조(rocky-12). id 와 달리 보드 안에서만 유일하다. */
+  number: number;
+  boardId: string;
+  sectionId?: string;
+  parentId?: string;
+  title: string;
+  description: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  due?: string;
+  labels: string[];
+  links: TodoLink[];
+  doingBy?: string;
+  doingSince?: string;
+  /**
+   * 이 doing 을 들고 있는 Claude Code 세션. 핸드오프로 시작된 작업에만 채워진다 —
+   * `/mcp` 는 stateless 라 도구 호출에 세션 식별자가 없고, 에이전트는 자기 session_id 를
+   * 모른다. 그래서 유일하게 세션을 아는 경로(claim 된 핸드오프)에서 물려받는다.
+   * 이 값이 있으면 `/api/sessions` 와 대조해 "죽은 doing" 을 정확히 판정할 수 있다.
+   */
+  doingSessionId?: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archivedAt?: string;
+}
+
+export interface Note {
+  id: string;
+  /** 보드별 순번 — 사람이 읽고 부르는 참조(rocky-12). id 와 달리 보드 안에서만 유일하다. */
+  number: number;
+  boardId?: string;
+  title: string;
+  content: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+/** todo 한 건에 달리는 댓글 — 에이전트의 진행 보고와 사용자의 답이 같은 타임라인에 쌓인다. */
+export interface Comment {
+  id: string;
+  todoId: string;
+  actor: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export type HandoffStatus = 'pending' | 'delivered' | 'cancelled';
+
+/** 배달 경로 — Stop 훅이 집었나, UserPromptSubmit 훅이 집었나. */
+export type HandoffVia = 'stop' | 'prompt' | 'spawn';
+
+/** 보드에서 실행 중인 Claude Code 세션으로 넘긴 작업 요청 한 건. */
+export interface Handoff {
+  id: string;
+  todoId: string;
+  sessionId: string;
+  /** 표시용 스냅샷 — 세션이 사라지면 sessionId 만으로는 어디로 보냈는지 읽을 수 없다. */
+  sessionName?: string;
+  sessionCwd?: string;
+  note: string;
+  actor: string;
+  status: HandoffStatus;
+  createdAt: string;
+  deliveredAt?: string;
+  deliveredVia?: HandoffVia;
+  /**
+   * 대상 세션이 실제로 착수한 시각 — 그 todo 에 `start`(또는 start 를 건너뛴 `done`)가
+   * 온 순간 `setTodoStatus` 가 찍는다. `delivered` 인데 이게 비어 있으면 "집어갔는데
+   * 아무 일도 안 일어났다"는 뜻이다.
+   */
+  acceptedAt?: string;
+  /** 그 todo 가 `done` 된 시각. */
+  completedAt?: string;
+}
+
+export interface HistoryEntry {
+  id: number;
+  entity: HistoryEntity;
+  entityId: string;
+  actor: string;
+  action: string;
+  changes?: Record<string, [unknown, unknown]>;
+  at: string;
+}
+
+export type DoingState = 'live' | 'idle' | 'gone' | 'unknown';
+
+export type HandoffPhase = 'pending' | 'delivered' | 'accepted' | 'completed' | 'cancelled';
+
+/** 응답 전용 핸드오프 — 저장 모델에 세션 대조로만 알 수 있는 판정을 얹은 형태. */
+export interface HandoffView extends Handoff {
+  phase: HandoffPhase;
+  /** 배달됐는데 그 세션이 아무것도 안 했다 ({@link isUnstarted}). */
+  unstarted: boolean;
+  /** pending 인데 대상 세션이 사라졌다. 큐에는 그대로 남는다 — 표시만 하는 값이다. */
+  stale: boolean;
+}
+
+export interface AgentSession {
+  pid: number;
+  cwd: string;
+  /** 'interactive' | 'background' — CLI 가 주는 값을 그대로 둔다. */
+  kind: string;
+  /**
+   * 짧은 id(8자) — `claude attach/logs/stop/rm` 이 받는 값이자 `sessionId` 의 접두사다.
+   * background 세션에만 붙는다.
+   */
+  id?: string;
+  sessionId: string;
+  /** 사람이 읽는 세션 이름 (예: `eelpout-a3`). */
+  name: string;
+  /** 'idle' | 'busy' — CLI 가 주는 값을 그대로 둔다. */
+  status: string;
+  /**
+   * background 세션의 수명 상태 — 'working' | 'done'. interactive 세션에는 없다.
+   * 없음(undefined)은 "죽지 않았다"로 읽는다 — 살아 있는 interactive 세션이 그 꼴이다.
+   */
+  state?: string;
+  startedAt: number;
+}
+
+export interface SessionsResult {
+  /** 세션 목록을 얻을 수 있었는가. false 면 이 기능 전체가 비활성이다. */
+  available: boolean;
+  sessions: AgentSession[];
+  /** available 이 false 인 이유 — 사용자에게 그대로 보여준다. */
+  reason?: string;
+}
+
+/** 응답 전용 todo — 저장 모델에 사람이 쓰는 참조(ref)와 댓글 집계를 얹은 형태. */
+export interface TodoView extends Todo {
+  /** `rocky-12` — 보드 접두사를 포함한 완전 참조. */
+  ref: string;
+  /** 보관되지 않은 댓글 수 — 목록의 배지용. */
+  commentCount: number;
+  /** 가장 최근 댓글 시각(ISO). 댓글이 없으면 undefined. */
+  lastCommentAt?: string;
+  /**
+   * 이 doing 이 살아 있는가 — `doing` 인 항목에만, 그리고 서버가 세션 목록을 실제로
+   * 조회한 응답에만 붙는다. **부재 = 판정하지 않았다**이며 `unknown` 과 같게 다룬다
+   * (`src/doing.ts` 의 `resolveDoingState` 가 채운다).
+   */
+  doingState?: DoingState;
+}
+
+/** 응답 전용 note. 글로벌 메모는 보드 대신 예약 접두사가 붙어 `note-3` 이 된다. */
+export interface NoteView extends Note {
+  ref: string;
+}
+
+/**
+ * 상세 화면의 히스토리에서 빼는 action — 댓글은 타임라인에 본문째 따로 나오므로 히스토리로
+ * 중복 표시하지 않는다. Rust `rocky_core::types::DETAIL_HISTORY_EXCLUDED` 와 같은 목록.
+ */
+export const DETAIL_HISTORY_EXCLUDED: ReadonlySet<string> = new Set(['comment', 'comment-edit']);

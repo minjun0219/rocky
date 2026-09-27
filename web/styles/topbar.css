@@ -1,0 +1,18 @@
+/*
+ * 상단 바 — 정적 스타일은 TopBar.tsx 의 유틸리티로 옮겼다. 여기 남는 것은
+ * 유틸리티로 표현할 수 없는 것뿐: keyframes 와 상태(.is-on) 종속 애니메이션.
+ */
+
+.is-on .link-pulse {
+  animation: rt-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes rt-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}

@@ -1,0 +1,157 @@
+/*
+ * 디자인 토큰 + 리셋 + 기본 요소. 색 이름이 곧 의미다 — warm=에이전트, cool=사람.
+ */
+
+/*
+ * 다크가 기본이다. `:root` 를 함께 거는 이유: index.html 의 인라인 스크립트가 어떤
+ * 이유로든(스크립트 차단 등) 실행되지 못하면 data-theme 이 붙지 않는데, 속성 선택자만
+ * 두면 토큰이 하나도 적용되지 않아 페이지가 무스타일로 뜬다.
+ */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #16110c;
+  --surface: #1f1811;
+  --surface-2: #282017;
+  --line: #382c1f;
+  --text: #e9dfd2;
+  --muted: #9c8d7c;
+  --faint: #6b5f51;
+  --warm: #e8a33d; /* 에이전트 / 에리디언 */
+  --warm-dim: #8a6526;
+  --cool: #7ec8d8; /* 사람 / 지구 */
+  --cool-dim: #47707a;
+  --p1: #e2634f;
+  --p2: #e8a33d;
+  --p3: #c8b45a;
+  --ok: #86b06c;
+  --handoff: #93c5fd; /* 핸드오프 — "보냈다"(파랑), doing 앰버(--warm)와 구분 */
+  --handoff-dim: #1e3a5f;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
+}
+
+/*
+ * Tailwind 유틸리티 ↔ 토큰 다리. `inline` 이라 유틸리티가 `var(--warm)` 참조로 나와
+ * 토큰 값이 단일 출처로 남는다 — 위 `:root` 값을 바꾸면 유틸리티도 따라온다.
+ * `text-warm` / `bg-surface` / `border-line` / `font-mono` 처럼 **의미 이름 그대로** 쓴다.
+ * `text-amber-400` 같은 원색 팔레트는 이 프로젝트에서 금지 — 색 이름이 곧 의미다.
+ */
+@theme inline {
+  --color-*: initial; /* 기본 팔레트(red-500 등) 비활성 — 의미 토큰만 남긴다 */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-warm: var(--warm);
+  --color-warm-dim: var(--warm-dim);
+  --color-cool: var(--cool);
+  --color-cool-dim: var(--cool-dim);
+  --color-p1: var(--p1);
+  --color-p2: var(--p2);
+  --color-p3: var(--p3);
+  --color-ok: var(--ok);
+  --color-handoff: var(--handoff);
+  --color-handoff-dim: var(--handoff-dim);
+  --font-mono: var(--mono);
+  --font-sans: var(--sans);
+}
+
+/*
+ * 라이트 — 배경이 순백이 아니라 웜 아이보리다. 순백 위에서는 앰버가 탁해져
+ * "두 대기"(warm=에이전트 / cool=사람)의 온도 대비가 죽는다. 값은 닫힌 라이트 모드
+ * 브랜치에서 대비 튜닝을 마친 팔레트를 그대로 가져왔다.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #faf6f0;
+  --surface: #ffffff;
+  --surface-2: #f2ebe1;
+  --line: #d6cab9;
+  --text: #241c14;
+  --muted: #6b5c4a;
+  --faint: #756753;
+  --warm: #6b4600;
+  --warm-dim: #8b6019;
+  --cool: #195564;
+  --cool-dim: #52828d;
+  --p1: #b3311c;
+  --p2: #6b4600;
+  --p3: #6f6215;
+  --ok: #3f6b26;
+  --handoff: #1f5aa8;
+  --handoff-dim: #d3e4fb;
+}
+
+/*
+ * 요소 리셋은 **@layer base** 다 — unlayered 로 두면 어떤 레이어보다도 우선해서,
+ * `@layer utilities` 의 Tailwind 유틸리티가 버튼·인풋 위에서 조용히 전멸한다
+ * (`button { padding: 0 }` 이 `px-2.5` 를 이기는 식 — 특이도 무관, 실측).
+ * base 는 선언 순서상 utilities 아래라 유틸리티가 이기고, 파티션 CSS(unlayered)는
+ * 여전히 모두를 이긴다 — 이관 중 기존 화면이 안 흔들리는 이유다.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--warm);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* 상호작용 요소 공통 전이 — 호버/포커스가 뚝뚝 끊기지 않게. 색·배경·테두리만 걸고
+   레이아웃 속성(폭·높이)은 걸지 않는다. reduced-motion 은 responsive.css 가 처리. */
+a,
+button,
+input,
+.todo-row,
+.board-item,
+.chip {
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}

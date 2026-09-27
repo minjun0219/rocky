@@ -17,5 +17,5 @@
     "noImplicitOverride": true,
     "useUnknownInCatchVariables": true
   },
-  "include": ["scripts/**/*.ts", "plugin/scripts/**/*.ts"]
+  "include": ["scripts/**/*.ts", "plugin/scripts/**/*.ts", "web/**/*.ts", "web/**/*.tsx"]
 }

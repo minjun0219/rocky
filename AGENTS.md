@@ -18,8 +18,8 @@ repo (hail-mary D-046, 2026-09-22); the merge kept both histories.
 
 - **Daemon `rockyd`** (`crates/rockyd`) — system-wide single instance on `127.0.0.1:8636`,
   SQLite at `~/.config/rocky/todo/`. Serves the board REST + SSE and a streamable HTTP MCP with
-  `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. **No web UI in this repo**
-  — the React/Tauri UI stayed in rocky-todo's history; a Swift or TUI app comes later.
+  `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`, and the **web UI**
+  (`web/`, built to `dist/` at release and served at `/` from the sibling `dist/` of the binary).
 - **CLI `rocky`** (`crates/rocky-cli`) — thin HTTP client + the three hook entries
   (`hook ensure-daemon` / `notify-todo` / `handoff-stop`). `bin/rocky` is a sh bootstrap that
   downloads the release tarball for the plugin's version and execs the binary.
@@ -31,8 +31,10 @@ repo (hail-mary D-046, 2026-09-22); the merge kept both histories.
   4 `worklog_*` tools, per project. It lives in the CLI, not the daemon, because the worklog is keyed
   by the caller's repo root and the daemon cannot see the caller's cwd; a plugin stdio server is spawned
   in the session's project directory. `hook log-turn` (Stop) appends the turn from the same crate.
-- **No TypeScript runtime code.** `package.json` only carries dev tooling (biome, changesets, the
-  release / bootstrap / permalink scripts under `scripts/` and `plugin/scripts/`).
+- **No TypeScript server code.** `package.json` carries dev tooling (biome, changesets, the
+  release / bootstrap / permalink scripts under `scripts/` and `plugin/scripts/`) and the **browser
+  bundle build** for `web/` (React + zustand + Tailwind v4, `bun run build:ui` → `dist/`). Everything
+  that runs on the machine is Rust; the UI is a static bundle the daemon serves.
 
 > **v0.23 removed** `openapi_*` (7), `seo_validate`, `notion_*` (4) and the `openapi-mcp` standalone
 > CLI. A count over 39 repos / 5,216 logged turns found zero calls. They live in git history only —
@@ -60,6 +62,8 @@ rocky/                          single package — @minjun0219/rocky
 │   ├── commands/ skills/ agents/   slash commands, bundled skills, reviewer subagent
 │   └── scripts/permalink.ts    /rocky:finish uses it — must live inside the plugin to exist after install
 ├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-core · rockyd · rocky-cli · rocky-tui
+├── web/                        ★ 보드 웹 UI (React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/ (gitignore).
+│                                 데몬이 실행 파일 옆 dist/ 를 `/` 에 서빙. types.ts 는 Rust 응답 타입의 사본
 ├── bridges/                    수집함 어댑터 — `todo.inbox[]` 에 등록되는 명령(stdout JSON 규약, docs/board.md "수집함").
 │                                 외부 태스크 서비스 코드는 여기에만. file/ 은 규약의 참조 구현
 ├── crates/                     ★ the daemon, CLI (incl. worklog MCP + hooks) and core (see docs/rewrite/)
@@ -95,8 +99,10 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
   compression pass, then dropped entirely).
 - `/rocky:codex` and `/rocky:issue` — removed in v0.19. Codex delegation is covered by the official
   `openai/codex-plugin-cc` plugin.
-- The rocky-todo **web UI and Tauri app** (`src/ui/`, `app/`, `DESIGN.md`) — left in rocky-todo's
-  history when the repo was absorbed. The GUI will be Swift or a TUI, decided separately.
+- The rocky-todo **Tauri app** (`app/`, `DESIGN.md`) — left in rocky-todo's history when the repo
+  was absorbed. (The **web UI** was revived on 2026-09-28 by owner request as `web/` — it is a client
+  of the daemon like the TUI, not a runtime; the reason to have it is reaching the board without the
+  tailnet, via Cloudflare Tunnel + Access, which is the next piece.)
 - The TypeScript reference implementation of the daemon (rocky-todo's `src/*.ts`) — the Rust
   crates are the implementation; the contract is `docs/rewrite/contract.md`.
 - **External task-service integration inside the daemon, CLI, hooks, skills, or MCP tools.** The
@@ -123,7 +129,8 @@ bun install         # 의존성 설치
 bun run check       # Biome verify (no write)
 bun run fix         # Biome safe fix + format
 bun run typecheck   # tsc --noEmit
-bun test            # scripts/·plugin/scripts/ 의 *.test.ts
+bun test            # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom)
+bun run build:ui    # web/ → dist/ (데몬이 서빙)
 bunx changeset      # user-facing 변경의 버전 의도 선언 (patch/minor/major)
 
 cargo fmt --all --check                                   # Rust 포맷

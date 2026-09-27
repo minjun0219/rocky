@@ -113,7 +113,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build CLI + daemon
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # 웹 UI — web/ 를 dist/ 로 번들한다. 데몬은 실행 파일 옆 dist/index.html 을 찾아 `/` 에 서빙한다.
+      - name: Build web UI
+        run: bun install --frozen-lockfile && bun run build:ui
+
+      - name: Build CLI + daemon + TUI
         run: cargo build --release --locked -p rocky-cli -p rockyd -p rocky-tui
 
       - name: Package
@@ -127,11 +135,13 @@ jobs:
             exit 1
           fi
           mkdir -p out
-          # tarball = CLI + 데몬 + TUI. 플러그인 부트스트랩(bin/rocky)이 이 레이아웃 그대로 설치한다
-          # (필수 검사는 rocky·rockyd 둘 — rocky-tui 는 `rocky tui` 가 옆에서 찾는다).
+          # tarball = CLI + 데몬 + TUI + 웹 UI(dist/). 플러그인 부트스트랩(bin/rocky)이 이 레이아웃 그대로
+          # 설치한다(필수 검사는 rocky·rockyd 둘 — rocky-tui 는 `rocky tui` 가, dist/ 는 데몬이 옆에서 찾는다).
           # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
+          [ -f dist/index.html ] || { echo "dist/index.html 이 없다 — 웹 UI 빌드가 안 됐다"; exit 1; }
+          cp -R dist target/release/dist
           COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
-            -C target/release rocky rockyd rocky-tui
+            -C target/release rocky rockyd rocky-tui dist
           (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
           ls -la out
 

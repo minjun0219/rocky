@@ -17,7 +17,7 @@ rocky 플러그인의 본체다 — 옛 별도 레포 `rocky-todo` 를 2026-09 �
   (세션을 대조할 수 없을 때만 경과 30분 기준 "오래됨").
 - **삭제 없음** — 모든 엔티티는 아카이브만 된다. 모든 변경은 히스토리(누가/무엇을/언제)로 남는다.
 - 스크래치패드 메모: 보드 소속 or 글로벌, 에이전트/호출자 모두 편집.
-- **웹 UI 는 없다** — rocky-todo 시절의 React UI 는 흡수 때 가져오지 않았다(그쪽 히스토리에 남음). GUI 는 Swift 또는 TUI 로 별도 결정이고, 그때까지 보드는 CLI + MCP + statusline 으로 쓴다.
+- **웹 UI** — rocky-todo 시절의 React UI 를 `web/` 로 되살렸다(2026-09-28). 데몬이 `http://127.0.0.1:8636/` 에 서빙한다. 아래 "웹 UI" 절.
 
 ## 설치 = 활성화
 
@@ -92,6 +92,26 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 를 준다(Codex·opencode 는 [`codex.md`](./codex.md) · [`opencode.md`](./opencode.md)).
 `rocky` 와 `rockyd` 는 **한 디렉터리에** 있어야 한다: CLI 는 옆의 `rockyd` 를 먼저 찾는다. 레포에서 개발할 땐 `cargo build --workspace` 뒤
 `ROCKY_BIN=target/debug/rocky` 로 부트스트랩을 우회한다.
+
+## 웹 UI — 브라우저에서 보드 (`http://127.0.0.1:8636/`)
+
+`web/` 의 React 앱(zustand · Tailwind v4 · Radix Dialog)을 릴리스 때 `bun run build:ui` 로 `dist/` 에
+번들해 tarball 에 넣고, 데몬이 **실행 파일 옆 `dist/index.html`** 을 찾아 `/` 에 서빙한다
+(`ROCKY_TODO_UI_DIST` 로 다른 디렉터리를 줄 수 있다 — 레포에서 개발할 때 `$PWD/dist`). 퍼머링크
+(`/rocky/12`) 새로고침은 SPA fallback 으로 돌아온다.
+
+- **화면** — 왼쪽 보드 목록(+ 새 보드), 가운데 섹션별 항목(체크·순서 이동 핸들·번호 버튼은
+  `/rocky:board rocky-12` 슬래시 커맨드 복사), 오른쪽 메모 레일. 항목을 누르면 상세 드로어 —
+  마크다운 설명, 섹션/보드 이동, 시작·완료·보관, **에이전트에게 보내기**(핸드오프), GitHub 이슈
+  만들기, 새 세션 띄우기, 댓글, 타임라인. 상단은 SSE 연결 표시와 최근 활동 띠(앰버=에이전트,
+  블루=사람), 테마(시스템/밝게/어둡게), 보관됨 표시, actor 이름.
+- **갱신** — SSE(`/api/events`)로 변경이 오면 refetch. 낙관적 갱신 없음(서버가 정본).
+- **로컬 전용 기능**(이슈 생성·새 세션)은 `/api/health` 의 `issueCreateAllowed`/`spawnAllowed` 를
+  보고 버튼 대신 이유를 보여준다 — 강제는 서버가 한다. 테일넷·터널 경유에서는 그 둘이 막힌다.
+- **개발** — `bun run build:ui` 뒤 `ROCKY_TODO_UI_DIST=$PWD/dist cargo run -p rockyd`. 테스트는
+  `bun run test:dom`(happy-dom + testing-library). `web/types.ts` 는 Rust 응답 타입의 사본이라 계약이
+  바뀌면 같이 고친다.
+- 밖에서 닿는 길(테일넷 없이)은 다음 조각 — Cloudflare Tunnel + Access.
 
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 

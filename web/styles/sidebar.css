@@ -1,0 +1,17 @@
+/*
+ * 보드 목록 사이드바 — 정적 스타일은 Sidebar.tsx 의 유틸리티로 옮겼다.
+ * 남는 것: 애니메이션(.doing-dot)과 두 컴포넌트(Sidebar·NotesRail)가 공유하는
+ * .sidebar-label. 900px 아래의 칩 행 전환은 responsive.css.
+ */
+
+.sidebar-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+  padding: 0 10px 6px;
+}
+
+.doing-dot {
+  animation: rt-pulse 2.4s ease-in-out infinite;
+}
