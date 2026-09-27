@@ -1,7 +1,7 @@
 {
   "name": "@minjun0219/rocky",
   "version": "0.25.0",
-  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/. This package only holds the Bun dev tooling (biome, changesets, release scripts) — there is no TypeScript runtime code left.",
+  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/, and the board web UI under web/ (built to dist/ at release, served by the daemon). This package holds the Bun dev tooling and the UI build — there is no TypeScript server code.",
   "license": "MIT",
   "author": "Minjun Kim",
   "homepage": "https://github.com/minjun0219/rocky",
@@ -30,12 +30,15 @@
     "format": "biome format --write .",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
-    "test": "bun test ./scripts ./plugin/scripts ./bridges",
+    "test": "bun run test:unit && bun run test:dom",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "changeset": "bunx changeset",
     "changeset:version": "bunx changeset version && bun scripts/sync-plugin-version.ts",
     "prepare": "husky",
-    "check:changesets": "bun scripts/check-changesets.ts"
+    "check:changesets": "bun scripts/check-changesets.ts",
+    "build:ui": "bun scripts/build-ui.ts",
+    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./bridges ./web",
+    "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web"
   },
   "lint-staged": {
     "*.{ts,json,jsonc,md}": "biome check --write --no-errors-on-unmatched"
@@ -44,10 +47,22 @@
     "@biomejs/biome": "^2.5.3",
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
+    "@happy-dom/global-registrator": "^20.11.1",
     "@minjun0219/biome-config": "2.1.0",
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/bun": "^1.1.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "bun-plugin-tailwind": "^0.1.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
-    "typescript": "^5.4.5"
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.4.5",
+    "zustand": "^5.0.14"
   }
 }

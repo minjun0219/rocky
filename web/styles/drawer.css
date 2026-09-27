@@ -1,0 +1,156 @@
+/*
+ * 상세 드로어.
+ */
+
+/* ── drawer ─────────────────────────────────────── */
+
+/* Radix Portal 구조 — Overlay 와 Content 는 형제다. 스크림은 깔개일 뿐이고
+   드로어는 스스로 자리를 잡는다(fixed). 배경 스크롤 잠금은 Radix 가 한다. */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 7, 4, 0.55);
+  z-index: 10;
+}
+
+.drawer {
+  position: fixed;
+  /* PC 는 **중앙 모달**이다 — 이 상세는 설명·댓글·히스토리까지 있는 문서라, 오른쪽
+     가장자리보다 읽기 자연스러운 중앙이 맞다. 좁은 화면의 바텀시트(아래에서 올라오는
+     카드)와도 "보드 위에 뜨는 카드" 문법이 통일된다. 좁은 화면 배치는 responsive.css. */
+  inset: 0;
+  margin: auto;
+  width: min(680px, 92vw);
+  height: fit-content;
+  max-height: 86vh;
+  z-index: 10;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow-y: auto;
+  /* 긴 URL·코드 스팬이 폭을 넘어도 카드가 가로로 스크롤되지 않게 — 세로만 흐른다. */
+  overflow-x: hidden;
+  /* 드로어 안에서 끝까지 스크롤한 뒤 계속 스와이프하면 스크롤이 밖(backdrop 뒤 document)으로
+     새는 것을 막는다 — 실제로 체이닝을 끊는 건 이 규칙이다. */
+  overscroll-behavior: contain;
+  padding: 20px 28px;
+}
+
+.drawer-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  color: var(--faint);
+  font-size: 14px;
+}
+
+.drawer-close:hover {
+  color: var(--text);
+}
+
+.drawer-ref {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.drawer-ref:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.drawer-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+  opacity: 0.6;
+  margin: 2px 0 10px;
+}
+
+.drawer-chips,
+.drawer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.drawer-section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+  margin: 16px 0 6px;
+}
+
+.drawer-desc {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.drawer-desc-static {
+  cursor: default;
+}
+
+.drawer-desc-empty {
+  color: var(--faint);
+}
+
+.md-line {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.md-line code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.md-line a {
+  color: var(--cool);
+}
+
+.drawer-desc-edit {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--warm-dim);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.drawer-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.drawer-btn:hover {
+  border-color: var(--warm-dim);
+  color: var(--warm);
+}
