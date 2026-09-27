@@ -38,6 +38,8 @@ pub struct TodoConfig {
     pub statusline_template: Option<String>,
     /// 수집함 어댑터 — 모양이 틀린 항목은 건너뛴다(다른 필드와 같은 fail-open).
     pub inbox: Vec<InboxSource>,
+    /// SessionStart 훅이 보드 요약 몇 줄을 세션 컨텍스트에 넣는가. 기본 true.
+    pub session_summary: Option<bool>,
 }
 
 /// `todo.inbox[]` 항목 — 외부 투두 앱을 읽는 **명령** 하나. 규약은 `crate::inbox`.
@@ -126,6 +128,9 @@ pub fn load_todo_config(config_path: &Path) -> TodoConfig {
     }
     if let Some(inbox) = todo.get("inbox").and_then(|v| v.as_array()) {
         out.inbox = inbox.iter().filter_map(parse_inbox_source).collect();
+    }
+    if let Some(flag) = todo.get("sessionSummary").and_then(|v| v.as_bool()) {
+        out.session_summary = Some(flag);
     }
     out
 }

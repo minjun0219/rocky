@@ -38,7 +38,7 @@
     },
     "todo": {
       "type": "object",
-      "description": "Board daemon settings (port / dir / expose / watch / statusline / inbox). Shape is owned by crates/rocky-core/src/config.rs.",
+      "description": "Board daemon settings (port / dir / expose / watch / statusline / inbox / sessionSummary). Shape is owned by crates/rocky-core/src/config.rs.",
       "additionalProperties": true,
       "properties": {
         "inbox": {
@@ -69,6 +69,10 @@
               }
             }
           }
+        },
+        "sessionSummary": {
+          "type": "boolean",
+          "description": "SessionStart 훅이 보드 요약 몇 줄(마감·진행중·핸드오프·수집함)을 세션 컨텍스트에 넣는다. 기본 true. `rocky today` 와 같은 내용."
         }
       }
     }

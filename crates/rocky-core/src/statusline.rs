@@ -21,11 +21,15 @@ pub struct StatuslineData {
     pub stale: i64,
     /// 보드의 전체 doing 수.
     pub doing: i64,
+    /// 보드의 오늘·지난 마감(미완료) 수.
+    pub due: i64,
+    /// 수집함 미올림 수 — 캐시가 없으면 0(statusline 은 모름과 없음을 구분하지 않는다).
+    pub collect: i64,
 }
 
 /// 기본 템플릿 — 세션 앵커 중심.
 pub const DEFAULT_STATUSLINE_TEMPLATE: &str =
-    "[⏺ {mine.ref} {mine.title}][ 💬{mine.comments}][  ✉{inbox}][  ⚠{stale}]";
+    "[⏺ {mine.ref} {mine.title}][ 💬{mine.comments}][  ✉{inbox}][  ⚠{stale}][  ⏰{due}][  📥{collect}]";
 
 /// 제목 절단 길이.
 pub const STATUSLINE_TITLE_MAX: usize = 30;
@@ -81,6 +85,8 @@ fn values_of(data: &StatuslineData, title_max: usize) -> Vec<(&'static str, Stri
         ("inbox", count(data.inbox)),
         ("stale", count(data.stale)),
         ("doing", count(data.doing)),
+        ("due", count(data.due)),
+        ("collect", count(data.collect)),
     ]
 }
 

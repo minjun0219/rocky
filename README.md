@@ -74,7 +74,7 @@ claude plugin install rocky@rocky-marketplace
 | 키 | 내용 |
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
-| `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline` / `inbox`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
+| `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `sessionSummary`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수
 

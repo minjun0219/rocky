@@ -1143,3 +1143,34 @@ pub fn tui_args(rest: &[String], board_flag: Option<&str>) -> Vec<String> {
     args.extend(rest.iter().cloned());
     args
 }
+
+/// `today [--json]` — 보드 요약 몇 줄. SessionStart 훅이 넣는 것과 같은 문자열이라, Claude Code 의
+/// `!` 모드(`! rocky today`)로 LLM 턴 없이 볼 수 있다. 수집함은 어댑터를 실행해(Normal) 캐시를 데운다.
+pub fn cmd_today(ctx: &CliContext, printer: &Printer) -> Result<(), String> {
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let summary: rocky_core::summary::Summary = request(
+        ctx,
+        "GET",
+        &format!("/api/summary?cwd={}", encode_query(&cwd)),
+        None,
+    )?;
+    let raw = serde_json::to_value(&summary).unwrap_or(Value::Null);
+    printer.emit(&raw, || rocky_core::summary::render_summary(&summary));
+    Ok(())
+}
+
+/// 쿼리 값 인코딩 — 경로에 공백·한글이 올 수 있다.
+fn encode_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}

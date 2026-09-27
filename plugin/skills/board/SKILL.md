@@ -29,6 +29,10 @@ claude plugin install rocky@rocky-marketplace
   연결되어 있으면 그것을 쓴다 (rocky 데몬 `rockyd` 의 `/mcp`).
 - MCP 도구가 없으면 CLI 로 폴백: `rocky <cmd>` (Bash). CLI 는 데몬이 죽어 있으면
   자동 기동한다. 레포에서 직접 실행할 땐 `cargo run -p rocky-cli -- <cmd>` 도 동일.
+  `rocky` 가 PATH 에 없으면(옛 세션·헤드리스) 고정 경로 `~/.local/share/rocky/current/rocky`.
+- **현황 한눈에**: `rocky today --json` — 마감 지남·오늘 마감·진행중·핸드오프 대기·수집함
+  미올림 개수와 항목 ≤4. 세션 시작 때 같은 요약이 컨텍스트에 들어오지만, 작업 중 다시 볼 땐
+  이걸 부른다(MCP 에는 요약 도구가 없다 — `todo_list` 로 전부 받는 것보다 싸다).
 - 도구도 CLI 도 없으면 위 "설치 = 활성화" 를 안내하고 멈춘다.
 - 데몬 기동이 실패하면 중단하고 `rocky daemon status` 를 안내. 가짜 진행을 만들지 않는다.
 

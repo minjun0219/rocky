@@ -19,6 +19,8 @@ fn with_mine() -> StatuslineData {
         inbox: 0,
         stale: 0,
         doing: 1,
+        due: 0,
+        collect: 0,
     }
 }
 
@@ -282,4 +284,17 @@ fn multiple_segment_candidates_pick_longest_key() {
         board_key_for_cwd(&bs, Some("/Users/x/rocky/rocky-todo/sub")).as_deref(),
         Some("rocky-todo")
     );
+}
+
+#[test]
+fn due_and_collect_placeholders_render_and_vanish_when_zero() {
+    let data = StatuslineData {
+        due: 2,
+        collect: 3,
+        ..StatuslineData::default()
+    };
+    assert_eq!(render("[⏰{due}][ 📥{collect}]", &data), "⏰2 📥3");
+    assert_eq!(render("[⏰{due}][ 📥{collect}]", &empty()), "");
+    // 기본 템플릿에도 들어 있다.
+    assert_eq!(render(DEFAULT_STATUSLINE_TEMPLATE, &data), "⏰2  📥3");
 }

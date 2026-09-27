@@ -310,3 +310,11 @@ fn inbox_defaults_empty_and_flows_into_runtime() {
     };
     assert_eq!(resolve_runtime_config(&env(&[]), &todo).inbox, todo.inbox);
 }
+
+#[test]
+fn session_summary_flag_parses_and_defaults_to_none() {
+    let (_dir, path) = write_config(r#"{"todo":{"sessionSummary":false}}"#);
+    assert_eq!(load_todo_config(&path).session_summary, Some(false));
+    let (_dir, path) = write_config(r#"{"todo":{"sessionSummary":"no"}}"#);
+    assert_eq!(load_todo_config(&path).session_summary, None);
+}

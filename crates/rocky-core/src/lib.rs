@@ -18,6 +18,7 @@ pub mod refs;
 pub mod sessions;
 pub mod statusline;
 pub mod store;
+pub mod summary;
 pub mod transcript;
 pub mod types;
 pub mod worklog;

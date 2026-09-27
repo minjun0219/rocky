@@ -254,3 +254,119 @@ async fn template_is_configurable() {
         "doing=1 stale=1"
     );
 }
+
+// ── due / collect (보드 마감 · 수집함 미올림) ──
+
+fn today() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+#[tokio::test]
+async fn due_counts_today_and_overdue_but_not_done_or_future() {
+    let f = fx();
+    for (title, due, done) in [
+        ("지난", "2020-01-01", false),
+        ("오늘", today().as_str(), false),
+        ("미래", "2099-01-01", false),
+        ("끝난 지난", "2020-01-01", true),
+    ] {
+        let todo = f
+            .store
+            .create_todo(
+                &CreateTodoInput {
+                    board: "rocky-todo".into(),
+                    title: title.into(),
+                    due: Some(due.into()),
+                    ..Default::default()
+                },
+                "logan",
+            )
+            .unwrap();
+        if done {
+            f.store
+                .set_todo_status(&todo.id, StatusAction::Done, "logan", None)
+                .unwrap();
+        }
+    }
+    let state = statusline_state(&f, Some("[⏰{due}]"));
+    assert_eq!(line_from(&state, "?cwd=/w/rocky-todo").await, "⏰2");
+    // 보드가 안 풀리면 전체 기준 — 같은 2.
+    assert_eq!(line_from(&state, "?cwd=/nowhere").await, "⏰2");
+}
+
+#[tokio::test]
+async fn collect_uses_cached_inbox_only_and_excludes_promoted() {
+    let f = fx();
+    let mut todo_input = CreateTodoInput {
+        board: "rocky-todo".into(),
+        title: "올라간 것".into(),
+        ..Default::default()
+    };
+    todo_input.links = Some(vec![TodoLink {
+        url: "https://x/a".into(),
+        title: None,
+    }]);
+    f.store.create_todo(&todo_input, "logan").unwrap();
+    let inbox = rocky_core::inbox::InboxResponse {
+        sources: vec![rocky_core::inbox::InboxSourceResult {
+            name: "s".into(),
+            available: true,
+            reason: None,
+            fetched_at: "t".into(),
+            items: vec![
+                rocky_core::inbox::InboxItem {
+                    id: "a".into(),
+                    title: "a".into(),
+                    url: Some("https://x/a".into()),
+                    note: None,
+                    due: None,
+                    created_at: None,
+                },
+                rocky_core::inbox::InboxItem {
+                    id: "b".into(),
+                    title: "b".into(),
+                    url: Some("https://x/b".into()),
+                    note: None,
+                    due: None,
+                    created_at: None,
+                },
+            ],
+        }],
+    };
+    let state = rebuild(&f, move |o| {
+        o.sessions = Some(fixed_sessions(fixture_sessions()));
+        o.statusline_template = Some("[📥{collect}]".into());
+        o.inbox = Some(rockyd::inbox_exec::fixed_inbox(inbox));
+    });
+    assert_eq!(line_from(&state, "?cwd=/w/rocky-todo").await, "📥1");
+}
+
+#[tokio::test]
+async fn summary_route_returns_board_counts_and_items() {
+    let f = fx();
+    f.store
+        .create_todo(
+            &CreateTodoInput {
+                board: "rocky-todo".into(),
+                title: "지난 마감".into(),
+                due: Some("2020-01-01".into()),
+                ..Default::default()
+            },
+            "logan",
+        )
+        .unwrap();
+    started_by_session(&f, "sess-1", "진행중 것");
+    let state = statusline_state(&f, None);
+    let (status, body) = get(&state, "/api/summary?cwd=/w/rocky-todo").await;
+    assert_eq!(status, 200);
+    assert_eq!(body["board"], "rocky-todo");
+    assert_eq!(body["overdue"], 1);
+    assert_eq!(body["doing"], 1);
+    // 배달 뒤 start 로 수락됐으니 "대기" 는 0 — 스토어의 open(미완료 배달 포함)과는 다른 판정.
+    assert_eq!(body["handoffsOpen"], 0);
+    assert_eq!(body["items"][0]["kind"], "overdue");
+    assert_eq!(body["items"][1]["kind"], "doing");
+    // 수집함 캐시가 없으면 collect 는 생략(모름).
+    let (_, body) = get(&state, "/api/summary?cwd=/w/rocky-todo&cached=true").await;
+    assert!(body.get("collect").is_none());
+}
