@@ -88,6 +88,9 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr "$NUM" <포인�
 gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ```
 
+**draft 로 만들지 않는다** (`--draft` 금지). 이 레포의 봇 리뷰(Codex / Copilot)는 ready 상태에만
+붙는다 — draft 로 만들었으면 `gh pr ready "$NUM"` 으로 바로 푼다.
+
 - 제목: Conventional Commits 스타일 한국어. 나열·부연으로 늘리지 않는다 — 세부는 본문으로
   (원칙 4).
 - **PR 템플릿이 있으면 템플릿이 우선이다.** 본문을 쓰기 전에 먼저 찾는다.
