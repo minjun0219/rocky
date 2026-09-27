@@ -148,25 +148,32 @@ git push
 ### 5. 상태 리액션
 
 스레드의 **첫 코멘트**에 리액션으로 상태를 남긴다. 이것이 이 커맨드가 GitHub 에 남기는 유일한
-흔적이다 — 코멘트도, resolve 도 하지 않는다. 리액션은 **추가만** 하고 지우지 않는다(👀 위에 👍 가
-얹히는 식 — 마지막 것이 현재 상태다).
+흔적이다 — 코멘트도, resolve 도 하지 않는다. **한 스레드에 리액션은 하나** — 상태를 바꿀 때
+이전 것(👀)은 뗀다. 리액션 하나가 곧 현재 상태다.
 
 | 리액션 | `content` | 언제 |
 | --- | --- | --- |
 | 👀 | `EYES` | 스레드를 읽고 판정에 들어갈 때 — 2단계 시작 시 전부 |
 | 👍 | `THUMBS_UP` | 수정을 **푸시한 뒤**, 또는 무효로 확인했을 때. "호출자가 resolve 해도 되는 상태" |
-| 🚀 | `ROCKET` | 호출자 결정이 필요해 채팅으로 물을 때. 결정 후 수정이 끝나면 👍 를 추가 |
+| 🚀 | `ROCKET` | 호출자 결정이 필요해 채팅으로 물을 때. 결정 후 수정이 끝나면 👍 로 바꾼다 |
 
 ```bash
 # COMMENT_ID = 1단계 수집 결과의 nodes[].comments.nodes[0].id (스레드 id 가 아니다)
-react() { # react <COMMENT_ID> <EYES|THUMBS_UP|ROCKET>
+react() { # react <COMMENT_ID> <EYES|THUMBS_UP|ROCKET> — 이전 상태 리액션을 떼고 새 것을 단다
+  for OLD in EYES THUMBS_UP ROCKET; do
+    [ "$OLD" = "$2" ] && continue
+    gh api graphql -f id="$1" -f content="$OLD" -f query='
+    mutation($id:ID!, $content:ReactionContent!){ removeReaction(input:{subjectId:$id, content:$content}){ reaction{ content } } }
+    ' >/dev/null 2>&1 || true   # 없던 리액션은 에러 — 무시
+  done
   gh api graphql -f id="$1" -f content="$2" -f query='
   mutation($id:ID!, $content:ReactionContent!){ addReaction(input:{subjectId:$id, content:$content}){ reaction{ content } } }
   '
 }
 ```
 
-- 같은 리액션이 이미 달려 있어도 무해하다 — 중복 호출을 신경 쓰지 않는다.
+- 같은 리액션이 이미 달려 있어도 무해하다 — 중복 호출을 신경 쓰지 않는다. `removeReaction` 은
+  **내 계정이 단 것만** 뗀다 — 리뷰어나 사용자가 단 리액션은 건드리지 못한다.
 - 리액션 실패는 치명적이지 않다. 실패한 스레드를 보고에 한 줄로 남기고 계속 진행한다.
 
 ### 6. 처리 보고 (채팅)
@@ -207,7 +214,7 @@ react() { # react <COMMENT_ID> <EYES|THUMBS_UP|ROCKET>
   ```
 
 - **고쳐야 한다 / 어느 방향으로 고칠지 정해졌다** → [즉시 수정] 으로 전환하고 3단계로 돌아가
-  처리한다. 푸시한 뒤 👍 를 추가한다. 고친 뒤에도 스레드는 열어 둔다.
+  처리한다. 푸시한 뒤 🚀 를 👍 로 바꾼다. 고친 뒤에도 스레드는 열어 둔다.
 - **맞는 지적이지만 이 PR 범위 밖이다** → 후속 작업으로 남긴다(보드 항목 / 이슈). 어디로
   옮겼는지 코멘트를 남길지는 사용자가 정한다.
 - **지적이 틀렸다** 로 결정되어 코멘트를 남겼거나 **범위 밖** 으로 옮겼다 → 그 스레드도 👍
