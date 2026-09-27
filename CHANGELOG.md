@@ -1,5 +1,13 @@
 # @minjun0219/rocky
 
+## 0.24.1
+
+### Patch Changes
+
+- [#139](https://github.com/minjun0219/rocky/pull/139) [`a87e907`](https://github.com/minjun0219/rocky/commit/a87e907b2305c4ff189112263aeb51b3a26fecb5) Thanks [@minjun0219](https://github.com/minjun0219)! - 버전 없는 고정 진입점 `~/.local/share/rocky/current/rocky` — SessionStart 훅이 부트스트랩한
+  버전으로 `current` 링크를 걸어 둔다. 플러그인 밖에서 worklog MCP 를 붙이는 설정(`claude -p
+--strict-mcp-config` 배치 잡, Codex, opencode)이 릴리스마다 경로를 고치지 않아도 된다.
+
 ## 0.24.0
 
 ### Minor Changes
