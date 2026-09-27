@@ -111,7 +111,7 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 - **개발** — `bun run build:ui` 뒤 `ROCKY_TODO_UI_DIST=$PWD/dist cargo run -p rockyd`. 테스트는
   `bun run test:dom`(happy-dom + testing-library). `web/types.ts` 는 Rust 응답 타입의 사본이라 계약이
   바뀌면 같이 고친다.
-- 밖에서 닿는 길(테일넷 없이)은 다음 조각 — Cloudflare Tunnel + Access.
+- 밖에서 닿는 길(테일넷 없이)은 아래 "밖에서 닿기 — Cloudflare Tunnel + Access".
 
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 
@@ -437,6 +437,48 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
 MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가 생기면 `/rocky:next` 가 REST 로 읽는다.
 보드로 올리는 건 클라이언트(TUI, 후속)가 `POST /api/todos` 에 `links: [{ url, title: "<name>: <title>" }]`
 를 붙여 한다 — 중복 판정도 클라이언트가 현재 보드 todos 의 `links[].url` 로 한다.
+
+## 밖에서 닿기 — Cloudflare Tunnel + Access (테일넷 없이)
+
+테일넷을 못 쓰는 곳(회사망·다른 사람 기기)에서 웹 UI 에 닿는 길. 데몬은 그대로 127.0.0.1:8636 에
+두고, `cloudflared` 가 **아웃바운드**로 Cloudflare 엣지에 붙어 `board.<도메인>` 으로 노출한다.
+포트를 열지 않고, 앞단의 **Cloudflare Access** 가 본인 확인을 한다 — 데몬은 무인증이라 Access 가
+유일한 문이다. 워커 코드는 없다(정본은 여전히 로컬 데몬 하나).
+
+```bash
+brew install cloudflared
+cloudflared tunnel login                       # 브라우저에서 계정·존 선택 → ~/.cloudflared/cert.pem
+cloudflared tunnel create rocky-board          # 터널 UUID + 자격 JSON (~/.cloudflared/<uuid>.json)
+cloudflared tunnel route dns rocky-board board.<도메인>
+```
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <uuid>
+credentials-file: /Users/<me>/.cloudflared/<uuid>.json
+ingress:
+  - hostname: board.<도메인>
+    service: http://127.0.0.1:8636
+  - service: http_status:404
+```
+
+`cloudflared tunnel run rocky-board` 로 확인한 뒤 `sudo cloudflared service install` 로 launchd 상주.
+Cloudflare 대시보드 → Zero Trust → Access → Applications 에 `board.<도메인>` 을 Self-hosted 로 등록하고
+정책을 **본인 이메일(OTP) 또는 GitHub 로그인 한 계정**으로 건다. 이게 없으면 보드가 인터넷에 통째로 열린다.
+
+- **데몬 쪽 판정** — cloudflared 는 `cf-connecting-ip`·`cf-ray`·`x-forwarded-for` 를, Access 는
+  `cf-access-jwt-assertion`·`cf-access-authenticated-user-email` 을 붙인다. 전부 중계 헤더 목록에 있어
+  터널 경유 요청은 **원격**으로 분류된다 — 이슈 생성·새 세션(spawn)·claim 은 막히고(의도), 나머지
+  보드 기능은 된다. 웹 UI 는 `/api/health` 의 `issueCreateAllowed`/`spawnAllowed` 로 그 버튼을 이유와
+  함께 비활성으로 그린다.
+- **cross-site 가드** — 브라우저는 `https://board.<도메인>` 을 같은 출처로 보므로(`Sec-Fetch-Site:
+  same-origin`) 변경 요청이 막히지 않는다. 데몬이 `Host` 를 보지 않는 이유가 이것이다.
+- **한계** — 맥이 자면 안 보인다(테일넷과 같음). 맥이 자도 보여야 하면 워커 미러(스펙의 "CF Worker
+  중계") 가 다음 단계다. Access 의 JWT 를 데몬이 검증하지는 않는다 — 원본(127.0.0.1)은 터널 말고는
+  닿을 길이 없으니 엣지 검증으로 충분하다고 본다. 터널 자격 파일은 홈에 남는 평문이라 D-030 과
+  같은 취급(600, 백업 제외).
+- `todo.expose` 채널은 건드리지 않는다 — 터널은 데몬 밖 프로세스라 데몬 설정이 필요 없다.
 
 ## 노출 범위 (`todo.expose` — 기본 이 머신만)
 

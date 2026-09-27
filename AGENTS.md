@@ -246,7 +246,7 @@ deterministically, and a per-turn gate would just make every turn slow.
   `rocky_core::local_request::is_local_request` 하나이고, REST(403)와 `/mcp`(도구 에러)가
   같이 쓴다. **peer 주소만으로는 부족하다** — `tailscale serve` 는 tailnet 요청을 루프백으로
   프록시하므로 원격도 `127.0.0.1` 로 보인다. 그래서 루프백 주소 **+ 프록시 헤더 없음**
-  (`x-forwarded-*` / `forwarded` / `tailscale-user-*`)을 함께 본다. 헤더 위조는 요청을 덜
+  (`x-forwarded-*` / `forwarded` / `tailscale-user-*` / `cf-*` — Cloudflare Tunnel·Access)을 함께 본다. 헤더 위조는 요청을 덜
   신뢰하게만 만들 수 있어 우회 수단이 못 된다. peer 주소는 axum 의
   `ConnectInfo<SocketAddr>` 로 넘기고, 안 넘어오면 거부다(fail-closed). `/api/health` 의
   `issueCreateAllowed` 는 UI 가 버튼 대신 이유를 보여주라는 힌트일 뿐 강제는 서버가 한다.

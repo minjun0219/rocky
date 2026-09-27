@@ -153,3 +153,24 @@ fn opaque_and_unparsable_origins_are_rejected() {
     assert!(cross(&headers(&[("origin", "null")])));
     assert!(cross(&headers(&[("origin", "not a url")])));
 }
+
+#[test]
+fn cloudflare_tunnel_and_access_headers_mark_the_request_as_relayed() {
+    // cloudflared 는 루프백으로 프록시한다 — peer 가 127.0.0.1 이어도 cf-* 가 있으면 원격이다.
+    assert!(!local(
+        &headers(&[("cf-connecting-ip", "203.0.113.9")]),
+        Some("127.0.0.1")
+    ));
+    assert!(!local(
+        &headers(&[("cf-ray", "8a1b2c3d4e5f-ICN")]),
+        Some("::1")
+    ));
+    assert!(!local(
+        &headers(&[("cf-access-authenticated-user-email", "me@example.com")]),
+        Some("127.0.0.1")
+    ));
+    assert!(!local(
+        &headers(&[("cf-access-jwt-assertion", "eyJ...")]),
+        Some("127.0.0.1")
+    ));
+}
