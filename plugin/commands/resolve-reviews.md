@@ -58,34 +58,25 @@ git branch --show-current
 
 ### 1. 리뷰 수집
 
-0단계에서 확인한 값을 먼저 변수로 잡는다 (플레이스홀더를 손으로 채우지 않는다).
+스크립트가 페이지네이션·첫 코멘트 id·내 리액션까지 한 번에 모은다 — GraphQL 을 손으로 조립하지
+않는다.
 
 ```bash
-OWNER=$(gh repo view --json owner --jq .owner.login)
-REPO=$(gh repo view --json name --jq .name)
-NUM=$(gh pr view $ARGUMENTS --json number --jq .number)
-
-gh api graphql -f owner="$OWNER" -f repo="$REPO" -F num="$NUM" -f query='
-query($owner:String!, $repo:String!, $num:Int!, $after:String) {
-  repository(owner:$owner, name:$repo) { pullRequest(number:$num) {
-    reviewThreads(first:100, after:$after){
-      pageInfo{ hasNextPage endCursor }
-      nodes{
-        id isResolved isOutdated path line
-        comments(first:50){nodes{id author{login} body diffHunk}}
-      }
-    }
-  }}
-}'
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" list $ARGUMENTS
+# → { pr, head, mergeState, isDraft, me, threads:[{ threadId, commentId, path, line, outdated, author, mine, body }] }
 ```
 
-- 코멘트의 `id` 를 반드시 같이 받는다 — 5단계의 👀 리액션이 **첫 코멘트의 id**(`comments.nodes[0].id`)
-  를 대상으로 하기 때문이다. 스레드 id 와 코멘트 id 는 다른 값이다.
-- **페이지네이션 필수.** `pageInfo.hasNextPage` 가 `true` 면 `-f after="<endCursor>"` 를 붙여 다음
-  페이지를 이어서 조회하고, `false` 가 될 때까지 반복해 전부 모은다. 한 페이지만 보고 판단하면
-  스레드가 100개를 넘는 PR 에서 남은 미해결을 놓친 채 "미해결 0" 으로 오판해 조기 종료한다.
-- `isResolved: false` 인 스레드만 대상으로 삼는다.
-- `isOutdated` 는 참고 정보로만 쓴다 — 자동 제외하지 않는다. 코드가 옮겨졌을 뿐 지적이 유효할
+- 봇 리뷰가 아직 안 붙었으면(`threads` 가 비었고 마지막 푸시 직후) `watch` 로 기다린다 — CI 가
+  끝난 뒤 현재 head 이후에 제출된 봇 리뷰가 생길 때까지(기본 300초) 폴링하고 같은 JSON 을 낸다.
+  `reviewed: false` 로 끝나면 봇이 이 head 를 리뷰하지 않은 것이다(사실을 보고에 적는다).
+
+  ```bash
+  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS --timeout 300
+  ```
+- `commentId` 가 5단계 리액션의 대상이다(**첫 코멘트의 id** — 스레드 id 와 다른 값). `mine` 은 내
+  계정이 단 상태 리액션이라 "이미 처리한 스레드" 를 다시 보지 않게 해 준다.
+- 스크립트는 미해결(`isResolved: false`) 스레드만 낸다.
+- `outdated` 는 참고 정보로만 쓴다 — 자동 제외하지 않는다. 코드가 옮겨졌을 뿐 지적이 유효할
   수 있다.
 - 봇(`copilot-pull-request-reviewer` / `chatgpt-codex-connector`)과 사람 스레드를 모두 모은다.
   **사람 리뷰어의 지적이 봇보다 우선순위가 높다.**
@@ -160,22 +151,13 @@ git push
 | 🚀 | `ROCKET` | 호출자 결정이 필요해 채팅으로 물을 때. 결정 후 수정이 끝나면 👀 로 바꾼다 |
 
 ```bash
-# COMMENT_ID = 1단계 수집 결과의 nodes[].comments.nodes[0].id (스레드 id 가 아니다)
-react() { # react <COMMENT_ID> <EYES|ROCKET> — 이전 상태 리액션을 떼고 새 것을 단다
-  for OLD in EYES ROCKET THUMBS_UP; do   # THUMBS_UP 은 옛 규약(수정 완료)의 잔재 정리용
-    [ "$OLD" = "$2" ] && continue
-    gh api graphql -f id="$1" -f content="$OLD" -f query='
-    mutation($id:ID!, $content:ReactionContent!){ removeReaction(input:{subjectId:$id, content:$content}){ reaction{ content } } }
-    ' >/dev/null 2>&1 || true   # 없던 리액션은 에러 — 무시
-  done
-  gh api graphql -f id="$1" -f content="$2" -f query='
-  mutation($id:ID!, $content:ReactionContent!){ addReaction(input:{subjectId:$id, content:$content}){ reaction{ content } } }
-  '
-}
+# COMMENT_ID = 1단계 list 결과의 threads[].commentId (스레드 id 가 아니다)
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" react "$COMMENT_ID" EYES     # 또는 ROCKET
+# → {"removed":["ROCKET"],"added":"EYES"} — 내 다른 상태 리액션(옛 👍 포함)을 떼고 하나만 남긴다
 ```
 
-- 같은 리액션이 이미 달려 있어도 무해하다 — 중복 호출을 신경 쓰지 않는다. `removeReaction` 은
-  **내 계정이 단 것만** 뗀다 — 리뷰어나 사용자가 단 리액션은 건드리지 못한다.
+- 같은 리액션이 이미 달려 있어도 무해하다(`removed: []`) — 중복 호출을 신경 쓰지 않는다. 떼는 것도
+  **내 계정이 단 것만** — 리뷰어나 사용자가 단 리액션은 건드리지 못한다.
 - 리액션 실패는 치명적이지 않다. 실패한 스레드를 보고에 한 줄로 남기고 계속 진행한다.
 
 ### 6. 처리 보고 (채팅)
