@@ -73,8 +73,10 @@ Cloudflare Worker 중계는 **선택지로만** 남긴다(필수 아님). 들어
 - `timeoutMs`: 기본 10 000. 넘기면 죽이고 그 소스만 `available: false`.
 - `rocky.schema.json` 과 `crates/rocky-core/src/config.rs` 를 lockstep 으로 고친다(체크리스트 5).
 
-**실행** — stdin 없음, 인자는 `command` 그대로. env 는 데몬의 것을 물려준다(토큰은 어댑터가
-자기 방식으로 — keychain, 자기 설정 파일 — 읽는다. 데몬은 모른다).
+**실행** — stdin 없음, 인자는 `command` 그대로. env 는 데몬의 것을 물려준다. **토큰은 어댑터가
+1Password Agent Vault 에서 `op read` 로 읽는다**(hail-mary D-030 — 홈의 평문 토큰 파일은 안 된다).
+데몬은 인증을 모른다. `bridges/` 는 공개 레포에 있으므로 계정 식별자·메일 주소를 코드에 박지
+않는다(D-017) — 어느 계정인지는 `op` 항목 이름을 env 나 인자로 받는다.
 
 **출력** — stdout 에 JSON 하나, exit 0:
 
