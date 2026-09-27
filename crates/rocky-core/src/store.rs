@@ -2438,9 +2438,11 @@ impl TodoStore {
             let conn = self.lock();
             conn.execute_batch("BEGIN")?;
             let result = (|| -> StoreResult<Option<ClaimedHandoff>> {
+                // 보관된 todo 의 pending 은 집지 않는다 — open 목록·요약에서 빠진 요청이 훅에서만
+                // 튀어나와 사용자가 접은 일을 세션이 착수하게 되는 걸 막는다. 해제하면 다시 집힌다.
                 let row = conn
                     .query_row(
-                        "SELECT * FROM handoffs WHERE session_id = ?1 AND status = 'pending' ORDER BY created_at ASC, rowid ASC LIMIT 1",
+                        "SELECT * FROM handoffs WHERE session_id = ?1 AND status = 'pending' AND todo_id IN (SELECT id FROM todos WHERE archived_at IS NULL) ORDER BY created_at ASC, rowid ASC LIMIT 1",
                         params![session_id],
                         handoff_from_row,
                     )
@@ -2458,7 +2460,7 @@ impl TodoStore {
                     return Ok(None);
                 };
                 let remaining: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM handoffs WHERE session_id = ?1 AND status = 'pending'",
+                    "SELECT COUNT(*) FROM handoffs WHERE session_id = ?1 AND status = 'pending' AND todo_id IN (SELECT id FROM todos WHERE archived_at IS NULL)",
                     params![session_id],
                     |r| r.get(0),
                 )?;

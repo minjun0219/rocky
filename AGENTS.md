@@ -303,7 +303,8 @@ deterministically, and a per-turn gate would just make every turn slow.
 - **핸드오프(보드 → 세션)**: 보드에서 todo 를 실행 중인 Claude Code 세션에 넘긴다.
   데몬은 세션에 밀 수 없다 — `handoffs` 큐에 쌓고 세션 훅이 당겨간다. `Stop` 훅이 집으면
   `decision: block` 으로 그 자리에서 착수하고, `UserPromptSubmit` 훅은 턴이 열릴 때 같은
-  큐를 본다. 한 번에 한 건만 배달한다.
+  큐를 본다. 한 번에 한 건만 배달한다. **보관된 todo 의 pending 은 집지 않는다**(`claim_handoff`) —
+  open 목록·요약에서 빠진 요청이 훅에서만 튀어나와 접은 일을 세션이 착수하게 되는 걸 막는다.
   **배달은 턴 경계에서만 일어나므로 idle 세션에는 닿지 않는다** — 턴을 여는 건 handoff 를
   호출한 에이전트 몫이다. `POST /api/todos/:ref/handoff` 는 그래서 `poke: { to, message }`
   (`rocky_core::handoff::build_handoff_poke`)를 함께 돌려주고, 호출자가 그대로 `SendMessage` 로 보내면 그 턴의
