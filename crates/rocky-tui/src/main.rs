@@ -105,10 +105,15 @@ fn refetch_inbox(app: &mut App, api: &Api, refresh: bool) {
 
 /// 선택 항목의 GitHub 링크를 백그라운드에서 조회한다 — 화면은 막지 않는다.
 fn schedule_gh(app: &mut App, tx: &mpsc::Sender<Event>) {
-    for url in app.gh_needed() {
-        app.gh_pending.insert(url.clone());
-        github::spawn_fetch(url, tx.clone());
+    let urls = app.gh_needed();
+    if urls.is_empty() {
+        return;
     }
+    for url in &urls {
+        app.gh_pending.insert(url.clone());
+    }
+    // 링크가 몇 개든 GraphQL 요청 하나 — 프로세스도 요청도 링크 수만큼 뜨지 않는다.
+    github::spawn_fetch_batch(urls, tx.clone());
 }
 
 /// `h` — 후보가 정확히 1개면 바로, 아니면 피커.

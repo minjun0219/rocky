@@ -142,8 +142,9 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
   (CLI·statusline 과 같은 규약). `[`/`]` 로 보드 전환, `Tab` 으로 보드 ↔ 수집함 탭 전환.
 - **보드 탭** — 왼쪽 섹션별 목록(진행중은 세션 판정까지 글리프로: ● live · ◐ idle · ◌ gone · ◍ unknown,
   열린 핸드오프는 `⇢N`), 오른쪽 선택 항목 상세(설명·링크·댓글 최근 5개). 링크가 GitHub 이슈·PR 이면
-  옆에 상태 한 줄(`PR #143 · open · CI ✓ · 리뷰 대기`) — TUI 가 `gh pr view`/`gh issue view` 를 백그라운드
-  스레드에서 읽는다(데몬 무관, 5분 캐시, `gh` 없으면 그 줄만 비움).
+  옆에 상태 한 줄(`PR #143 · open · CI ✓ · 리뷰 대기`) — TUI 가 `gh auth token` 으로 받은 토큰을 메모리에만
+  두고 GitHub GraphQL 에 **링크 전부를 한 요청**으로 묻는다(백그라운드 스레드, 5분 캐시, 토큰 없으면 그
+  줄만 비움). 종류는 URL 이 아니라 API 가 정한다(`/issues/1` 이 PR 이면 PR 로 표시).
 - **수집함 탭** — `GET /api/inbox` 를 소스별로 보여준다(실패 소스는 사유와 함께). 이미 보드에 올라간
   항목(현재 보드 todos 의 `links[].url` 에 같은 url)은 ✓ 올라감. `p` 가 선택 항목을 **백로그 섹션**에
   `links: [{ url, title: "<소스>: <제목>" }]` 를 달아 올린다(`POST /api/todos`). 외부 앱 쪽은 건드리지 않는다.
