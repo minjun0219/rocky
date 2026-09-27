@@ -114,7 +114,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build CLI + daemon
-        run: cargo build --release --locked -p rocky-cli -p rockyd
+        run: cargo build --release --locked -p rocky-cli -p rockyd -p rocky-tui
 
       - name: Package
         id: package
@@ -127,10 +127,11 @@ jobs:
             exit 1
           fi
           mkdir -p out
-          # tarball = CLI + 데몬. 플러그인 부트스트랩(bin/rocky)이 이 레이아웃 그대로 설치한다.
+          # tarball = CLI + 데몬 + TUI. 플러그인 부트스트랩(bin/rocky)이 이 레이아웃 그대로 설치한다
+          # (필수 검사는 rocky·rockyd 둘 — rocky-tui 는 `rocky tui` 가 옆에서 찾는다).
           # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
           COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
-            -C target/release rocky rockyd
+            -C target/release rocky rockyd rocky-tui
           (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
           ls -la out
 

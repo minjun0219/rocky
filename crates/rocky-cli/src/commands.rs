@@ -1113,3 +1113,33 @@ pub fn cmd_tailscale(ctx: &CliContext, rest: &[String]) -> Result<(), String> {
         Some(_) => Err("usage: rocky tailscale on|off|status".into()),
     }
 }
+
+/// `tui [...]` — 옆에 있는 `rocky-tui` 로 프로세스를 교체한다(`daemon run` 이 `rockyd` 를 찾는
+/// 규약과 같다). TUI 의존(ratatui)을 이 바이너리에 링크하지 않으려고 별도 바이너리다.
+pub fn cmd_tui(rest: &[String], board_flag: Option<&str>) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    let binary = crate::client::sibling_binary("rocky-tui");
+    if !binary.is_file() {
+        return Err(format!(
+            "rocky-tui 바이너리가 없다: {} — 릴리스 tarball 에 함께 들어 있다. 레포에서는 `cargo build -p rocky-tui`",
+            binary.display()
+        ));
+    }
+    let error = std::process::Command::new(&binary)
+        .args(tui_args(rest, board_flag))
+        .exec();
+    Err(format!("rocky-tui 를 실행하지 못했다: {error}"))
+}
+
+/// `rocky-tui` 에 넘길 argv. 공통 `parse_flags` 가 `--board K` 를 플래그로 빼 가 `rest` 에 남지
+/// 않으므로, **사용자가 준 경우에만** 다시 붙인다 — 안 줬으면 TUI 가 자기 규약(boards.path 포함)으로
+/// 유추하게 둔다(CLI 의 유추는 git 이름뿐이라 더 좁다).
+pub fn tui_args(rest: &[String], board_flag: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = Vec::with_capacity(rest.len() + 2);
+    if let Some(board) = board_flag.map(str::trim).filter(|b| !b.is_empty()) {
+        args.push("--board".into());
+        args.push(board.into());
+    }
+    args.extend(rest.iter().cloned());
+    args
+}

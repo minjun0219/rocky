@@ -23,6 +23,10 @@ repo (hail-mary D-046, 2026-09-22); the merge kept both histories.
 - **CLI `rocky`** (`crates/rocky-cli`) — thin HTTP client + the three hook entries
   (`hook ensure-daemon` / `notify-todo` / `handoff-stop`). `bin/rocky` is a sh bootstrap that
   downloads the release tarball for the plugin's version and execs the binary.
+- **TUI `rocky-tui`** (`crates/rocky-tui`) — the board in a terminal split: REST/SSE client only,
+  no DB, no adapters. Separate binary so `ratatui`/`crossterm` never link into the hook/CLI binary;
+  `rocky tui` execs the sibling. Pure state and key mapping in `app.rs` (tested without a terminal),
+  rendering in `ui.rs` (tested with `TestBackend`).
 - **worklog stdio MCP server** (`rocky mcp worklog`, `crates/rocky-cli/src/worklog_mcp.rs`) —
   4 `worklog_*` tools, per project. It lives in the CLI, not the daemon, because the worklog is keyed
   by the caller's repo root and the daemon cannot see the caller's cwd; a plugin stdio server is spawned
@@ -55,7 +59,7 @@ rocky/                          single package — @minjun0219/rocky
 │   ├── hooks/hooks.json        SessionStart (ensure-daemon), UserPromptSubmit (notify-todo), Stop (handoff-stop → log-turn)
 │   ├── commands/ skills/ agents/   slash commands, bundled skills, reviewer subagent
 │   └── scripts/permalink.ts    /rocky:finish uses it — must live inside the plugin to exist after install
-├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-core · rockyd · rocky-cli
+├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-core · rockyd · rocky-cli · rocky-tui
 ├── bridges/                    수집함 어댑터 — `todo.inbox[]` 에 등록되는 명령(stdout JSON 규약, docs/board.md "수집함").
 │                                 외부 태스크 서비스 코드는 여기에만. file/ 은 규약의 참조 구현
 ├── crates/                     ★ the daemon, CLI (incl. worklog MCP + hooks) and core (see docs/rewrite/)

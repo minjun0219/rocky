@@ -133,14 +133,19 @@ pub fn stop_daemon(ctx: &CliContext, pid: Option<u32>) -> bool {
 /// 같은 디렉터리에 놓이므로, PATH 에 있는 **다른 버전**을 집는 사고를 막는다. 형제가
 /// 없을 때만 PATH 에 맡긴다.
 pub fn daemon_binary() -> PathBuf {
+    sibling_binary("rockyd")
+}
+
+/// 이 실행 파일 옆의 `name` — 있으면 그 경로, 없으면 PATH 에 맡기는 맨 이름.
+pub fn sibling_binary(name: &str) -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(sibling) = exe.parent().map(|dir| dir.join("rockyd")) {
+        if let Some(sibling) = exe.parent().map(|dir| dir.join(name)) {
             if sibling.is_file() {
                 return sibling;
             }
         }
     }
-    PathBuf::from("rockyd")
+    PathBuf::from(name)
 }
 
 /// 데몬이 안 떠 있으면 detached spawn 하고 health 가 응답할 때까지 (최대 ~5s) 기다린다.

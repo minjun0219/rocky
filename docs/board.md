@@ -93,6 +93,23 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 `rocky` 와 `rockyd` 는 **한 디렉터리에** 있어야 한다: CLI 는 옆의 `rockyd` 를 먼저 찾는다. 레포에서 개발할 땐 `cargo build --workspace` 뒤
 `ROCKY_BIN=target/debug/rocky` 로 부트스트랩을 우회한다.
 
+## TUI — 터미널에 띄워 두는 보드 (`rocky tui`)
+
+브라우저 없이 Claude Code 옆 터미널 분할에 보드를 띄워 둔다. `rocky tui [--board K]` 가 옆에 있는
+`rocky-tui` 바이너리를 실행한다(릴리스 tarball 에 함께 들어 있다 — `rocky`·`rockyd` 와 **한
+디렉터리**). 레포에서는 `cargo build -p rocky-tui` 뒤 `target/debug/rocky-tui`.
+
+- **보드 고르기** — `--board` > `boards.path` 하위 > key 가 cwd 경로 세그먼트 > git remote 유추
+  (CLI·statusline 과 같은 규약). `Tab`/`Shift-Tab` 으로 보드 전환.
+- **화면** — 왼쪽 섹션별 목록(진행중은 세션 판정까지 글리프로: ● live · ◐ idle · ◌ gone · ◍ unknown),
+  오른쪽 선택 항목 상세(설명·링크·댓글 최근 5개). 아래 줄은 키 안내 또는 마지막 에러.
+- **키** — `j`/`k` 이동 · `s` start · `x` stop · `d` done · `o` reopen · `a` archive · `r` 새로고침 · `q` 종료.
+- **갱신** — `GET /api/events`(SSE)를 별도 스레드가 읽고, 이벤트가 오면 보드를 **refetch** 한다
+  (payload 는 보지 않는다 — 계약). 끊기면 1·2·4·8초 백오프로 재연결하고 붙을 때마다 전체 refetch
+  (놓친 변경을 그렇게 따라잡는다). 데몬이 없으면 상단에 "데몬 없음" 을 띄우고 3초마다 다시
+  두드린다 — **TUI 는 데몬을 띄우지 않는다**(그건 훅·CLI 몫).
+- 수집함 탭·핸드오프·새 세션·GitHub 상태는 다음 조각(스펙 PR 3).
+
 ## MCP 도구 5개 (에이전트)
 
 | 도구 | 하는 일 |
@@ -431,6 +448,7 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
 ```
 rocky ls [--board K|--all] [--archived] [--json]
 rocky next [--board K|--all] [--limit N] [--json]   # 착수 후보 랭킹 (다음에 뭘 할까)
+rocky tui [--board K]                              # 보드를 터미널 화면으로 (위 "TUI")
 rocky add "제목" [--section S] [--parent REF] [--desc MD] [--due YYYY-MM-DD]
                      [--priority p1..p4] [--label a,b] [--link URL]
 rocky show|start|stop|done|reopen|archive|unarchive|update REF
