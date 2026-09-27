@@ -82,9 +82,15 @@ rocky daemon uninstall
 
 ## 네이티브 바이너리를 직접 쓰기
 
-CLI 는 따로 받을 필요가 없다 — 플러그인이 받아둔 `~/.local/share/rocky/v<version>/rocky` 를
-PATH 에 두거나 심볼릭 링크하면 된다. `rocky` 와 `rockyd` 는 **한 디렉터리에** 있어야 한다:
-CLI 는 옆의 `rockyd` 를 먼저 찾는다. 레포에서 개발할 땐 `cargo build --workspace` 뒤
+CLI 는 따로 받을 필요가 없다 — 플러그인이 받아둔 바이너리를 쓴다. 경로는
+**`~/.local/share/rocky/current/rocky`** 를 쓴다: `current` 는 SessionStart 훅이 그 세션
+설치본의 버전(`v<version>`)으로 걸어 두는 링크라, 릴리스가 바뀌어도 이 경로는 그대로다.
+PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`.
+플러그인 밖에서 worklog MCP 를 붙일 때도 이 경로다 — 예컨대 `claude -p --strict-mcp-config`
+배치 잡은 플러그인 MCP 가 끊기므로 `--mcp-config` 에
+`{"mcpServers":{"worklog":{"command":"/Users/you/.local/share/rocky/current/rocky","args":["mcp","worklog"]}}}`
+를 준다(Codex·opencode 는 [`codex.md`](./codex.md) · [`opencode.md`](./opencode.md)).
+`rocky` 와 `rockyd` 는 **한 디렉터리에** 있어야 한다: CLI 는 옆의 `rockyd` 를 먼저 찾는다. 레포에서 개발할 땐 `cargo build --workspace` 뒤
 `ROCKY_BIN=target/debug/rocky` 로 부트스트랩을 우회한다.
 
 ## MCP 도구 5개 (에이전트)
