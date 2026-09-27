@@ -1,5 +1,25 @@
 # @minjun0219/rocky
 
+## 0.25.0
+
+### Minor Changes
+
+- [#143](https://github.com/minjun0219/rocky/pull/143) [`17548b1`](https://github.com/minjun0219/rocky/commit/17548b1a9ac43b9cedb9e13b6247d145daee396e) Thanks [@minjun0219](https://github.com/minjun0219)! - 수집함 — 외부 투두 앱을 읽기 전용으로 보드 옆에 띄운다. `rocky.json` 의 `todo.inbox[]` 에
+  어댑터 명령을 등록하면 데몬이 실행해 stdout JSON(`{ "items": [...] }`)을 읽고
+  `GET /api/inbox?refresh=true` 로 소스별로 합쳐 준다(동시 실행, 소스별 60초 캐시, 실패는 그 소스만
+  `available:false`). 동기화가 아니다 — 보드로 올리는 건 클라이언트가 링크를 달아 한다. 참조 구현
+  `bridges/file/inbox.sh`. MCP 도구는 그대로 5개.
+
+- [#146](https://github.com/minjun0219/rocky/pull/146) [`986e27e`](https://github.com/minjun0219/rocky/commit/986e27e033b8448275def46bd5970c779b19ce5d) Thanks [@minjun0219](https://github.com/minjun0219)! - TUI — `rocky tui [--board K]` 가 보드를 터미널 화면으로 띄운다(새 바이너리 `rocky-tui`, 릴리스
+  tarball 동봉). 섹션별 목록 + 선택 항목 상세(설명·링크·댓글), SSE 로 자동 갱신(끊기면 백오프
+  재연결 + 전체 refetch), `s`/`x`/`d`/`o`/`a` 로 상태 변경, `Tab` 으로 보드 전환. 보드는 CLI 와
+  같은 규약으로 cwd 에서 유추한다. 수집함 탭·핸드오프·GitHub 상태는 다음 조각.
+
+- [#147](https://github.com/minjun0219/rocky/pull/147) [`4122c06`](https://github.com/minjun0219/rocky/commit/4122c064191c361be16c6772c871e34801363a40) Thanks [@minjun0219](https://github.com/minjun0219)! - TUI 두 번째 조각 — 수집함 탭(`Tab`, 외부 투두 앱 항목을 `p` 로 보드 백로그에 링크 달아 올리기,
+  이미 올라간 항목은 ✓), 핸드오프(`h`, 후보 1개면 바로·여럿이면 세션 피커) · 새 세션(`n`) ·
+  이슈 생성(`i`), 상세의 GitHub 이슈·PR 상태 한 줄(`gh` 백그라운드 조회, 5분 캐시), 열린 핸드오프
+  표시(`⇢N`). 보드 전환 키는 `Tab` 에서 `[`/`]` 로 옮겼다.
+
 ## 0.24.1
 
 ### Patch Changes
