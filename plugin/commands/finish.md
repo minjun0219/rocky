@@ -88,6 +88,9 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr "$NUM" <포인�
 gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ```
 
+**draft 로 만들지 않는다** (`--draft` 금지). 이 레포의 봇 리뷰(Codex / Copilot)는 ready 상태에만
+붙는다 — draft 로 만들었으면 `gh pr ready "$NUM"` 으로 바로 푼다.
+
 - 제목: Conventional Commits 스타일 한국어. 나열·부연으로 늘리지 않는다 — 세부는 본문으로
   (원칙 4).
 - **PR 템플릿이 있으면 템플릿이 우선이다.** 본문을 쓰기 전에 먼저 찾는다.
@@ -183,7 +186,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ### 7. 마무리 & 다음 단계
 
 - 생성된 PR URL 을 출력한다.
-- 이어서 리뷰 대응까지 맡기려면 `/rocky:resolve-reviews` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람) 중 판단이 필요 없는 건을 고치고, 스레드에는 👀 만 남긴 채 전부 열어 둔 뒤 채팅으로 보고한다(resolve 는 사용자 몫). 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
+- 이어서 리뷰 대응까지 맡기려면 `/rocky:resolve-reviews` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람) 중 판단이 필요 없는 건을 고치고, 스레드에는 리액션(👀/👍/🚀)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고한다(resolve 는 사용자 몫). 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
 
 ## 실패 / 예외 처리
 
