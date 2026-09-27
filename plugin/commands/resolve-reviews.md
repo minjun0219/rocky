@@ -1,5 +1,5 @@
 ---
-description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(👀 확인 중 / 👍 수정 완료 / 🚀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 👍 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 검토받는 건 /rocky:review). 재리뷰를 기다리지 않는다.
+description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(👀 수정 완료 / 🚀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 👀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 검토받는 건 /rocky:review). 재리뷰를 기다리지 않는다.
 argument-hint: "[PR 번호] (생략 시 현재 브랜치의 PR)"
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification
 ---
@@ -24,8 +24,9 @@ diff 를 검토받는 것은 `/rocky:review`, GitHub PR 을 리뷰하는 것은 
 3. **게이트 실패 = 푸시 없음.** `--no-verify` 우회 금지, force push 금지.
 4. **스레드를 건드리지 않는다 — 코멘트도, resolve 도.** GitHub 에 남는 글은 되돌려도 알림이
    이미 갔고 남이 읽는다. 무엇을 고쳤는지는 커밋과 diff 가 말한다. 대신 스레드의 **첫
-   코멘트에 리액션**으로 상태만 표시한다(5단계) — 👀 확인 중, 👍 수정 완료(또는 무효 확인),
-   🚀 호출자 결정 필요. 호출자는 스레드를 열어 보지 않고 리액션만 보고 "다 됐나" 를 안다.
+   코멘트에 리액션**으로 상태만 표시한다(5단계) — 👀 수정 완료(또는 무효 확인), 🚀 호출자
+   결정 필요. "확인 중" 표시는 없다 — 처리가 끝난 것만 표시한다. 호출자는 스레드를 열어 보지
+   않고 리액션만 보고 "다 됐나" 를 안다.
    처리 내역은 채팅으로 보고한다.
    - **에이전트는 사용자 계정으로 쓴다.** `gh` 가 오너 토큰을 쓰므로 코멘트도 resolve 도 전부
      오너 이름으로 남는다 — 밖에서 보면 누가 한 것인지 구분되지 않는다. 그래서 둘을 나누는
@@ -57,34 +58,25 @@ git branch --show-current
 
 ### 1. 리뷰 수집
 
-0단계에서 확인한 값을 먼저 변수로 잡는다 (플레이스홀더를 손으로 채우지 않는다).
+스크립트가 페이지네이션·첫 코멘트 id·내 리액션까지 한 번에 모은다 — GraphQL 을 손으로 조립하지
+않는다.
 
 ```bash
-OWNER=$(gh repo view --json owner --jq .owner.login)
-REPO=$(gh repo view --json name --jq .name)
-NUM=$(gh pr view $ARGUMENTS --json number --jq .number)
-
-gh api graphql -f owner="$OWNER" -f repo="$REPO" -F num="$NUM" -f query='
-query($owner:String!, $repo:String!, $num:Int!, $after:String) {
-  repository(owner:$owner, name:$repo) { pullRequest(number:$num) {
-    reviewThreads(first:100, after:$after){
-      pageInfo{ hasNextPage endCursor }
-      nodes{
-        id isResolved isOutdated path line
-        comments(first:50){nodes{id author{login} body diffHunk}}
-      }
-    }
-  }}
-}'
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" list $ARGUMENTS
+# → { pr, head, mergeState, isDraft, me, threads:[{ threadId, commentId, path, line, outdated, author, mine, body }] }
 ```
 
-- 코멘트의 `id` 를 반드시 같이 받는다 — 5단계의 👀 리액션이 **첫 코멘트의 id**(`comments.nodes[0].id`)
-  를 대상으로 하기 때문이다. 스레드 id 와 코멘트 id 는 다른 값이다.
-- **페이지네이션 필수.** `pageInfo.hasNextPage` 가 `true` 면 `-f after="<endCursor>"` 를 붙여 다음
-  페이지를 이어서 조회하고, `false` 가 될 때까지 반복해 전부 모은다. 한 페이지만 보고 판단하면
-  스레드가 100개를 넘는 PR 에서 남은 미해결을 놓친 채 "미해결 0" 으로 오판해 조기 종료한다.
-- `isResolved: false` 인 스레드만 대상으로 삼는다.
-- `isOutdated` 는 참고 정보로만 쓴다 — 자동 제외하지 않는다. 코드가 옮겨졌을 뿐 지적이 유효할
+- 봇 리뷰가 아직 안 붙었으면(`threads` 가 비었고 마지막 푸시 직후) `watch` 로 기다린다 — CI 가
+  끝난 뒤 현재 head 이후에 제출된 봇 리뷰가 생길 때까지(기본 300초) 폴링하고 같은 JSON 을 낸다.
+  `reviewed: false` 로 끝나면 봇이 이 head 를 리뷰하지 않은 것이다(사실을 보고에 적는다).
+
+  ```bash
+  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS --timeout 300
+  ```
+- `commentId` 가 5단계 리액션의 대상이다(**첫 코멘트의 id** — 스레드 id 와 다른 값). `mine` 은 내
+  계정이 단 상태 리액션이라 "이미 처리한 스레드" 를 다시 보지 않게 해 준다.
+- 스크립트는 미해결(`isResolved: false`) 스레드만 낸다.
+- `outdated` 는 참고 정보로만 쓴다 — 자동 제외하지 않는다. 코드가 옮겨졌을 뿐 지적이 유효할
   수 있다.
 - 봇(`copilot-pull-request-reviewer` / `chatgpt-codex-connector`)과 사람 스레드를 모두 모은다.
   **사람 리뷰어의 지적이 봇보다 우선순위가 높다.**
@@ -98,9 +90,9 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
 
 | 판정 | 조건 | 처리 |
 | --- | --- | --- |
-| **즉시 수정** | 호출자 판단이 필요 없는 명백한 오류 | 👀 → 고치고 푸시 → 👍 (코멘트·resolve 없음) |
-| **무효** | 이미 해결됐거나 대상 코드가 사라짐 | 👍 (코멘트·resolve 없음) |
-| **확인 필요** | 호출자가 확인해야 하는 사항 | 손대지 않고 🚀 + 채팅으로 묻는다. 결정 후 수정이 끝나면 👍 |
+| **즉시 수정** | 호출자 판단이 필요 없는 명백한 오류 | 고치고 푸시 → 👀 (코멘트·resolve 없음) |
+| **무효** | 이미 해결됐거나 대상 코드가 사라짐 | 👀 (코멘트·resolve 없음) |
+| **확인 필요** | 호출자가 확인해야 하는 사항 | 손대지 않고 🚀 + 채팅으로 묻는다. 결정 후 수정이 끝나면 👀 |
 
 **"명백한 오류" 는 셋을 다 만족할 때만이다.** 하나라도 아니면 [확인 필요]다.
 
@@ -149,45 +141,46 @@ git push
 
 스레드의 **첫 코멘트**에 리액션으로 상태를 남긴다. 이것이 이 커맨드가 GitHub 에 남기는 유일한
 흔적이다 — 코멘트도, resolve 도 하지 않는다. **한 스레드에 리액션은 하나** — 상태를 바꿀 때
-이전 것(👀)은 뗀다. 리액션 하나가 곧 현재 상태다.
+이전 것(🚀)은 뗀다. 리액션 하나가 곧 현재 상태다. 리액션은 **처리가 끝난 뒤에만** 단다 —
+"보는 중" 을 알리는 리액션은 없다(호출자 결정 2026-09-28: 상태가 둘이면 충분하고, 중간 표시는
+바꿔 다는 수고만 늘렸다).
 
 | 리액션 | `content` | 언제 |
 | --- | --- | --- |
-| 👀 | `EYES` | 스레드를 읽고 판정에 들어갈 때 — 2단계 시작 시 전부 |
-| 👍 | `THUMBS_UP` | 수정을 **푸시한 뒤**, 또는 무효로 확인했을 때. "호출자가 resolve 해도 되는 상태" |
-| 🚀 | `ROCKET` | 호출자 결정이 필요해 채팅으로 물을 때. 결정 후 수정이 끝나면 👍 로 바꾼다 |
+| 👀 | `EYES` | 수정을 **푸시한 뒤**, 또는 무효로 확인했을 때. "호출자가 resolve 해도 되는 상태" |
+| 🚀 | `ROCKET` | 호출자 결정이 필요해 채팅으로 물을 때. 결정 후 수정이 끝나면 👀 로 바꾼다 |
 
 ```bash
-# COMMENT_ID = 1단계 수집 결과의 nodes[].comments.nodes[0].id (스레드 id 가 아니다)
-react() { # react <COMMENT_ID> <EYES|THUMBS_UP|ROCKET> — 이전 상태 리액션을 떼고 새 것을 단다
-  for OLD in EYES THUMBS_UP ROCKET; do
-    [ "$OLD" = "$2" ] && continue
-    gh api graphql -f id="$1" -f content="$OLD" -f query='
-    mutation($id:ID!, $content:ReactionContent!){ removeReaction(input:{subjectId:$id, content:$content}){ reaction{ content } } }
-    ' >/dev/null 2>&1 || true   # 없던 리액션은 에러 — 무시
-  done
-  gh api graphql -f id="$1" -f content="$2" -f query='
-  mutation($id:ID!, $content:ReactionContent!){ addReaction(input:{subjectId:$id, content:$content}){ reaction{ content } } }
-  '
-}
+# COMMENT_ID = 1단계 list 결과의 threads[].commentId (스레드 id 가 아니다)
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" react "$COMMENT_ID" EYES     # 또는 ROCKET
+# → {"removed":["ROCKET"],"added":"EYES"} — 내 다른 상태 리액션(옛 👍 포함)을 떼고 하나만 남긴다
 ```
 
-- 같은 리액션이 이미 달려 있어도 무해하다 — 중복 호출을 신경 쓰지 않는다. `removeReaction` 은
-  **내 계정이 단 것만** 뗀다 — 리뷰어나 사용자가 단 리액션은 건드리지 못한다.
+- 같은 리액션이 이미 달려 있어도 무해하다(`removed: []`) — 중복 호출을 신경 쓰지 않는다. 떼는 것도
+  **내 계정이 단 것만** — 리뷰어나 사용자가 단 리액션은 건드리지 못한다.
 - 리액션 실패는 치명적이지 않다. 실패한 스레드를 보고에 한 줄로 남기고 계속 진행한다.
 
 ### 6. 처리 보고 (채팅)
 
+리액션은 GitHub 쪽 표시일 뿐이다 — **무엇을 했고 무엇을 정해야 하는지는 반드시 채팅으로 정리해
+알린다.** 리액션만 달고 채팅을 비우면 호출자는 스레드를 하나씩 열어 봐야 한다. 두 묶음으로 —
+👀 는 "지적 → 한 것", 🚀 는 "지적 → 호출자가 정할 것".
+
 ```
-수정 3 / 확인 필요 1 / 무효 1
-  ✅ src/core/worklog.ts:42  …지적 요약… → …어떻게 고쳤는지…
-  ⏸  AGENTS.md:12           …지적 요약… → 확인 필요 (무엇을 정해야 하는지: …)
-  ⊘  docs/codex.md:8        outdated, 코드 이동됨
-  게이트 통과 · 커밋 abc1234 푸시 · 👍 4 / 🚀 1 · 전부 열림 — resolve 는 확인 후
+PR #155 — 👀 2 / 🚀 1 (스레드 3건 전부 열림 — resolve 는 확인 후)
+
+👀 완료
+  README.md:30            옛 리액션 규약 잔존 → 두 상태로 맞춤 (c5b055b)
+  docs/codex.md:8         outdated, 코드 이동됨 → 무효
+
+🚀 결정 필요
+  AGENTS.md:12            Out 항목과 충돌 지적 → Out 을 갱신할지 / 기능을 빼는지 (갈래 2)
+
+게이트 통과 · 커밋 c5b055b 푸시
 ```
 
-장문 리포트를 쓰지 않는다. 스레드당 한 줄. `⏸` 줄에는 **호출자가 무엇을 정해야 하는지**를
-적는다 — "보류" 만 적으면 사용자가 스레드를 직접 열어 봐야 한다.
+장문 리포트를 쓰지 않는다. 스레드당 한 줄. 🚀 줄에는 **호출자가 무엇을 정해야 하는지**를 적는다
+— "보류" 만 적으면 사용자가 스레드를 직접 열어 봐야 한다. 🚀 가 0건이면 그 묶음은 "없음" 한 줄.
 
 ### 7. 확인 필요 건 상의
 
@@ -214,15 +207,15 @@ react() { # react <COMMENT_ID> <EYES|THUMBS_UP|ROCKET> — 이전 상태 리액�
   ```
 
 - **고쳐야 한다 / 어느 방향으로 고칠지 정해졌다** → [즉시 수정] 으로 전환하고 3단계로 돌아가
-  처리한다. 푸시한 뒤 🚀 를 👍 로 바꾼다. 고친 뒤에도 스레드는 열어 둔다.
+  처리한다. 푸시한 뒤 🚀 를 👀 로 바꾼다. 고친 뒤에도 스레드는 열어 둔다.
 - **맞는 지적이지만 이 PR 범위 밖이다** → 후속 작업으로 남긴다(보드 항목 / 이슈). 어디로
   옮겼는지 코멘트를 남길지는 사용자가 정한다.
-- **지적이 틀렸다** 로 결정되어 코멘트를 남겼거나 **범위 밖** 으로 옮겼다 → 그 스레드도 👍
+- **지적이 틀렸다** 로 결정되어 코멘트를 남겼거나 **범위 밖** 으로 옮겼다 → 그 스레드도 👀
   (호출자가 닫아도 되는 상태).
 - **사용자가 답하지 않고 넘어갔다** → 🚀 인 채로 두고 끝낸다. 8단계 머지 판정은 열린 스레드
   수와 무관하게 진행한다.
 
-**모든 스레드가 👍 가 되면** 8단계 판정과 함께 "확인 후 resolve·머지하시면 됩니다" 로 보고한다 —
+**모든 스레드가 👀 가 되면** 8단계 판정과 함께 "확인 후 resolve·머지하시면 됩니다" 로 보고한다 —
 호출자는 리액션만 보고 닫는다.
 
 **resolve 지시가 왔을 때만** 아래를 실행한다. 사용자가 대상을 지정하지 않았으면 무엇을 닫을지
