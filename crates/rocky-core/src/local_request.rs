@@ -4,7 +4,11 @@
 //! rockyd 가 이 함수에 자기 헤더맵을 접어 넣는다.
 
 /// 프록시가 붙이는 헤더 — 하나라도 있으면 중계된 요청으로 본다.
-pub const FORWARDED_HEADERS: [&str; 8] = [
+///
+/// `cf-*` 는 Cloudflare Tunnel(`cloudflared`)·Access 가 붙인다 — 터널은 tailscale serve 처럼
+/// 요청을 루프백으로 프록시하므로 peer 만 보면 로컬로 오인한다. cloudflared 는 `x-forwarded-for`
+/// 도 붙이지만 그 하나에 기대지 않고 Cloudflare 고유 헤더도 본다(둘 다 없을 때만 로컬).
+pub const FORWARDED_HEADERS: [&str; 12] = [
     "x-forwarded-for",
     "x-forwarded-host",
     "x-forwarded-proto",
@@ -13,6 +17,10 @@ pub const FORWARDED_HEADERS: [&str; 8] = [
     "tailscale-user-login",
     "tailscale-user-name",
     "tailscale-user-profile-pic",
+    "cf-connecting-ip",
+    "cf-ray",
+    "cf-access-jwt-assertion",
+    "cf-access-authenticated-user-email",
 ];
 
 /// 루프백 주소인지 — IPv4 `127.0.0.0/8`, IPv6 `::1`, IPv4-mapped `::ffff:127.x.y.z`.

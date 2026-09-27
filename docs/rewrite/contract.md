@@ -44,6 +44,7 @@ TS 원본(`src/*.ts`)에서 추출한 외부 표면 계약. 재작성의 성공 
 | `POST /api/handoffs/claim` | **404** `not found: POST /api/handoffs/claim` — catch-all 과 구분 불가하게 위장 |
 | MCP `todo_write.createIssue` | 도구 에러 `NON_LOCAL_ISSUE_MESSAGE` (`allowIssueCreate` 로 접어 전달) |
 | `GET /api/health` 의 `issueCreateAllowed`/`spawnAllowed` | 힌트 필드 (강제는 각 라우트) |
+- **포팅 후 추가(0.26)**: `cf-connecting-ip` / `cf-ray` / `cf-access-jwt-assertion` / `cf-access-authenticated-user-email` 도 중계 헤더로 본다 — Cloudflare Tunnel 경유를 원격으로 분류하기 위해. TS 판에는 없다.
 
 ### isCrossSiteRequest (`src/local-request.ts`)
 
