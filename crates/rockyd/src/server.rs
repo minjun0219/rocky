@@ -499,7 +499,10 @@ async fn dispatch(
 
     // ── inbox (수집함 — 외부 투두 앱 읽기 전용) ──
     if *method == Method::GET && path == "/api/inbox" {
-        return Ok(ok_json(&(state.inbox)(flag("refresh")).await));
+        let response = (state.inbox)(flag("refresh")).await;
+        // 실패 사유의 stderr·출력 조각은 로컬 요청에만 — 원격에는 exit code 만.
+        let response = if local { response } else { response.redacted() };
+        return Ok(ok_json(&response));
     }
 
     // ── SSE ──

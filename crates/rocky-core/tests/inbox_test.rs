@@ -77,3 +77,41 @@ fn unavailable_shape() {
     assert_eq!(json["fetchedAt"], "2026-09-27T00:00:00.000Z");
     assert_eq!(json["items"], serde_json::json!([]));
 }
+
+#[test]
+fn redact_keeps_only_exit_code() {
+    use rocky_core::inbox::{redact_reason, InboxResponse, InboxSourceResult};
+    let generic = "어댑터 출력이 규약에 맞지 않는다 (상세는 로컬 요청에서만)";
+    assert_eq!(
+        redact_reason("exit 1: https://api.example/?token=SECRET"),
+        "exit 1"
+    );
+    assert_eq!(redact_reason("exit 3"), "exit 3");
+    assert_eq!(redact_reason("exit 200ms 안에 끝나지 않았다"), generic);
+    assert_eq!(
+        redact_reason("JSON 파싱 실패: expected value at line 1"),
+        generic
+    );
+
+    let ok = InboxSourceResult {
+        name: "b".into(),
+        available: true,
+        reason: None,
+        fetched_at: "t".into(),
+        items: vec![InboxItem {
+            id: "x".into(),
+            title: "t".into(),
+            url: None,
+            note: None,
+            due: None,
+            created_at: None,
+        }],
+    };
+    let response = InboxResponse {
+        sources: vec![unavailable("a", "exit 1: token=SECRET", "t".into()), ok],
+    }
+    .redacted();
+    assert_eq!(response.sources[0].reason.as_deref(), Some("exit 1"));
+    assert_eq!(response.sources[1].reason, None);
+    assert_eq!(response.sources[1].items.len(), 1);
+}

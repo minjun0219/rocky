@@ -193,3 +193,53 @@ async fn file_adapter_runs_for_real() {
         "exit 1: no such file: /no/such/inbox.json"
     );
 }
+
+#[tokio::test]
+async fn remote_callers_get_exit_code_only() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let provider = cached_inbox(
+        scripted(counter),
+        vec![
+            source("ok", "ok"),
+            source("fails", "fails"),
+            source("garbage", "garbage"),
+        ],
+        Duration::from_secs(60),
+    );
+    let f = fx_with(|o| o.inbox = Some(provider));
+    // 로컬(루프백 + 프록시 헤더 없음): 상세 그대로.
+    let (_, body) = get(&f.state, "/api/inbox").await;
+    assert_eq!(body["sources"][1]["reason"], "exit 1: token expired");
+    // 원격 peer: exit code 만. 정상 소스의 items 는 그대로.
+    let (status, body) = call(
+        &f.state,
+        "GET",
+        "/api/inbox",
+        None,
+        ReqOptions {
+            peer: Some("100.64.0.9"),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["sources"][0]["items"][0]["title"], "첫 항목");
+    assert_eq!(body["sources"][1]["reason"], "exit 1");
+    assert!(!body["sources"][2]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("JSON"));
+    // tailscale serve 경유(루프백이지만 프록시 헤더): 원격으로 본다.
+    let (_, body) = call(
+        &f.state,
+        "GET",
+        "/api/inbox",
+        None,
+        ReqOptions {
+            headers: vec![("x-forwarded-for", "100.64.0.9")],
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(body["sources"][1]["reason"], "exit 1");
+}

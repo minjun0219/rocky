@@ -128,3 +128,30 @@ pub fn unavailable(name: &str, reason: impl Into<String>, fetched_at: String) ->
         items: Vec::new(),
     }
 }
+
+/// 원격 호출자에게 낼 사유 — **exit code 만 남긴다.** stderr 첫 줄이나 출력 조각에는 어댑터가
+/// 찍은 토큰·인증 URL 이 섞일 수 있어, `todo.expose` 로 노출된 데몬에서는 로컬 요청에만
+/// 상세를 준다(이슈 생성·spawn 의 로컬 판정과 같은 `is_local_request`).
+pub fn redact_reason(reason: &str) -> String {
+    // "exit 1: token expired" → "exit 1", "exit 3" → 그대로. 파싱 실패류는 분류만.
+    let code_prefix = reason
+        .strip_prefix("exit ")
+        .map(|rest| rest.split(':').next().unwrap_or("").trim())
+        .filter(|code| !code.is_empty() && code.bytes().all(|b| b.is_ascii_digit()));
+    match code_prefix {
+        Some(code) => format!("exit {code}"),
+        None => "어댑터 출력이 규약에 맞지 않는다 (상세는 로컬 요청에서만)".to_string(),
+    }
+}
+
+impl InboxResponse {
+    /// 원격 응답용 — 실패 소스의 `reason` 을 `redact_reason` 으로 바꾼 사본.
+    pub fn redacted(mut self) -> Self {
+        for source in &mut self.sources {
+            if let Some(reason) = source.reason.as_deref() {
+                source.reason = Some(redact_reason(reason));
+            }
+        }
+        self
+    }
+}
