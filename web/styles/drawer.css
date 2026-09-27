@@ -154,3 +154,28 @@
   border-color: var(--warm-dim);
   color: var(--warm);
 }
+
+/* 긴 설명 접기 — 하단을 페이드로 잘라 "더 있다" 를 보여주고, 버튼이 편다. */
+.drawer-desc-wrap.is-collapsed .drawer-desc {
+  max-height: 260px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+}
+.drawer-desc-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.drawer-desc-more:hover {
+  color: var(--text);
+}

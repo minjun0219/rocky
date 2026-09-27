@@ -62,7 +62,7 @@ export function NotesRail() {
         </button>
         <button
           type="button"
-          className="text-xs text-warm"
+          className="notes-add text-xs text-warm"
           onClick={() => {
             setMobileOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
             void addNote({

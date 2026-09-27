@@ -20,6 +20,14 @@ export function TodoDetail() {
   const cancelHandoff = useUiStore((s) => s.cancelHandoff);
   const todo = detail?.todo;
   const [desc, setDesc] = useState(todo?.description ?? '');
+  // 긴 설명은 접어서 시작한다 — 폰에서 설명 한 덩이가 1,400px 을 넘기면 상태 버튼·댓글이 화면
+  // 세 장 아래로 밀린다(실측). 항목이 바뀌면 다시 접는다.
+  const [descExpanded, setDescExpanded] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 항목(id)이 바뀔 때만 접힘을 되돌린다 — 본문 안에서 id 를 읽지 않는다
+  useEffect(() => {
+    setDescExpanded(false);
+  }, [todo?.id]);
+  const longDesc = isLongDescription(todo?.description ?? '');
   const [editingDesc, setEditingDesc] = useState(false);
   const [copied, setCopied] = useState(false);
   const [title, setTitle] = useState(todo?.title ?? '');
@@ -305,13 +313,25 @@ export function TodoDetail() {
           </div>
         </div>
       ) : (
-        <button type="button" className="drawer-desc" onClick={() => setEditingDesc(true)}>
-          {todo.description === '' ? (
-            <span className="drawer-desc-empty">설명 없음 — 눌러서 작성</span>
-          ) : (
-            <Markdown text={todo.description} />
+        <div className={`drawer-desc-wrap ${longDesc && !descExpanded ? 'is-collapsed' : ''}`}>
+          <button type="button" className="drawer-desc" onClick={() => setEditingDesc(true)}>
+            {todo.description === '' ? (
+              <span className="drawer-desc-empty">설명 없음 — 눌러서 작성</span>
+            ) : (
+              <Markdown text={todo.description} />
+            )}
+          </button>
+          {longDesc && (
+            <button
+              type="button"
+              className="drawer-desc-more"
+              aria-expanded={descExpanded}
+              onClick={() => setDescExpanded((v) => !v)}
+            >
+              {descExpanded ? '접기' : '더 보기'}
+            </button>
           )}
-        </button>
+        </div>
       )}
       <div className="drawer-actions">
         {todo.status !== 'doing' && statusButton(Play, '시작', 'start')}
@@ -406,3 +426,8 @@ export function TodoDetail() {
  * (사용자가 직접 입력한 경우), 처음 실패라 아직 아무 값도 안 보였다면 board.repo 를
  * 프리필한다(있다면) — 어느 쪽이든 사용자가 고쳐서 재시도할 길을 남긴다.
  */
+
+/** 접어서 시작할 만큼 긴 설명인가 — 글자 500 또는 줄 12 를 넘으면. */
+export function isLongDescription(text: string): boolean {
+  return text.length > 500 || text.split('\n').length > 12;
+}

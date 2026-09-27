@@ -99,7 +99,7 @@ export function TopBar() {
         ) : (
           <button
             type="button"
-            className="rounded-full border border-cool-dim px-3 py-[3px] font-mono text-xs text-cool"
+            className="actor-button rounded-full border border-cool-dim px-3 py-[3px] font-mono text-xs text-cool"
             title="호출자 이름 — 웹에서의 편집은 이 이름으로 기록된다"
             onClick={() => {
               setDraft(actor);
