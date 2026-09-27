@@ -346,7 +346,7 @@ MCP `todo_write { id, createIssue: true }`
   헤더는 위조로 "있게" 만들 수는 있어도 "없게" 만들 수는 없다 — 위조는 요청을 덜
   신뢰하는 방향으로만 작용하므로 이 판정을 우회하는 데 쓸 수 없다.
 - env `ROCKY_TODO_EXPOSE`(콤마 구분)가 설정되면 config 를 통째로 덮어쓴다 — `off` 로 강제 차단.
-- `tailscale-serve` 채널이 없으면 rocky 는 tailscale 을 일절 건드리지 않는다 (회사 등 금지 환경).
+- `tailscale-serve` 채널이 없으면 rocky 는 tailscale 을 일절 건드리지 않는다 (tailscale 이 금지된 환경).
   수동 제어: `rocky tailscale on|off|status`.
 - **기동 시 자동 보장은 남의 노출을 빼앗지 않는다.** `tailscale serve` 의 노출 지점은 443 의
   `/` 하나뿐인 머신 공유 자원인데, 데몬의 단일 인스턴스 보장은 *같은 포트* 기준이라 다른

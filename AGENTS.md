@@ -93,11 +93,14 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
   history when the repo was absorbed. The GUI will be Swift or a TUI, decided separately.
 - The TypeScript reference implementation of the daemon (rocky-todo's `src/*.ts`) — the Rust
   crates are the implementation; the contract is `docs/rewrite/contract.md`.
-- **Any external task-service integration** (Todoist, Linear, Jira, …) — the `todoist` bundled skill
-  was removed and moved to the owner's private plugin repo. The owner's task list is the
-  rocky board and the record is `worklog_*`; rocky ships nothing else. This holds even for a
-  skill that only borrows a connected MCP and ships no credentials — the point is that rocky's public
-  surface names one task system. Do not name such a service in docs, manifest keywords, or PR titles.
+- **External task-service integration inside the daemon, CLI, hooks, skills, or MCP tools.** The
+  owner's task list is the rocky board and the record is `worklog_*`. External apps (Todoist,
+  Google Tasks, …) are **separate inboxes, never synced**: rocky only reads them through the inbox
+  adapter contract (`todo.inbox[]` → command → stdout JSON → `GET /api/inbox`) and references items by
+  link. Adapter code lives only under `bridges/<name>/` (owner decision 2026-09-27,
+  `docs/design/specs/2026-09-27-bridges-and-tui-design.md`); a service name appearing in `crates/`,
+  `plugin/`, manifest keywords, or an MCP tool is the violation. The old `todoist` bundled skill
+  stays in the owner's private plugin repo.
 - Exposing worklog digests as MCP tools (`wiki_*`), worklog in the standalone CLI, auto-promotion into
   native memory, polling-based auto-digest. Record = `worklog_*` + the `Stop` hook; organize =
   `/rocky:recall` only.

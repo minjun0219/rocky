@@ -1,6 +1,6 @@
 //! tailscale serve 연동 (옵션) — TS 원본 `src/tailscale.ts`.
 //!
-//! 기본 off — expose 에 채널이 없으면 tailscale 을 일절 안 건드린다(회사 환경 대비).
+//! 기본 off — expose 에 채널이 없으면 tailscale 을 일절 안 건드린다(tailscale 을 쓸 수 없는 환경 대비).
 //! **자동 경로는 남의 노출을 빼앗지 않는다**(`decide_serve_action`) — serve 의 노출
 //! 지점은 443 의 `/` 하나뿐인 머신 공유 자원이다. 수동 경로는 사용자가 명시적으로
 //! 요구한 것이므로 그대로 인수한다.

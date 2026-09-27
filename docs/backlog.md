@@ -147,4 +147,4 @@ lands on its own line.
 
 1. **업무 / 코딩 파트너로 단독 충분한 토대** — agent / skill / command / MCP / tool 다섯 종 primitive 을 적재적소에 섞어 쓰는 composition foundation.
 2. **외부 primary 와의 시너지** — OmO Sisyphus / Superpowers 같은 외부 primary agent 가 동일 host 에 있을 때 description-driven routing 이 깨지지 않고 자연스럽게 위임이 흐른다.
-3. **회사 맞춤 토킷의 base** — plugin (현재 형태) + library (`src/core/` exports) 두 형태로 패키징해 의존성으로 가져다 쓰는 토대.
+3. **조직 맞춤 툴킷의 base** — plugin (현재 형태) + library (`src/core/` exports) 두 형태로 패키징해 의존성으로 가져다 쓰는 토대.
