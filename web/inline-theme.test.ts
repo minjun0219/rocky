@@ -17,11 +17,14 @@ const HTML = readFileSync(join(import.meta.dir, 'index.html'), 'utf8');
 
 /** head 의 클래식 인라인 스크립트 — `src` 가 붙은 모듈 스크립트는 제외한다. */
 function extractInlineScript(): string {
-  const match = HTML.match(/<script>([\s\S]*?)<\/script>/);
-  if (match?.[1] === undefined) {
+  // 정규식 대신 문자열 탐색 — HTML 필터링용 정규식으로 오인해 CodeQL 이 경고한다(대소문자).
+  // 여기는 우리 파일의 첫 `<script>`(속성 없는 클래식 스크립트)를 꺼내는 것뿐이다.
+  const open = HTML.indexOf('<script>');
+  const close = open === -1 ? -1 : HTML.indexOf('</script>', open);
+  if (open === -1 || close === -1) {
     throw new Error('index.html 에서 인라인 테마 스크립트를 찾지 못했다');
   }
-  return match[1];
+  return HTML.slice(open + '<script>'.length, close);
 }
 
 const SCRIPT = extractInlineScript();
