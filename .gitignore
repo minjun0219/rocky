@@ -28,3 +28,6 @@ packages/
 # Rust
 target/
 
+
+# 세션 로컬 지침 — 개인 사정(기기·계정)은 여기, 공개 문서엔 안 쓴다
+CLAUDE.local.md
