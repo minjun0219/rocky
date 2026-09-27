@@ -1,8 +1,8 @@
 name: Release
 
-# rust-rewrite 는 프리릴리즈 채널이다 — changesets pre 모드(`.changeset/pre.json`)라
-# Version PR 이 `0.15.0-next.N` 을 찍고, release job 이 `--prerelease` 로 낸다.
-# 통합이 끝나 main 으로 들어가면 `changeset pre exit` 로 정식 번호가 된다.
+# 프리릴리즈 채널 — `.changeset/pre.json` 이 있는 동안(changesets pre 모드) Version PR 이
+# `0.24.0-next.N` 처럼 찍고, release job 이 `--prerelease` 로 낸다("latest" 는 안 움직인다).
+# 확인이 끝나면 `bunx changeset pre exit` PR 로 빠져나와 다음 Version PR 이 정식 번호가 된다.
 on:
   push:
     branches: [main]
