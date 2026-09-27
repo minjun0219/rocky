@@ -30,6 +30,7 @@ use rocky_core::statusline::{
     DEFAULT_STATUSLINE_TEMPLATE, STATUSLINE_TITLE_MAX,
 };
 use rocky_core::store::{StoreError, StoreResult, TodoStore};
+use rocky_core::summary::{build_summary, count_unpromoted, due_bucket, Summary};
 use rocky_core::types::*;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
@@ -37,7 +38,7 @@ use tokio::sync::broadcast;
 use crate::github::{
     create_issue_for_todo, find_issue_link, is_repo_slug, IssueForTodoError, IssueForTodoOptions,
 };
-use crate::inbox_exec::{cached_inbox, InboxProvider};
+use crate::inbox_exec::{cached_inbox, InboxFetch, InboxProvider};
 use crate::runner::{default_runner, Runner};
 use crate::sessions_exec::{cached_sessions, uncached_sessions, SessionsProvider};
 use crate::spawnctl::{
@@ -499,10 +500,27 @@ async fn dispatch(
 
     // ── inbox (수집함 — 외부 투두 앱 읽기 전용) ──
     if *method == Method::GET && path == "/api/inbox" {
-        let response = (state.inbox)(flag("refresh")).await;
+        let mode = if flag("refresh") {
+            InboxFetch::Refresh
+        } else if flag("cached") {
+            InboxFetch::CachedOnly
+        } else {
+            InboxFetch::Normal
+        };
+        let response = (state.inbox)(mode).await;
         // 실패 사유의 stderr·출력 조각은 로컬 요청에만 — 원격에는 exit code 만.
         let response = if local { response } else { response.redacted() };
         return Ok(ok_json(&response));
+    }
+
+    // ── summary (rocky today · SessionStart 요약) ──
+    if *method == Method::GET && path == "/api/summary" {
+        let mode = if flag("cached") {
+            InboxFetch::CachedOnly
+        } else {
+            InboxFetch::Normal
+        };
+        return Ok(ok_json(&summary_of(state, query, mode).await?));
     }
 
     // ── SSE ──
@@ -1486,8 +1504,41 @@ async fn statusline_inner(
     } else {
         Vec::new()
     };
+    // 보드 기준 마감·수집함 — 둘 다 세션 조회 없이 나온다. 수집함은 **기다리지 않는** 조회(캐시만).
+    let (due, collect) = {
+        let boards = store.list_boards(false)?;
+        let locations: Vec<BoardLocation> = boards
+            .iter()
+            .map(|b| BoardLocation {
+                key: b.key.clone(),
+                path: b.path.clone(),
+            })
+            .collect();
+        let board_key = board_key_for_cwd(&locations, cwd.map(String::as_str));
+        let todos = store.list_todos(&ListTodosFilter {
+            board: board_key.clone(),
+            ..Default::default()
+        })?;
+        let today = today_local();
+        let due = todos
+            .iter()
+            .filter(|t| t.status != TodoStatus::Done)
+            .filter(|t| {
+                t.due
+                    .as_deref()
+                    .and_then(|d| due_bucket(d, &today))
+                    .is_some()
+            })
+            .count() as i64;
+        let views: Vec<TodoView> = todos
+            .into_iter()
+            .map(|t| with_ref_todo(store, t))
+            .collect::<StoreResult<_>>()?;
+        let inbox = (state.inbox)(InboxFetch::CachedOnly).await;
+        (due, count_unpromoted(&inbox, &views))
+    };
     // 보여줄 게 없으면 **세션 조회 전에** 빈 문자열 — 초당 도는 최빈 경로의 비용 절감.
-    if doing.is_empty() && pending.is_empty() {
+    if doing.is_empty() && pending.is_empty() && due == 0 && collect == 0 {
         return Ok(String::new());
     }
 
@@ -1566,6 +1617,8 @@ async fn statusline_inner(
             mine,
             inbox,
             stale,
+            due,
+            collect,
             doing: board_doing.len() as i64,
         },
         STATUSLINE_TITLE_MAX,
@@ -1595,4 +1648,64 @@ fn sse_response(state: &Arc<ServerState>) -> Response {
         .header(header::CONNECTION, "keep-alive")
         .body(body)
         .unwrap()
+}
+
+/// 오늘 날짜(로컬) `YYYY-MM-DD` — 마감 판정의 기준. 데몬은 사용자 기기에서 돈다.
+fn today_local() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+/// GET /api/summary?cwd=&cached= — 보드 요약 JSON. 렌더는 소비자(CLI·훅)가 core 로 한다.
+async fn summary_of(
+    state: &Arc<ServerState>,
+    query: &HashMap<String, String>,
+    inbox_mode: InboxFetch,
+) -> StoreResult<Summary> {
+    let store = &state.store;
+    let boards = store.list_boards(false)?;
+    let locations: Vec<BoardLocation> = boards
+        .iter()
+        .map(|b| BoardLocation {
+            key: b.key.clone(),
+            path: b.path.clone(),
+        })
+        .collect();
+    let board_key = board_key_for_cwd(&locations, query.get("cwd").map(String::as_str));
+    let todos = store.list_todos(&ListTodosFilter {
+        board: board_key.clone(),
+        ..Default::default()
+    })?;
+    let views: Vec<TodoView> = todos
+        .into_iter()
+        .map(|t| with_ref_todo(store, t))
+        .collect::<StoreResult<_>>()?;
+    let board_id = match &board_key {
+        Some(key) => store.board_id_of(key)?,
+        None => None,
+    };
+    // "대기" = pending + 미수락 delivered. 스토어의 `open`(대기 + 미완료 배달)은 세션이 이미
+    // 착수한 것까지 세므로 여기엔 맞지 않는다 — 사람이 볼 건 "아직 아무도 안 집어간 것" 이다.
+    let open = store
+        .list_handoffs(&ListHandoffsFilter {
+            board_id,
+            ..Default::default()
+        })?
+        .iter()
+        .filter(|h| match h.status {
+            HandoffStatus::Pending => true,
+            HandoffStatus::Delivered => h.accepted_at.is_none(),
+            HandoffStatus::Cancelled => false,
+        })
+        .count() as i64;
+    let inbox = (state.inbox)(inbox_mode).await;
+    // CachedOnly 로 비어 온 건 "모름" — collect 를 None 으로.
+    let inbox_ref =
+        (!inbox.sources.is_empty() || inbox_mode != InboxFetch::CachedOnly).then_some(&inbox);
+    Ok(build_summary(
+        board_key,
+        &views,
+        open,
+        inbox_ref,
+        &today_local(),
+    ))
 }

@@ -53,6 +53,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "board" => commands::cmd_board(&ctx, &rest, &board, &printer),
         "history" => commands::cmd_history(&ctx, &rest, &parsed, &board, &printer),
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
+        "today" => commands::cmd_today(&ctx, &printer),
         "note" => commands::cmd_note(&ctx, &rest, &parsed, &board, &printer),
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
@@ -67,7 +68,9 @@ fn run(argv: &[String]) -> Result<(), String> {
         "hook" => {
             use rocky_cli::hooks;
             match rest.first().map(String::as_str) {
-                Some("ensure-daemon") => hooks::hook_ensure_daemon(&ctx),
+                Some("ensure-daemon") => {
+                    hooks::hook_ensure_daemon(&ctx, todo_config.session_summary)
+                }
                 Some("notify-todo") => hooks::hook_notify_todo(&ctx, todo_config.watch),
                 Some("handoff-stop") => hooks::hook_handoff_stop(&ctx),
                 Some("log-turn") => hooks::hook_log_turn(),

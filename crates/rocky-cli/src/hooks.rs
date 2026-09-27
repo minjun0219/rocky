@@ -80,7 +80,7 @@ pub struct EnsureDeps<'a> {
 
 /// SessionStart(startup): 데몬이 없으면 띄우고, **구버전이면** 내리고 현재 버전으로
 /// 재기동한다. 실제 배선 — 판정은 `ensure_daemon_with` 에 있다.
-pub fn hook_ensure_daemon(ctx: &CliContext) {
+pub fn hook_ensure_daemon(ctx: &CliContext, session_summary: Option<bool>) {
     ensure_daemon_with(
         ctx,
         &EnsureDeps {
@@ -96,6 +96,43 @@ pub fn hook_ensure_daemon(ctx: &CliContext) {
             },
         },
     );
+    // 세션 컨텍스트에 보드 요약 몇 줄 — `rocky today` 와 같은 문자열. SessionStart 의 stdout 은
+    // 컨텍스트로 들어간다. 데몬이 아직 안 떴거나 실패하면 조용히 넘어간다(fail-open).
+    if session_summary.unwrap_or(true) {
+        print_session_summary(ctx);
+    }
+}
+
+fn print_session_summary(ctx: &CliContext) {
+    let input = read_stdin_json();
+    let cwd = input
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .unwrap_or_default();
+    let mut encoded = String::with_capacity(cwd.len());
+    for b in cwd.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                encoded.push(b as char)
+            }
+            _ => encoded.push_str(&format!("%{b:02X}")),
+        }
+    }
+    let Ok(summary) = crate::client::request::<rocky_core::summary::Summary>(
+        ctx,
+        "GET",
+        &format!("/api/summary?cwd={encoded}"),
+        None,
+    ) else {
+        return;
+    };
+    println!("{}", rocky_core::summary::render_summary(&summary));
 }
 
 /// 버전 비교는 정확 문자열 일치다 — 데몬 프로세스는 자기를 띄운 설치본보다 오래 살아,

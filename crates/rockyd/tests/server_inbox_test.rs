@@ -243,3 +243,31 @@ async fn remote_callers_get_exit_code_only() {
     .await;
     assert_eq!(body["sources"][1]["reason"], "exit 1");
 }
+
+#[tokio::test]
+async fn cached_only_never_waits_and_refreshes_in_the_background() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let provider = cached_inbox(
+        scripted(counter.clone()),
+        vec![source("ok", "ok")],
+        Duration::from_millis(50),
+    );
+    let f = fx_with(|o| o.inbox = Some(provider));
+    // 첫 호출: 캐시가 없으니 비어 온다 — 기다리지 않는다. 갱신은 뒤에서 시작.
+    let (status, body) = get(&f.state, "/api/inbox?cached=true").await;
+    assert_eq!(status, 200);
+    assert_eq!(body["sources"], serde_json::json!([]));
+    // 같은 순간 여러 번 불러도 갱신은 하나만 뜬다.
+    get(&f.state, "/api/inbox?cached=true").await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    // 갱신이 끝나면 다음 호출부터 채워진다.
+    let (_, body) = get(&f.state, "/api/inbox?cached=true").await;
+    assert_eq!(body["sources"][0]["items"][0]["title"], "첫 항목");
+    // TTL 이 지나면 만료된 값을 주면서 뒤에서 다시 갱신한다.
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    let (_, body) = get(&f.state, "/api/inbox?cached=true").await;
+    assert_eq!(body["sources"][0]["available"], true);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
+}

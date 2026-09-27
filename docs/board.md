@@ -93,6 +93,25 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 `rocky` 와 `rockyd` 는 **한 디렉터리에** 있어야 한다: CLI 는 옆의 `rockyd` 를 먼저 찾는다. 레포에서 개발할 땐 `cargo build --workspace` 뒤
 `ROCKY_BIN=target/debug/rocky` 로 부트스트랩을 우회한다.
 
+## 요약 — `rocky today` · 세션 시작 요약 · statusline
+
+"지금 뭐 봐야 하나" 를 몇 줄로. 셋이 같은 판정(`rocky_core::summary`)을 쓴다.
+
+- **`rocky today [--json]`** — 첫 줄에 개수(마감 지남 · 오늘 마감 · 진행중 · 핸드오프 대기 · 수집함
+  미올림), 그 아래 항목 최대 4개(지난 마감 → 오늘 마감 → 진행중 순). Claude Code 프롬프트에서
+  **`! rocky today`** 로 치면 LLM 턴 없이 그대로 뜬다(`!` 는 셸 실행 모드). 수집함은 어댑터를
+  실행해(캐시 없으면 기다림) 캐시를 데운다.
+- **SessionStart 요약** — `ensure-daemon` 훅이 데몬을 확인한 뒤 같은 문자열을 stdout 으로 내
+  세션 컨텍스트에 넣는다(`todo.sessionSummary: false` 로 끔). 데몬이 없거나 실패하면 조용히
+  건너뛴다. 컨텍스트에 들어가는 글이라 5줄을 넘지 않는다.
+- **statusline** — 템플릿 변수 `{due}`(오늘·지난 마감 미완료 수)와 `{collect}`(수집함 미올림 수)
+  추가. 기본 템플릿에 `[  ⏰{due}][  📥{collect}]` 로 들어 있고, 사용자 템플릿에는 직접 넣는다.
+  수집함은 **기다리지 않는 조회**(`GET /api/inbox?cached=true`) — 캐시된 것만 쓰고, 없거나 만료됐으면
+  뒤에서 갱신을 시작한다. 그래서 첫 줄에는 비어 있다가 다음 틱부터 채워지고, 보고 있는 동안 60초
+  주기로 새로워진다. 1초마다 도는 자리라 어댑터를 기다리면 안 된다.
+- `GET /api/summary?cwd=&cached=true` — 위 셋이 쓰는 JSON. `cached=true` 면 수집함을 기다리지 않고,
+  캐시가 없으면 `collect` 를 생략한다(모름 ≠ 0).
+
 ## TUI — 터미널에 띄워 두는 보드 (`rocky tui`)
 
 브라우저 없이 Claude Code 옆 터미널 분할에 보드를 띄워 둔다. `rocky tui [--board K]` 가 옆에 있는
@@ -463,6 +482,7 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
 rocky ls [--board K|--all] [--archived] [--json]
 rocky next [--board K|--all] [--limit N] [--json]   # 착수 후보 랭킹 (다음에 뭘 할까)
 rocky tui [--board K]                              # 보드를 터미널 화면으로 (위 "TUI")
+rocky today [--json]                               # 보드 요약 몇 줄 — 마감·진행중·핸드오프·수집함 (아래 "요약")
 rocky add "제목" [--section S] [--parent REF] [--desc MD] [--due YYYY-MM-DD]
                      [--priority p1..p4] [--label a,b] [--link URL]
 rocky show|start|stop|done|reopen|archive|unarchive|update REF
@@ -513,10 +533,10 @@ REF 는 id 대신 사람이 읽을 수 있는 참조를 받는다: `rocky-12`(�
 없다** (설치=활성화):
 
 ```json
-{ "todo": { "port": 8636, "dir": "~/.config/rocky/todo", "inbox": [] } }
+{ "todo": { "port": 8636, "dir": "~/.config/rocky/todo", "inbox": [], "sessionSummary": true } }
 ```
 
-`inbox` 는 위 "수집함" 절.
+`inbox` 는 위 "수집함" 절, `sessionSummary` 는 "요약" 절.
 
 | env | 의미 |
 | --- | --- |
