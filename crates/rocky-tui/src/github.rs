@@ -225,11 +225,16 @@ pub fn parse_batch(refs: &[GhRef], data: &Value) -> Vec<(GhRef, Option<String>)>
 }
 
 /// `gh auth token` 한 번 — 프로세스 수명 동안 메모리에만. 없으면 None(상태 줄을 비운다).
+/// 호스트를 github.com 으로 고정한다 — 요청이 `api.github.com` 으로만 가므로, `GH_HOST` 가
+/// 다른 호스트(GHES)를 가리켜도 그쪽 토큰이 github.com 에 실려 나가지 않게.
 fn token() -> Option<&'static str> {
     static TOKEN: OnceLock<Option<String>> = OnceLock::new();
     TOKEN
         .get_or_init(|| {
-            let out = Command::new("gh").args(["auth", "token"]).output().ok()?;
+            let out = Command::new("gh")
+                .args(["auth", "token", "--hostname", "github.com"])
+                .output()
+                .ok()?;
             if !out.status.success() {
                 return None;
             }
