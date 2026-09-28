@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.29.1
+
+### Patch Changes
+
+- [#192](https://github.com/minjun0219/rocky/pull/192) [`d543177`](https://github.com/minjun0219/rocky/commit/d543177b28b443fdf0ea5a1180a2ef12d45e3343) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky … | head` 처럼 읽는 쪽이 먼저 닫혀도 CLI 가 "Broken pipe" 패닉 대신 조용히 끝난다.
+
 ## 0.29.0
 
 ### Minor Changes
