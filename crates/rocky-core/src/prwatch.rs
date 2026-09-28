@@ -75,13 +75,15 @@ pub struct PrSnapshot {
 }
 
 /// "확인·머지해도 되는가" — 열려 있고, draft 가 아니고, 기본 브랜치를 향하고(스택의 맨 아래),
-/// CI 가 통과했고, 처리 안 된 스레드도 결정 필요한 스레드도 없다. 열린 스레드 수 자체는 조건이
-/// 아니다(닫는 건 사람 몫). 사람 승인은 조건이 아니다(1인 레포).
+/// 충돌이 없고, CI 가 통과했고, 처리 안 된 스레드도 결정 필요한 스레드도 없다. 열린 스레드 수
+/// 자체는 조건이 아니다(닫는 건 사람 몫). 사람 승인은 조건이 아니다(1인 레포).
+#[allow(clippy::too_many_arguments)]
 pub fn is_ready(
     state: &str,
     is_draft: bool,
     base: &str,
     default_branch: &str,
+    merge_state: &str,
     ci: CiState,
     unhandled: i64,
     rocket: i64,
@@ -89,6 +91,7 @@ pub fn is_ready(
     state == "OPEN"
         && !is_draft
         && base == default_branch
+        && merge_state != "DIRTY"
         && ci == CiState::Pass
         && unhandled == 0
         && rocket == 0
@@ -174,11 +177,13 @@ pub fn parse_pull_requests(
         }
         let state = str_of("state");
         let base = str_of("baseRefName");
+        let merge_state = str_of("mergeStateStatus");
         let ready = is_ready(
             &state,
             is_draft,
             &base,
             default_branch,
+            &merge_state,
             ci,
             unhandled,
             rocket,
@@ -192,7 +197,7 @@ pub fn parse_pull_requests(
             is_draft,
             base,
             head: str_of("headRefOid").chars().take(7).collect(),
-            merge_state: str_of("mergeStateStatus"),
+            merge_state,
             ci,
             unhandled,
             rocket,

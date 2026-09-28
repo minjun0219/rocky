@@ -74,50 +74,38 @@ fn a_wrong_shape_is_an_error_not_an_empty_list() {
 
 #[test]
 fn ready_rules() {
-    assert!(is_ready("OPEN", false, "main", "main", CiState::Pass, 0, 0));
+    let ok = CiState::Pass;
+    assert!(is_ready("OPEN", false, "main", "main", "CLEAN", ok, 0, 0));
     assert!(
-        !is_ready("OPEN", true, "main", "main", CiState::Pass, 0, 0),
+        is_ready("OPEN", false, "main", "main", "BLOCKED", ok, 0, 0),
+        "BLOCKED 은 룰셋 사유 — 막지 않는다"
+    );
+    assert!(
+        !is_ready("OPEN", true, "main", "main", "CLEAN", ok, 0, 0),
         "draft"
     );
     assert!(
-        !is_ready("OPEN", false, "feat/a", "main", CiState::Pass, 0, 0),
+        !is_ready("OPEN", false, "feat/a", "main", "CLEAN", ok, 0, 0),
         "스택 위층"
+    );
+    assert!(
+        !is_ready("OPEN", false, "main", "main", "DIRTY", ok, 0, 0),
+        "충돌"
     );
     assert!(!is_ready(
         "OPEN",
         false,
         "main",
         "main",
+        "CLEAN",
         CiState::Pending,
         0,
         0
     ));
+    assert!(!is_ready("OPEN", false, "main", "main", "CLEAN", ok, 1, 0));
+    assert!(!is_ready("OPEN", false, "main", "main", "CLEAN", ok, 0, 1));
     assert!(!is_ready(
-        "OPEN",
-        false,
-        "main",
-        "main",
-        CiState::Pass,
-        1,
-        0
-    ));
-    assert!(!is_ready(
-        "OPEN",
-        false,
-        "main",
-        "main",
-        CiState::Pass,
-        0,
-        1
-    ));
-    assert!(!is_ready(
-        "CLOSED",
-        false,
-        "main",
-        "main",
-        CiState::Pass,
-        0,
-        0
+        "CLOSED", false, "main", "main", "CLEAN", ok, 0, 0
     ));
 }
 
