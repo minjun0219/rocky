@@ -1,7 +1,7 @@
 ---
 description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(👀 수정 완료 / 🚀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 👀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 검토받는 건 /rocky:review). 재리뷰를 기다리지 않는다.
 argument-hint: "[PR 번호] (생략 시 현재 브랜치의 PR)"
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification, Monitor
 ---
 
 # resolve-reviews — PR 리뷰 해소
@@ -259,16 +259,76 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
   - 룰셋이 **conversation resolution 을 요구**하면(`required_conversation_resolution` 계열) 열린
     스레드가 곧 BLOCKED 사유다. 그 사실을 사유에 명시한다 — 대신 닫아 주지 않는다.
   - 봇 리뷰 대기처럼 **시간이 풀어주는 사유**면 그 사실을 보고하고 끝낸다. 기다리지 않는다 —
-    잠시 뒤 이 커맨드를 다시 부르면 된다.
+    잠시 뒤 이 커맨드를 다시 부르면 된다. 단, 호출자가 **"확인·머지해도 되면 알려줘"** 라고
+    했으면 9단계로 넘어가 백그라운드에서 기다린다.
 - 충족 → `PushNotification` 으로 알리고 채팅에 최종 요약을 남긴다.
 
   ```
-  PR #<번호> 머지 가능 — 리뷰 <X>건 처리 / 확인 필요 <Y>건 / 스레드 <Z>건 열림
+  #<번호> 확인·머지해도 된다 — 리뷰 <X>건 👀 / 결정 필요 <Y>건 / 스레드 <Z>건 열림
   ```
 
 - 미충족 → 무엇이 막고 있는지(실패한 check 이름, `BLOCKED` 사유) 채팅에 보고한다. 알림은 보내지
   않는다.
 - **머지는 하지 않는다.** 머지는 사용자 몫이다.
+
+### 9. "확인·머지해도 되면 알려줘" — 백그라운드로 기다렸다 알린다
+
+호출자가 그렇게 말했을 때만. 사람이 볼 때 이미 봐도 되는 상태여야 하므로, 판정은 8단계보다
+엄격하다. **알림 조건은 셋을 동시에 만족할 때뿐이고, 어느 분기에서든 셋을 다 다시 본다** —
+손으로 세지 말고 스크립트에 묻는다(exit 0 = 알려도 됨, 1 = `reasons` 에 왜 아닌지):
+
+```bash
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" ready "$NUM"
+# → { …, verdict: { ready, ci: pass|fail|pending, threads: { total, unhandled, rocket }, reasons: [...] } }
+```
+
+1. `ci: pass` — `gh pr checks` 전부 통과
+2. `unhandled: 0` — 미해결 스레드 중 👀 도 🚀 도 없는 것이 없다
+3. `rocket: 0` — 🚀(호출자 결정 필요)가 없다. 있으면 알림이 아니라 7단계의 질문이 먼저다
+
+첫 봇 판정은 `watch` 로 기다린다(백그라운드로):
+
+```bash
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeout 1500
+```
+
+- **Codex 는 PR 이 리뷰 대상으로 열릴 때(ready) 한 번만 자동으로 본다** — 수정 푸시는 다시
+  보지 않는다(공식 문서 "Codex will post a review whenever someone opens a new PR for review";
+  재리뷰는 `@codex review` 멘션으로만). 그래서 `watch` 는 **첫 판정**(보통 5~10분: 코멘트 아니면
+  본문 👍)까지만 의미가 있고, 그 뒤엔 부르지 않는다.
+- **같은 head 에 `watch` 를 두 번 부르지 않는다.** `botVerdict` 는 현재 head 이후의 봇 리뷰가
+  있으면 계속 `findings` 라 — 지적을 무효로 판정해 리액션만 바꾸고 커밋을 안 밀었으면 다음
+  `watch` 가 같은 리뷰를 다시 찾아 끝없이 돈다. 새 head 를 밀었을 때만 다시 보고, 그때도
+  기다리는 건 CI 다(`gh pr checks "$NUM" --watch`).
+- 첫 `verdict: findings` → 2~5단계(고치고 👀, 또는 무효 👀, 또는 🚀). 푸시했으면 CI 를
+  기다린 뒤 `ready` 가 0 이면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 🚀 가
+  있으면 `ready` 가 막는다 — 묻는다. 라운드 제한은 없다: 오너가 재리뷰를 달아 새 지적이 오면
+  같은 절차.
+- 첫 `verdict: clean`(본문 👍) → `ready` 가 0 이면 **알린다**(CI 가 아직이면 초록까지 기다린다).
+- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어, 역시 `ready` 가 0 일 때만 알린다(자동
+  리뷰가 꺼졌거나 지연). `watch` 의 "이 head 를 봤는가" 는 리뷰에 실린 커밋(Codex 의
+  `Reviewed commit:`)으로 대조하므로 서버 리베이스로 head 가 바뀐 뒤의 옛 리뷰를 새것으로 보지
+  않는다.
+- 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘·충돌은 **Monitor**
+  (`allowed-tools` 에 있다)에 이 명령을 물려 본다. 열린 PR 전체의 전이만 한 줄씩 낸다
+  (`#N MERGED` / `#N OPEN DIRTY`), 30분마다 만료되니 그때마다 다시 건다:
+
+  ```bash
+  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" transitions --interval 60
+  ```
+
+  `DIRTY`/`CONFLICTING` 이 오면 충돌을 풀고(양쪽 의도 보존 → 게이트 → force-with-lease) 다시
+  이 단계부터. `MERGED` 가 오면 스택의 다음 PR 을 같은 기준으로.
+- **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
+  수 없다 — 알림에 순서를 같이 적는다("#182 → #176 → #177 → #179 순"). 아래가 머지되면 **GitHub 이
+  다음 PR 을 main 위로 서버에서 리베이스하고 base 를 옮긴다**(공식 문서: "the next unmerged pull
+  request is automatically rebased to target the stack base directly"). 그러니 머지 뒤엔 로컬에서
+  아무것도 하지 말고, 다음에 손댈 때 `git fetch` 뒤 `git branch -f <branch> origin/<branch>` 로
+  로컬을 원격에 맞춘 다음 시작한다 — 옛 로컬로 푸시하면 `stale info` 로 거부된다. 새로 맨 아래가
+  된 PR 을 같은 기준으로 다시 본다(base 가 바뀌어 CI 가 다시 돈다). 스택 판단의 정본은
+  `stacks:stacked-prs` 스킬이다.
+- 머지 직전에 그 PR 로 **푸시하려던 것이 있으면 먼저 알린다.** 실제 사고: 아래 PR 의 리뷰 수정을
+  푸시하던 중 오너가 그 PR 을 머지해 푸시가 거부됐고, 수정은 위 PR 로 옮겨 실어야 했다.
 
 ## 실패 / 예외 처리
 
