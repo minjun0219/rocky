@@ -161,13 +161,27 @@ fn add_board_meta(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub const MIGRATIONS: [MigrationFn; 6] = [
+/// 마이그레이션 7: 노트 본문의 CRDT 상태(`note_docs`). `notes.content` 는 그대로 진실이고 이
+/// 테이블은 합치는 쪽의 상태다 — 기존 노트는 처음 열 때 content 로 씨앗을 심으므로 소급
+/// 채우지 않는다. SCHEMA 에도 있으니 IF NOT EXISTS.
+fn add_note_docs(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS note_docs (\n\
+           note_id    TEXT PRIMARY KEY REFERENCES notes(id),\n\
+           state      BLOB NOT NULL,\n\
+           updated_at TEXT NOT NULL\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 7] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
     add_board_path,
     add_handoff_lifecycle,
     add_board_meta,
+    add_note_docs,
 ];
 
 #[derive(Default)]
