@@ -19,3 +19,43 @@
 .notes-rail.is-open .notes-body {
   display: contents;
 }
+
+/* 편집기 후보 (b) CodeMirror — 카드 안에서 textarea 와 같은 자리·같은 글자 크기. 상대 커서는
+ * y-codemirror 의 테마가 그리고, 색은 actor 이름 해시(codemirror-editor.ts). */
+.note-cm {
+  margin-top: 4px;
+}
+
+.note-cm .cm-editor {
+  background: transparent;
+  font-size: var(--text-sm, 0.875rem);
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+.note-cm .cm-editor.cm-focused {
+  outline: none;
+  color: var(--color-text);
+}
+
+.note-cm .cm-scroller {
+  font-family: inherit;
+  max-height: 24rem;
+}
+
+.note-cm .cm-content {
+  padding: 2px 0;
+  caret-color: var(--color-text);
+}
+
+.note-cm .cm-line {
+  padding: 0;
+}
+
+/* 실시간 세션 전의 미리보기 — 클릭하면 편집기가 그 자리에 뜬다. */
+.note-cm-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 3.2em;
+  cursor: text;
+}

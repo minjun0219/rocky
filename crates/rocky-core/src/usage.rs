@@ -294,6 +294,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:todo-open"),
     (UsageSource::Web, "web:notes-toggle"),
     (UsageSource::Web, "web:note-live"),
+    (UsageSource::Web, "web:note-editor"),
     (UsageSource::Web, "web:theme"),
     (UsageSource::Web, "web:archived-toggle"),
     (UsageSource::Web, "web:quick-add"),

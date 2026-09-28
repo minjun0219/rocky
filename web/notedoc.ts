@@ -181,6 +181,8 @@ export class NoteSync {
   readonly client: string;
   /** 같이 보고 있는 사람이 바뀔 때. */
   onPresence: ((actors: string[]) => void) | null = null;
+  /** 프레즌스에 실려 온 `state`(편집기가 정한 것 — 커서 등). 나 자신의 것은 오지 않는다. */
+  onPresenceState: ((client: string, state: unknown) => void) | null = null;
   presence: Presence[] = [];
 
   private readonly fetchImpl: FetchLike;
@@ -296,12 +298,20 @@ export class NoteSync {
       }
       return;
     }
-    if (event.kind === 'presence' && event.actor) {
-      this.notePresence({
-        client: event.client ?? `?${event.actor}`,
-        actor: event.actor,
-        at: Date.now(),
-      });
+    if (event.kind === 'presence') {
+      if (event.client === this.client) {
+        return;
+      }
+      if (event.actor) {
+        this.notePresence({
+          client: event.client ?? `?${event.actor}`,
+          actor: event.actor,
+          at: Date.now(),
+        });
+      }
+      if (event.state !== undefined && event.state !== null) {
+        this.onPresenceState?.(event.client ?? '', event.state);
+      }
     }
   }
 
