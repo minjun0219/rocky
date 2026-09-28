@@ -13,7 +13,7 @@ use serde_json::Value;
 use crate::client::{daemon_health, request_value, CliContext};
 use crate::commands::Printer;
 use crate::context::infer_board_key;
-use crate::launchd::is_launchd_registered;
+use crate::launchd::{is_launchd_registered, launchd_loaded};
 
 const USAGE: &str = "usage: rocky config show [--json] | config init | config link | config path\n  show = 설치·설정 점검(설정 파일·데몬·launchd·statusline·보드·PATH), init = 기본 rocky.json 생성(있으면 그대로), link = ~/.local/bin/rocky 링크, path = 설정 파일 경로";
 
@@ -174,6 +174,7 @@ fn gather(ctx: &CliContext, todo: &TodoConfig) -> SetupInput {
             .map(|p| p.to_string_lossy().to_string()),
         daemon,
         launchd_registered: is_launchd_registered(),
+        launchd_loaded: launchd_loaded(),
         statusline_command,
         statusline_script,
         cwd,

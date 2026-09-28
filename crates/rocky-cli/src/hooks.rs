@@ -69,33 +69,27 @@ pub struct EnsureDeps<'a> {
     /// 이 설치본의 버전 — 데몬이 보고한 값과 다르면 stale 로 본다.
     pub version: &'a str,
     pub check_health: &'a dyn Fn(&str) -> Option<crate::client::DaemonHealth>,
-    pub spawn: &'a dyn Fn(&CliContext),
+    /// detached spawn + health 대기. 실패 사유를 돌려준다 — 경고에 실린다.
+    pub spawn: &'a dyn Fn(&CliContext) -> Result<(), String>,
     /// 구버전 데몬 종료. 성공 여부를 돌려준다.
     pub stop: &'a dyn Fn(&CliContext, Option<u32>) -> bool,
     /// launchd(KeepAlive) 상주 등록 여부.
     pub is_managed: &'a dyn Fn() -> bool,
-    /// 상주 job 을 현재 설치 경로로 교체 (bootout→plist 갱신→bootstrap).
-    pub replace_managed: &'a dyn Fn(),
+    /// 상주 job 을 현재 설치 경로로 교체 (plist 갱신→bootout→bootstrap). `Err` 면 옛 job 은
+    /// 이미 내려갔을 수 있다 — 호출자가 health 를 다시 보고 판단한다.
+    pub replace_managed: &'a dyn Fn() -> Result<(), String>,
 }
 
 /// SessionStart(startup): 데몬이 없으면 띄우고, **구버전이면** 내리고 현재 버전으로
 /// 재기동한다. 실제 배선 — 판정은 `ensure_daemon_with` 에 있다.
 pub fn hook_ensure_daemon(ctx: &CliContext, session_summary: Option<bool>) {
-    ensure_daemon_with(
-        ctx,
-        &EnsureDeps {
-            version: env!("CARGO_PKG_VERSION"),
-            check_health: &daemon_health,
-            spawn: &|ctx| {
-                let _ = ensure_daemon(ctx);
-            },
-            stop: &stop_daemon,
-            is_managed: &is_launchd_registered,
-            replace_managed: &|| {
-                install_launchd();
-            },
-        },
-    );
+    let warning = with_live_deps(|deps| ensure_daemon_with(ctx, deps));
+    // 재기동이 반쯤 실패한 것(launchd 재등록 실패 등)은 조용히 넘기지 않는다 — SessionStart 의
+    // stdout 은 세션 컨텍스트라 요약 위에 한 줄 얹으면 에이전트도 사람도 본다. 훅은 여전히 0.
+    if let Some(warning) = warning {
+        eprintln!("rocky: {warning}");
+        println!("⚠ rocky 데몬: {warning}");
+    }
     // 세션 컨텍스트에 보드 요약 몇 줄 — `rocky today` 와 같은 문자열. SessionStart 의 stdout 은
     // 컨텍스트로 들어간다. 데몬이 아직 안 떴거나 실패하면 조용히 넘어간다(fail-open).
     if session_summary.unwrap_or(true) {
@@ -135,24 +129,22 @@ fn print_session_summary(ctx: &CliContext) {
     println!("{}", rocky_core::summary::render_summary(&summary));
 }
 
-/// 매 턴 훅의 실제 배선 — `hook_ensure_daemon` 과 같은 의존, 정책만 `OnlyIfOlder`.
-fn upgrade_daemon_if_older(ctx: &CliContext) {
-    ensure_daemon_with_policy(
-        ctx,
-        &EnsureDeps {
-            version: env!("CARGO_PKG_VERSION"),
-            check_health: &daemon_health,
-            spawn: &|ctx| {
-                let _ = ensure_daemon(ctx);
-            },
-            stop: &stop_daemon,
-            is_managed: &is_launchd_registered,
-            replace_managed: &|| {
-                install_launchd();
-            },
-        },
-        RestartPolicy::OnlyIfOlder,
-    );
+/// 실제 배선 — SessionStart 와 매 턴 훅이 같은 의존을 쓴다.
+fn with_live_deps<R>(f: impl FnOnce(&EnsureDeps) -> R) -> R {
+    f(&EnsureDeps {
+        version: env!("CARGO_PKG_VERSION"),
+        check_health: &daemon_health,
+        spawn: &ensure_daemon,
+        stop: &stop_daemon,
+        is_managed: &is_launchd_registered,
+        replace_managed: &|| install_launchd().map(|_| ()),
+    })
+}
+
+/// 매 턴 훅 — `hook_ensure_daemon` 과 같은 의존, 정책만 `OnlyIfOlder`. 경고는 호출자가
+/// additionalContext 로 싣는다.
+fn upgrade_daemon_if_older(ctx: &CliContext) -> Option<String> {
+    with_live_deps(|deps| ensure_daemon_with_policy(ctx, deps, RestartPolicy::OnlyIfOlder))
 }
 
 /// 버전 비교는 정확 문자열 일치다 — 데몬 프로세스는 자기를 띄운 설치본보다 오래 살아,
@@ -160,8 +152,8 @@ fn upgrade_daemon_if_older(ctx: &CliContext) {
 /// launchd(KeepAlive) 상주면 PID kill 은 무의미하다(즉시 되살아난다) — job 자체를 현재
 /// 설치 경로로 교체한다. 못 내리면 재기동하지 않는다: 보드가 없는 것보다 구버전이라도
 /// 있는 게 낫다.
-pub fn ensure_daemon_with(ctx: &CliContext, deps: &EnsureDeps) {
-    ensure_daemon_with_policy(ctx, deps, RestartPolicy::ExactVersion);
+pub fn ensure_daemon_with(ctx: &CliContext, deps: &EnsureDeps) -> Option<String> {
+    ensure_daemon_with_policy(ctx, deps, RestartPolicy::ExactVersion)
 }
 
 /// 언제 재기동하는가.
@@ -176,12 +168,26 @@ pub enum RestartPolicy {
     OnlyIfOlder,
 }
 
-pub fn ensure_daemon_with_policy(ctx: &CliContext, deps: &EnsureDeps, policy: RestartPolicy) {
+/// 판정 + 배선. 돌려주는 문자열은 **사람에게 알려야 할 것**이다 — 재기동의 어느 단계가
+/// 실패해 데몬이 없거나 구버전으로 남았을 때. `None` 이면 조용히 지나간 것(정상).
+///
+/// launchd 교체가 실패한 경우가 핵심이다: `install_launchd` 는 옛 job 을 먼저 내리고 새
+/// job 을 올리므로, 실패하면 데몬이 **통째로 사라진** 채일 수 있다. 그때는 launchd 밖에서라도
+/// 띄운다(보드가 없는 것보다 낫다) — 대신 그 사실을 돌려줘 `rocky daemon install` 로 다시
+/// 등록하게 한다. 실제 사고(0.27→0.28)에서 이 실패가 삼켜져 plist 만 새 경로이고 서비스도
+/// 데몬도 없는 상태가 남았다.
+pub fn ensure_daemon_with_policy(
+    ctx: &CliContext,
+    deps: &EnsureDeps,
+    policy: RestartPolicy,
+) -> Option<String> {
     let Some(running) = (deps.check_health)(&ctx.base_url) else {
         if policy == RestartPolicy::ExactVersion {
-            (deps.spawn)(ctx);
+            return (deps.spawn)(ctx)
+                .err()
+                .map(|error| format!("데몬을 띄우지 못했다 — {error}"));
         }
-        return;
+        return None;
     };
     let stale = match policy {
         RestartPolicy::ExactVersion => running.version.as_deref() != Some(deps.version),
@@ -192,15 +198,42 @@ pub fn ensure_daemon_with_policy(ctx: &CliContext, deps: &EnsureDeps, policy: Re
         },
     };
     if !stale {
-        return;
+        return None;
     }
+    let old = running.version.as_deref().unwrap_or("?");
+    let new = deps.version;
     if (deps.is_managed)() {
-        (deps.replace_managed)();
-        return;
+        let Err(error) = (deps.replace_managed)() else {
+            return None;
+        };
+        if (deps.check_health)(&ctx.base_url).is_some() {
+            return Some(format!(
+                "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  구버전 데몬(v{old})이 그대로 돈다 — `rocky daemon install` 로 다시 등록하라."
+            ));
+        }
+        // 옛 job 은 내려갔는데 새 job 이 안 올라왔다 — launchd 밖에서라도 띄운다. 그것마저
+        // 실패하면 "띄웠다" 고 말하면 안 된다: 데몬이 없다는 사실과 사유를 그대로 싣는다.
+        return Some(match (deps.spawn)(ctx) {
+            Ok(()) => format!(
+                "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  데몬은 launchd 밖에서 띄웠다 — 재부팅·크래시 뒤 살아나지 않는다. `rocky daemon install` 로 다시 등록하라."
+            ),
+            Err(spawn_error) => format!(
+                "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  launchd 밖에서 띄우는 것도 실패했다 — {spawn_error}\n  지금 데몬이 없다. `rocky daemon install` (또는 `rocky daemon start`) 로 올려라."
+            ),
+        });
     }
     if (deps.stop)(ctx, running.pid) {
-        (deps.spawn)(ctx);
+        return (deps.spawn)(ctx).err().map(|error| {
+            format!("구버전 데몬(v{old})은 내렸는데 v{new} 를 띄우지 못했다 — {error}\n  `rocky daemon start` 로 올려라.")
+        });
     }
+    Some(format!(
+        "구버전 데몬(v{old}{})을 내리지 못해 v{new} 로 재기동하지 않았다 — `rocky daemon stop && rocky daemon start`",
+        running
+            .pid
+            .map(|p| format!(", pid {p}"))
+            .unwrap_or_default()
+    ))
 }
 
 /// env/설정의 watch 토글 — env `ROCKY_TODO_WATCH` 가 있으면 그 값이 이기고, 없으면
@@ -224,12 +257,16 @@ fn watch_enabled(watch_config: Option<bool>) -> bool {
 /// 데몬을 만나는 곳이다. 커서는 세션별이고 첫 프롬프트에서는 현재 위치만 기록한다(과거
 /// 히스토리 덤프 방지).
 pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
-    upgrade_daemon_if_older(ctx);
+    // 업그레이드가 반쯤 실패했으면 그 사실을 이 턴의 컨텍스트에 싣는다 — 실패한 턴에만 뜬다
+    // (그 뒤로는 데몬이 없거나 새 버전이라 `OnlyIfOlder` 가 다시 건드리지 않는다).
+    let upgrade_warning = upgrade_daemon_if_older(ctx).map(|w| format!("⚠ rocky 데몬: {w}"));
     if !watch_enabled(watch_config) {
+        emit_prompt_context(merge_context(&[upgrade_warning]));
         return;
     }
     let input = read_stdin_json();
     let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) else {
+        emit_prompt_context(merge_context(&[upgrade_warning]));
         return;
     };
 
@@ -268,7 +305,16 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
     let claimed = claim_thread.join().unwrap_or(None);
     let handoff_context = claimed.as_ref().map(build_handoff_prompt);
 
-    let Some(context) = merge_context(&[change_context, handoff_context]) else {
+    emit_prompt_context(merge_context(&[
+        upgrade_warning,
+        change_context,
+        handoff_context,
+    ]));
+}
+
+/// UserPromptSubmit 의 additionalContext 출력 — 실을 게 없으면 아무것도 내지 않는다.
+fn emit_prompt_context(context: Option<String>) {
+    let Some(context) = context else {
         return;
     };
     println!(

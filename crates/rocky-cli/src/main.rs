@@ -18,6 +18,19 @@ fn run(argv: &[String]) -> Result<(), String> {
     let command = parsed.positionals.first().map(String::as_str).unwrap_or("");
     let rest: Vec<String> = parsed.positionals.iter().skip(1).cloned().collect();
 
+    // `version` 은 데몬을 건드리지 않는다. 두 형태(`version` / `--version`)를 한 표면
+    // `rocky version` 으로 남긴다 — 표면 판단은 사용 로그의 숫자로 한다(KNOWN_SURFACES).
+    if command == "version" || parsed.bool_flag("version") {
+        println!("rocky {}", env!("CARGO_PKG_VERSION"));
+        rocky_cli::usage_cmd::record(
+            rocky_core::usage::UsageSource::Cli,
+            "rocky version",
+            true,
+            None,
+            None,
+        );
+        return Ok(());
+    }
     // `help` 와 인자 없음은 데몬을 건드리지 않는다 — 도움말 보려다 데몬이 뜨면 곤란하다.
     if command.is_empty() || command == "help" || parsed.bool_flag("help") {
         println!("{HELP}");

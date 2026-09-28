@@ -235,6 +235,18 @@ deterministically, and a per-turn gate would just make every turn slow.
   `-next.N`, 못 읽으면 false). 그 전 단계로, 새 버전 바이너리가 아직 없으면 `bin/rocky`
   부트스트랩이 SessionStart 가 아닌 훅에서 `hook ensure-daemon` 을 **백그라운드로** 한 번
   띄워 받게 한다(마커 디렉터리로 중복 방지) — 그 끝에서 데몬도 올라간다.
+  **교체의 각 단계는 실패를 삼키지 않는다**(0.27→0.28 사고: worklog MCP 기동이 새 버전을
+  받았는데 `current` 링크는 옛 버전에 남고, 다음 턴의 launchd 교체가 bootout 뒤 bootstrap 에
+  실패한 채 결과가 버려져 plist 만 새 경로이고 서비스도 데몬도 없는 상태가 남았다). 지금은
+  (1) 부트스트랩이 **새 버전을 받은 직후엔 입구와 무관하게** `current` 를 건다, (2)
+  `rocky_cli::launchd::register_job` 이 bootout 뒤 서비스가 사라지길 기다린 뒤 bootstrap 을
+  재시도하고(`5: Input/output error` 는 bootout 이 비동기라 나는 레이스) `print` 로 로드를
+  확인한다, (3) 그래도 실패하면 `ensure_daemon_with_policy` 가 health 를 다시 봐서 데몬이
+  사라졌으면 launchd **밖에서라도** 띄우고 경고 문자열을 돌려준다 — SessionStart 는 stdout
+  (세션 컨텍스트)에, `notify-todo` 는 additionalContext 에 `⚠ rocky 데몬: …` 로 싣는다.
+  `rocky daemon status`/`config show` 는 "plist 는 있으나 로드되지 않음" 을 `launchd_loaded`
+  로 가르고 `rocky daemon install` 을 고치는 명령으로 붙인다; `daemon start` 는 띄운
+  프로세스가 launchd 상주인지 밖인지를 출력에 적는다.
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed` 는 `/mcp` retry / 다음 세션 / launchd 로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json 의 todo 블록만.

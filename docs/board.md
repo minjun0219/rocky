@@ -68,9 +68,19 @@ claude plugin install rocky@rocky-marketplace
 
 ```bash
 rocky daemon install     # launchd 등록 (KeepAlive) — macOS
-rocky daemon status      # 기동 여부 + launchd 상태
+rocky daemon status      # 기동 여부 + launchd 상태 (plist 만 있고 로드가 안 됐으면 고치는 명령까지)
 rocky daemon uninstall
+rocky --version          # 설치된 CLI 버전
 ```
+
+`rocky daemon start` 는 데몬을 띄운 뒤 그것이 launchd 상주인지, launchd 밖의 온디맨드
+프로세스인지를 같이 적는다 — "✓ daemon on" 만 보고 상주가 복구된 줄 알지 않게.
+
+> **플러그인 업그레이드 뒤 데몬이 사라졌다면**: 옛 job 을 내린 뒤 새 job 등록이 실패한
+> 경우다(launchd 의 bootout 이 비동기라 바로 이어지는 bootstrap 이 튈 수 있다). 지금은
+> 훅이 재시도하고, 그래도 안 되면 launchd 밖에서라도 데몬을 띄운 뒤 세션 컨텍스트에
+> `⚠ rocky 데몬: …` 로 알린다. `rocky daemon status` 가 "plist 는 있으나 로드되지 않음"
+> 이면 `rocky daemon install` 로 다시 등록한다.
 
 > **이미 `daemon install` 을 해둔 환경**은 plist 가 자동 갱신되지 않는다 — GitHub 이슈
 > 기능(`gh` PATH 인식)을 쓰려면 `rocky daemon uninstall && rocky daemon install`
@@ -94,7 +104,7 @@ rocky daemon uninstall
 ## 네이티브 바이너리를 직접 쓰기
 
 CLI 는 따로 받을 필요가 없다 — 플러그인이 받아둔 바이너리를 쓴다. 경로는
-**`~/.local/share/rocky/current/rocky`** 를 쓴다: `current` 는 SessionStart 훅이 그 세션
+**`~/.local/share/rocky/current/rocky`** 를 쓴다: `current` 는 SessionStart 훅(또는 새 버전을 처음 받은 호출)이 그
 설치본의 버전(`v<version>`)으로 걸어 두는 링크라, 릴리스가 바뀌어도 이 경로는 그대로다.
 PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`.
 플러그인 밖에서 worklog MCP 를 붙일 때도 이 경로다 — 예컨대 `claude -p --strict-mcp-config`

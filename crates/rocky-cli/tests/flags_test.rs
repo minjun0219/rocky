@@ -34,6 +34,14 @@ fn boolean_flags_need_no_value() {
     }
 }
 
+/// `rocky --version` 이 "unknown flag" 로 죽으면 설치 버전을 CLI 로 확인할 길이 없다.
+#[test]
+fn version_is_a_boolean_flag() {
+    let parsed = parse_flags(&argv(&["--version"])).unwrap();
+    assert!(parsed.bool_flag("version"));
+    assert!(parsed.positionals.is_empty());
+}
+
 #[test]
 fn label_is_comma_split_and_link_accumulates() {
     let parsed = parse_flags(&argv(&[

@@ -72,7 +72,11 @@ pub struct SetupInput {
     /// 빌드해 쓰면 None.
     pub install_current: Option<String>,
     pub daemon: Option<DaemonState>,
+    /// plist 가 있는가(`~/Library/LaunchAgents/com.rocky.daemon.plist`).
     pub launchd_registered: bool,
+    /// 그 job 이 실제로 launchd 에 로드돼 있는가 — plist 만 남은 상태(업그레이드 중 재등록
+    /// 실패)를 가르는 값. 미등록이면 의미 없다.
+    pub launchd_loaded: bool,
     /// `~/.claude/settings.json` 의 `statusLine.command`.
     pub statusline_command: Option<String>,
     /// 그 command 가 가리키는 스크립트 본문(읽을 수 있으면).
@@ -225,16 +229,20 @@ pub fn build_report(input: &SetupInput) -> SetupReport {
         ),
     });
 
+    let (launchd_ok, launchd_detail) = match (input.launchd_registered, input.launchd_loaded) {
+        (true, true) => (true, "상주 등록됨 (KeepAlive)"),
+        (true, false) => (
+            false,
+            "plist 는 있으나 launchd 에 로드되지 않음 — 재부팅·크래시 뒤 데몬이 살아나지 않는다",
+        ),
+        (false, _) => (false, "상주 등록 안 됨 — 세션이 열릴 때만 뜬다"),
+    };
     checks.push(check(
         "launchd",
         CheckKind::Optional,
-        input.launchd_registered,
-        if input.launchd_registered {
-            "상주 등록됨 (KeepAlive)"
-        } else {
-            "상주 등록 안 됨 — 세션이 열릴 때만 뜬다"
-        },
-        (!input.launchd_registered).then(|| "rocky daemon install".to_string()),
+        launchd_ok,
+        launchd_detail,
+        (!launchd_ok).then(|| "rocky daemon install".to_string()),
     ));
 
     // 세션 요약 — 기본 on.
