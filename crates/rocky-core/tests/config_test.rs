@@ -318,3 +318,33 @@ fn session_summary_flag_parses_and_defaults_to_none() {
     let (_dir, path) = write_config(r#"{"todo":{"sessionSummary":"no"}}"#);
     assert_eq!(load_todo_config(&path).session_summary, None);
 }
+
+#[test]
+fn pr_block_is_read_with_defaults() {
+    use rocky_core::config::{load_pr_block, PrWatchConfig};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    assert_eq!(load_pr_block(&path), PrWatchConfig::default());
+    assert_eq!(PrWatchConfig::default().interval_minutes(), 3);
+    std::fs::write(
+        &path,
+        r#"{ "pr": { "enabled": false, "intervalMinutes": 10, "notify": false } }"#,
+    )
+    .unwrap();
+    let c = load_pr_block(&path);
+    assert_eq!(
+        c,
+        PrWatchConfig {
+            enabled: Some(false),
+            interval_minutes: Some(10),
+            notify: Some(false)
+        }
+    );
+    assert_eq!(c.interval_minutes(), 10);
+    std::fs::write(&path, r#"{ "pr": { "intervalMinutes": 0 } }"#).unwrap();
+    assert_eq!(
+        load_pr_block(&path).interval_minutes(),
+        3,
+        "0 은 기본값으로"
+    );
+}

@@ -174,7 +174,20 @@ fn add_note_docs(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 7] = [
+/// 마이그레이션 8: PR 감시의 마지막 스냅숏(`pr_watch`). SCHEMA 에도 있으니 IF NOT EXISTS.
+fn add_pr_watch(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pr_watch (\n\
+           repo       TEXT NOT NULL,\n\
+           number     INTEGER NOT NULL,\n\
+           snapshot   TEXT NOT NULL,\n\
+           updated_at TEXT NOT NULL,\n\
+           PRIMARY KEY (repo, number)\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 8] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -182,6 +195,7 @@ pub const MIGRATIONS: [MigrationFn; 7] = [
     add_handoff_lifecycle,
     add_board_meta,
     add_note_docs,
+    add_pr_watch,
 ];
 
 #[derive(Default)]

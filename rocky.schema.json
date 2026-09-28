@@ -76,6 +76,26 @@
         }
       }
     },
+    "pr": {
+      "type": "object",
+      "description": "PR 감시 — repo 가 설정된 보드의 PR 을 데몬이 주기적으로 보고, '확인·머지해도 된다'·충돌·머지·닫힘 전이를 히스토리·macOS 알림·세션 훅으로 알린다.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "끄려면 false (기본 true — repo 가 설정된 보드가 하나라도 있을 때만 돈다)."
+        },
+        "intervalMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "조회 간격(분). 기본 3."
+        },
+        "notify": {
+          "type": "boolean",
+          "description": "macOS 알림(osascript) 여부. 기본 true. ready·충돌만 알린다."
+        }
+      },
+      "additionalProperties": false
+    },
     "usage": {
       "type": "object",
       "description": "사용 로그 — rocky 의 표면(REST · MCP 도구 · CLI · 훅 · 웹 UI 이벤트)이 얼마나 쓰이는지를 월별 JSONL 로 남긴다. `rocky usage` 로 읽는다.",

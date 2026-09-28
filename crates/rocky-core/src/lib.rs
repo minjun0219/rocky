@@ -15,6 +15,7 @@ pub mod migrations;
 pub mod next;
 pub mod note_doc;
 pub mod notify;
+pub mod prwatch;
 pub mod refs;
 pub mod sessions;
 pub mod setup;
