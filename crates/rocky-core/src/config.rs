@@ -324,6 +324,43 @@ pub fn load_worklog_config(user_path: &Path, project_root: &Path) -> WorklogConf
     user.merged_with(&project)
 }
 
+/// `rocky.json` 의 `pr` 블록 — PR 감시(`rocky_core::prwatch`). 기본: repo 가 설정된 보드가 있으면
+/// 켜짐, 3분 간격, macOS 알림 켬.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrWatchConfig {
+    pub enabled: Option<bool>,
+    pub interval_minutes: Option<u64>,
+    pub notify: Option<bool>,
+}
+
+impl PrWatchConfig {
+    pub const DEFAULT_INTERVAL_MINUTES: u64 = 3;
+
+    pub fn interval_minutes(&self) -> u64 {
+        self.interval_minutes
+            .filter(|m| *m > 0)
+            .unwrap_or(Self::DEFAULT_INTERVAL_MINUTES)
+    }
+}
+
+/// 파일 없음 / 파싱 실패 / 블록 없음은 기본값(fail-open).
+pub fn load_pr_block(config_path: &Path) -> PrWatchConfig {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return PrWatchConfig::default();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return PrWatchConfig::default();
+    };
+    let Some(block) = parsed.get("pr").and_then(|v| v.as_object()) else {
+        return PrWatchConfig::default();
+    };
+    PrWatchConfig {
+        enabled: block.get("enabled").and_then(|v| v.as_bool()),
+        interval_minutes: block.get("intervalMinutes").and_then(|v| v.as_u64()),
+        notify: block.get("notify").and_then(|v| v.as_bool()),
+    }
+}
+
 /// `rocky.json` 의 `usage` 블록 — 사용 로그(`rocky_core::usage`). 기본 켜짐, `~/.config/rocky/usage`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageConfig {

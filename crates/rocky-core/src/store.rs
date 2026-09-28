@@ -18,6 +18,7 @@ use crate::actors::is_agent_actor;
 use crate::ids::{new_id, ID_LENGTH};
 use crate::migrations::{run_migrations, RunMigrationsOptions};
 use crate::note_doc::NoteDoc;
+use crate::prwatch::{diff as pr_diff, event_changes, PrEvent, PrSnapshot};
 use crate::refs::GLOBAL_NOTE_PREFIX;
 use crate::types::*;
 
@@ -104,6 +105,13 @@ CREATE TABLE IF NOT EXISTS note_docs (
   note_id TEXT PRIMARY KEY REFERENCES notes(id),
   state BLOB NOT NULL,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pr_watch (
+  repo TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  snapshot TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -440,6 +448,121 @@ impl TodoStore {
             }
         }
     }
+}
+
+// ── PR 감시 ─────────────────────────────────────────────────────────────────
+
+impl TodoStore {
+    /// 레포의 새 스냅숏을 기억하고 직전과의 전이를 돌려준다. 전이는 그 레포를 `repo` 로 둔
+    /// 보드(들)의 히스토리에 actor `rocky`·action `pr-*` 로 남아 SSE·`/api/changes`·훅 주입을
+    /// 탄다. 스냅숏 저장과 히스토리는 한 트랜잭션 — 사이에서 죽으면 같은 전이를 다시 알린다.
+    pub fn apply_pr_snapshot(
+        &self,
+        repo: &str,
+        snapshots: &[PrSnapshot],
+        actor: &str,
+    ) -> StoreResult<Vec<PrEvent>> {
+        let mut events = Vec::new();
+        // 행의 키는 인자의 `repo` 다 — 스냅숏의 repo 필드가 다른 표기(대소문자 등)여도 한 레포로 본다.
+        let snapshots: Vec<PrSnapshot> = snapshots
+            .iter()
+            .cloned()
+            .map(|mut s| {
+                s.repo = repo.to_string();
+                s
+            })
+            .collect();
+        let snapshots = snapshots.as_slice();
+        let result = {
+            let conn = self.lock();
+            let prev = list_prs_conn(&conn, Some(repo))?;
+            let changes = pr_diff(&prev, snapshots);
+            conn.execute_batch("BEGIN")?;
+            let inner = (|| -> StoreResult<Vec<PrEvent>> {
+                let now = now_iso();
+                for snap in snapshots {
+                    conn.execute(
+                        "INSERT INTO pr_watch (repo, number, snapshot, updated_at) VALUES (?1, ?2, ?3, ?4)\n\
+                         ON CONFLICT(repo, number) DO UPDATE SET snapshot = excluded.snapshot, updated_at = excluded.updated_at",
+                        params![
+                            snap.repo,
+                            snap.number,
+                            serde_json::to_string(snap).map_err(|e| StoreError::new(e.to_string()))?,
+                            now
+                        ],
+                    )?;
+                }
+                let board_ids: Vec<String> = {
+                    let mut stmt = conn
+                        .prepare("SELECT id FROM boards WHERE repo = ?1 AND archived_at IS NULL")?;
+                    let ids = stmt
+                        .query_map(params![repo], |r| r.get::<_, String>(0))?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    ids
+                };
+                for event in &changes {
+                    let changes_map = event_changes(event);
+                    for board_id in &board_ids {
+                        record_history(
+                            &conn,
+                            &mut events,
+                            HistoryEntity::Board,
+                            board_id,
+                            actor,
+                            event.kind.action(),
+                            Some(&changes_map),
+                            Some(board_id),
+                            true,
+                        )?;
+                    }
+                }
+                Ok(changes)
+            })();
+            match inner {
+                Ok(v) => {
+                    conn.execute_batch("COMMIT")?;
+                    v
+                }
+                Err(error) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    return Err(error);
+                }
+            }
+        };
+        self.emit_all(events);
+        Ok(result)
+    }
+
+    /// 기억하고 있는 PR 들 — `repo` 로 좁히거나 전부. `open_only` 면 OPEN 만.
+    pub fn list_prs(&self, repo: Option<&str>, open_only: bool) -> StoreResult<Vec<PrSnapshot>> {
+        let conn = self.lock();
+        let mut prs = list_prs_conn(&conn, repo)?;
+        if open_only {
+            prs.retain(|p| p.state == "OPEN");
+        }
+        Ok(prs)
+    }
+}
+
+fn list_prs_conn(conn: &Connection, repo: Option<&str>) -> StoreResult<Vec<PrSnapshot>> {
+    let sql = match repo {
+        Some(_) => "SELECT snapshot FROM pr_watch WHERE repo = ?1 ORDER BY number",
+        None => "SELECT snapshot FROM pr_watch ORDER BY repo, number",
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows: Vec<String> = match repo {
+        Some(r) => stmt
+            .query_map(params![r], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+        None => stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    };
+    // 옛 모양의 행(스키마가 바뀐 뒤)은 버린다 — 다음 tick 이 새로 쓴다.
+    Ok(rows
+        .iter()
+        .filter_map(|raw| serde_json::from_str::<PrSnapshot>(raw).ok())
+        .collect())
 }
 
 // ── conn 헬퍼 (락 안에서만 부른다) ──────────────────────────────────────────

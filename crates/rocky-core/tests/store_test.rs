@@ -3190,3 +3190,124 @@ fn an_out_of_order_batch_is_kept_until_its_predecessor_arrives() {
     assert!(applied.changed);
     assert_eq!(applied.note.content, "x\nfirst\nsecond");
 }
+
+// ── PR 감시 ─────────────────────────────────────────────────────────────────
+
+fn pr_snap(
+    number: i64,
+    state: &str,
+    ready: bool,
+    merge_state: &str,
+) -> rocky_core::prwatch::PrSnapshot {
+    rocky_core::prwatch::PrSnapshot {
+        repo: "o/r".into(),
+        number,
+        title: format!("PR {number}"),
+        url: format!("https://x/pull/{number}"),
+        state: state.into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "abcdef0".into(),
+        merge_state: merge_state.into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        rocket: 0,
+        ready,
+        updated_at: "2026-09-28T10:00:00Z".into(),
+    }
+}
+
+/// 전이는 그 레포를 둔 보드의 히스토리로 남고(actor rocky, action pr-*), 같은 스냅숏을 다시
+/// 넣으면 아무 전이도 없다 — 데몬 재기동 뒤 재알림 방지.
+#[test]
+fn pr_snapshots_are_remembered_and_transitions_land_in_board_history() {
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let events = f
+        .store
+        .apply_pr_snapshot(
+            "o/r",
+            &[
+                pr_snap(1, "OPEN", true, "CLEAN"),
+                pr_snap(2, "OPEN", false, "CLEAN"),
+            ],
+            "rocky",
+        )
+        .unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|e| (e.number, e.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, rocky_core::prwatch::PrEventKind::Opened),
+            (1, rocky_core::prwatch::PrEventKind::Ready),
+            (2, rocky_core::prwatch::PrEventKind::Opened)
+        ]
+    );
+    let again = f
+        .store
+        .apply_pr_snapshot(
+            "o/r",
+            &[
+                pr_snap(1, "OPEN", true, "CLEAN"),
+                pr_snap(2, "OPEN", false, "CLEAN"),
+            ],
+            "rocky",
+        )
+        .unwrap();
+    assert!(again.is_empty());
+    let merged = f
+        .store
+        .apply_pr_snapshot(
+            "o/r",
+            &[
+                pr_snap(1, "MERGED", false, "UNKNOWN"),
+                pr_snap(2, "OPEN", false, "DIRTY"),
+            ],
+            "rocky",
+        )
+        .unwrap();
+    assert_eq!(merged.len(), 2);
+    let board_id = f.store.board_id_of("rocky").unwrap().unwrap();
+    let history = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(board_id),
+            ..Default::default()
+        })
+        .unwrap();
+    let actions: Vec<&str> = history
+        .iter()
+        .filter(|h| h.action.starts_with("pr-"))
+        .map(|h| h.action.as_str())
+        .collect();
+    assert!(
+        actions.contains(&"pr-ready")
+            && actions.contains(&"pr-merged")
+            && actions.contains(&"pr-conflict"),
+        "{actions:?}"
+    );
+    let ready_row = history.iter().find(|h| h.action == "pr-ready").unwrap();
+    assert_eq!(ready_row.actor, "rocky");
+    assert_eq!(
+        ready_row.changes.as_ref().unwrap().get("number"),
+        Some(&serde_json::json!(1))
+    );
+    // 목록: open 만 / 전부.
+    assert_eq!(f.store.list_prs(Some("o/r"), true).unwrap().len(), 1);
+    assert_eq!(f.store.list_prs(None, false).unwrap().len(), 2);
+}
+
+/// 그 레포를 둔 보드가 없으면 스냅숏은 기억하되 히스토리는 안 남는다(붙일 곳이 없다).
+#[test]
+fn pr_events_without_a_board_are_returned_but_not_recorded() {
+    let f = fx();
+    let events = f
+        .store
+        .apply_pr_snapshot("no/board", &[pr_snap(1, "OPEN", true, "CLEAN")], "rocky")
+        .unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(f.store.list_prs(Some("no/board"), false).unwrap().len(), 1);
+}
