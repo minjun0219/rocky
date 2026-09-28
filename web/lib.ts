@@ -2,7 +2,7 @@
  * UI 순수 헬퍼 — actor 톤(두 대기 컨셉), 시간 표기, 초경량 markdown 렌더 토큰화.
  */
 import { isAgentActor } from './actors';
-import type { TodoView } from './types';
+import type { HandoffView, TodoView } from './types';
 import type { Comment, HistoryEntry } from './types';
 
 /**
@@ -518,4 +518,176 @@ export function resolveDropBefore(
     return undefined;
   }
   return { before: beforeId };
+}
+
+// ── "지금" 표 — 첫 화면이 답할 한 가지: 무슨 일이 돌고 있고, 무엇이 내 차례인가 ──
+
+export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect';
+
+export interface NowRow {
+  key: string;
+  kind: NowKind;
+  /** 표시 참조 — todo 는 `acorn-server-28`, 수집함은 `수집함`. */
+  ref: string;
+  title: string;
+  /** 눌러서 열 todo. 수집함 행에는 없다. */
+  todoId?: string;
+  /** 누가 들고 있나 — 색이 아니라 글자로. */
+  who: 'AGENT' | 'YOU' | '—';
+  /** 경과의 기준 시각(ISO). 없으면 경과 칸이 빈다. */
+  since?: string;
+  /** 읽지 않은 댓글 수 — 0 이면 표시하지 않는다. */
+  unread: number;
+  stamp: { label: string; tone: 'run' | 'mine' | 'dead' };
+}
+
+const NOW_ORDER: Record<NowKind, number> = { dead: 0, handoff: 1, doing: 2, unread: 3, collect: 4 };
+/** "지금" 표에 싣는 읽지 않은 댓글 행의 상한. */
+export const UNREAD_ROW_MAX = 5;
+
+/**
+ * 표의 행을 만든다. 순서는 사람이 손댈 것부터 — 세션 없음 → 핸드오프 → 진행중(멈춤 먼저)
+ * → 읽지 않은 댓글 → 수집함. 같은 todo 가 진행중이면서 댓글이 있으면 행 하나에 합친다.
+ */
+export function nowRows(
+  input: {
+    todos: TodoView[];
+    handoffs: HandoffView[];
+    seen: Record<string, string>;
+    collect?: number | null;
+  },
+  now = Date.now(),
+): NowRow[] {
+  const rows: NowRow[] = [];
+  const byTodo = new Map<string, NowRow>();
+  const todoById = new Map(input.todos.map((t) => [t.id, t]));
+
+  for (const t of input.todos) {
+    if (t.status !== 'doing' || t.archivedAt) {
+      continue;
+    }
+    const warning = doingWarning(t, now);
+    const row: NowRow = {
+      key: `doing:${t.id}`,
+      kind: warning?.tone === 'dead' ? 'dead' : 'doing',
+      ref: t.ref,
+      title: t.title,
+      todoId: t.id,
+      who: t.doingBy ? (isAgentActor(t.doingBy) ? 'AGENT' : 'YOU') : '—',
+      since: t.doingSince,
+      unread: hasUnreadComments(t, input.seen) ? t.commentCount : 0,
+      stamp:
+        warning?.tone === 'dead'
+          ? { label: '세션 없음', tone: 'dead' }
+          : warning?.tone === 'idle'
+            ? { label: '멈춤', tone: 'mine' }
+            : { label: '진행중', tone: 'run' },
+    };
+    rows.push(row);
+    byTodo.set(t.id, row);
+  }
+
+  for (const h of input.handoffs) {
+    // 이미 착수한 배달은 위 진행중 행이 말한다.
+    if (h.status === 'delivered' && h.acceptedAt) {
+      continue;
+    }
+    if (h.status === 'cancelled') {
+      continue;
+    }
+    const todo = todoById.get(h.todoId);
+    const row: NowRow = {
+      key: `handoff:${h.id}`,
+      kind: 'handoff',
+      ref: todo?.ref ?? h.todoId,
+      title: todo?.title ?? '(항목)',
+      todoId: h.todoId,
+      who: isAgentActor(h.actor) ? 'AGENT' : 'YOU',
+      since: h.createdAt,
+      unread: todo && hasUnreadComments(todo, input.seen) ? todo.commentCount : 0,
+      stamp:
+        h.status === 'pending'
+          ? h.stale
+            ? { label: '핸드오프 · 세션 없음', tone: 'dead' }
+            : { label: '핸드오프 대기', tone: 'mine' }
+          : { label: '집어갔는데 미착수', tone: 'mine' },
+    };
+    rows.push(row);
+    if (todo && !byTodo.has(todo.id)) {
+      byTodo.set(todo.id, row);
+    }
+  }
+
+  // 읽지 않은 댓글 — 끝난 일의 댓글은 내 차례가 아니다. 새 브라우저는 전부 "안 읽음" 이라
+  // 수십 행이 쏟아질 수 있어 최근 것 몇 개만 싣고 나머지는 한 줄로 접는다(목록의 💬 가 남는다).
+  const unread = input.todos
+    .filter((t) => !t.archivedAt && t.status !== 'done' && !byTodo.has(t.id))
+    .filter((t) => hasUnreadComments(t, input.seen))
+    .sort((a, b) => (b.lastCommentAt ?? '').localeCompare(a.lastCommentAt ?? ''));
+  for (const t of unread.slice(0, UNREAD_ROW_MAX)) {
+    rows.push({
+      key: `unread:${t.id}`,
+      kind: 'unread',
+      ref: t.ref,
+      title: t.title,
+      todoId: t.id,
+      who: '—',
+      since: t.lastCommentAt,
+      unread: t.commentCount,
+      stamp: { label: `읽지 않은 댓글 ${t.commentCount}`, tone: 'mine' },
+    });
+  }
+  if (unread.length > UNREAD_ROW_MAX) {
+    rows.push({
+      key: 'unread:more',
+      kind: 'unread',
+      ref: '…',
+      title: `읽지 않은 댓글이 있는 항목 ${unread.length - UNREAD_ROW_MAX}개 더 — 목록의 💬 로`,
+      who: '—',
+      unread: 0,
+      stamp: { label: '더 있음', tone: 'mine' },
+    });
+  }
+
+  if (input.collect && input.collect > 0) {
+    rows.push({
+      key: 'collect',
+      kind: 'collect',
+      ref: '수집함',
+      title: `아직 안 올린 항목 ${input.collect}건`,
+      who: 'YOU',
+      unread: 0,
+      stamp: { label: '올릴까', tone: 'mine' },
+    });
+  }
+
+  // 종류 순서 → 같은 종류 안에서는 오래된 것부터(가장 오래 방치된 것이 위). 읽지 않은
+  // 댓글만은 위에서 이미 최신순으로 잘라 넣었으므로 그 순서를 지킨다.
+  return rows
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => {
+      const k = NOW_ORDER[a.row.kind] - NOW_ORDER[b.row.kind];
+      if (k !== 0) {
+        return k;
+      }
+      if (a.row.kind === 'unread') {
+        return a.i - b.i;
+      }
+      return (a.row.since ?? '').localeCompare(b.row.since ?? '');
+    })
+    .map(({ row }) => row);
+}
+
+/** 초 단위로 흐르는 경과 — "41일 03:12:44" / "03:12:44". 관제판의 시그니처. */
+export function formatClock(iso: string, now = Date.now()): string {
+  const total = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
+  if (Number.isNaN(total)) {
+    return '';
+  }
+  const days = Math.floor(total / 86_400);
+  const rest = total % 86_400;
+  const hh = String(Math.floor(rest / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((rest % 3600) / 60)).padStart(2, '0');
+  const ss = String(rest % 60).padStart(2, '0');
+  return days > 0 ? `${days}일 ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
 }

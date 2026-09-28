@@ -40,6 +40,10 @@ interface DetailState {
 interface UiState {
   boards: Board[];
   todos: TodoView[];
+  /** 전 보드의 미보관 todo — "지금" 표는 보고 있는 보드와 무관하게 전체를 본다. */
+  nowTodos: TodoView[];
+  /** 수집함 미올림 수 — 데몬이 캐시로 모르면 null. */
+  collect: number | null;
   sections: Section[];
   notes: NoteView[];
   selected: BoardSelection;
@@ -216,6 +220,8 @@ function pushPath(path: string, state: unknown = null): boolean {
 export const useUiStore = create<UiState>((set, get) => ({
   boards: [],
   todos: [],
+  nowTodos: [],
+  collect: null,
   sections: [],
   notes: [],
   // 첫 fetch 부터 올바른 보드를 조회하도록 URL 을 먼저 읽는다. 없는 보드였다면
@@ -288,7 +294,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     const qs = params.size > 0 ? `?${params.toString()}` : '';
 
-    const [boards, todos, notes, sections, handoffs] = await Promise.all([
+    const [boards, todos, notes, sections, handoffs, nowTodos, summary] = await Promise.all([
       api<Board[]>('/api/boards', actor),
       api<TodoView[]>(`/api/todos${qs}`, actor),
       api<NoteView[]>(`/api/notes${qs}`, actor),
@@ -303,8 +309,23 @@ export const useUiStore = create<UiState>((set, get) => ({
         }`,
         actor,
       ),
+      // "지금" 표의 재료 — 보고 있는 보드와 무관하게 전 보드. 전체 뷰면 위 todos 와 같지만
+      // 분기하면 코드가 두 갈래가 되므로 그냥 한 번 더 받는다(로컬 데몬, 수십 KB).
+      api<TodoView[]>('/api/todos', actor),
+      // 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름".
+      api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
+        (): { collect?: number } => ({}),
+      ),
     ]);
-    set({ boards, todos, notes, sections, handoffs });
+    set({
+      boards,
+      todos,
+      notes,
+      sections,
+      handoffs,
+      nowTodos,
+      collect: typeof summary.collect === 'number' ? summary.collect : null,
+    });
 
     // 열린 상세가 있으면 함께 갱신 (SSE 로 들어온 변경 반영). await 하지 않으므로
     // `refresh: true` 로 "그 항목이 아직 열려 있을 때만" 반영하게 한다 — 그 사이 라우팅이

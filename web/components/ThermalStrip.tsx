@@ -57,7 +57,7 @@ export function ThermalStrip() {
   const caption = thermalCaption(events);
   return (
     <div
-      className="thermal flex items-center gap-3 max-[560px]:hidden"
+      className="thermal flex items-center gap-3 max-[1000px]:hidden"
       role="img"
       aria-label={`최근 활동 ${events.length}건 — 앰버는 에이전트, 블루는 사람. 마지막: ${caption}`}
       title="최근 활동 — 왼쪽이 과거, 오른쪽이 방금. 앰버는 에이전트, 블루는 사람"
