@@ -69,7 +69,8 @@ pub struct EnsureDeps<'a> {
     /// 이 설치본의 버전 — 데몬이 보고한 값과 다르면 stale 로 본다.
     pub version: &'a str,
     pub check_health: &'a dyn Fn(&str) -> Option<crate::client::DaemonHealth>,
-    pub spawn: &'a dyn Fn(&CliContext),
+    /// detached spawn + health 대기. 실패 사유를 돌려준다 — 경고에 실린다.
+    pub spawn: &'a dyn Fn(&CliContext) -> Result<(), String>,
     /// 구버전 데몬 종료. 성공 여부를 돌려준다.
     pub stop: &'a dyn Fn(&CliContext, Option<u32>) -> bool,
     /// launchd(KeepAlive) 상주 등록 여부.
@@ -133,9 +134,7 @@ fn with_live_deps<R>(f: impl FnOnce(&EnsureDeps) -> R) -> R {
     f(&EnsureDeps {
         version: env!("CARGO_PKG_VERSION"),
         check_health: &daemon_health,
-        spawn: &|ctx| {
-            let _ = ensure_daemon(ctx);
-        },
+        spawn: &ensure_daemon,
         stop: &stop_daemon,
         is_managed: &is_launchd_registered,
         replace_managed: &|| install_launchd().map(|_| ()),
@@ -184,7 +183,9 @@ pub fn ensure_daemon_with_policy(
 ) -> Option<String> {
     let Some(running) = (deps.check_health)(&ctx.base_url) else {
         if policy == RestartPolicy::ExactVersion {
-            (deps.spawn)(ctx);
+            return (deps.spawn)(ctx)
+                .err()
+                .map(|error| format!("데몬을 띄우지 못했다 — {error}"));
         }
         return None;
     };
@@ -210,14 +211,21 @@ pub fn ensure_daemon_with_policy(
                 "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  구버전 데몬(v{old})이 그대로 돈다 — `rocky daemon install` 로 다시 등록하라."
             ));
         }
-        (deps.spawn)(ctx);
-        return Some(format!(
-            "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  데몬은 launchd 밖에서 띄웠다 — 재부팅·크래시 뒤 살아나지 않는다. `rocky daemon install` 로 다시 등록하라."
-        ));
+        // 옛 job 은 내려갔는데 새 job 이 안 올라왔다 — launchd 밖에서라도 띄운다. 그것마저
+        // 실패하면 "띄웠다" 고 말하면 안 된다: 데몬이 없다는 사실과 사유를 그대로 싣는다.
+        return Some(match (deps.spawn)(ctx) {
+            Ok(()) => format!(
+                "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  데몬은 launchd 밖에서 띄웠다 — 재부팅·크래시 뒤 살아나지 않는다. `rocky daemon install` 로 다시 등록하라."
+            ),
+            Err(spawn_error) => format!(
+                "v{old} → v{new} 교체 중 launchd 재등록 실패: {error}\n  launchd 밖에서 띄우는 것도 실패했다 — {spawn_error}\n  지금 데몬이 없다. `rocky daemon install` (또는 `rocky daemon start`) 로 올려라."
+            ),
+        });
     }
     if (deps.stop)(ctx, running.pid) {
-        (deps.spawn)(ctx);
-        return None;
+        return (deps.spawn)(ctx).err().map(|error| {
+            format!("구버전 데몬(v{old})은 내렸는데 v{new} 를 띄우지 못했다 — {error}\n  `rocky daemon start` 로 올려라.")
+        });
     }
     Some(format!(
         "구버전 데몬(v{old}{})을 내리지 못해 v{new} 로 재기동하지 않았다 — `rocky daemon stop && rocky daemon start`",

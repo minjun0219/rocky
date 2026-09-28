@@ -23,6 +23,8 @@ struct Log {
     replaced: RefCell<u32>,
     /// `Some` 이면 launchd 교체가 이 사유로 실패한다.
     replace_error: Option<&'static str>,
+    /// `Some` 이면 spawn 이 이 사유로 실패한다.
+    spawn_error: Option<&'static str>,
 }
 
 fn run(
@@ -39,6 +41,10 @@ fn run(
             check_health: check,
             spawn: &|_| {
                 *log.spawned.borrow_mut() += 1;
+                match log.spawn_error {
+                    Some(error) => Err(error.to_string()),
+                    None => Ok(()),
+                }
             },
             stop: &|_, pid| {
                 log.stopped.borrow_mut().push(pid);
@@ -142,6 +148,38 @@ fn a_failed_replacement_that_lost_the_daemon_spawns_it_outside_launchd_and_warns
     assert!(warning.contains("rocky daemon install"), "{warning}");
 }
 
+/// fallback spawn 마저 실패하면 "밖에서 띄웠다" 고 말하면 안 된다 — 데몬이 없다는 사실과
+/// spawn 의 사유(바이너리 없음, 포트, health 타임아웃)가 경고에 그대로 실린다.
+#[test]
+fn a_failed_fallback_spawn_is_reported_not_claimed() {
+    let log = Log {
+        replace_error: Some("Bootstrap failed: 5: Input/output error"),
+        spawn_error: Some("rockyd 를 띄우지 못했다: No such file or directory"),
+        ..Log::default()
+    };
+    let calls = Cell::new(0);
+    let check = |_: &str| {
+        calls.set(calls.get() + 1);
+        (calls.get() == 1).then(|| health(Some("0.9.0"), 7))
+    };
+    let warning = run(&log, &check, true, true).expect("실패를 알린다");
+    assert_eq!(*log.spawned.borrow(), 1);
+    assert!(!warning.contains("밖에서 띄웠다"), "{warning}");
+    assert!(warning.contains("No such file or directory"), "{warning}");
+    assert!(warning.contains("지금 데몬이 없다"), "{warning}");
+}
+
+/// 데몬이 없어 SessionStart 가 띄우는 평범한 경로도 실패하면 알린다.
+#[test]
+fn a_failed_first_spawn_is_reported() {
+    let log = Log {
+        spawn_error: Some("rocky daemon did not start on port 8636"),
+        ..Log::default()
+    };
+    let warning = run(&log, &|_| None, false, true).expect("실패를 알린다");
+    assert!(warning.contains("port 8636"), "{warning}");
+}
+
 /// 교체가 실패했는데 구버전이 그대로 돌고 있으면(bootout 까지 실패) 띄우지 않는다 — 포트가
 /// 이미 잡혀 있다. 경고만.
 #[test]
@@ -180,6 +218,7 @@ fn run_only_if_older(log: &Log, check: &dyn Fn(&str) -> Option<DaemonHealth>, ma
             check_health: check,
             spawn: &|_| {
                 *log.spawned.borrow_mut() += 1;
+                Ok(())
             },
             stop: &|_, pid| {
                 log.stopped.borrow_mut().push(pid);
