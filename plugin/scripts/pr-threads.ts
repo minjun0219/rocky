@@ -10,7 +10,8 @@
  * bun scripts/pr-threads.ts list 154            # 미해결 스레드 JSON (첫 코멘트 id·내 리액션 포함)
  * bun scripts/pr-threads.ts react PRRC_… EYES   # 내 다른 상태 리액션을 떼고 👀 하나만 남긴다
  * bun scripts/pr-threads.ts watch 154 --timeout 300
- *   # CI 가 끝날 때까지 → 현재 head 이후 봇 리뷰가 붙을 때까지(또는 timeout) 기다린 뒤 list 출력
+ *   # CI 가 끝날 때까지 → 현재 head 이후 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
+ *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(안 옴)
  * ```
  *
  * PR 번호를 생략하면 현재 브랜치의 PR 이다.
@@ -89,17 +90,38 @@ export function reactionsToRemove(current: string[], target: StateReaction): str
 }
 
 export type ReviewNode = { author: { login: string } | null; submittedAt: string | null };
+/** PR 본문에 달린 리액션 — Codex 는 지적이 없으면 코멘트 대신 여기에 👍 만 남긴다. */
+export type ReactionNode = { content: string; createdAt: string; user: { login: string } | null };
 
-/** 현재 head 커밋 이후에 봇 리뷰가 제출됐는가 — 재리뷰 대기의 종료 조건. */
-export function hasFreshBotReview(reviews: ReviewNode[], headCommittedAt: string): boolean {
+/** 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만. */
+export type BotVerdict = 'pending' | 'findings' | 'clean';
+
+/**
+ * 현재 head 커밋 이후의 봇 신호를 읽는다 — 재리뷰 대기의 종료 조건.
+ *
+ * Codex 는 두 가지 방식으로 끝을 알린다: 지적이 있으면 리뷰(코멘트)를 제출하고, 없으면
+ * **PR 본문에 👍 리액션만** 단다(공식 문서: "automatically suggests improvements (or reacts
+ * with 👍)"). 리액션은 웹훅도 check run 도 없어서 리뷰만 보면 깨끗한 PR 이 영원히 `pending` 이다.
+ * 리뷰 중에는 👀 를 단다 — 그건 아직 `pending` 이다.
+ */
+export function botVerdict(
+  reviews: ReviewNode[],
+  reactions: ReactionNode[],
+  headCommittedAt: string,
+): BotVerdict {
   const head = Date.parse(headCommittedAt);
-  return reviews.some(
-    (r) =>
-      r.author?.login !== undefined &&
-      (REVIEW_BOTS as readonly string[]).includes(r.author.login) &&
-      r.submittedAt !== null &&
-      Date.parse(r.submittedAt) > head,
+  const isBot = (login: string | undefined) =>
+    login !== undefined && (REVIEW_BOTS as readonly string[]).includes(login);
+  const reviewed = reviews.some(
+    (r) => isBot(r.author?.login) && r.submittedAt !== null && Date.parse(r.submittedAt) > head,
   );
+  if (reviewed) {
+    return 'findings';
+  }
+  const clean = reactions.some(
+    (r) => isBot(r.user?.login) && r.content === 'THUMBS_UP' && Date.parse(r.createdAt) > head,
+  );
+  return clean ? 'clean' : 'pending';
 }
 
 export type Args = {
@@ -214,6 +236,7 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
     headRefOid mergeStateStatus isDraft
     commits(last:1){ nodes{ commit{ committedDate } } }
     reviews(last:30){ nodes{ author{ login } submittedAt } }
+    reactions(first:30){ nodes{ content createdAt user{ login } } }
     reviewThreads(first:100, after:$after){
       pageInfo{ hasNextPage endCursor }
       nodes{
@@ -234,6 +257,7 @@ type PrData = {
       isDraft: boolean;
       commits: { nodes: Array<{ commit: { committedDate: string } }> };
       reviews: { nodes: ReviewNode[] };
+      reactions: { nodes: ReactionNode[] };
       reviewThreads: {
         pageInfo: { hasNextPage: boolean; endCursor: string | null };
         nodes: ThreadNode[];
@@ -250,6 +274,7 @@ export type PrSnapshot = {
   isDraft: boolean;
   me: string;
   reviews: ReviewNode[];
+  reactions: ReactionNode[];
   threads: ThreadSummary[];
 };
 
@@ -281,6 +306,7 @@ function snapshot(slug: Slug, pr: number): PrSnapshot {
     isDraft: p.isDraft,
     me: first.viewer.login,
     reviews: p.reviews.nodes,
+    reactions: p.reactions.nodes,
     threads: summarizeThreads(nodes, first.viewer.login),
   };
 }
@@ -327,7 +353,7 @@ async function watch(
   slug: Slug,
   pr: number,
   timeoutSec: number,
-): Promise<PrSnapshot & { ci: 'pass' | 'fail'; reviewed: boolean }> {
+): Promise<PrSnapshot & { ci: 'pass' | 'fail'; verdict: BotVerdict }> {
   const checks = Bun.spawnSync(['gh', 'pr', 'checks', String(pr), '--watch'], {
     stdout: 'ignore',
     stderr: 'pipe',
@@ -335,13 +361,13 @@ async function watch(
   const ci = checks.exitCode === 0 ? 'pass' : 'fail';
   const deadline = Date.now() + timeoutSec * 1000;
   let snap = snapshot(slug, pr);
-  let reviewed = hasFreshBotReview(snap.reviews, snap.headCommittedAt);
-  while (!reviewed && Date.now() < deadline) {
+  let verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt);
+  while (verdict === 'pending' && Date.now() < deadline) {
     await sleep(10_000);
     snap = snapshot(slug, pr);
-    reviewed = hasFreshBotReview(snap.reviews, snap.headCommittedAt);
+    verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt);
   }
-  return { ...snap, ci, reviewed };
+  return { ...snap, ci, verdict };
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -362,7 +388,7 @@ async function main(argv: string[]): Promise<number> {
     const pr = args.pr ?? currentPr();
     const result =
       args.cmd === 'watch' ? await watch(slug, pr, args.timeoutSec) : snapshot(slug, pr);
-    const { reviews: _reviews, ...printable } = result;
+    const { reviews: _reviews, reactions: _reactions, ...printable } = result;
     console.log(JSON.stringify(printable, null, 2));
     return 0;
   } catch (error) {

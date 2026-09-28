@@ -67,8 +67,10 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" list $ARGUMENTS
 ```
 
 - 봇 리뷰가 아직 안 붙었으면(`threads` 가 비었고 마지막 푸시 직후) `watch` 로 기다린다 — CI 가
-  끝난 뒤 현재 head 이후에 제출된 봇 리뷰가 생길 때까지(기본 300초) 폴링하고 같은 JSON 을 낸다.
-  `reviewed: false` 로 끝나면 봇이 이 head 를 리뷰하지 않은 것이다(사실을 보고에 적는다).
+  끝난 뒤 현재 head 이후의 봇 신호가 올 때까지(기본 300초) 폴링하고 같은 JSON 에 `verdict` 를
+  얹는다. **Codex 는 지적이 없으면 코멘트 대신 PR 본문에 👍 리액션만 단다** — 그게 `clean` 이고
+  "리뷰할 게 없다" 는 뜻이다(리뷰 중에는 👀). `findings` 는 리뷰 코멘트가 제출된 것, `pending` 은
+  timeout 까지 아무 신호도 없었던 것(사실을 보고에 적는다).
 
   ```bash
   bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS --timeout 300
