@@ -14,6 +14,7 @@ import {
   resolveBoardKey,
   type Route,
   routeForTodo,
+  todoRefFor,
 } from './route';
 
 /**
@@ -198,8 +199,12 @@ async function api<T>(path: string, actor: string, init?: RequestInit): Promise<
  * 현재 항목의 state 를 덮어쓴다. 상세 드로어 마커(`rockyTodoDetail`)가 그 state 에 있어서,
  * 불필요한 호출이 마커를 지우면 `closeDetail` 이 뒤로가기 대신 잘못된 분기를 고른다.
  */
+function currentPath(): string {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
 function replacePath(path: string, state: unknown = null): void {
-  if (window.location.pathname !== path) {
+  if (currentPath() !== path) {
     window.history.replaceState(state, '', path);
   }
 }
@@ -214,7 +219,7 @@ function replacePath(path: string, state: unknown = null): void {
  * @returns 항목을 만들었으면 true.
  */
 function pushPath(path: string, state: unknown = null): boolean {
-  if (window.location.pathname === path) {
+  if (currentPath() === path) {
     return false;
   }
   window.history.pushState(state, '', path);
@@ -231,7 +236,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   notes: [],
   // 첫 fetch 부터 올바른 보드를 조회하도록 URL 을 먼저 읽는다. 없는 보드였다면
   // 부팅 직후의 applyRoute 가 전체 보기로 되돌린다.
-  selected: parseRoute(window.location.pathname).board,
+  selected: parseRoute(window.location.pathname, window.location.search).board,
   showArchived: false,
   actor: localStorage.getItem(ACTOR_KEY) ?? 'logan',
   themePref: readThemePref(
@@ -375,26 +380,23 @@ export const useUiStore = create<UiState>((set, get) => ({
       return;
     }
     // boards 는 await 이후 다시 읽는다 — await 도중 SSE 로 새 보드가 들어와 배열이 바뀔 수
-    // 있고, 낡은 배열을 쓰면 routeForTodo 가 boardId 를 못 찾아 { board: 'all' } 로 잘못
-    // 폴백한다(상세는 열려 있는데 주소는 전체 보기가 되는 불일치).
-    const route = routeForTodo(body.todo, get().boards);
-    if (route.board === 'all' || !isAddressableBoardKey(route.board)) {
+    // 있고, 낡은 배열을 쓰면 todoRefFor 가 boardId 를 못 찾아 상세 없는 주소가 된다.
+    const selected = get().selected;
+    const ref = todoRefFor(body.todo, get().boards);
+    const selectedAddressable = selected === 'all' || isAddressableBoardKey(selected);
+    if (ref === undefined || !isAddressableBoardKey(ref.board) || !selectedAddressable) {
       // 이 상세를 가리킬 주소가 없다(보드를 못 찾았거나 `buildPath` 가 `/` 로 접는 키).
       // 그래도 마커만 쌓으면 closeDetail 이 back() 을 골라, popstate 가 `/` 를 전체 보기로
       // 읽어 **닫기가 보드 전환을 일으킨다**. 항목을 만들지 않으면 closeDetail 의
       // replaceState 분기가 지금 보드를 그대로 들고 드로어만 닫는다.
       return;
     }
-    // 주소가 이 보드를 가리키게 되었으니 선택도 맞춘다. 전체 보기에서 연 상세가
-    // `/rocky/12` 를 push 하고 selected 는 'all' 로 남으면, 같은 히스토리 항목이 새로고침·
-    // 앞으로가기에서는 applyRoute 를 통해 rocky 보드로 복원되어 진입 방식마다 다른 화면이 된다.
-    if (route.board !== get().selected) {
-      set({ selected: route.board });
-      void get().refetch();
-    }
+    // 보고 있는 보드는 그대로다 — 전체 보기(또는 "지금" 표에서 다른 보드의 항목)에서 연
+    // 상세는 `/?todo=rocky-12` 처럼 선택과 todo 를 따로 싣는다. 예전엔 여기서 selected 를
+    // todo 의 보드로 옮겼고, 그게 "상세를 열면 뒤 화면이 그 보드로 바뀐다" 로 보였다.
     // 상세를 연 것이 히스토리 항목을 만든다 — closeDetail 이 이 표식을 보고 back() 할지
     // 정한다(퍼머링크로 바로 진입한 경우엔 back() 이 앱 밖으로 나가버린다).
-    pushPath(buildPath(route), { rockyTodoDetail: true });
+    pushPath(buildPath({ board: selected, todo: ref }), { rockyTodoDetail: true });
   },
 
   openNoteDetail: async (id, options) => {
@@ -455,15 +457,22 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({ selected: board });
       await get().refetch();
     }
-    if (route.todoNumber === undefined) {
+    if (route.todo === undefined) {
       set({ detail: null });
       // `/demo/abc` 처럼 해석되지 않은 꼬리가 주소에 남지 않게 정규화한다.
       // push 가 아니라 replace 인 이유: 히스토리에 죽은 항목을 남기지 않는다.
       replacePath(buildPath({ board }));
       return;
     }
-    const id = findTodoIdByNumber(get().todos, get().boards, board, route.todoNumber);
-    if (id === undefined) {
+    // 상세의 보드도 별칭을 푼다. 목록은 선택한 보드 것만 있으므로(전체 보기가 아니면),
+    // 다른 보드의 todo 는 "지금" 표의 재료(전 보드)에서 찾는다.
+    const todoBoard = resolveBoardKey(get().boards, route.todo.board);
+    const id =
+      todoBoard === undefined
+        ? undefined
+        : (findTodoIdByNumber(get().todos, get().boards, todoBoard, route.todo.number) ??
+          findTodoIdByNumber(get().nowTodos, get().boards, todoBoard, route.todo.number));
+    if (id === undefined || todoBoard === undefined) {
       // 없거나 보관된 번호 — 보드만 열어 준다.
       set({ detail: null });
       replacePath(buildPath({ board }));
@@ -474,7 +483,10 @@ export const useUiStore = create<UiState>((set, get) => ({
     // parseRoute 는 무시하지만 주소에는 남아, 같은 화면이 여러 주소를 갖게 되고 복사해
     // 건넨 링크에 죽은 꼬리가 따라간다. 여기서는 현재 항목의 state(상세 마커)를 보존해야
     // 한다 — 지우면 closeDetail 이 back() 대신 replace 분기를 골라 뒤로가기가 어긋난다.
-    replacePath(buildPath({ board, todoNumber: route.todoNumber }), window.history.state);
+    replacePath(
+      buildPath({ board, todo: { board: todoBoard, number: route.todo.number } }),
+      window.history.state,
+    );
   },
 
   addTodo: async (input) => {
@@ -491,15 +503,12 @@ export const useUiStore = create<UiState>((set, get) => ({
       body: JSON.stringify({ board }),
     });
     // 옛 주소(`/old/12`)는 비워진 번호라 새로고침·공유에서 깨진다. 드로어는 refetch 가
-    // 같은 id 로 되살리므로, 주소와 보드 선택도 todo 를 따라간다 — 히스토리 항목은
-    // 늘리지 않고 갈아끼운다(뒤로가기가 깨진 옛 주소로 돌아가지 않게, state 는 보존해
-    // 드로어 마커를 유지).
-    const route = routeForTodo(moved, get().boards);
-    if (route.board !== 'all' && isAddressableBoardKey(route.board)) {
+    // 같은 id 로 되살리므로 주소가 todo 를 따라간다(`/old?todo=new-3`) — 보고 있는 보드는
+    // 그대로다. 히스토리 항목은 늘리지 않고 갈아끼운다(뒤로가기가 깨진 옛 주소로 돌아가지
+    // 않게, state 는 보존해 드로어 마커를 유지).
+    const route = routeForTodo(moved, get().boards, get().selected);
+    if (route.todo !== undefined && isAddressableBoardKey(route.todo.board)) {
       replacePath(buildPath(route), window.history.state);
-      if (get().selected !== route.board) {
-        set({ selected: route.board });
-      }
     }
     await get().refetch();
   },
@@ -683,8 +692,10 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({ selected: board.key });
       // 열린 상세가 있으면 그 번호를 유지한다 — 보드 이름만 바뀌었을 뿐 보고 있는 항목은
       // 그대로다. 히스토리 항목을 새로 만들지 않으려 replace 이고, 상세 마커(state)도 보존한다.
-      const { todoNumber } = parseRoute(window.location.pathname);
-      replacePath(buildPath({ board: board.key, todoNumber }), window.history.state);
+      const { todo } = parseRoute(window.location.pathname, window.location.search);
+      const renamed =
+        todo !== undefined && todo.board === boardKey ? { ...todo, board: board.key } : todo;
+      replacePath(buildPath({ board: board.key, todo: renamed }), window.history.state);
     }
     await get().refetch();
   },
