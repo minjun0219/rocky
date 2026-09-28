@@ -71,6 +71,22 @@ async function runAsync(args: string[], env: Record<string, string>) {
   return { code, out, err };
 }
 
+/**
+ * 플랫폼 검사를 통과시키는 가짜 `uname` — 부트스트랩은 `uname -s`/`-m` 으로 Apple Silicon 만
+ * 받으므로, CI 의 ubuntu 에서는 다운로드 경로(백그라운드 잡·tarball)가 그 전에 죽어 마커
+ * 단정이 레이스가 된다. PATH 앞에 이걸 두면 어느 러너에서든 같은 경로를 탄다.
+ */
+function darwinArm64Path(): string {
+  const bin = join(dir, 'fake-uname-bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, 'uname'),
+    '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n',
+  );
+  chmodSync(join(bin, 'uname'), 0o755);
+  return `${bin}:${process.env.PATH ?? ''}`;
+}
+
 function fakeBinary(): string {
   const path = join(dir, 'fake-rocky');
   writeFileSync(path, '#!/bin/sh\necho "fake:$*"\nexit 7\n');
@@ -167,10 +183,7 @@ describe('bin/rocky bootstrap', () => {
       expect(existsSync(join(dir, '.local', 'bin', 'rocky'))).toBe(false);
     });
 
-    /**
-     * 진짜 tarball 을 로컬 서버로 서빙해 다운로드 경로를 끝까지 태운다. 플랫폼 판별이
-     * `uname` 이라 Apple Silicon 에서만 돈다(CI 의 ubuntu 는 그 전에 걸린다).
-     */
+    /** 진짜 tarball 을 로컬 서버로 서빙해 다운로드 경로를 끝까지 태운다(가짜 uname 으로 어느 러너든). */
     function fakeRelease(version: string): { base: string; stop: () => void } {
       const stage = join(dir, `stage-${version}`);
       mkdirSync(stage, { recursive: true });
@@ -206,28 +219,26 @@ describe('bin/rocky bootstrap', () => {
 
     // /reload-plugins 뒤 worklog MCP 서버 기동이 새 버전을 처음 받는 경우 — 0.27→0.28 에서
     // 이 경로가 받아 놓고 링크는 옛 버전에 남겨 `~/.local/bin/rocky` 가 구버전을 봤다.
-    test.skipIf(process.platform !== 'darwin' || process.arch !== 'arm64')(
-      '새 버전을 받은 호출은 SessionStart 가 아니어도 current 를 그 버전으로 건다',
-      async () => {
-        run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
-        expect(readlinkSync(link())).toBe('v1.0.0');
-        const release = fakeRelease('1.1.0');
-        try {
-          const r = await runAsync(['mcp', 'worklog'], {
-            CLAUDE_PLUGIN_ROOT: pluginRoot('1.1.0'),
-            ROCKY_RELEASE_BASE: release.base,
-          });
-          expect(r.code, r.err).toBe(0);
-          expect(r.out).toBe('1.1.0:mcp worklog\n');
-        } finally {
-          release.stop();
-        }
-        expect(readlinkSync(link())).toBe('v1.1.0');
-        expect(readlinkSync(join(dir, '.local', 'bin', 'rocky'))).toBe(
-          join(dir, 'data', 'rocky', 'current', 'rocky'),
-        );
-      },
-    );
+    test('새 버전을 받은 호출은 SessionStart 가 아니어도 current 를 그 버전으로 건다', async () => {
+      run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
+      expect(readlinkSync(link())).toBe('v1.0.0');
+      const release = fakeRelease('1.1.0');
+      try {
+        const r = await runAsync(['mcp', 'worklog'], {
+          CLAUDE_PLUGIN_ROOT: pluginRoot('1.1.0'),
+          ROCKY_RELEASE_BASE: release.base,
+          PATH: darwinArm64Path(),
+        });
+        expect(r.code, r.err).toBe(0);
+        expect(r.out).toBe('1.1.0:mcp worklog\n');
+      } finally {
+        release.stop();
+      }
+      expect(readlinkSync(link())).toBe('v1.1.0');
+      expect(readlinkSync(join(dir, '.local', 'bin', 'rocky'))).toBe(
+        join(dir, 'data', 'rocky', 'current', 'rocky'),
+      );
+    });
   });
 
   // 백그라운드 다운로드를 관찰하려면 그 잡이 살아 있어야 한다 — 죽은 포트는 즉시 실패해
@@ -252,6 +263,7 @@ describe('bin/rocky bootstrap', () => {
         const r = run(['hook', hook], {
           CLAUDE_PLUGIN_ROOT: root,
           ROCKY_RELEASE_BASE: release.base,
+          PATH: darwinArm64Path(),
         });
         expect(r.code).toBe(0);
         expect(r.out).toBe('');
@@ -278,6 +290,7 @@ describe('bin/rocky bootstrap', () => {
       const r = run(['hook', 'notify-todo'], {
         CLAUDE_PLUGIN_ROOT: root,
         ROCKY_RELEASE_BASE: release.base,
+        PATH: darwinArm64Path(),
       });
       expect(r.code).toBe(0);
       // 새로 만든 마커라 mtime 이 방금이다.
