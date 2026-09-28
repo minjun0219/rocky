@@ -60,7 +60,7 @@ async fn post_doc_applies_updates_content_and_broadcasts_to_the_note_stream() {
     let (_, body) = get(&f.state, &format!("/api/notes/{id}/doc")).await;
     let client = NoteDoc::from_state(&unb64(body["update"].as_str().unwrap())).unwrap();
     let server_sv = unb64(body["sv"].as_str().unwrap());
-    let mut rx = f.state.note_stream(&id).subscribe();
+    let mut rx = f.state.subscribe_note(&id);
 
     client.append("from web");
     let diff = client.diff_since(&server_sv).unwrap();
@@ -130,7 +130,7 @@ async fn bad_updates_are_400_and_unknown_notes_are_404() {
 async fn presence_is_broadcast_but_never_stored() {
     let f = fx();
     let id = note(&f, "x").await;
-    let mut rx = f.state.note_stream(&id).subscribe();
+    let mut rx = f.state.subscribe_note(&id);
     let (status, _) = call(
         &f.state,
         "POST",
@@ -164,7 +164,7 @@ async fn note_events_is_an_sse_response_on_its_own_channel() {
     let response = rockyd::server::handle_api(&f.state, request, Some("127.0.0.1".into())).await;
     assert_eq!(response.status(), 200);
     assert_eq!(response.headers()["content-type"], "text/event-stream");
-    assert_eq!(f.state.note_stream(&id).receiver_count(), 1);
+    assert_eq!(f.state.note_receivers(&id), 1);
     assert_eq!(f.state.events.receiver_count(), 0);
 }
 
@@ -176,7 +176,7 @@ async fn agent_edits_through_patch_are_broadcast_to_the_note_stream() {
     let id = note(&f, "hello").await;
     let (_, body) = get(&f.state, &format!("/api/notes/{id}/doc")).await;
     let client = NoteDoc::from_state(&unb64(body["update"].as_str().unwrap())).unwrap();
-    let mut rx = f.state.note_stream(&id).subscribe();
+    let mut rx = f.state.subscribe_note(&id);
     let (status, _) = call(
         &f.state,
         "PATCH",
@@ -197,6 +197,60 @@ async fn agent_edits_through_patch_are_broadcast_to_the_note_stream() {
         .apply(&unb64(event["update"].as_str().unwrap()))
         .unwrap();
     assert_eq!(client.text(), "hello\n에이전트가 적음");
+}
+
+/// 너무 밀린 연결은 끊는다 — 이 구독자는 update 를 하나씩 쌓으므로 한 건이 빠지면 그 연결이
+/// 사는 동안 문서가 낡은 채 남는다. 끊기면 브라우저가 다시 붙어 차분을 받는다. 전역 `/api/events`
+/// 는 refetch 채널이라 반대로 이어 간다.
+#[tokio::test]
+async fn a_lagging_note_stream_is_closed_so_the_client_resyncs() {
+    let f = fx();
+    let id = note(&f, "x").await;
+    let request = axum::http::Request::builder()
+        .method("GET")
+        .uri(format!("/api/notes/{id}/doc/events"))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = rockyd::server::handle_api(&f.state, request, Some("127.0.0.1".into())).await;
+    // 채널 용량(256)보다 많이 쌓아 Lagged 를 만든다 — 아직 아무도 읽지 않았다.
+    for i in 0..300 {
+        f.state
+            .broadcast_note(&id, &json!({ "kind": "presence", "n": i }));
+    }
+    // 스트림이 끝나야 to_bytes 가 돌아온다 — 안 끝나면 timeout 이 잡는다.
+    let bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        axum::body::to_bytes(response.into_body(), usize::MAX),
+    )
+    .await
+    .expect("밀린 노트 스트림은 끝나야 한다")
+    .unwrap();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.starts_with(": connected"));
+    assert!(!text.contains("\"n\":299"), "밀린 뒤의 건은 안 나간다");
+
+    // 전역 이벤트 채널은 밀려도 열려 있다 — 300건 뒤에도 다음 건이 나온다.
+    let request = axum::http::Request::builder()
+        .method("GET")
+        .uri("/api/events")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = rockyd::server::handle_api(&f.state, request, Some("127.0.0.1".into())).await;
+    for i in 0..300 {
+        let _ = f.state.events.send(format!("{{\"i\":{i}}}"));
+    }
+    let _ = f.state.events.send("{\"after\":true}".to_string());
+    let mut body = response.into_body().into_data_stream();
+    use tokio_stream::StreamExt;
+    let mut seen = String::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    while !seen.contains("after") && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(std::time::Duration::from_millis(200), body.next()).await {
+            Ok(Some(Ok(chunk))) => seen.push_str(&String::from_utf8_lossy(&chunk)),
+            _ => break,
+        }
+    }
+    assert!(seen.contains("after"), "{seen}");
 }
 
 fn urlencoding(s: &str) -> String {

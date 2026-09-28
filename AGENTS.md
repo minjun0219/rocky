@@ -327,6 +327,11 @@ deterministically, and a per-turn gate would just make every turn slow.
   어느 경로의 편집이든(웹 update·MCP/CLI set/append) 스토어가 `NoteDocEvent`(새로 생긴 조각만)를
   내고(`subscribe_note_docs`) 서버가 그 노트의 스트림에 방송한다 — 라우트가 직접 방송하지
   않는다(에이전트 경로가 방송에서 빠져 열린 웹 편집기가 append 를 못 보던 구멍).
+  노트 스트림은 **밀리면 끊는다**(`sse_from` 의 `OnLag::Close`, 채널 256건) — 이 구독자는 refetch 가
+  아니라 update 를 하나씩 쌓으므로 한 건이 빠지면 그 연결이 사는 동안 문서가 낡은 채 남는다;
+  끊기면 브라우저가 다시 붙어 `GET …/doc?sv=` 로 차분을 받는다(전역 `/api/events` 는 반대로
+  건너뛰고 이어 간다). 구독(`subscribe_note`)은 맵 락 안에서 끝낸다 — 보내는 쪽이 "듣는 이 0"
+  채널을 걷어 내므로, 채널을 꺼낸 뒤 구독하기 전에 방송이 끼면 걷힌 채널을 구독하게 된다.
   전송은 HTTP + **노트별 SSE**(`GET /api/notes/:ref/doc[?sv=]` · `POST …/doc {update}` ·
   `GET …/doc/events` · `POST …/presence`) — 전역 `/api/events` 에는 싣지 않는다(그 채널의
   구독자는 전부 refetch 한다). 웹 편집의 히스토리는 같은 actor 60초 창으로 **묶는다**

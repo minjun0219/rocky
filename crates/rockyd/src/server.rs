@@ -142,16 +142,26 @@ impl ServerState {
     }
 
     /// 노트의 문서 스트림 — 없으면 만든다. 테스트가 구독해 방송을 본다.
-    pub fn note_stream(&self, note_id: &str) -> broadcast::Sender<String> {
+    /// 노트의 문서 스트림을 **구독한다** — 채널이 없으면 만든다. 구독을 락 안에서 끝내는 이유:
+    /// 보내는 쪽(`broadcast_note`)이 "듣는 이 0" 인 채널을 걷어 내므로, 채널을 꺼내 온 뒤
+    /// 구독하기 전에 방송이 끼면 걷힌 채널을 구독해 그 뒤로 아무것도 못 받는다.
+    pub fn subscribe_note(&self, note_id: &str) -> broadcast::Receiver<String> {
         let mut streams = self.note_streams.lock().expect("note_streams poisoned");
         streams
             .entry(note_id.to_string())
-            .or_insert_with(|| broadcast::channel::<String>(256).0)
-            .clone()
+            .or_insert_with(|| broadcast::channel::<String>(NOTE_STREAM_CAPACITY).0)
+            .subscribe()
+    }
+
+    /// 지금 그 노트를 듣는 연결 수 — 테스트용.
+    pub fn note_receivers(&self, note_id: &str) -> usize {
+        let streams = self.note_streams.lock().expect("note_streams poisoned");
+        streams.get(note_id).map_or(0, |s| s.receiver_count())
     }
 
     /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
-    fn broadcast_note(&self, note_id: &str, payload: &serde_json::Value) {
+    /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
+    pub fn broadcast_note(&self, note_id: &str, payload: &serde_json::Value) {
         let mut streams = self.note_streams.lock().expect("note_streams poisoned");
         let Some(sender) = streams.get(note_id) else {
             return;
@@ -161,6 +171,9 @@ impl ServerState {
         }
     }
 }
+
+/// 노트 스트림 채널 크기 — 이만큼 밀린 연결은 끊는다(`sse_from`, `on_lag`).
+const NOTE_STREAM_CAPACITY: usize = 256;
 
 /// 서버 상태를 만든다 — 스토어 change 이벤트를 SSE 브로드캐스트로 잇는다.
 pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
@@ -1043,7 +1056,10 @@ async fn dispatch(
                         StatusCode::NOT_FOUND,
                     ));
                 };
-                return Ok(sse_from(state.note_stream(&note.id)));
+                // 밀리면 끊는다 — 이 구독자는 refetch 가 아니라 update 를 하나씩 적용하므로 한 건이
+                // 빠지면 그 연결이 사는 동안 문서가 낡은 채(뒤 update 는 pending) 남는다. 끊기면
+                // 브라우저가 다시 붙고 `GET doc?sv=` 로 빠진 것을 받는다.
+                return Ok(sse_from(state.subscribe_note(&note.id), OnLag::Close));
             }
         }
     }
@@ -1818,7 +1834,17 @@ async fn statusline_inner(
 
 /// GET /api/events — store change 이벤트를 SSE 로 흘린다.
 fn sse_response(state: &Arc<ServerState>) -> Response {
-    sse_from(state.events.clone())
+    // 구독자는 payload 를 보지 않고 refetch 만 하므로 밀려도 무해 — 조용히 이어 간다.
+    sse_from(state.events.subscribe(), OnLag::Skip)
+}
+
+/// broadcast 가 밀렸을 때(`Lagged`) 어떻게 하나.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnLag {
+    /// 그 건만 버리고 계속 — 구독자가 어차피 refetch 하는 채널.
+    Skip,
+    /// 연결을 끝낸다 — 구독자가 건마다 상태를 쌓는 채널. 다시 붙으며 차분을 받는다.
+    Close,
 }
 
 /// update 바이너리 ↔ JSON 문자열. 표준 base64(패딩 있음) — 쿼리에 실을 땐 클라이언트가
@@ -1836,17 +1862,24 @@ fn decode_b64(text: &str) -> Result<Vec<u8>, String> {
 }
 
 /// broadcast 채널 하나를 SSE 응답으로 — 전역 `/api/events` 와 노트별 문서 스트림이 같이 쓴다.
-fn sse_from(sender: broadcast::Sender<String>) -> Response {
+fn sse_from(receiver: broadcast::Receiver<String>, on_lag: OnLag) -> Response {
     use tokio_stream::wrappers::BroadcastStream;
     use tokio_stream::StreamExt;
 
-    let receiver = sender.subscribe();
-    let stream = BroadcastStream::new(receiver).filter_map(|event| match event {
-        Ok(payload) => Some(Ok::<_, std::convert::Infallible>(
-            format!("data: {payload}\n\n").into_bytes(),
-        )),
-        Err(_) => None, // lagged — 구독자는 refetch 만 하므로 유실 무해
-    });
+    let frame = |payload: String| {
+        Ok::<_, std::convert::Infallible>(format!("data: {payload}\n\n").into_bytes())
+    };
+    let raw = BroadcastStream::new(receiver);
+    let stream: std::pin::Pin<
+        Box<dyn tokio_stream::Stream<Item = Result<Vec<u8>, std::convert::Infallible>> + Send>,
+    > = match on_lag {
+        OnLag::Skip => Box::pin(raw.filter_map(move |event| event.ok().map(frame))),
+        // 첫 Lagged 에서 스트림을 끝낸다 — take_while 이 그 항목을 먹고 멈춘다.
+        OnLag::Close => Box::pin(
+            raw.take_while(|event| event.is_ok())
+                .filter_map(move |event| event.ok().map(frame)),
+        ),
+    };
     let connected = tokio_stream::once(Ok::<_, std::convert::Infallible>(
         b": connected\n\n".to_vec(),
     ));
