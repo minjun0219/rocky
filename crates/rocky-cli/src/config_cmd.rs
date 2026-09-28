@@ -37,7 +37,7 @@ pub fn cmd_config(
         }
         "link" => {
             let home = std::env::var("HOME").map_err(|_| "HOME 이 없다".to_string())?;
-            let target = expand_tilde("~/.local/share/rocky/current/rocky");
+            let target = data_home().join("rocky").join("current").join("rocky");
             printer.line(&link_cli(
                 &Path::new(&home).join(".local").join("bin"),
                 &target,
@@ -96,12 +96,30 @@ pub fn link_cli(bin_dir: &Path, target: &Path) -> Result<String, String> {
     Ok(format!("✓ {} → {}", cli.display(), target.display()))
 }
 
+/// 부트스트랩과 같은 규칙의 데이터 홈 — `$XDG_DATA_HOME` > `~/.local/share`.
+fn data_home() -> PathBuf {
+    std::env::var("XDG_DATA_HOME")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| expand_tilde("~/.local/share"))
+}
+
+/// 셸이 실제로 실행할 수 있는 파일인가 — 실행 비트가 없는 `rocky` 는 PATH 에 있어도 안 불린다.
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
 /// PATH 디렉터리에서 실행 가능한 `rocky` 를 찾는다.
 fn cli_on_path() -> Option<String> {
     let path = std::env::var("PATH").ok()?;
     path.split(':')
         .map(|d| Path::new(d).join("rocky"))
-        .find(|p| p.is_file())
+        .find(|p| is_executable(p))
         .map(|p| p.to_string_lossy().to_string())
 }
 
