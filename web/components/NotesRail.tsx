@@ -1,9 +1,16 @@
 import { Archive, ChevronDown, ChevronRight, History } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { NoteView } from '../types';
 import { boardCommand, copyRefWithFeedback, formatElapsed } from '../lib';
+import { NoteSync, PRESENCE_PING_MS } from '../notedoc';
 import { useUiStore } from '../store';
+import { bindTextarea } from '../textarea-binding';
 import { logUsage } from '../usage';
+
+/** 로컬 편집의 트랜잭션 원점 — 바인딩이 자기 편집을 다시 그리지 않게 가른다. */
+const LOCAL_ORIGIN = Symbol('note-textarea');
+/** 포커스가 빠진 뒤 동기화 세션을 얼마나 더 살려 두나 — 잠깐 다른 곳을 눌렀다 돌아오는 경우. */
+const LIVE_LINGER_MS = 20_000;
 
 /**
  * 메모 레일 — 목록 아래, 기본 접힘. 헤더(개수)가 토글이다. 넓은 화면에서 옆 열로 늘 펼쳐
@@ -73,28 +80,120 @@ function NoteCard({ note }: { note: NoteView }) {
   const saveNote = useUiStore((s) => s.saveNote);
   const archiveNote = useUiStore((s) => s.archiveNote);
   const openNoteDetail = useUiStore((s) => s.openNoteDetail);
+  const actor = useUiStore((s) => s.actor);
   const [title, setTitle] = useState(note.title);
-  const [content, setContent] = useState(note.content);
+  const [lines, setLines] = useState(note.content.split('\n').length);
   const [copied, setCopied] = useState(false);
+  // 본문의 실시간 세션 — 포커스가 들어오면 열고, 빠진 뒤 잠시 있다 닫는다. idle 일 땐 textarea 가
+  // SSE refetch 로 온 note.content 를 그대로 보여 준다(uncontrolled: 값은 ref 로 만진다).
+  const [live, setLive] = useState<'idle' | 'opening' | 'on'>('idle');
+  const [others, setOthers] = useState<string[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const syncRef = useRef<NoteSync | null>(null);
+  const unbindRef = useRef<(() => void) | null>(null);
+  const lingerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 다른 경로(에이전트)의 편집이 SSE refetch 로 들어오면, 내가 수정중이 아닐 때만 동기화
   useEffect(() => {
     setTitle(note.title);
-    setContent(note.content);
-  }, [note.title, note.content]);
+  }, [note.title]);
 
-  const dirty = title !== note.title || content !== note.content;
+  // 다른 경로(에이전트·CLI)의 편집이 SSE refetch 로 들어오면, 실시간 세션이 없을 때만 그린다 —
+  // 세션이 있으면 그 편집은 이미 문서 스트림으로 들어와 textarea 에 그려졌다.
+  useEffect(() => {
+    if (live === 'idle' && textareaRef.current && textareaRef.current.value !== note.content) {
+      textareaRef.current.value = note.content;
+      setLines(note.content.split('\n').length);
+    }
+  }, [note.content, live]);
 
-  const save = () => {
-    if (!dirty) {
+  const stopLive = () => {
+    if (lingerRef.current) {
+      clearTimeout(lingerRef.current);
+      lingerRef.current = null;
+    }
+    if (pingRef.current) {
+      clearInterval(pingRef.current);
+      pingRef.current = null;
+    }
+    unbindRef.current?.();
+    unbindRef.current = null;
+    syncRef.current?.close();
+    syncRef.current = null;
+    setOthers([]);
+    setLive('idle');
+  };
+
+  const startLive = async () => {
+    if (lingerRef.current) {
+      clearTimeout(lingerRef.current);
+      lingerRef.current = null;
+    }
+    if (syncRef.current) {
       return;
     }
-    void saveNote(note.id, { title, content });
+    const el = textareaRef.current;
+    if (!el) {
+      return;
+    }
+    logUsage('web:note-live');
+    setLive('opening');
+    const sync = new NoteSync(note.id, actor);
+    syncRef.current = sync;
+    try {
+      await sync.open();
+    } catch (err) {
+      console.warn('[rocky] 노트 실시간 세션을 열지 못했다', err);
+      if (syncRef.current === sync) {
+        syncRef.current = null;
+        setLive('idle');
+      }
+      return;
+    }
+    if (syncRef.current !== sync) {
+      sync.close(); // 여는 사이 닫혔다
+      return;
+    }
+    unbindRef.current = bindTextarea(el, sync.text, {
+      origin: LOCAL_ORIGIN,
+      pauseRemote: () => sync.pauseRemote(),
+      resumeRemote: () => sync.resumeRemote(),
+      onChange: (value) => setLines(value.split('\n').length),
+    });
+    sync.onPresence = setOthers;
+    void sync.ping();
+    pingRef.current = setInterval(() => void sync.ping(), PRESENCE_PING_MS);
+    setLive('on');
+  };
+
+  const scheduleStop = () => {
+    if (!syncRef.current || lingerRef.current) {
+      return;
+    }
+    lingerRef.current = setTimeout(stopLive, LIVE_LINGER_MS);
+  };
+
+  // 카드가 사라지면 세션도 닫는다.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 언마운트에 한 번 — stopLive 는 ref 만 만져 최신 값이 필요 없다
+  useEffect(() => stopLive, []);
+
+  const titleDirty = title !== note.title;
+  const saveTitle = () => {
+    if (titleDirty) {
+      void saveNote(note.id, { title });
+    }
   };
 
   // 글로벌 메모는 note.ref 가 `note-3` 으로 오고 보드 메모는 `rocky-3` 으로 온다 —
   // 어느 쪽이든 boardCommand 가 그대로 감싸므로 별도 분기가 없다.
   const handleCopyRef = () => copyRefWithFeedback(boardCommand(note.ref), setCopied);
+
+  const status =
+    live === 'on'
+      ? `실시간${others.length > 0 ? ` · 같이 보는 중: ${others.join(', ')}` : ''}`
+      : live === 'opening'
+        ? '여는 중…'
+        : `갱신 ${formatElapsed(note.updatedAt)} 전`;
 
   return (
     <div
@@ -114,7 +213,7 @@ function NoteCard({ note }: { note: NoteView }) {
           className="note-title min-w-0 flex-1 border-none bg-transparent py-0.5 text-sm font-semibold"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onBlur={save}
+          onBlur={saveTitle}
         />
         <button
           type="button"
@@ -136,20 +235,24 @@ function NoteCard({ note }: { note: NoteView }) {
         </button>
       </div>
       <textarea
+        ref={textareaRef}
         className="note-content mt-1 w-full resize-y border-none bg-transparent text-sm leading-[1.55] text-muted focus:text-text focus:outline-none"
-        value={content}
-        rows={Math.min(12, Math.max(3, content.split('\n').length + 1))}
-        onChange={(e) => setContent(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-            save();
+        defaultValue={note.content}
+        rows={Math.min(12, Math.max(3, lines + 1))}
+        readOnly={live === 'opening'}
+        aria-label={`${note.title} 본문`}
+        onFocus={() => void startLive()}
+        onBlur={scheduleStop}
+        onInput={(e) => {
+          if (live === 'idle') {
+            // 세션이 열리기 전(readOnly 가 걸리기 전 한 틱)의 입력은 세션이 열리면 문서 값으로
+            // 덮인다 — 그 한 틱을 잃지 않게 세션을 연다.
+            void startLive();
           }
+          setLines(e.currentTarget.value.split('\n').length);
         }}
       />
-      <div className="mt-1 font-mono text-micro text-faint">
-        {dirty ? '수정중… (blur 로 저장)' : `갱신 ${formatElapsed(note.updatedAt)} 전`}
-      </div>
+      <div className="mt-1 font-mono text-micro text-faint">{status}</div>
     </div>
   );
 }

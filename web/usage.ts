@@ -8,6 +8,7 @@ export type WebUsageEvent =
   | 'web:board-tab'
   | 'web:todo-open'
   | 'web:notes-toggle'
+  | 'web:note-live'
   | 'web:theme'
   | 'web:archived-toggle'
   | 'web:quick-add';

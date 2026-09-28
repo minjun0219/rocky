@@ -338,6 +338,11 @@ deterministically, and a per-turn gate would just make every turn slow.
   (`NOTE_EDIT_COALESCE_SECS`; 글자마다 한 줄이면 `/api/changes` → 세션 주입까지 잡음이 된다).
   사용 로그는 여는 `GET …/doc` 만 남기고 편집·프레즌스·스트림은 모양으로 거른다(`SKIPPED_SHAPES`).
   제목은 CRDT 가 아니다(`PATCH` 그대로). MCP 도구 수는 그대로 5.
+  웹 쪽은 `web/notedoc.ts`(`NoteSync`: 열기·150ms 배치 POST·노트별 SSE·재접속 시 sv 차분·
+  프레즌스; `fetch`/`EventSource` 주입으로 단위 테스트)와 `web/textarea-binding.ts`(textarea ↔
+  `Y.Text`, 로컬은 input 마다 최소 diff, 원격은 delta 로 커서 이동, IME 조합 중엔 원격 적용을
+  멈춘다). `NoteCard` 는 포커스에 세션을 열고 blur 20초 뒤 닫는다 — 카드마다 늘 SSE 를 물면
+  브라우저의 호스트당 연결 한도(HTTP/1.1 6개)에 걸린다.
 - **번호 참조(ref)**: todo/note 는 랜덤 id(`921gvwnr`, PK 로 유지) 외에 보드별 순번을 갖는다.
   id 를 받는 자리는 어디서든 `rocky-12`(보드 접두사) → `12`(현재 보드 컨텍스트 안의
   번호) → id 정확 일치 → id 유일 prefix 순으로 시도해 해석한다(`resolve_ref_id` in
