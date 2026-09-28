@@ -3311,3 +3311,18 @@ fn pr_events_without_a_board_are_returned_but_not_recorded() {
     assert_eq!(events.len(), 2);
     assert_eq!(f.store.list_prs(Some("no/board"), false).unwrap().len(), 1);
 }
+
+/// 보드에서 repo 를 떼면 그 레포의 스냅숏은 걷힌다 — 옛 열린 PR 이 "지금" 표에 남지 않게.
+#[test]
+fn snapshots_of_unwatched_repos_are_pruned() {
+    let f = fx();
+    f.store
+        .apply_pr_snapshot("o/keep", &[pr_snap(1, "OPEN", true, "CLEAN")], "rocky")
+        .unwrap();
+    f.store
+        .apply_pr_snapshot("o/gone", &[pr_snap(2, "OPEN", true, "CLEAN")], "rocky")
+        .unwrap();
+    assert_eq!(f.store.retain_pr_repos(&["o/keep".to_string()]).unwrap(), 1);
+    assert_eq!(f.store.list_prs(None, false).unwrap().len(), 1);
+    assert_eq!(f.store.retain_pr_repos(&["o/keep".to_string()]).unwrap(), 0);
+}

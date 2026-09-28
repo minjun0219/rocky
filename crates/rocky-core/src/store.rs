@@ -533,6 +533,24 @@ impl TodoStore {
         Ok(result)
     }
 
+    /// 더는 보지 않는 레포의 스냅숏을 걷는다 — 보드에서 repo 를 떼거나 바꾼 뒤 옛 열린 PR 이 "지금"
+    /// 표에 영영 남지 않게. 데몬이 tick 마다 지금 보는 레포 목록으로 부른다. 지운 행 수를 돌려준다.
+    pub fn retain_pr_repos(&self, repos: &[String]) -> StoreResult<usize> {
+        let conn = self.lock();
+        let existing: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT DISTINCT repo FROM pr_watch")?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let mut removed = 0;
+        for repo in existing.iter().filter(|r| !repos.contains(r)) {
+            removed += conn.execute("DELETE FROM pr_watch WHERE repo = ?1", params![repo])?;
+        }
+        Ok(removed)
+    }
+
     /// 기억하고 있는 PR 들 — `repo` 로 좁히거나 전부. `open_only` 면 OPEN 만.
     pub fn list_prs(&self, repo: Option<&str>, open_only: bool) -> StoreResult<Vec<PrSnapshot>> {
         let conn = self.lock();
