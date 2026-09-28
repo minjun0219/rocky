@@ -187,7 +187,7 @@ export function TodoPane() {
 
       {groups.map((group) => (
         <section key={group.key} className="mb-[26px]">
-          <div className="mb-1.5 border-b border-line pb-[5px] font-mono text-micro uppercase tracking-[0.22em] text-warm-dim">
+          <div className="mb-1.5 border-b border-line pb-[5px] font-mono text-micro uppercase tracking-[0.22em] text-muted">
             {group.title}
           </div>
           {renderTree(group.items, 0)}

@@ -1,44 +1,53 @@
 /*
- * 디자인 토큰 + 리셋 + 기본 요소. 색 이름이 곧 의미다 — warm=에이전트, cool=사람.
+ * 디자인 토큰 + 리셋 + 기본 요소 — "관제판". 색은 **상태**에만 쓴다: running=돌고 있음,
+ * mine=내 차례(사람이 손댈 것), dead=세션 없음. 누가 했나(에이전트/사람)는 색이 아니라
+ * 글자로 말한다. 슬레이트 그레이 바탕에 잉크 그린블랙.
  */
 
 /*
- * 다크가 기본이다. `:root` 를 함께 거는 이유: index.html 의 인라인 스크립트가 어떤
+ * 라이트가 기본이다. `:root` 를 함께 거는 이유: index.html 의 인라인 스크립트가 어떤
  * 이유로든(스크립트 차단 등) 실행되지 못하면 data-theme 이 붙지 않는데, 속성 선택자만
  * 두면 토큰이 하나도 적용되지 않아 페이지가 무스타일로 뜬다.
  */
 :root,
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #16110c;
-  --surface: #1f1811;
-  --surface-2: #282017;
-  --line: #382c1f;
-  --text: #e9dfd2;
-  --muted: #a99a87;
-  /* 세 바탕 전부에서 4.5:1 을 넘긴다 — bg 5.6 · surface 5.2 · surface-2 4.8. 옛 #6b5f51 은 bg 에서도
-     3.4:1 이라 마이크로 라벨이 안 읽혔고, #8a7b69 는 bg 에서만 넘고 surface-2 에선 3.9 였다. */
-  --faint: #9a8a76;
-  --warm: #e8a33d; /* 에이전트 / 에리디언 */
-  --warm-dim: #8a6526;
-  --cool: #7ec8d8; /* 사람 / 지구 */
-  --cool-dim: #47707a;
-  --p1: #e2634f;
-  --p2: #e8a33d;
-  --p3: #c8b45a;
-  --ok: #86b06c;
-  --handoff: #93c5fd; /* 핸드오프 — "보냈다"(파랑), doing 앰버(--warm)와 구분 */
-  --handoff-dim: #1e3a5f;
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eef1ef;
+  --surface: #ffffff;
+  --surface-2: #e6ebe8;
+  --line: #d5dcd7;
+  --text: #15201a;
+  /* 세 바탕(bg · surface · surface-2) 전부에서 4.5:1 을 넘긴다 — muted 6.1/7.0/5.8, faint 5.2/5.9/4.9.
+     처음 잡았던 faint #7a8a81 은 surface 에서도 3.6 이라 11~14px 보조 글이 안 읽혔다. */
+  --muted: #4e5d55;
+  --faint: #586860;
+  --run: #167a56; /* 돌고 있음 */
+  --mine: #c2410c; /* 내 차례 — 사람이 손댈 것 */
+  --mine-soft: #fff1ea;
+  --dead: #7a2e12; /* 세션 없음 — 점선 스탬프 */
+  --link: #1d5fb0;
+  /* 옛 이름 — 컴포넌트가 아직 쓰는 자리. 의미가 바뀌었다: warm=강조(내 차례), cool=링크.
+     컴포넌트 단계에서 run/mine/link 로 갈아 끼우고 이 줄들을 지운다. */
+  --warm: var(--mine);
+  --warm-dim: #e6a98c;
+  --cool: var(--link);
+  --cool-dim: #9dbbe0;
+  --p1: #b42318;
+  --p2: var(--mine);
+  --p3: #6f6215;
+  --ok: var(--run);
+  --handoff: var(--link); /* 핸드오프 — "보냈다" */
+  --handoff-dim: #e3edfa;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   --sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Pretendard", sans-serif;
 }
 
 /*
- * Tailwind 유틸리티 ↔ 토큰 다리. `inline` 이라 유틸리티가 `var(--warm)` 참조로 나와
+ * Tailwind 유틸리티 ↔ 토큰 다리. `inline` 이라 유틸리티가 `var(--run)` 참조로 나와
  * 토큰 값이 단일 출처로 남는다 — 위 `:root` 값을 바꾸면 유틸리티도 따라온다.
- * `text-warm` / `bg-surface` / `border-line` / `font-mono` 처럼 **의미 이름 그대로** 쓴다.
- * `text-amber-400` 같은 원색 팔레트는 이 프로젝트에서 금지 — 색 이름이 곧 의미다.
+ * `text-run` / `bg-surface` / `border-line` / `font-mono` 처럼 **의미 이름 그대로** 쓴다.
+ * `text-green-600` 같은 원색 팔레트는 이 프로젝트에서 금지 — 색 이름이 곧 의미다.
  */
 @theme inline {
   --color-*: initial; /* 기본 팔레트(red-500 등) 비활성 — 의미 토큰만 남긴다 */
@@ -49,6 +58,11 @@
   --color-text: var(--text);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
+  --color-run: var(--run);
+  --color-mine: var(--mine);
+  --color-mine-soft: var(--mine-soft);
+  --color-dead: var(--dead);
+  --color-link: var(--link);
   --color-warm: var(--warm);
   --color-warm-dim: var(--warm-dim);
   --color-cool: var(--cool);
@@ -66,7 +80,6 @@
    * 타입 스케일 — 여섯 단이 전부다. 임의값(`text-[10px]`)을 새로 만들지 않는다.
    * micro 11 (대문자 라벨·id) · chip 12 (칩·뱃지·시각) · meta 13 (설명·보조) ·
    * sm 14 (입력·카드 본문) · body 15 (제목 줄·본문) · title 20 (보드 이름).
-   * 10px 는 이 화면의 바닥이었고 폰에서 안 읽혀 걷어냈다.
    */
   --text-micro: 11px;
   --text-micro--line-height: 1.3;
@@ -81,29 +94,27 @@
 }
 
 /*
- * 라이트 — 배경이 순백이 아니라 웜 아이보리다. 순백 위에서는 앰버가 탁해져
- * "두 대기"(warm=에이전트 / cool=사람)의 온도 대비가 죽는다. 값은 닫힌 라이트 모드
- * 브랜치에서 대비 튜닝을 마친 팔레트를 그대로 가져왔다.
+ * 다크 — 같은 슬레이트를 어둡게. 상태색은 어두운 바탕에서 채도를 조금 올려 같은 무게로.
  */
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #faf6f0;
-  --surface: #ffffff;
-  --surface-2: #f2ebe1;
-  --line: #d6cab9;
-  --text: #241c14;
-  --muted: #6b5c4a;
-  --faint: #756753;
-  --warm: #6b4600;
-  --warm-dim: #8b6019;
-  --cool: #195564;
-  --cool-dim: #52828d;
-  --p1: #b3311c;
-  --p2: #6b4600;
-  --p3: #6f6215;
-  --ok: #3f6b26;
-  --handoff: #1f5aa8;
-  --handoff-dim: #d3e4fb;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14181a;
+  --surface: #1c2124;
+  --surface-2: #242a2e;
+  --line: #2f373b;
+  --text: #e6ebe8;
+  --muted: #9fada6;
+  --faint: #8a978f;
+  --run: #3fbf8a;
+  --mine: #f0874f;
+  --mine-soft: #3a2418;
+  --dead: #d97b5c;
+  --link: #7fb0f0;
+  --warm-dim: #7a4a30;
+  --cool-dim: #3b5a80;
+  --p1: #f0705e;
+  --p3: #c8b45a;
+  --handoff-dim: #1e3350;
 }
 
 /*
