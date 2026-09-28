@@ -337,7 +337,8 @@ fn pr_block_is_read_with_defaults() {
         PrWatchConfig {
             enabled: Some(false),
             interval_minutes: Some(10),
-            notify: Some(false)
+            notify: Some(false),
+            notifiers: Vec::new(),
         }
     );
     assert_eq!(c.interval_minutes(), 10);
@@ -347,4 +348,37 @@ fn pr_block_is_read_with_defaults() {
         3,
         "0 은 기본값으로"
     );
+}
+
+/// `pr.notifiers[]` — 수집함 어댑터와 같은 모양(name·command·timeoutMs). 이름이 규칙에 어긋나거나
+/// command 가 비면 그 항목만 버린다.
+#[test]
+fn pr_notifiers_are_command_bridges() {
+    use rocky_core::config::{load_pr_block, CommandBridge};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    std::fs::write(
+        &path,
+        r#"{ "pr": { "notifiers": [
+            { "name": "telegram", "command": ["bun", "/x/bridges/telegram/notify.ts", "--chat", "1"], "timeoutMs": 15000 },
+            { "name": "Bad Name", "command": ["x"] },
+            { "name": "empty", "command": [] }
+        ] } }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        load_pr_block(&path).notifiers,
+        vec![CommandBridge {
+            name: "telegram".into(),
+            command: vec![
+                "bun".into(),
+                "/x/bridges/telegram/notify.ts".into(),
+                "--chat".into(),
+                "1".into()
+            ],
+            timeout_ms: Some(15000),
+        }]
+    );
+    std::fs::write(&path, r#"{ "pr": { "notify": false } }"#).unwrap();
+    assert!(load_pr_block(&path).notifiers.is_empty());
 }

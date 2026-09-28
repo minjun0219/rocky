@@ -92,6 +92,35 @@
         "notify": {
           "type": "boolean",
           "description": "macOS 알림(osascript) 여부. 기본 true. ready·충돌만 알린다."
+        },
+        "notifiers": {
+          "type": "array",
+          "description": "알림 브릿지 — ready·충돌마다 실행하는 명령들. 데몬이 argv 그대로 실행하고 stdin 에 전이 JSON 하나를 준다(exit 0 = 보냄). 환경마다 고른다(텔레그램·ntfy·…은 bridges/<name>/). notify(macOS)와 독립. 규약은 docs/board.md \"PR 감시\".",
+          "items": {
+            "type": "object",
+            "required": ["name", "command"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$",
+                "description": "브릿지 이름 — 로그·health 사유에 쓴다."
+              },
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "argv 배열. 셸을 거치지 않는다. 토큰은 명령이 스스로(예: `op read`) 읽는다."
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "실행 시간 상한(ms). 기본 10000."
+              }
+            }
+          }
         }
       },
       "additionalProperties": false

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
-use rocky_core::prwatch::PrEventKind;
+use rocky_core::prwatch::{diff, notification_text, PrEventKind, PrSnapshot};
 use rockyd::prwatch::{tick, Notifier};
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::{json, Value};
@@ -108,7 +108,7 @@ fn capture() -> (Notifier, Seen) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let sink = seen.clone();
     (
-        Arc::new(move |title, body| sink.lock().unwrap().push((title, body))),
+        Arc::new(move |event| sink.lock().unwrap().push(notification_text(event))),
         seen,
     )
 }
@@ -415,4 +415,74 @@ async fn a_low_budget_stops_the_tick_before_the_limit() {
     assert!(!status.available);
     assert!(status.reason.unwrap().contains("잔여 900"));
     assert_eq!(status.rate_limit.unwrap().remaining, 900);
+}
+
+/// 알림 브릿지 — 등록된 argv 그대로, stdin 에 전이 JSON. 실패는 exit code 로만 알고 나머지
+/// 알림기는 그대로 받는다.
+#[tokio::test]
+async fn bridge_notifier_runs_the_command_with_the_transition_on_stdin() {
+    use rockyd::prwatch::{bridge_notifier, compose_notifiers};
+    type Calls = Arc<Mutex<Vec<(Vec<String>, String, Duration)>>>;
+    let calls: Calls = Arc::new(Mutex::new(Vec::new()));
+    let sink = calls.clone();
+    let runner: Runner = Arc::new(move |cmd, stdin, timeout| {
+        let sink = sink.clone();
+        Box::pin(async move {
+            sink.lock().unwrap().push((cmd, stdin, timeout));
+            CmdOutput::failure("telegram: 토큰이 없다 — --op REF")
+        })
+    });
+    let bridge = rocky_core::config::CommandBridge {
+        name: "telegram".into(),
+        command: vec![
+            "bun".into(),
+            "/x/bridges/telegram/notify.ts".into(),
+            "--chat".into(),
+            "1".into(),
+        ],
+        timeout_ms: Some(15_000),
+    };
+    let (capture, seen) = capture();
+    let both = compose_notifiers(vec![capture, bridge_notifier(runner, bridge)]);
+    let snap = PrSnapshot {
+        repo: "o/r".into(),
+        number: 7,
+        title: "PR 7".into(),
+        url: "https://github.com/o/r/pull/7".into(),
+        state: "OPEN".into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "0123456".into(),
+        merge_state: "CLEAN".into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        rocket: 0,
+        ready: true,
+        updated_at: "2026-09-28T10:00:00Z".into(),
+    };
+    let events = diff(&[], &[snap]);
+    let ready = events
+        .iter()
+        .find(|e| e.kind == PrEventKind::Ready)
+        .unwrap();
+    both(ready);
+    // 브릿지는 tokio::spawn 으로 보낸다 — 잠깐 양보.
+    for _ in 0..50 {
+        if !calls.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    let (argv, stdin, timeout) = &calls[0];
+    assert_eq!(argv[0], "bun");
+    assert_eq!(argv[3], "1", "등록한 argv 그대로 — 셸 없음");
+    assert_eq!(*timeout, Duration::from_millis(15_000));
+    let payload: Value = serde_json::from_str(stdin).unwrap();
+    assert_eq!(payload["kind"], "ready");
+    assert_eq!(payload["number"], 7);
+    assert_eq!(payload["url"], "https://github.com/o/r/pull/7");
+    assert_eq!(payload["text"], "#7 확인·머지해도 된다 — PR 7");
+    assert_eq!(seen.lock().unwrap().len(), 1, "다른 알림기도 받는다");
 }

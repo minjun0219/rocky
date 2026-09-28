@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use rocky_core::prwatch::{
-    detail_query, diff, is_rate_limit_error, is_ready, list_query, notification_text,
-    osascript_args, parse_pr_details, parse_pr_list, pause_for, CiState, PrEventKind, PrSnapshot,
-    RateLimit, RATE_LIMIT_BLIND_PAUSE_SECS, RATE_LIMIT_FLOOR,
+    bridge_payload, detail_query, diff, is_rate_limit_error, is_ready, list_query,
+    notification_text, osascript_args, parse_pr_details, parse_pr_list, pause_for, CiState,
+    PrEventKind, PrSnapshot, RateLimit, RATE_LIMIT_BLIND_PAUSE_SECS, RATE_LIMIT_FLOOR,
 };
 use serde_json::json;
 
@@ -359,4 +359,21 @@ fn a_truncated_open_list_is_flagged() {
     d["repository"]["open"]["pageInfo"]["hasNextPage"] = json!(true);
     let list = parse_pr_list(&d, "o/r", "main").unwrap();
     assert!(list.open_truncated && list.open == vec![1]);
+}
+
+/// 브릿지 stdin JSON — 전이의 재료 전부 + 배너와 같은 문구.
+#[test]
+fn bridge_payload_carries_the_transition_and_the_banner_text() {
+    let events = diff(&[], &[snap(7, "OPEN", true, "CLEAN")]);
+    let ready = events
+        .iter()
+        .find(|e| e.kind == PrEventKind::Ready)
+        .unwrap();
+    let v = bridge_payload(ready);
+    assert_eq!(v["kind"], "ready");
+    assert_eq!(v["repo"], "o/r");
+    assert_eq!(v["number"], 7);
+    assert_eq!(v["url"], "https://x/pull/7");
+    assert_eq!(v["heading"], "rocky · o/r");
+    assert_eq!(v["text"], "#7 확인·머지해도 된다 — PR 7");
 }

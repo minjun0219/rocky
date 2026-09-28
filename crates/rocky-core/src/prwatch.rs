@@ -509,6 +509,21 @@ pub fn event_changes(event: &PrEvent) -> serde_json::Map<String, Value> {
     m
 }
 
+/// 알림 브릿지(`pr.notifiers[]`)의 stdin 에 주는 JSON — 전이 한 건. `heading`·`text` 는 macOS
+/// 배너와 같은 문구라 브릿지가 그대로 보내도 되고, 나머지 필드로 직접 조립해도 된다.
+pub fn bridge_payload(event: &PrEvent) -> Value {
+    let (heading, text) = notification_text(event);
+    serde_json::json!({
+        "kind": event.kind.action().trim_start_matches("pr-"),
+        "repo": event.repo,
+        "number": event.number,
+        "title": event.title,
+        "url": event.url,
+        "heading": heading,
+        "text": text,
+    })
+}
+
 /// `osascript` 인자 — 따옴표를 이스케이프해 AppleScript 문자열 안에 넣는다.
 pub fn osascript_args(title: &str, body: &str) -> Vec<String> {
     let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");

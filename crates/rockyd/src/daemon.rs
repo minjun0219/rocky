@@ -160,16 +160,20 @@ pub async fn run_daemon(
     // PR 감시 — repo 가 설정된 보드의 PR 을 주기적으로 보고 ready·충돌을 알린다. 기동 90초 뒤 처음.
     if pr_watch.enabled != Some(false) {
         let runner = crate::runner::default_runner();
-        let notifier = if pr_watch.notify.unwrap_or(true) {
-            crate::prwatch::osascript_notifier(runner.clone())
-        } else {
-            crate::prwatch::silent_notifier()
-        };
+        // 사람에게 가는 채널들 — macOS 배너(`notify`)와 알림 브릿지(`notifiers[]`)는 서로 독립이다.
+        let mut notifiers = Vec::new();
+        if pr_watch.notify.unwrap_or(true) {
+            notifiers.push(crate::prwatch::osascript_notifier(runner.clone()));
+        }
+        for bridge in pr_watch.notifiers.clone() {
+            notifiers.push(crate::prwatch::bridge_notifier(runner.clone(), bridge));
+        }
+        let notify = !notifiers.is_empty();
         crate::prwatch::spawn_pr_watcher(
             state.clone(),
             runner,
-            notifier,
-            pr_watch.notify.unwrap_or(true),
+            crate::prwatch::compose_notifiers(notifiers),
+            notify,
             std::time::Duration::from_secs(90),
             std::time::Duration::from_secs(pr_watch.interval_minutes() * 60),
         );
