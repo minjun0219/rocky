@@ -211,6 +211,11 @@ deterministically, and a per-turn gate would just make every turn slow.
 > `rockyd` 는 `ui_dist` 가 주어질 때만 정적 파일을 서빙한다.
 
 - **설치 = 활성화**: `todo.enabled` 스위치 없음. `claude plugin disable rocky` 로 끈다.
+- **터미널의 `rocky`**: 부트스트랩(`plugin/bin/rocky`)이 SessionStart 에서 `~/.local/bin/rocky` →
+  `$XDG_DATA_HOME|~/.local/share/rocky/current/rocky` 링크를 건다(`link_cli`; 남의 실제 파일이면 안
+  건드림). `~/.local/bin` 이 PATH 에 있는지는 셸 몫 — `rocky config show` 의 `cli` 행이 링크 없음 /
+  PATH 없음을 가르고, `rocky config link` 가 지금 건다. 링크로 불렸을 때 형제 바이너리(`rockyd`·
+  `rocky-tui`)는 `sibling_binary` 가 `canonicalize` 한 실제 파일 옆에서 찾는다.
 - **데몬 기동**: SessionStart(startup) 훅 `rocky hook ensure-daemon`(`rocky_cli::hooks`)이
   health→없으면 detached spawn.
   CLI 도 온디맨드 spawn. 상시 상주는 `rocky daemon install`(launchd KeepAlive).

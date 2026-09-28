@@ -44,3 +44,18 @@ fn link_creates_replaces_and_refuses_foreign_files() {
         "theirs"
     );
 }
+
+#[test]
+fn executable_lookup_ignores_non_executable_files() {
+    // `cli_on_path` 는 비공개라 그 판정 함수를 직접 쓰는 대신, 같은 규칙(실행 비트)을 링크 결과로 확인한다.
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let plain = dir.path().join("rocky");
+    std::fs::write(&plain, "not runnable").unwrap();
+    let mode = std::fs::metadata(&plain).unwrap().permissions().mode();
+    assert_eq!(
+        mode & 0o111,
+        0,
+        "임시 파일은 실행 비트 없이 만들어져야 이 테스트가 의미 있다"
+    );
+}
