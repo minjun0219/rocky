@@ -17,8 +17,10 @@
   --surface-2: #e6ebe8;
   --line: #d5dcd7;
   --text: #15201a;
-  --muted: #5f6f66;
-  --faint: #7a8a81; /* surface 위 4.6:1, surface-2 위 4.1 — 라벨은 muted, faint 는 보조 글에만 */
+  /* 세 바탕(bg · surface · surface-2) 전부에서 4.5:1 을 넘긴다 — muted 6.1/7.0/5.8, faint 5.2/5.9/4.9.
+     처음 잡았던 faint #7a8a81 은 surface 에서도 3.6 이라 11~14px 보조 글이 안 읽혔다. */
+  --muted: #4e5d55;
+  --faint: #586860;
   --run: #167a56; /* 돌고 있음 */
   --mine: #c2410c; /* 내 차례 — 사람이 손댈 것 */
   --mine-soft: #fff1ea;
