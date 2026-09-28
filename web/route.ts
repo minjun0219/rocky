@@ -5,7 +5,13 @@
  * History API 호출은 `src/ui/store.ts` 가 하고, 이 파일은 **순수 변환만** 맡아
  * 단위 테스트된다 — `src/ui/lib.ts` 가 `mdTokens`/`formatElapsed` 를 두는 것과 같은 이유다.
  *
- * URL 문법: `/`(전체) · `/{board}` · `/{board}/{number}`
+ * URL 문법: `/`(전체) · `/{board}` · `/{board}/{number}` · `/{board}?todo={board}-{number}` ·
+ * `/?todo={board}-{number}`
+ *
+ * 뒤의 둘은 **보고 있는 보드와 열린 todo 의 보드가 다른** 경우다 — 전체 보기에서 상세를
+ * 열거나, "지금" 표에서 다른 보드의 항목을 연 경우. 예전엔 이때 선택을 그 todo 의 보드로
+ * 옮겼는데(주소 `/rocky/12` 가 되읽히면 그 보드가 되므로) 상세를 여는 동작이 뒤 화면을
+ * 갈아치우는 부작용이 됐다. 주소가 둘을 따로 실으면 선택은 그대로 둘 수 있다.
  */
 
 /**
@@ -16,10 +22,16 @@
  */
 export type BoardSelection = 'all' | string;
 
-/** URL 이 담는 화면 상태. `todoNumber` 가 있으면 그 todo 의 상세가 열린 상태다. */
+/** 상세가 열린 todo — 보드 key + 보드 안 번호(`rocky-12` 의 두 조각). */
+export interface TodoRef {
+  board: string;
+  number: number;
+}
+
+/** URL 이 담는 화면 상태. `todo` 가 있으면 그 todo 의 상세가 열린 상태다. */
 export interface Route {
   board: BoardSelection;
-  todoNumber?: number;
+  todo?: TodoRef;
 }
 
 /**
@@ -52,10 +64,14 @@ export function isAddressableBoardKey(key: string): boolean {
 }
 
 /**
- * `/rocky/12` → `{ board: 'rocky', todoNumber: 12 }`.
+ * `/rocky/12` → `{ board: 'rocky', todo: { board: 'rocky', number: 12 } }`,
+ * `/?todo=rocky-12` → `{ board: 'all', todo: { board: 'rocky', number: 12 } }`.
  *
  * 둘째 세그먼트는 **양의 정수일 때만** 번호로 읽는다 — 번호는 `MAX(number)+1` 로 발급되어
  * 1부터 시작하므로 `0`/음수/`12abc` 는 번호가 아니다. 셋째 이후 세그먼트는 무시한다.
+ * 경로에 번호가 있으면 `?todo=` 는 보지 않는다(`buildPath` 는 둘을 같이 내지 않는다).
+ * `?todo=` 는 `{board}-{number}` 를 **가장 오른쪽** `-` 에서 가른다 — 보드 key 에 `-` 가
+ * 들어갈 수 있어서다(`rocky-todo-12`). CLI/MCP 의 ref 표기와 같은 규칙.
  *
  * 두 세그먼트 모두 퍼센트 디코딩한다. 숫자 쪽은 `buildPath` 가 그런 주소를 내보내지 않지만
  * (`${number}` 는 늘 맨숫자다) 손으로 친 `/rocky/%31%32` 도 같은 화면을 뜻하는 게 맞고,
@@ -63,48 +79,85 @@ export function isAddressableBoardKey(key: string): boolean {
  * — 보드 쪽은 전체 보기로, 숫자 쪽은 보드 화면으로 — 한 칸씩 떨어진다. 주소창에 손으로
  * 친 문자열이 앱을 죽이면 안 된다.
  */
-export function parseRoute(pathname: string): Route {
+export function parseRoute(pathname: string, search = ''): Route {
   const segments = pathname.split('/').filter((s) => s !== '');
   const rawBoard = segments[0];
+  const fromQuery = (board: BoardSelection): Route => {
+    const todo = parseTodoParam(search);
+    return todo === undefined ? { board } : { board, todo };
+  };
   if (rawBoard === undefined) {
-    return { board: 'all' };
+    return fromQuery('all');
   }
   let board: string;
   try {
     board = decodeURIComponent(rawBoard);
   } catch {
-    return { board: 'all' };
+    return fromQuery('all');
   }
   const rawNumber = segments[1];
   if (rawNumber === undefined) {
-    return { board };
+    return fromQuery(board);
   }
   let number: string;
   try {
     number = decodeURIComponent(rawNumber);
   } catch {
-    return { board };
+    return fromQuery(board);
   }
-  if (!/^[1-9]\d*$/.test(number)) {
-    return { board };
+  if (!/^[1-9]\d*$/.test(number) || board === 'all') {
+    return fromQuery(board);
   }
-  return { board, todoNumber: Number(number) };
+  return { board, todo: { board, number: Number(number) } };
+}
+
+/** `?todo=rocky-12` → `{ board: 'rocky', number: 12 }`. 모양이 아니면 undefined. */
+function parseTodoParam(search: string): TodoRef | undefined {
+  let raw: string | null;
+  try {
+    raw = new URLSearchParams(search).get('todo');
+  } catch {
+    return undefined;
+  }
+  if (raw === null) {
+    return undefined;
+  }
+  const cut = raw.lastIndexOf('-');
+  if (cut <= 0) {
+    return undefined;
+  }
+  const board = raw.slice(0, cut);
+  const number = raw.slice(cut + 1);
+  if (!/^[1-9]\d*$/.test(number) || board === 'all') {
+    return undefined;
+  }
+  return { board, number: Number(number) };
 }
 
 /**
- * `{ board: 'rocky', todoNumber: 12 }` → `/rocky/12`.
+ * `{ board: 'rocky', todo: { board: 'rocky', number: 12 } }` → `/rocky/12`,
+ * `{ board: 'all', todo: { board: 'rocky', number: 12 } }` → `/?todo=rocky-12`.
  *
  * 전체 보기와 `isAddressableBoardKey` 가 거부하는 board key 는 `/` 를 낸다. 그런 보드도
  * 정상적으로 존재하고 선택도 되지만, 되읽을 수 없는 주소를 내보내느니 덜 정확한 `/` 를
  * 택한다. 이 폴백에 기대는 쪽은 히스토리 항목도 만들지 않아야 한다 — `src/ui/store.ts` 의
- * "주소가 그대로면 push 하지 않는다" 규칙이 그 짝이다.
+ * "주소가 그대로면 push 하지 않는다" 규칙이 그 짝이다. 열린 todo 의 보드가 실을 수 없는
+ * key 여도 같은 이유로 todo 를 뺀다.
  */
 export function buildPath(route: Route): string {
-  if (route.board === 'all' || !isAddressableBoardKey(route.board)) {
-    return '/';
+  const base =
+    route.board === 'all' || !isAddressableBoardKey(route.board)
+      ? '/'
+      : `/${encodeURIComponent(route.board)}`;
+  const todo = route.todo;
+  if (todo === undefined || !isAddressableBoardKey(todo.board)) {
+    return base;
   }
-  const board = `/${encodeURIComponent(route.board)}`;
-  return route.todoNumber === undefined ? board : `${board}/${route.todoNumber}`;
+  if (base !== '/' && todo.board === route.board) {
+    return `${base}/${todo.number}`;
+  }
+  const query = new URLSearchParams({ todo: `${todo.board}-${todo.number}` });
+  return `${base}?${query.toString()}`;
 }
 
 /**
@@ -131,16 +184,26 @@ export function resolveBoardKey(
   return boards.find((board) => board.previousKeys?.includes(key))?.key;
 }
 
-/** todo 하나를 가리키는 라우트. 보드를 못 찾으면(FK 가 깨진 상태) 전체 보기로 떨어진다. */
+/** todo 하나의 ref(보드 key + 번호). 보드를 못 찾으면(FK 가 깨진 상태) undefined. */
+export function todoRefFor(
+  todo: { boardId: string; number: number },
+  boards: readonly { id: string; key: string }[],
+): TodoRef | undefined {
+  const board = boards.find((b) => b.id === todo.boardId);
+  return board === undefined ? undefined : { board: board.key, number: todo.number };
+}
+
+/**
+ * **보고 있는 보드는 그대로 두고** todo 의 상세만 연 라우트. 보드를 못 찾으면 상세 없이
+ * 지금 선택만 남는다.
+ */
 export function routeForTodo(
   todo: { boardId: string; number: number },
   boards: readonly { id: string; key: string }[],
+  selected: BoardSelection,
 ): Route {
-  const board = boards.find((b) => b.id === todo.boardId);
-  if (!board) {
-    return { board: 'all' };
-  }
-  return { board: board.key, todoNumber: todo.number };
+  const ref = todoRefFor(todo, boards);
+  return ref === undefined ? { board: selected } : { board: selected, todo: ref };
 }
 
 /**

@@ -47,7 +47,7 @@ function App() {
     const applyRoute = (): Promise<void> =>
       useUiStore
         .getState()
-        .applyRoute(parseRoute(window.location.pathname))
+        .applyRoute(parseRoute(window.location.pathname, window.location.search))
         .catch((err: unknown) => {
           console.warn('[rocky] 주소가 가리키는 화면을 열지 못했다', err);
         });

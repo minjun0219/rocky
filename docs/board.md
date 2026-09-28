@@ -109,7 +109,9 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 `web/` 의 React 앱(zustand · Tailwind v4 · Radix Dialog)을 릴리스 때 `bun run build:ui` 로 `dist/` 에
 번들해 tarball 에 넣고, 데몬이 **실행 파일 옆 `dist/index.html`** 을 찾아 `/` 에 서빙한다
 (`ROCKY_TODO_UI_DIST` 로 다른 디렉터리를 줄 수 있다 — 레포에서 개발할 때 `$PWD/dist`). 퍼머링크
-(`/rocky/12`) 새로고침은 SPA fallback 으로 돌아온다.
+(`/rocky/12`) 새로고침은 SPA fallback 으로 돌아온다. 보고 있는 보드와 다른 보드의 항목을
+열면(전체 보기, "지금" 표) 주소는 `/?todo=rocky-12` · `/tally?todo=rocky-12` 처럼 둘을 따로
+싣는다 — 상세를 여는 동작이 뒤 화면의 보드를 바꾸지 않는다.
 
 - **화면** — 왼쪽 보드 목록(+ 새 보드), 가운데 섹션별 항목(체크·순서 이동 핸들·번호 버튼은
   `/rocky:board rocky-12` 슬래시 커맨드 복사), 오른쪽 메모 레일. 항목을 누르면 상세 드로어 —

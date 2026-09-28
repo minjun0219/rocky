@@ -7,6 +7,7 @@ import {
   RESERVED_BOARD_KEYS,
   resolveBoardKey,
   routeForTodo,
+  todoRefFor,
 } from './route';
 
 const BOARDS = [
@@ -32,11 +33,17 @@ describe('parseRoute', () => {
 
   test('a trailing slash changes nothing', () => {
     expect(parseRoute('/rocky/')).toEqual({ board: 'rocky' });
-    expect(parseRoute('/rocky/12/')).toEqual({ board: 'rocky', todoNumber: 12 });
+    expect(parseRoute('/rocky/12/')).toEqual({
+      board: 'rocky',
+      todo: { board: 'rocky', number: 12 },
+    });
   });
 
   test('a numeric second segment is the todo number', () => {
-    expect(parseRoute('/rocky/12')).toEqual({ board: 'rocky', todoNumber: 12 });
+    expect(parseRoute('/rocky/12')).toEqual({
+      board: 'rocky',
+      todo: { board: 'rocky', number: 12 },
+    });
   });
 
   test('a non-numeric second segment is ignored', () => {
@@ -47,13 +54,19 @@ describe('parseRoute', () => {
   });
 
   test('extra segments are ignored', () => {
-    expect(parseRoute('/rocky/12/anything/else')).toEqual({ board: 'rocky', todoNumber: 12 });
+    expect(parseRoute('/rocky/12/anything/else')).toEqual({
+      board: 'rocky',
+      todo: { board: 'rocky', number: 12 },
+    });
   });
 
   test('segments are percent-decoded', () => {
     expect(parseRoute('/my%20board')).toEqual({ board: 'my board' });
     // buildPath 는 맨숫자만 내보내지만, 손으로 친 인코딩 숫자도 같은 화면을 뜻한다.
-    expect(parseRoute('/rocky/%31%32')).toEqual({ board: 'rocky', todoNumber: 12 });
+    expect(parseRoute('/rocky/%31%32')).toEqual({
+      board: 'rocky',
+      todo: { board: 'rocky', number: 12 },
+    });
   });
 
   test('the number is checked after decoding, so an encoded slash is still not a number', () => {
@@ -69,10 +82,75 @@ describe('parseRoute', () => {
   });
 });
 
+describe('parseRoute ?todo=', () => {
+  test('the all view can carry an open todo of any board', () => {
+    expect(parseRoute('/', '?todo=rocky-12')).toEqual({
+      board: 'all',
+      todo: { board: 'rocky', number: 12 },
+    });
+  });
+
+  test('a board view can carry an open todo of another board', () => {
+    expect(parseRoute('/tally', '?todo=rocky-12')).toEqual({
+      board: 'tally',
+      todo: { board: 'rocky', number: 12 },
+    });
+  });
+
+  test('the ref is split at the rightmost dash, so board keys may contain dashes', () => {
+    expect(parseRoute('/', '?todo=rocky-todo-3')).toEqual({
+      board: 'all',
+      todo: { board: 'rocky-todo', number: 3 },
+    });
+  });
+
+  test('a malformed ref is ignored', () => {
+    for (const q of [
+      '?todo=rocky',
+      '?todo=-12',
+      '?todo=rocky-0',
+      '?todo=rocky-1a',
+      '?todo=all-3',
+    ]) {
+      expect(parseRoute('/', q)).toEqual({ board: 'all' });
+    }
+  });
+
+  test('a number in the path wins over the query', () => {
+    expect(parseRoute('/rocky/12', '?todo=tally-3')).toEqual({
+      board: 'rocky',
+      todo: { board: 'rocky', number: 12 },
+    });
+  });
+
+  test('the board in the query is percent-decoded', () => {
+    expect(parseRoute('/', '?todo=my+board-3')).toEqual({
+      board: 'all',
+      todo: { board: 'my board', number: 3 },
+    });
+  });
+});
+
 describe('buildPath', () => {
   test('the all view is the root path', () => {
     expect(buildPath({ board: 'all' })).toBe('/');
-    expect(buildPath({ board: 'all', todoNumber: 12 })).toBe('/');
+  });
+
+  test('a todo of another board than the selection rides in the query', () => {
+    expect(buildPath({ board: 'all', todo: { board: 'rocky', number: 12 } })).toBe(
+      '/?todo=rocky-12',
+    );
+    expect(buildPath({ board: 'tally', todo: { board: 'rocky', number: 12 } })).toBe(
+      '/tally?todo=rocky-12',
+    );
+    expect(buildPath({ board: 'all', todo: { board: 'my board', number: 3 } })).toBe(
+      '/?todo=my+board-3',
+    );
+  });
+
+  test('a todo on an unaddressable board is dropped from the address', () => {
+    expect(buildPath({ board: 'all', todo: { board: 'api', number: 1 } })).toBe('/');
+    expect(buildPath({ board: 'api', todo: { board: 'api', number: 1 } })).toBe('/');
   });
 
   test('a board becomes one segment', () => {
@@ -80,7 +158,7 @@ describe('buildPath', () => {
   });
 
   test('a board and number become two segments', () => {
-    expect(buildPath({ board: 'rocky', todoNumber: 12 })).toBe('/rocky/12');
+    expect(buildPath({ board: 'rocky', todo: { board: 'rocky', number: 12 } })).toBe('/rocky/12');
   });
 
   test('board keys are percent-encoded', () => {
@@ -90,7 +168,7 @@ describe('buildPath', () => {
   test('reserved keys collapse to the root so no link collides with a REST route', () => {
     for (const key of RESERVED_BOARD_KEYS) {
       expect(buildPath({ board: key })).toBe('/');
-      expect(buildPath({ board: key, todoNumber: 12 })).toBe('/');
+      expect(buildPath({ board: key, todo: { board: key, number: 12 } })).toBe('/');
     }
   });
 
@@ -99,7 +177,7 @@ describe('buildPath', () => {
     // 브라우저 URL 파서가 `/` 로 정규화해, 주소가 만들어진 순간 다른 화면을 가리킨다.
     for (const key of ['.', '..']) {
       expect(buildPath({ board: key })).toBe('/');
-      expect(buildPath({ board: key, todoNumber: 12 })).toBe('/');
+      expect(buildPath({ board: key, todo: { board: key, number: 12 } })).toBe('/');
     }
   });
 
@@ -113,10 +191,14 @@ describe('buildPath', () => {
     for (const route of [
       { board: 'all' as const },
       { board: 'rocky' },
-      { board: 'rocky', todoNumber: 12 },
-      { board: 'my board', todoNumber: 3 },
+      { board: 'rocky', todo: { board: 'rocky', number: 12 } },
+      { board: 'my board', todo: { board: 'my board', number: 3 } },
+      { board: 'all' as const, todo: { board: 'rocky', number: 12 } },
+      { board: 'tally', todo: { board: 'rocky-todo', number: 7 } },
+      { board: 'all' as const, todo: { board: 'my board', number: 3 } },
     ]) {
-      expect(parseRoute(buildPath(route))).toEqual(route);
+      const [pathname, search] = buildPath(route).split('?');
+      expect(parseRoute(pathname ?? '/', search === undefined ? '' : `?${search}`)).toEqual(route);
     }
   });
 });
@@ -140,16 +222,38 @@ describe('isAddressableBoardKey', () => {
   });
 });
 
-describe('routeForTodo', () => {
+describe('todoRefFor / routeForTodo', () => {
   test('resolves the board key from the todo boardId', () => {
-    expect(routeForTodo({ boardId: 'b1', number: 12 }, BOARDS)).toEqual({
+    expect(todoRefFor({ boardId: 'b1', number: 12 }, BOARDS)).toEqual({
       board: 'rocky',
-      todoNumber: 12,
+      number: 12,
     });
   });
 
-  test('an unknown boardId falls back to the all view', () => {
-    expect(routeForTodo({ boardId: 'nope', number: 12 }, BOARDS)).toEqual({ board: 'all' });
+  test('an unknown boardId has no ref', () => {
+    expect(todoRefFor({ boardId: 'nope', number: 12 }, BOARDS)).toBeUndefined();
+  });
+
+  // 상세를 여는 동작이 뒤 화면(선택한 보드)을 바꾸지 않는다 — 전체 보기에서 열면 전체 보기
+  // 위에, 다른 보드를 보다 "지금" 표에서 열면 그 보드 위에 상세가 얹힌다.
+  test('keeps the selected board and adds the todo on top', () => {
+    expect(routeForTodo({ boardId: 'b1', number: 12 }, BOARDS, 'all')).toEqual({
+      board: 'all',
+      todo: { board: 'rocky', number: 12 },
+    });
+    expect(buildPath(routeForTodo({ boardId: 'b1', number: 12 }, BOARDS, 'all'))).toBe(
+      '/?todo=rocky-12',
+    );
+    expect(buildPath(routeForTodo({ boardId: 'b1', number: 12 }, BOARDS, 'rocky-todo'))).toBe(
+      '/rocky-todo?todo=rocky-12',
+    );
+    expect(buildPath(routeForTodo({ boardId: 'b1', number: 12 }, BOARDS, 'rocky'))).toBe(
+      '/rocky/12',
+    );
+  });
+
+  test('an unknown boardId keeps only the selection', () => {
+    expect(routeForTodo({ boardId: 'nope', number: 12 }, BOARDS, 'all')).toEqual({ board: 'all' });
   });
 });
 
