@@ -289,13 +289,13 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeo
 - 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘까지는 `gh pr list`
   를 도는 Monitor 가 따로 본다(충돌·`DIRTY` 로 바뀌면 그때 다시 한다).
 - **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
-  수 없다 — 알림에 순서를 같이 적는다("#182 → #176 → #177 → #179 순"). 하나가 머지되면
-  GitHub 이 다음 PR 의 base 를 알아서 옮기고, 머지 박스의 **"Rebase stack"** 이 스쿼시된 옛
-  커밋을 걷어 내며 위 층을 다시 얹는다 — **내가 새로 실을 커밋이 없으면 로컬에서 손대지
-  말고 그 버튼을 안내한다.** 실을 게 있을 때만 `gh stack sync`(같은 일을 로컬에서). 어느 쪽이든
-  새로 맨 아래가 된 PR 을 같은 기준으로 다시 본다 — base 가 바뀌면 CI 가 다시 돈다.
-- 스택 브랜치로 푸시하기 전엔 `git fetch` 로 원격 head 가 그대로인지 본다 — 서버의 Rebase
-  stack 이나 다른 곳의 sync 가 먼저 돌았으면 옛 로컬 브랜치의 푸시는 거부된다(`stale info`).
+  수 없다 — 알림에 순서를 같이 적는다("#182 → #176 → #177 → #179 순"). 아래가 머지되면 **GitHub 이
+  다음 PR 을 main 위로 서버에서 리베이스하고 base 를 옮긴다**(공식 문서: "the next unmerged pull
+  request is automatically rebased to target the stack base directly"). 그러니 머지 뒤엔 로컬에서
+  아무것도 하지 말고, 다음에 손댈 때 `git fetch` 뒤 `git branch -f <branch> origin/<branch>` 로
+  로컬을 원격에 맞춘 다음 시작한다 — 옛 로컬로 푸시하면 `stale info` 로 거부된다. 새로 맨 아래가
+  된 PR 을 같은 기준으로 다시 본다(base 가 바뀌어 CI 가 다시 돈다). 스택 판단의 정본은
+  `stacks:stacked-prs` 스킬이다.
 - 머지 직전에 그 PR 로 **푸시하려던 것이 있으면 먼저 알린다.** 실제 사고: 아래 PR 의 리뷰 수정을
   푸시하던 중 오너가 그 PR 을 머지해 푸시가 거부됐고, 수정은 위 PR 로 옮겨 실어야 했다.
 
