@@ -75,6 +75,22 @@
           "description": "SessionStart 훅이 보드 요약 몇 줄(마감·진행중·핸드오프·수집함)을 세션 컨텍스트에 넣는다. 기본 true. `rocky today` 와 같은 내용."
         }
       }
+    },
+    "usage": {
+      "type": "object",
+      "description": "사용 로그 — rocky 의 표면(REST · MCP 도구 · CLI · 훅 · 웹 UI 이벤트)이 얼마나 쓰이는지를 월별 JSONL 로 남긴다. `rocky usage` 로 읽는다.",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JSONL 디렉터리. 기본 ~/.config/rocky/usage. ROCKY_USAGE_DIR 이 우선."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "끄려면 false (기본 true). env ROCKY_USAGE=0 이 우선."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

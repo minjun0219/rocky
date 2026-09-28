@@ -180,6 +180,7 @@ async function api<T>(path: string, actor: string, init?: RequestInit): Promise<
     headers: {
       ...(init?.body ? { 'content-type': 'application/json' } : {}),
       'x-rocky-actor': actor,
+      'x-rocky-client': 'web',
     },
   });
   if (!res.ok) {

@@ -13,3 +13,4 @@ pub mod sessions_exec;
 pub mod spawnctl;
 pub mod sweep;
 pub mod tailscale;
+pub mod usage_sink;

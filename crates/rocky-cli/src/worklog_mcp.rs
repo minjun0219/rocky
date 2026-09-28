@@ -29,6 +29,21 @@ fn outcome(result: Result<CallToolResult, String>) -> CallToolResult {
     }
 }
 
+/// 도구 한 번을 사용 로그에 남긴다 — 이 서버는 데몬 밖(stdio)이라 데몬 싱크가 못 본다.
+fn recorded(name: &str, run: impl FnOnce() -> Result<CallToolResult, String>) -> CallToolResult {
+    let started = std::time::Instant::now();
+    let result = run();
+    let ok = result.is_ok();
+    crate::usage_cmd::record(
+        rocky_core::usage::UsageSource::Mcp,
+        name,
+        ok,
+        Some(started),
+        None,
+    );
+    outcome(result)
+}
+
 #[derive(Deserialize, JsonSchema)]
 pub struct AppendArgs {
     /// 필수 본문
@@ -102,7 +117,7 @@ impl WorklogMcp {
         description = "워크로그에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. 저장 위치는 `worklog.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능(worklog_status 로 확인). (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)"
     )]
     async fn worklog_append(&self, Parameters(args): Parameters<AppendArgs>) -> CallToolResult {
-        outcome(
+        recorded("worklog_append", || {
             self.worklog
                 .append(&WorklogAppendInput {
                     content: args.content,
@@ -110,8 +125,8 @@ impl WorklogMcp {
                     tags: args.tags,
                     page_id: args.page_id,
                 })
-                .map(|entry| json_result(&entry)),
-        )
+                .map(|entry| json_result(&entry))
+        })
     }
 
     #[tool(
@@ -119,7 +134,7 @@ impl WorklogMcp {
         description = "저널을 가장 최근 항목부터 필터 / limit 적용해 반환한다. 손상된 라인은 자동 skip. remote 호출 없음. (limit?: 기본 20, kind?: 정확 일치, tag?: 태그 포함, pageId?: 정규화 후 일치, since?: 해당 시각 이후 ISO8601)"
     )]
     async fn worklog_read(&self, Parameters(args): Parameters<ReadArgs>) -> CallToolResult {
-        outcome(
+        recorded("worklog_read", || {
             self.worklog
                 .read(&WorklogReadOptions {
                     limit: args.limit,
@@ -128,8 +143,8 @@ impl WorklogMcp {
                     page_id: args.page_id,
                     since: args.since,
                 })
-                .map(|entries| json_result(&entries)),
-        )
+                .map(|entries| json_result(&entries))
+        })
     }
 
     #[tool(
@@ -137,7 +152,7 @@ impl WorklogMcp {
         description = "저널을 substring (case-insensitive) 으로 검색한다. content / kind / tags / pageId 를 매칭. remote 호출 없음. (query: 검색어, limit?: 기본 20, kind?: 풀 스코프 필터)"
     )]
     async fn worklog_search(&self, Parameters(args): Parameters<SearchArgs>) -> CallToolResult {
-        outcome(
+        recorded("worklog_search", || {
             self.worklog
                 .search(
                     &args.query,
@@ -146,8 +161,8 @@ impl WorklogMcp {
                         kind: args.kind,
                     },
                 )
-                .map(|entries| json_result(&entries)),
-        )
+                .map(|entries| json_result(&entries))
+        })
     }
 
     #[tool(
@@ -155,7 +170,9 @@ impl WorklogMcp {
         description = "워크로그 메타(파일 경로, 존재 여부, 유효 항목 수 — 손상 라인 skip, 바이트 크기, 마지막 항목 시각) + 마지막 digest watermark(lastDigestAt) + 경로 출처(dirSource)를 조회한다. `/recall` 이 정리 시작 시 이걸로 증분 기준점을 확인한다. remote 호출 없음. 저장 위치는 `worklog.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능하다."
     )]
     async fn worklog_status(&self, Parameters(_args): Parameters<StatusArgs>) -> CallToolResult {
-        outcome(self.worklog.status().map(|status| json_result(&status)))
+        recorded("worklog_status", || {
+            self.worklog.status().map(|status| json_result(&status))
+        })
     }
 }
 

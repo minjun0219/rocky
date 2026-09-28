@@ -39,7 +39,19 @@ fn run(argv: &[String]) -> Result<(), String> {
         json: parsed.bool_flag("json"),
     };
 
-    match command {
+    // 사용 로그 — 데몬을 안 거치는 표면은 CLI 가 직접 남긴다. 훅은 이름으로 따로, worklog MCP 는
+    // 도구 단위로 자기가 기록하므로 여기서는 뺀다.
+    let started = std::time::Instant::now();
+    let usage_name = match command {
+        "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" => {
+            match rest.first() {
+                Some(sub) => format!("rocky {command} {sub}"),
+                None => format!("rocky {command}"),
+            }
+        }
+        _ => format!("rocky {command}"),
+    };
+    let result = match command {
         "ls" => commands::cmd_ls(&ctx, &parsed, &board, &printer),
         "add" => commands::cmd_add(&ctx, &rest, &parsed, &board, &printer),
         "show" => commands::cmd_show(&ctx, &rest, &board, &printer),
@@ -59,6 +71,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
         "daemon" => commands::cmd_daemon(&ctx, &rest, expose_lan, expose_ts),
         "config" => rocky_cli::config_cmd::cmd_config(&ctx, &rest, &todo_config, &printer),
+        "usage" => rocky_cli::usage_cmd::cmd_usage(&parsed, &printer),
         "mcp" if rest.first().map(String::as_str) == Some("worklog") => {
             rocky_cli::worklog_mcp::serve_stdio()
         }
@@ -68,19 +81,25 @@ fn run(argv: &[String]) -> Result<(), String> {
         // 훅 엔트리 — hooks.json 이 부른다. 셋 다 fail-open 이라 항상 Ok.
         "hook" => {
             use rocky_cli::hooks;
-            match rest.first().map(String::as_str) {
-                Some("ensure-daemon") => {
-                    hooks::hook_ensure_daemon(&ctx, todo_config.session_summary)
-                }
-                Some("notify-todo") => hooks::hook_notify_todo(&ctx, todo_config.watch),
-                Some("handoff-stop") => hooks::hook_handoff_stop(&ctx),
-                Some("log-turn") => hooks::hook_log_turn(),
+            let hook = rest.first().map(String::as_str).unwrap_or("");
+            match hook {
+                "ensure-daemon" => hooks::hook_ensure_daemon(&ctx, todo_config.session_summary),
+                "notify-todo" => hooks::hook_notify_todo(&ctx, todo_config.watch),
+                "handoff-stop" => hooks::hook_handoff_stop(&ctx),
+                "log-turn" => hooks::hook_log_turn(),
                 _ => {
                     return Err(
                         "usage: rocky hook ensure-daemon|notify-todo|handoff-stop|log-turn".into(),
                     )
                 }
             }
+            rocky_cli::usage_cmd::record(
+                rocky_core::usage::UsageSource::Hook,
+                &format!("hook {hook}"),
+                true,
+                Some(started),
+                None,
+            );
             Ok(())
         }
         "start" | "stop" | "done" | "reopen" | "archive" | "unarchive" => {
@@ -89,5 +108,18 @@ fn run(argv: &[String]) -> Result<(), String> {
         // 문구를 한국어로 바꾸지 않는다 — TS 판과 같은 문자열이어야 parity 게이트가
         // 의미를 갖고, 이미 이 메시지를 잡는 스크립트가 있을 수 있다.
         other => Err(format!("unknown command: {other}\n\n{HELP}")),
+    };
+    let is_worklog_mcp = command == "mcp" && rest.first().map(String::as_str) == Some("worklog");
+    // 모르는 명령(오타)은 표면이 아니라 이름 공간만 더럽힌다 — 남기지 않는다.
+    let unknown = matches!(&result, Err(e) if e.starts_with("unknown command:"));
+    if command != "hook" && !is_worklog_mcp && !unknown {
+        rocky_cli::usage_cmd::record(
+            rocky_core::usage::UsageSource::Cli,
+            &usage_name,
+            result.is_ok(),
+            Some(started),
+            None,
+        );
     }
+    result
 }
