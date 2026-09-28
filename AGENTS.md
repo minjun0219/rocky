@@ -219,6 +219,11 @@ deterministically, and a per-turn gate would just make every turn slow.
   health 의 `name` 이 `"rocky"` 가 아니면 우리 데몬으로 보지 않는다(0.23.0 이하 `rocky-todo` 포함).
   한계: **버전이 같으면 경로가 달라도 재기동하지 않는다** — 로컬 레포 데몬과 설치본 버전이
   같을 때(개발 중) 서로 갈아치우지 않는 건 의도된 동작. 강제 교체는 `rocky daemon stop`.
+  **`/reload-plugins` 경로**: SessionStart 가 다시 돌지 않으므로 매 턴의 `UserPromptSubmit`
+  훅(`notify-todo`)이 같은 검사를 `RestartPolicy::OnlyIfOlder` 로 한다 — 도는 데몬이 자기보다
+  **오래됐을 때만** 올리고, 없거나 더 새 데몬은 건드리지 않는다(옛 플러그인으로 도는 세션과
+  새 세션이 턴마다 서로 뒤집는 걸 막는다). 비교는 `rocky_core::version::is_older`(세 자리 +
+  `-next.N`, 못 읽으면 false).
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed` 는 `/mcp` retry / 다음 세션 / launchd 로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json 의 todo 블록만.
