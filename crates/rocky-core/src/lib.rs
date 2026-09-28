@@ -13,6 +13,7 @@ pub mod inbox;
 pub mod local_request;
 pub mod migrations;
 pub mod next;
+pub mod note_doc;
 pub mod notify;
 pub mod refs;
 pub mod sessions;

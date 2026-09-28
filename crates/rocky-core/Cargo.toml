@@ -14,6 +14,8 @@ rand.workspace = true
 schemars.workspace = true
 # sha1 — worklog 프로젝트 키(`<basename>-<sha1[:8]>`). 이미 의존 그래프에 있는 크레이트다.
 ring.workspace = true
+# Yjs 호환 CRDT — 노트 본문(2026-09-28 결정, docs/design/specs/2026-09-28-note-crdt-design.md).
+yrs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
