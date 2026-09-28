@@ -34,12 +34,27 @@ describe('bridgeAwareness', () => {
     awareness.setLocalStateField('user', { name: 'logan', color: '#000' });
     await Promise.resolve();
     expect(sync.pings.length).toBe(1);
-    expect(sync.pings[0]).toMatchObject({ awareness: expect.any(String) });
-    expect(bridge.pingState()).toMatchObject({ awareness: expect.any(String) });
+    // toMatchObject + expect.any 는 bun 1.3 에서 받은 객체를 고쳐 놓는다(매처가 값 자리에 남는다)
+    // — 뒤에서 그 값을 다시 쓰므로 typeof 로 본다.
+    const hello = sync.pings[0] as { awareness: unknown };
+    expect(typeof hello.awareness).toBe('string');
+    expect(typeof bridge.pingState().awareness).toBe('string');
+    // 걷을 때 "나 갔다" 가 한 번 나간다 — 상대가 그 update 를 넣으면 내 커서가 사라진다.
+    const theirs = new Awareness(new Y.Doc());
     bridge.dispose();
+    await Promise.resolve();
+    expect(sync.pings.length).toBe(2);
+    const bye = sync.pings[1] as { awareness: string };
+    const { applyAwarenessUpdate: apply } = await import('y-protocols/awareness');
+    const { fromB64 } = await import('./notedoc');
+    apply(theirs, fromB64(hello.awareness as string), 'remote');
+    expect(theirs.getStates().has(awareness.clientID)).toBe(true);
+    apply(theirs, fromB64(bye.awareness), 'remote');
+    expect(theirs.getStates().has(awareness.clientID)).toBe(false);
+    // 걷힌 뒤의 변경은 더 안 나간다.
     awareness.setLocalStateField('user', { name: 'x', color: '#111' });
     await Promise.resolve();
-    expect(sync.pings.length).toBe(1);
+    expect(sync.pings.length).toBe(2);
   });
 
   test("another client's presence state lands in awareness, and remote applies do not echo", async () => {

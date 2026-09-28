@@ -11,7 +11,12 @@ import { markdown } from '@codemirror/lang-markdown';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
-import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import {
+  applyAwarenessUpdate,
+  Awareness,
+  encodeAwarenessUpdate,
+  removeAwarenessStates,
+} from 'y-protocols/awareness';
 import { fromB64, type NoteSync, toB64 } from './notedoc';
 
 /** 사람·에이전트별 커서 색 — 이름의 해시로 고정(같은 이름은 늘 같은 색). */
@@ -53,13 +58,16 @@ export function bridgeAwareness(
     awareness: toB64(encodeAwarenessUpdate(awareness, [awareness.clientID])),
   });
   const onUpdate = (
-    { added, updated }: { added: number[]; updated: number[]; removed: number[] },
+    { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
   ) => {
     if (origin === 'remote') {
       return;
     }
-    if (added.includes(awareness.clientID) || updated.includes(awareness.clientID)) {
+    const me = awareness.clientID;
+    // 떠나는 것(removed)도 실어 보낸다 — 안 그러면 남들은 내 커서를 30초 만료까지 들고 있고,
+    // 그 사이 다시 열면 새 client id 라 같은 이름의 커서가 둘 보인다.
+    if (added.includes(me) || updated.includes(me) || removed.includes(me)) {
       void sync.ping(pingState());
     }
   };
@@ -76,6 +84,8 @@ export function bridgeAwareness(
   return {
     pingState,
     dispose: () => {
+      // 걷기 전에 "나 갔다" 를 먼저 보낸다 — onUpdate 가 아직 붙어 있어야 핑이 나간다.
+      removeAwarenessStates(awareness, [awareness.clientID], 'local');
       awareness.off('update', onUpdate);
       sync.onPresenceState = null;
     },
