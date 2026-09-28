@@ -42,7 +42,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
 
   return (
     <div
-      className={`todo-row group flex min-h-8 items-center gap-2 rounded-md px-1.5 py-[5px] hover:bg-surface ${done ? 'is-done' : ''} ${todo.archivedAt ? 'is-archived' : ''}`}
+      className={`todo-row group flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-surface ${done ? 'is-done' : ''} ${todo.archivedAt ? 'is-archived' : ''}`}
       style={{ paddingLeft: `${depth * 22}px` }}
       data-todo-id={todo.id}
     >
@@ -51,7 +51,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
           type="button"
           // touch-none 이 핵심 — 핸들에서 시작한 터치가 스크롤로 새지 않아야 드래그가 된다.
           // 데스크톱에선 행 hover 에만 보이고, 좁은 화면에선 늘 흐리게 보인다(responsive).
-          className="drag-handle shrink-0 cursor-grab touch-none font-mono text-[11px] text-faint opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          className="drag-handle shrink-0 cursor-grab touch-none font-mono text-chip text-faint opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           aria-label={`${todo.title} 순서 이동 핸들`}
           onPointerDown={(e) => onHandleDown(e, todo)}
         >
@@ -79,7 +79,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
       </button>
       <button
         type="button"
-        className={`todo-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left ${done ? 'text-faint line-through' : 'text-text hover:text-warm'}`}
+        className={`todo-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-body ${done ? 'text-faint line-through' : 'text-text hover:text-warm'}`}
         onClick={() => void openTodoDetail(todo.id)}
       >
         {todo.title}
@@ -120,7 +120,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
         {todo.commentCount > 0 && (
           <button
             type="button"
-            className={`comment-badge cursor-pointer border-none bg-transparent px-0.5 py-0 text-xs ${unread ? 'is-unread font-semibold text-inherit' : 'text-muted'}`}
+            className={`comment-badge cursor-pointer border-none bg-transparent px-0.5 py-0 text-meta ${unread ? 'is-unread font-semibold text-inherit' : 'text-muted'}`}
             title={unread ? '읽지 않은 댓글이 있다' : '댓글 보기'}
             aria-label={
               unread

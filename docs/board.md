@@ -118,6 +118,12 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
   `bun run test:dom`(happy-dom + testing-library). `web/types.ts` 는 Rust 응답 타입의 사본이라 계약이
   바뀌면 같이 고친다.
 - 밖에서 닿는 길(테일넷 없이)은 아래 "밖에서 닿기 — Cloudflare Tunnel + Access".
+- **상단 가운데의 온도 띠**는 최근 활동 48건을 시간순(왼쪽=과거)으로 늘어놓은 눈금이다 —
+  앰버는 에이전트, 블루는 사람, 과거로 갈수록 흐려진다. 옆의 "에이전트 · 3시간 전" 이 마지막
+  활동이고, 눈금 위에 올리면 그 한 건의 actor·시각이 뜬다. 보드가 지금 얼마나 뜨겁고 누가
+  데우고 있는지를 보는 자리다.
+- 글자 크기는 여섯 단(`text-micro` 11 · `chip` 12 · `meta` 13 · `sm` 14 · `body` 15 · `title` 20,
+  `web/styles/tokens.css`)뿐이다 — 임의 px 유틸리티를 새로 만들지 않는다.
 
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 

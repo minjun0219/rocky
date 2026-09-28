@@ -49,7 +49,7 @@ export function CommentComposer({ todoId }: { todoId: string }) {
         }}
       />
       {error && (
-        <div className="px-0.5 pt-1 text-xs leading-[1.4] text-p1" role="alert">
+        <div className="px-0.5 pt-1 text-meta leading-[1.4] text-p1" role="alert">
           {error}
         </div>
       )}
@@ -123,7 +123,7 @@ function CommentCard({ comment }: { comment: Comment }) {
 
   return (
     <div className={`border-b border-line py-2 ${archived ? 'is-archived' : ''}`}>
-      <div className="flex items-center gap-1.5 text-xs">
+      <div className="flex items-center gap-1.5 text-meta">
         <span
           className={`history-dot size-[7px] shrink-0 self-center rounded-full bg-current tone-${actorTone(comment.actor)}`}
         />
@@ -134,7 +134,7 @@ function CommentCard({ comment }: { comment: Comment }) {
         <span className="ml-auto flex gap-1.5">
           <button
             type="button"
-            className="comment-tool cursor-pointer border-none bg-transparent p-0 text-xs text-muted hover:text-inherit"
+            className="comment-tool cursor-pointer border-none bg-transparent p-0 text-meta text-muted hover:text-inherit"
             onClick={() => {
               setEditing(!editing);
               setError(null);
@@ -144,7 +144,7 @@ function CommentCard({ comment }: { comment: Comment }) {
           </button>
           <button
             type="button"
-            className="comment-tool cursor-pointer border-none bg-transparent p-0 text-xs text-muted hover:text-inherit"
+            className="comment-tool cursor-pointer border-none bg-transparent p-0 text-meta text-muted hover:text-inherit"
             disabled={busy}
             onClick={() =>
               void run(() => (archived ? unarchiveComment(comment.id) : archiveComment(comment.id)))
@@ -169,12 +169,12 @@ function CommentCard({ comment }: { comment: Comment }) {
           </div>
         </div>
       ) : (
-        <div className="mt-1 text-[13px] leading-normal">
+        <div className="mt-1 text-sm leading-normal">
           <Markdown text={comment.body} />
         </div>
       )}
       {error && (
-        <div className="px-0.5 pt-1 text-xs leading-[1.4] text-p1" role="alert">
+        <div className="px-0.5 pt-1 text-meta leading-[1.4] text-p1" role="alert">
           {error}
         </div>
       )}
@@ -193,11 +193,11 @@ export function Timeline({ history, comments }: { history: HistoryEntry[]; comme
         item.kind === 'comment' ? (
           <CommentCard key={`c-${item.comment.id}`} comment={item.comment} />
         ) : (
-          <div key={`h-${item.entry.id}`} className="flex items-baseline gap-2 py-[5px] text-xs">
+          <div key={`h-${item.entry.id}`} className="flex items-baseline gap-2 py-[5px] text-meta">
             <span
               className={`history-dot size-[7px] shrink-0 self-center rounded-full bg-current tone-${actorTone(item.entry.actor)}`}
             />
-            <span className={`font-mono text-[11px] tone-${actorTone(item.entry.actor)}`}>
+            <span className={`font-mono text-chip tone-${actorTone(item.entry.actor)}`}>
               {item.entry.actor}
             </span>
             <span className="text-muted">{actionLabel(item.entry.action)}</span>
@@ -206,7 +206,7 @@ export function Timeline({ history, comments }: { history: HistoryEntry[]; comme
                 → {String(item.entry.changes.title[1])}
               </span>
             )}
-            <span className="ml-auto shrink-0 font-mono text-[10px] text-faint">
+            <span className="ml-auto shrink-0 font-mono text-micro text-faint">
               {formatElapsed(item.entry.at)} 전
             </span>
           </div>

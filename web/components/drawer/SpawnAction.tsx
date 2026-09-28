@@ -22,7 +22,7 @@ export function SpawnAction({ todo }: { todo: TodoView }) {
   if (!spawnAllowed) {
     return (
       <div className="mt-2.5 flex flex-col gap-1.5">
-        <p className="m-0 text-xs leading-[1.4] text-muted">
+        <p className="m-0 text-meta leading-[1.4] text-muted">
           세션 띄우기는 로컬(루프백)에서만 — 이 화면은 노출된 데몬을 거쳐 열렸다.
         </p>
       </div>
@@ -86,7 +86,7 @@ export function SpawnAction({ todo }: { todo: TodoView }) {
         </button>
       </div>
       {result && (
-        <div className="mt-1.5 flex flex-col gap-1 text-xs leading-[1.4] text-handoff [&_code]:select-all">
+        <div className="mt-1.5 flex flex-col gap-1 text-meta leading-[1.4] text-handoff [&_code]:select-all">
           {result.reused ? (
             <span>이미 도는 세션에 넘겼다 · {result.worktreePath}</span>
           ) : (
@@ -101,7 +101,7 @@ export function SpawnAction({ todo }: { todo: TodoView }) {
       )}
       {/* 실패 사유는 즉시 읽혀야 한다 — 보이기만 하면 스크린리더가 놓친다. */}
       {error && (
-        <div className="mt-1.5 whitespace-pre-wrap text-xs leading-[1.4] text-p1" role="alert">
+        <div className="mt-1.5 whitespace-pre-wrap text-meta leading-[1.4] text-p1" role="alert">
           {error}
         </div>
       )}

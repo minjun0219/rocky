@@ -177,7 +177,7 @@ export function TodoPane() {
       )}
 
       {groups.length === 0 && (
-        <div className="empty-state px-1 py-[18px] text-[13px] text-faint">
+        <div className="empty-state px-1 py-[18px] text-sm text-faint">
           아직 항목이 없다.{' '}
           {selected === 'all'
             ? '보드를 골라 작업을 추가해 보자.'
@@ -187,7 +187,7 @@ export function TodoPane() {
 
       {groups.map((group) => (
         <section key={group.key} className="mb-[26px]">
-          <div className="mb-1.5 border-b border-line pb-[5px] font-mono text-[10px] uppercase tracking-[0.22em] text-warm-dim">
+          <div className="mb-1.5 border-b border-line pb-[5px] font-mono text-micro uppercase tracking-[0.22em] text-warm-dim">
             {group.title}
           </div>
           {renderTree(group.items, 0)}
