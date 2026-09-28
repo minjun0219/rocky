@@ -139,6 +139,8 @@ pub fn daemon_binary() -> PathBuf {
 /// 이 실행 파일 옆의 `name` — 있으면 그 경로, 없으면 PATH 에 맡기는 맨 이름.
 pub fn sibling_binary(name: &str) -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
+        // `~/.local/bin/rocky` 심볼릭 링크로 불렸으면 형제는 링크 옆이 아니라 실제 파일 옆이다.
+        let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
         if let Some(sibling) = exe.parent().map(|dir| dir.join(name)) {
             if sibling.is_file() {
                 return sibling;

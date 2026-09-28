@@ -76,6 +76,11 @@ rocky daemon uninstall
 > 기능(`gh` PATH 인식)을 쓰려면 `rocky daemon uninstall && rocky daemon install`
 > 로 한 번 다시 깐다.
 
+**터미널에서 `rocky`**: SessionStart 가 `~/.local/bin/rocky` 를 `~/.local/share/rocky/current/rocky`
+로 걸어 둔다(버전 링크를 거치므로 릴리스마다 따라온다). `~/.local/bin` 이 PATH 에 있어야 하는데
+그건 셸 몫이다 — `rocky config show` 의 `cli` 행이 없으면 없다고 말하고, 세션을 안 열고 지금 걸려면
+`~/.local/share/rocky/current/rocky config link`.
+
 레포에서 직접 실행: `cargo run -p rockyd`. 설치본 포그라운드는 `rocky daemon run`.
 
 > **TS 판에서 올라온 환경**: 이전 `daemon install` 의 plist 는 bun 으로 TS 데몬을 띄운다.

@@ -31,7 +31,28 @@ fn input() -> SetupInput {
             key: "rocky".into(),
             path: Some("/w/rocky".into()),
         }],
+        cli_on_path: Some("/home/u/.local/bin/rocky".into()),
+        cli_link: Some("/home/u/.local/share/rocky/current/rocky".into()),
+        local_bin_on_path: true,
     }
+}
+
+#[test]
+fn cli_check_tells_apart_missing_link_and_missing_path() {
+    let mut i = input();
+    i.cli_on_path = None;
+    i.cli_link = None;
+    let c = build_report(&i).check("cli").unwrap().clone();
+    assert!(!c.ok && c.fix.as_deref() == Some("rocky config link"));
+
+    let mut i = input();
+    i.cli_on_path = None;
+    i.local_bin_on_path = false;
+    let c = build_report(&i).check("cli").unwrap().clone();
+    assert!(!c.ok && c.fix.as_deref().unwrap().contains("export PATH"));
+
+    let r = build_report(&input());
+    assert!(r.check("cli").unwrap().ok);
 }
 
 #[test]
