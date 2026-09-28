@@ -280,12 +280,16 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeout 1500   # 백그라운드로
 ```
 
-- `verdict: findings` → 2~5단계를 한 번 더 돌고(고치고 👀) 다시 `watch`. 라운드 제한은 없다 —
-  같은 지적이 반복되면 뿌리를 고친다.
-- `verdict: clean`(Codex 의 PR 본문 👍) + `ci: pass` → **알린다**.
-- `verdict: pending` 이 timeout 까지 이어졌는데 미해결 스레드가 전부 👀(내가 고친 것)면 → 봇이
-  수정 푸시를 다시 안 본 것이다. 그 사실을 적어 **알린다**("Codex 재리뷰 없음 — 다시 받으려면
-  `@codex review`"). 👀 없는 스레드가 남아 있으면 알리지 않는다.
+- **Codex 는 PR 이 리뷰 대상으로 열릴 때(ready) 한 번만 자동으로 본다** — 수정 푸시는 다시
+  보지 않는다(공식 문서 "Codex will post a review whenever someone opens a new PR for review";
+  재리뷰는 `@codex review` 멘션으로만). 그래서 `watch` 는 **첫 판정**(보통 5~10분: 코멘트 아니면
+  본문 👍)까지만 의미가 있고, 수정 푸시 뒤엔 기다리지 않는다.
+- 첫 `verdict: findings` → 2~5단계를 돌고(고치고 👀) 푸시 → **CI 만** 기다린다(`gh pr checks
+  --watch`). 초록이 되면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 라운드 제한은
+  없다: 오너가 재리뷰를 달아 새 지적이 오면 같은 절차.
+- 첫 `verdict: clean`(본문 👍) + `ci: pass` → **알린다**.
+- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어 알린다(자동 리뷰가 꺼졌거나 지연).
+  👀 없는 스레드가 남아 있으면 어느 경우든 알리지 않는다.
 - 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘까지는 `gh pr list`
   를 도는 Monitor 가 따로 본다(충돌·`DIRTY` 로 바뀌면 그때 다시 한다).
 - **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
