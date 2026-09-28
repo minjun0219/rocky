@@ -46,7 +46,7 @@ export function NowTable() {
       {rows.length === 0 ? (
         <p className="m-0 text-sm text-muted">도는 일도, 내 차례도 없다.</p>
       ) : (
-        <table className="w-full border-collapse overflow-hidden rounded-[10px] border border-line bg-surface text-sm">
+        <table className="now-table w-full border-collapse overflow-hidden rounded-[10px] border border-line bg-surface text-sm">
           <thead>
             <tr className="bg-surface-2 font-mono text-micro uppercase tracking-[0.12em] text-muted">
               <th className="px-3 py-2 text-left font-medium">항목</th>
@@ -57,8 +57,8 @@ export function NowTable() {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.key} className="border-t border-line">
-                <td className="px-3 py-2">
+              <tr key={row.key} className="now-row border-t border-line">
+                <td className="now-item px-3 py-2">
                   {row.todoId ? (
                     <button
                       type="button"
@@ -78,13 +78,13 @@ export function NowTable() {
                     <span className="ml-2 font-mono text-chip text-mine">💬 {row.unread}</span>
                   ) : null}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-chip text-muted">
+                <td className="now-who whitespace-nowrap px-3 py-2 font-mono text-chip text-muted">
                   {row.who}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-meta tabular-nums text-text">
+                <td className="now-since whitespace-nowrap px-3 py-2 font-mono text-meta tabular-nums text-text">
                   {row.since ? formatClock(row.since, now) : '—'}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2">
+                <td className="now-stamp whitespace-nowrap px-3 py-2">
                   <span
                     className={`inline-block rounded border px-1.5 py-0.5 font-mono text-micro tracking-[0.06em] ${STAMP[row.stamp.tone]}`}
                   >

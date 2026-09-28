@@ -245,6 +245,41 @@
   }
 }
 
+/* "지금" 표 — 좁은 화면에선 행이 카드다. 열을 억지로 눌러 넣으면 상태 스탬프가 잘린다(390px 실측).
+   제목이 한 줄 전체, 그 아래 누가 · 경과 · 상태. */
+@media (max-width: 640px) {
+  .now-table thead {
+    display: none;
+  }
+  .now-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "item item item"
+      "who since stamp";
+    align-items: center;
+    column-gap: 8px;
+    padding: 8px 12px;
+  }
+  .now-row td {
+    padding: 0;
+  }
+  .now-item {
+    grid-area: item;
+    padding-bottom: 6px;
+  }
+  .now-who {
+    grid-area: who;
+  }
+  .now-since {
+    grid-area: since;
+  }
+  .now-stamp {
+    grid-area: stamp;
+    justify-self: end;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .is-on .link-pulse,
   .doing-dot,
