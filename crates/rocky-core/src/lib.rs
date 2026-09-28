@@ -16,6 +16,7 @@ pub mod next;
 pub mod notify;
 pub mod refs;
 pub mod sessions;
+pub mod setup;
 pub mod statusline;
 pub mod store;
 pub mod summary;
