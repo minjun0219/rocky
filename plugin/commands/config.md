@@ -52,6 +52,7 @@ rocky config show
 | `daemon` 버전 불일치 | 지금 재기동할까 (열린 세션의 MCP 가 잠깐 끊긴다) | `rocky daemon stop && rocky daemon start` |
 | `launchd` | 상주 등록할까 (로그인 때 자동 기동·죽으면 재기동) | `rocky daemon install` |
 | `statusline` | 어디에 붙일까 — statusLine 이 스크립트 파일이면 "그 파일 끝에 붙인다 / 조각만 보여준다 / 건너뛴다" | 파일 끝에 `show` 가 낸 조각을 그대로 append (`jq` 있는지 먼저 `command -v jq`). 파일이 아니면(인자 붙은 명령) 조각만 보여주고 사용자 몫 |
+| `cli` (터미널에서 `rocky` 안 불림) | 링크만 없으면 (묻지 않음) 걸고, PATH 가 없으면 rc 에 넣을까 | `rocky config link` / 셸 rc 에 `export PATH="$HOME/.local/bin:$PATH"` 한 줄 (파일은 사용자가 고른다 — 자동으로 rc 를 고치지 않는다) |
 | `board` 없음 | (묻지 않음 — 첫 todo 때 생긴다) | 안내만 |
 | `board` path 없음/어긋남 | 이 레포 경로로 잡을까 | `rocky board path` (cwd) |
 | `inbox` 없음 | 외부 투두를 읽을까 — `file` 어댑터 / 다른 어댑터 / 안 읽음 | 아래 "수집함 어댑터" |

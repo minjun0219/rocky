@@ -15,7 +15,7 @@ use crate::commands::Printer;
 use crate::context::infer_board_key;
 use crate::launchd::is_launchd_registered;
 
-const USAGE: &str = "usage: rocky config show [--json] | config init | config path\n  show = 설치·설정 점검(설정 파일·데몬·launchd·statusline·보드), init = 기본 rocky.json 생성(있으면 그대로), path = 설정 파일 경로";
+const USAGE: &str = "usage: rocky config show [--json] | config init | config link | config path\n  show = 설치·설정 점검(설정 파일·데몬·launchd·statusline·보드·PATH), init = 기본 rocky.json 생성(있으면 그대로), link = ~/.local/bin/rocky 링크, path = 설정 파일 경로";
 
 pub fn cmd_config(
     ctx: &CliContext,
@@ -33,6 +33,18 @@ pub fn cmd_config(
         }
         "init" => {
             printer.line(&init_config_file(&user_config_path())?);
+            Ok(())
+        }
+        "link" => {
+            let home = std::env::var("HOME").map_err(|_| "HOME 이 없다".to_string())?;
+            let target = expand_tilde("~/.local/share/rocky/current/rocky");
+            printer.line(&link_cli(
+                &Path::new(&home).join(".local").join("bin"),
+                &target,
+            )?);
+            if !local_bin_on_path() {
+                printer.line("  ~/.local/bin 이 PATH 에 없다 — 셸 rc 에: export PATH=\"$HOME/.local/bin:$PATH\"");
+            }
             Ok(())
         }
         "path" => {
@@ -57,6 +69,50 @@ pub fn init_config_file(path: &Path) -> Result<String, String> {
         "✓ {} 생성 (expose off · sessionSummary on)",
         path.display()
     ))
+}
+
+/// `<bin_dir>/rocky` → `target` 심볼릭 링크. 이미 우리 링크면 그대로, 남의 실제 파일이면 거절.
+pub fn link_cli(bin_dir: &Path, target: &Path) -> Result<String, String> {
+    let cli = bin_dir.join("rocky");
+    if let Ok(existing) = std::fs::read_link(&cli) {
+        if existing == target {
+            return Ok(format!(
+                "= {} → {} 이미 있음",
+                cli.display(),
+                target.display()
+            ));
+        }
+    } else if cli.exists() {
+        return Err(format!(
+            "{} 이 링크가 아닌 파일이라 건드리지 않는다 — 치우고 다시 부른다",
+            cli.display()
+        ));
+    }
+    std::fs::create_dir_all(bin_dir)
+        .map_err(|e| format!("{} 생성 실패: {e}", bin_dir.display()))?;
+    let _ = std::fs::remove_file(&cli);
+    std::os::unix::fs::symlink(target, &cli)
+        .map_err(|e| format!("{} 링크 실패: {e}", cli.display()))?;
+    Ok(format!("✓ {} → {}", cli.display(), target.display()))
+}
+
+/// PATH 디렉터리에서 실행 가능한 `rocky` 를 찾는다.
+fn cli_on_path() -> Option<String> {
+    let path = std::env::var("PATH").ok()?;
+    path.split(':')
+        .map(|d| Path::new(d).join("rocky"))
+        .find(|p| p.is_file())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+fn local_bin_on_path() -> bool {
+    let Ok(home) = std::env::var("HOME") else {
+        return false;
+    };
+    let local_bin = Path::new(&home).join(".local").join("bin");
+    std::env::var("PATH")
+        .ok()
+        .is_some_and(|p| p.split(':').any(|d| Path::new(d) == local_bin))
 }
 
 /// 점검 재료 수집 — 전부 fail-open. 데몬이 없거나 파일이 없으면 그 자리만 비운다.
@@ -105,6 +161,11 @@ fn gather(ctx: &CliContext, todo: &TodoConfig) -> SetupInput {
         cwd,
         repo_key,
         boards,
+        cli_on_path: cli_on_path(),
+        cli_link: std::fs::read_link(expand_tilde("~/.local/bin/rocky"))
+            .ok()
+            .map(|p| p.to_string_lossy().to_string()),
+        local_bin_on_path: local_bin_on_path(),
     }
 }
 

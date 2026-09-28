@@ -80,6 +80,12 @@ pub struct SetupInput {
     /// cwd 에서 유추한 보드 key(레포 이름).
     pub repo_key: Option<String>,
     pub boards: Vec<BoardLocation>,
+    /// PATH 에서 찾은 `rocky` 실행 파일. 없으면 터미널에서 `rocky` 가 안 불린다.
+    pub cli_on_path: Option<String>,
+    /// `~/.local/bin/rocky` 링크가 가리키는 곳(있으면).
+    pub cli_link: Option<String>,
+    /// `~/.local/bin` 이 PATH 에 있는가.
+    pub local_bin_on_path: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -290,6 +296,32 @@ pub fn build_report(input: &SetupInput) -> SetupReport {
             )
         }),
     ));
+
+    // 터미널에서 `rocky` 가 불리는가 — 링크(SessionStart 가 건다)와 PATH 둘 다 있어야 한다.
+    checks.push(match (&input.cli_on_path, &input.cli_link, input.local_bin_on_path) {
+        (Some(path), _, _) => check("cli", CheckKind::Optional, true, format!("`rocky` → {path}"), None),
+        (None, Some(_), false) => check(
+            "cli",
+            CheckKind::Optional,
+            false,
+            "~/.local/bin/rocky 링크는 있는데 ~/.local/bin 이 PATH 에 없다",
+            Some("셸 rc 에: export PATH=\"$HOME/.local/bin:$PATH\"".into()),
+        ),
+        (None, None, _) => check(
+            "cli",
+            CheckKind::Optional,
+            false,
+            "터미널에서 `rocky` 가 안 불린다 — ~/.local/bin/rocky 링크 없음(다음 SessionStart 가 건다)",
+            Some("rocky config link".into()),
+        ),
+        (None, Some(target), true) => check(
+            "cli",
+            CheckKind::Optional,
+            false,
+            format!("~/.local/bin/rocky → {target} 인데 PATH 에서 안 잡힌다 — 링크가 깨졌을 수 있다"),
+            Some("rocky config link".into()),
+        ),
+    });
 
     // 보드 ↔ 레포.
     checks.push(board_check(input));

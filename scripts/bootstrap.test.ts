@@ -113,11 +113,31 @@ describe('bin/rocky bootstrap', () => {
       ]);
     });
 
+    test('SessionStart 가 ~/.local/bin/rocky 를 current/rocky 로 걸고, 그걸로 실행된다', () => {
+      run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
+      const cli = join(dir, '.local', 'bin', 'rocky');
+      expect(readlinkSync(cli)).toBe(join(dir, 'data', 'rocky', 'current', 'rocky'));
+      const via = Bun.spawnSync({ cmd: [cli, 'today'] });
+      expect(via.stdout.toString()).toBe('1.0.0:today\n');
+      // 다음 버전도 같은 링크를 그대로 탄다 — current 만 옮겨진다.
+      run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.1.0') });
+      expect(Bun.spawnSync({ cmd: [cli, 'today'] }).stdout.toString()).toBe('1.1.0:today\n');
+    });
+
+    test('~/.local/bin/rocky 가 남의 파일(링크 아님)이면 건드리지 않는다', () => {
+      const cli = join(dir, '.local', 'bin', 'rocky');
+      mkdirSync(join(dir, '.local', 'bin'), { recursive: true });
+      writeFileSync(cli, '#!/bin/sh\necho theirs\n');
+      run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
+      expect(readFileSync(cli, 'utf8')).toContain('theirs');
+    });
+
     test('SessionStart 가 아닌 호출은 링크를 건드리지 않는다', () => {
       const root = installed('1.0.0');
       run(['hook', 'notify-todo'], { CLAUDE_PLUGIN_ROOT: root });
       run(['ls'], { CLAUDE_PLUGIN_ROOT: root });
       expect(existsSync(link())).toBe(false);
+      expect(existsSync(join(dir, '.local', 'bin', 'rocky'))).toBe(false);
     });
   });
 
