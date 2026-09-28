@@ -5,6 +5,7 @@
 //!
 //! 순수 계층(파싱·포맷)을 lib 으로 열어 두는 이유는 테스트가 붙게 하기 위해서다.
 
+pub mod channel;
 pub mod client;
 pub mod commands;
 pub mod config_cmd;

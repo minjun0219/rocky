@@ -1,8 +1,8 @@
 //! TS `src/notify.test.ts` 포팅.
 
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, filter_human_changes, merge_context, read_cursor,
-    write_cursor,
+    build_notify_context, build_pr_context, filter_human_changes, merge_context, pr_channel_events,
+    read_cursor, write_cursor,
 };
 use rocky_core::types::{ChangeFeedEntry, Changes, HistoryEntity, HistoryEntry};
 use serde_json::json;
@@ -270,4 +270,30 @@ fn pr_context_lists_only_actionable_transitions() {
     );
     assert!(!text.contains("#6"));
     assert!(text.contains("감시를 따로 돌리지 말고"));
+
+    // 채널용 — 같은 규칙(ready·conflict 만), 모양은 <channel> 태그(content + meta 속성).
+    let events = pr_channel_events(&[
+        entry("pr-ready", 3),
+        entry("pr-conflict", 4),
+        entry("pr-merged", 5),
+        entry("update", 6),
+    ]);
+    assert_eq!(events.len(), 2);
+    assert_eq!(
+        events[0].content,
+        "o/r #3 확인·머지해도 된다 — PR 3\nhttps://x/pull/3"
+    );
+    assert_eq!(events[0].meta["kind"], "ready");
+    assert_eq!(events[0].meta["repo"], "o/r");
+    assert_eq!(events[0].meta["number"], "3");
+    assert_eq!(events[0].meta["url"], "https://x/pull/3");
+    assert_eq!(events[1].meta["kind"], "conflict");
+    assert!(
+        events.iter().all(|e| e
+            .meta
+            .keys()
+            .all(|k| k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))),
+        "meta 키는 식별자만 — 하이픈이면 Claude Code 가 버린다"
+    );
+    assert!(pr_channel_events(&[entry("pr-merged", 7)]).is_empty());
 }

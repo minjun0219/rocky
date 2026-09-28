@@ -183,6 +183,10 @@ impl ServerHandler for WorklogMcp {
         info.server_info.name = "rocky".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        // rocky 채널 — 데몬의 PR 전이를 세션에 밀어 넣는다(`crate::channel`). 선언은 늘 하고,
+        // 배달 여부는 Claude Code 가 세션 플래그로 정한다.
+        info.capabilities.experimental = Some(crate::channel::channel_capabilities());
+        info.instructions = Some(crate::channel::INSTRUCTIONS.to_string());
         info
     }
 }
@@ -209,6 +213,15 @@ pub fn serve_stdio() -> Result<(), String> {
             .serve(rmcp::transport::stdio())
             .await
             .map_err(|e| format!("worklog mcp: {e}"))?;
+        // 채널 전달 스레드 — 데몬 주소는 CLI 와 같은 규칙(env > user rocky.json > 기본 포트).
+        let todo = rocky_core::config::load_todo_config(&user_config_path());
+        let runtime_config =
+            rocky_core::config::resolve_runtime_config(&rocky_core::config::env_snapshot(), &todo);
+        crate::channel::spawn_forwarder(
+            service.peer().clone(),
+            format!("http://127.0.0.1:{}", runtime_config.port),
+            tokio::runtime::Handle::current(),
+        );
         service
             .waiting()
             .await

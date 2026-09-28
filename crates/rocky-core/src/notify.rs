@@ -7,6 +7,7 @@
 //! 커서는 세션별 — `<dir>/hook-cursors.json` 에 `{ sessionId: { lastId, at } }` 로
 //! 저장하고 최근 100 세션만 유지한다 (무한 성장 방지).
 
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -170,37 +171,58 @@ pub fn build_notify_context(entries: &[ChangeFeedEntry]) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-/// PR 감시 전이(actor `rocky`, action `pr-*`)를 세션에 알리는 블록 — **사람이 움직일 것만**
-/// (ready·conflict). merged/closed 는 히스토리에만 남긴다(문서의 약속; 세션에 넣으면 지시로
-/// 오독된다). 데몬이 이미 판정했으므로 에이전트는 감시하지 않아도 된다는 뜻을 마지막 줄에 적는다.
-pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
-    let mut lines: Vec<String> = Vec::new();
-    for e in entries {
-        let label = match e.history.action.as_str() {
-            "pr-ready" => "확인·머지해도 된다",
-            "pr-conflict" => "충돌 — 풀어야 한다",
-            _ => continue,
-        };
-        let changes = e.history.changes.as_ref();
-        let number = changes
+/// PR 감시 전이 한 건 — 훅 주입(`build_pr_context`)과 채널(`pr_channel_events`)이 같은 추출을 쓴다.
+struct PrTransition<'a> {
+    /// `ready` / `conflict`.
+    kind: &'a str,
+    label: &'a str,
+    repo: &'a str,
+    number: Option<i64>,
+    title: &'a str,
+    url: &'a str,
+}
+
+/// **사람이 움직일 것만** (ready·conflict). merged/closed 는 히스토리에만 남긴다(문서의 약속;
+/// 세션에 넣으면 지시로 오독된다).
+fn pr_transition(e: &ChangeFeedEntry) -> Option<PrTransition<'_>> {
+    let (kind, label) = match e.history.action.as_str() {
+        "pr-ready" => ("ready", "확인·머지해도 된다"),
+        "pr-conflict" => ("conflict", "충돌 — 풀어야 한다"),
+        _ => return None,
+    };
+    let changes = e.history.changes.as_ref();
+    let str_of = |key: &str| {
+        changes
+            .and_then(|c| c.get(key))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    };
+    Some(PrTransition {
+        kind,
+        label,
+        repo: str_of("repo"),
+        number: changes
             .and_then(|c| c.get("number"))
-            .and_then(|v| v.as_i64())
-            .map(|n| format!("#{n}"))
-            .unwrap_or_default();
-        let title = changes
-            .and_then(|c| c.get("title"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let url = changes
-            .and_then(|c| c.get("url"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let repo = changes
-            .and_then(|c| c.get("repo"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        lines.push(format!("- {repo} {number} {label} — {title} ({url})"));
-    }
+            .and_then(|v| v.as_i64()),
+        title: str_of("title"),
+        url: str_of("url"),
+    })
+}
+
+/// PR 감시 전이(actor `rocky`, action `pr-*`)를 세션에 알리는 블록 — ready·conflict 만.
+/// 데몬이 이미 판정했으므로 에이전트는 감시하지 않아도 된다는 뜻을 마지막 줄에 적는다.
+pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
+    let lines: Vec<String> = entries
+        .iter()
+        .filter_map(pr_transition)
+        .map(|t| {
+            let number = t.number.map(|n| format!("#{n}")).unwrap_or_default();
+            format!(
+                "- {} {number} {} — {} ({})",
+                t.repo, t.label, t.title, t.url
+            )
+        })
+        .collect();
     if lines.is_empty() {
         return None;
     }
@@ -215,6 +237,37 @@ pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
             .to_string(),
     );
     Some(out.join("\n"))
+}
+
+/// Claude Code 채널(`notifications/claude/channel`)로 밀어 넣을 전이 한 건 — `content` 가
+/// `<channel>` 태그의 본문, `meta` 의 각 항목이 태그 속성이 된다(키는 식별자만 — 하이픈이 있으면
+/// Claude Code 가 조용히 버린다).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PrChannelEvent {
+    pub content: String,
+    pub meta: BTreeMap<String, String>,
+}
+
+/// 변경 피드에서 채널로 보낼 것만(ready·conflict) — 훅 주입과 같은 규칙, 모양만 채널용.
+pub fn pr_channel_events(entries: &[ChangeFeedEntry]) -> Vec<PrChannelEvent> {
+    entries
+        .iter()
+        .filter_map(pr_transition)
+        .map(|t| {
+            let number = t.number.map(|n| format!("#{n}")).unwrap_or_default();
+            let mut meta = BTreeMap::new();
+            meta.insert("kind".to_string(), t.kind.to_string());
+            meta.insert("repo".to_string(), t.repo.to_string());
+            if let Some(n) = t.number {
+                meta.insert("number".to_string(), n.to_string());
+            }
+            meta.insert("url".to_string(), t.url.to_string());
+            PrChannelEvent {
+                content: format!("{} {number} {} — {}\n{}", t.repo, t.label, t.title, t.url),
+                meta,
+            }
+        })
+        .collect()
 }
 
 /// 여러 주입 블록을 하나의 additionalContext 로 합친다 — 사람의 보드 변경과 핸드오프
