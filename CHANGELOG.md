@@ -1,5 +1,50 @@
 # @minjun0219/rocky
 
+## 0.28.0
+
+### Minor Changes
+
+- [#164](https://github.com/minjun0219/rocky/pull/164) [`6f90d07`](https://github.com/minjun0219/rocky/commit/6f90d070f025bdcd3c147cd6f6b159e871068736) Thanks [@minjun0219](https://github.com/minjun0219)! - 죽은 세션이 든 진행중(doing)을 데몬이 저절로 풀어 준다 — 에이전트가 `start` 만 하고 세션이
+  사라진 채 24시간이 지나면 10분 주기 스윕이 `stop` 으로 돌리고 `rocky` 이름으로 댓글을 남긴다
+  ("세션 없음 — 진행중 자동 해제 (claude-code 착수 2026-08-03, 56일)"). 사람이 든 것·세션이 살아
+  있는 것·판정 불가는 그대로. 핸드오프는 여전히 자동 만료 없음.
+
+- [#169](https://github.com/minjun0219/rocky/pull/169) [`9a22d83`](https://github.com/minjun0219/rocky/commit/9a22d833026a4e0d38f22584bc8641a704cb7014) Thanks [@minjun0219](https://github.com/minjun0219)! - 사용 로그 — rocky 의 표면(REST 라우트 · MCP 도구 · `rocky <cmd>` · 훅 · 웹 UI 이벤트)이 얼마나
+  쓰이는지를 `~/.config/rocky/usage/YYYY-MM.jsonl` 에 한 줄씩 남긴다(내용 없이 이름·누가·클라이언트·
+  성공·시간만; statusline·SSE·health 는 제외). `rocky usage [--since 30d] [--json]` 이 많이 쓴 표면·
+  에러·**안 쓴 표면**·시간 분포를 낸다. `rocky.json` `usage` 블록 / `ROCKY_USAGE=0` 으로 끈다.
+  표면을 빼거나 바꾸는 PR 은 이 수치를 인용한다.
+
+- [#166](https://github.com/minjun0219/rocky/pull/166) [`de2f8ab`](https://github.com/minjun0219/rocky/commit/de2f8abd6801ba370c69b5e5cdaef15010517130) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 팔레트를 "관제판" 으로 갈았다 — 슬레이트 그레이 바탕(라이트 기본, 다크 동반)에 상태색만:
+  `running`(그린) · `mine`(번트 오렌지, 내 차례) · `dead`(세션 없음) · `link`. 갈색·앰버·아이스블루의
+  "두 대기" 톤은 걷어냈다(에이전트/사람 구분은 다음 단계에서 글자로). 컴포넌트가 아직 쓰는 옛 이름
+  (`warm`/`cool`)은 새 의미(강조/링크)로 매핑돼 있고, 레이아웃과 동작은 그대로다.
+
+- [#168](https://github.com/minjun0219/rocky/pull/168) [`c2aafe9`](https://github.com/minjun0219/rocky/commit/c2aafe9e6a9cfe239322c708e9d97813c91b4532) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 레이아웃을 관제판으로 — 한 열. 맨 위 "지금" 표가 전 보드의 진행중(누가 · 초 단위로 흐르는
+  경과 · 상태), 세션 없음, 핸드오프 대기, 읽지 않은 댓글, 수집함 미올림을 사람이 손댈 것부터 보여주고
+  (행을 누르면 상세), 그 아래 보드 탭 행 → 섹션 목록 → 메모(접힘 토글). 왼쪽 보드 사이드바와 오른쪽
+  메모 열은 없어졌다. 동작은 그대로다.
+
+### Patch Changes
+
+- [#172](https://github.com/minjun0219/rocky/pull/172) [`91adcb6`](https://github.com/minjun0219/rocky/commit/91adcb6e596fd04e5156a40e94de26a421144d4c) Thanks [@minjun0219](https://github.com/minjun0219)! - 터미널에서 `rocky` 가 바로 불린다 — SessionStart 가 `~/.local/bin/rocky` 를 `current/rocky` 로 걸어
+  두고(릴리스마다 따라온다), `rocky config show` 가 링크·PATH 상태를 `cli` 행으로 알리며, `rocky config link`
+  로 지금 바로 걸 수 있다. 심볼릭 링크로 불려도 `rocky tui`·`rocky daemon start` 가 형제 바이너리를
+  제대로 찾는다.
+
+- [#162](https://github.com/minjun0219/rocky/pull/162) [`e21439f`](https://github.com/minjun0219/rocky/commit/e21439fe95245b51cdaf98354508dc5eed3d4786) Thanks [@minjun0219](https://github.com/minjun0219)! - `/reload-plugins` 로 플러그인만 갈아 끼운 세션에서도 데몬이 새 버전으로 재기동된다 — 매 턴의
+  `UserPromptSubmit` 훅이 도는 데몬이 자기보다 **오래됐을 때만** 올린다(없거나 더 새 데몬은 그대로,
+  옛 플러그인 세션과 새 세션이 서로 뒤집지 않게). 지금까지는 다음 세션 시작 때까지 구버전이 남았다.
+
+- [#170](https://github.com/minjun0219/rocky/pull/170) [`98ca22f`](https://github.com/minjun0219/rocky/commit/98ca22f4d439d7ddc61eaa09227da2188ae3e4c7) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 가 서버를 안 거치는 조작 — 보드 탭 · 항목 열기 · 메모 접기 · 테마 · 보관됨 표시 · 빠른
+  추가 — 를 `web:*` 이름으로 사용 로그에 보낸다. `/rocky:usage` 커맨드는 `rocky usage --json` 을
+  읽어 뺄 것·손볼 것·더 쓸 것을 제안한다(결정은 사람이).
+
+- [#165](https://github.com/minjun0219/rocky/pull/165) [`26df2d0`](https://github.com/minjun0219/rocky/commit/26df2d074f37afd957a360886102df17136ab74f) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 글자를 키우고 대비를 올렸다 — 본문 14→15px, 칩·뱃지·시각 10→12px, 대문자 라벨 10→11px,
+  보드 이름 17→20px, 다크의 흐린 글자색을 4.5:1 위로. 임의 px 대신 여섯 단 타입 스케일 토큰
+  (`text-micro/chip/meta/sm/body/title`)만 쓴다. 상단의 온도 띠(최근 활동 48건 눈금)에는
+  "에이전트 · 3시간 전" 처럼 마지막 활동을 글자로 붙여 무슨 뜻인지 읽히게 했다.
+
 ## 0.27.0
 
 ### Minor Changes
