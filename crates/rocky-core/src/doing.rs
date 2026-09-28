@@ -69,6 +69,52 @@ pub fn resolve_doing_state(todo: &Todo, board_key: &str, sessions: &SessionsResu
     }
 }
 
+/// 죽은 세션이 쥔 doing 을 놓아주기까지의 유예 — 24시간. 세션 목록에서 잠깐 빠진
+/// 경우(재시작 중)를 "죽었다" 로 오판하지 않으려는 여유다.
+pub const AUTO_RELEASE_GRACE_SECS: i64 = 24 * 60 * 60;
+
+fn iso_epoch(value: Option<&str>) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value?)
+        .ok()
+        .map(|d| d.timestamp())
+}
+
+/// 이 doing 을 자동으로 놓아줄 것인가 — **에이전트 actor** 가 쥐고, 세션이 **`Gone`** 이고,
+/// 착수 후 유예가 지났을 때만. 사람이 든 것·`Idle`(세션 살아 있음)·`Unknown` 은 절대 건드리지
+/// 않는다. 시각을 못 읽으면 false(모르는 건 안 건드린다).
+pub fn should_auto_release(todo: &Todo, state: DoingState, now_iso: &str, grace_secs: i64) -> bool {
+    if todo.status != TodoStatus::Doing || state != DoingState::Gone {
+        return false;
+    }
+    let Some(actor) = todo.doing_by.as_deref() else {
+        return false;
+    };
+    if !is_agent_actor(actor) {
+        return false;
+    }
+    let (Some(since), Some(now)) = (
+        iso_epoch(todo.doing_since.as_deref()),
+        iso_epoch(Some(now_iso)),
+    ) else {
+        return false;
+    };
+    now - since >= grace_secs
+}
+
+/// 자동 해제 때 남기는 댓글 — 누가 언제 들었다가 왜 풀렸는지.
+pub fn auto_release_note(todo: &Todo, now_iso: &str) -> String {
+    let actor = todo.doing_by.as_deref().unwrap_or("?");
+    let since = todo.doing_since.as_deref().unwrap_or("?");
+    let days = match (iso_epoch(Some(since)), iso_epoch(Some(now_iso))) {
+        (Some(a), Some(b)) => format!(", {}일", (b - a) / 86_400),
+        _ => String::new(),
+    };
+    format!(
+        "세션 없음 — 진행중 자동 해제 ({actor} 착수 {}{days})",
+        since.get(..10).unwrap_or(since)
+    )
+}
+
 /// 핸드오프가 어디까지 갔는지 — 타임스탬프에서 파생한다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]

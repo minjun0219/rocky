@@ -11,4 +11,5 @@ pub mod runner;
 pub mod server;
 pub mod sessions_exec;
 pub mod spawnctl;
+pub mod sweep;
 pub mod tailscale;

@@ -342,7 +342,12 @@ deterministically, and a per-turn gate would just make every turn slow.
   없으면 건너뛴다. 세션 식별자는 full UUID 와 spawn 의 짧은 8자 id 를 **둘 다** 대조한다.
   "배달됐는데 미착수"(`is_unstarted`)에는 **시간 임계값이 없다** — 세션이 `gone`/`idle` 일
   때만 경고이고 `busy` 면 조용하다. 자동 만료·자동 재배달은 없고 표시만 하며, 다시 보낼지는
-  사람이 정한다(새 핸드오프가 생기고 원본은 `delivered` 로 보존). UI 용 목록은
+  사람이 정한다(새 핸드오프가 생기고 원본은 `delivered` 로 보존). **doing 만은 예외로 자동
+  해제가 있다**(`rockyd::sweep`, 기동 1분 뒤부터 10분마다): 에이전트 actor 가 든 doing 이
+  `gone` 이고 착수 후 24시간(`AUTO_RELEASE_GRACE_SECS`)이 지났으면 데몬이 `stop` 으로 돌리고
+  actor `rocky` 로 댓글("세션 없음 — 진행중 자동 해제 …")을 남긴다. 사람이 든 것·`idle`·
+  `unknown` 은 절대 건드리지 않는다 — 실제로 56일짜리 doing 이 남아 있던 데서 온 규칙
+  (오너 결정 2026-09-28). 판정은 `rocky_core::doing::should_auto_release`. UI 용 목록은
   `/api/handoffs?open=true`(대기 중 + 미완료 배달 — **보관된 todo 의 것은 제외**, 요약의
   `handoffsOpen` 도 같은 규칙).
 - **statusline 세그먼트(`GET /api/statusline`)**: 보드를 보려고 창을 하나 더 띄우지 않으려는
