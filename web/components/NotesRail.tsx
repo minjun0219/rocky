@@ -156,6 +156,8 @@ function NoteCard({ note }: { note: NoteView }) {
     }
     unbindRef.current = bindTextarea(el, sync.text, {
       origin: LOCAL_ORIGIN,
+      // 세션을 여는 사이 친 글자는 화면값과 이 기준값의 차이다 — 문서에 먼저 넣는다.
+      baseline: note.content,
       pauseRemote: () => sync.pauseRemote(),
       resumeRemote: () => sync.resumeRemote(),
       onChange: (value) => setLines(value.split('\n').length),

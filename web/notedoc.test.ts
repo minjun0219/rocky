@@ -43,6 +43,13 @@ describe('shiftCursor', () => {
     expect(shiftCursor([{ retain: 1 }, { delete: 10 }], 5)).toBe(1);
     expect(shiftCursor([{ retain: 6 }, { delete: 2 }], 5)).toBe(5);
   });
+
+  test('positions are tracked in the pre-edit document, so a long insert does not hide a later delete', () => {
+    // "abcde", 커서 3 (c|d). 남이 앞에 "xxxx" 를 넣고 b 를 지웠다 → "xxxxacde", 커서는 c 뒤 = 6.
+    expect(shiftCursor([{ insert: 'xxxx' }, { retain: 1 }, { delete: 1 }], 3)).toBe(6);
+    // 삭제 뒤의 삽입도 순서대로 — "abcde" 커서 4: a 삭제, 그 뒤에 "yy" 삽입 → "yybcd|e" = 5.
+    expect(shiftCursor([{ delete: 1 }, { insert: 'yy' }], 4)).toBe(5);
+  });
 });
 
 describe('presence', () => {
@@ -217,12 +224,16 @@ describe('NoteSync', () => {
     });
     await sync.open();
     const source = FakeSource.instances[0]!;
-    source.onopen?.(new Event('open')); // 첫 open — 차분 요청 없음
-    server.doc.getText(TEXT_KEY).insert(1, 'z'); // 끊긴 사이의 변경
+    // 첫 open 도 차분을 받는다 — GET 스냅숏과 구독 사이에 온 update 는 듣는 이가 없었다.
+    server.doc.getText(TEXT_KEY).insert(1, 'q');
+    source.onopen?.(new Event('open'));
+    await sleep(10);
+    expect(sync.text.toString()).toBe('xq');
+    server.doc.getText(TEXT_KEY).insert(2, 'z'); // 끊긴 사이의 변경
     source.onopen?.(new Event('open')); // 재접속
     await sleep(10);
-    expect(server.calls.filter((c) => c.path.includes('?sv=')).length).toBe(1);
-    expect(sync.text.toString()).toBe('xz');
+    expect(server.calls.filter((c) => c.path.includes('?sv=')).length).toBe(2);
+    expect(sync.text.toString()).toBe('xqz');
     sync.close();
   });
 

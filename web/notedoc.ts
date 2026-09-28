@@ -98,24 +98,22 @@ export type DeltaOp = { insert?: string | object; delete?: number; retain?: numb
  * 커서 **바로 그 자리**의 삽입은 밀지 않는다 — 내가 치던 자리는 내 것이다.
  */
 export function shiftCursor(delta: readonly DeltaOp[], cursor: number): number {
+  // `pos` 는 **편집 전 문서**의 위치다 — 커서도 그 좌표에 있다. 삽입은 원본 글자를 먹지 않으니
+  // pos 를 움직이지 않고, 삭제·retain 은 먹는다. 삽입 길이로 pos 를 올리면 앞의 긴 삽입이
+  // 뒤의 삭제를 못 보게 끊어 커서가 오른쪽으로 밀린다.
   let pos = 0;
   let out = cursor;
   for (const op of delta) {
+    if (pos >= cursor) {
+      break;
+    }
     if (op.retain !== undefined) {
       pos += op.retain;
     } else if (op.insert !== undefined) {
-      const len = typeof op.insert === 'string' ? op.insert.length : 1;
-      if (pos < cursor) {
-        out += len;
-      }
-      pos += len;
+      out += typeof op.insert === 'string' ? op.insert.length : 1;
     } else if (op.delete !== undefined) {
-      if (pos < cursor) {
-        out -= Math.min(op.delete, cursor - pos);
-      }
-    }
-    if (pos >= cursor) {
-      break;
+      out -= Math.min(op.delete, cursor - pos);
+      pos += op.delete;
     }
   }
   return Math.max(0, out);
@@ -344,13 +342,10 @@ export class NoteSync {
 
   private subscribe(): void {
     const source = new this.EventSourceImpl(`/api/notes/${this.noteId}/doc/events`);
-    let firstOpen = true;
     source.onopen = () => {
-      // 끊겼다 붙은 것이면 그 사이 놓친 것을 차분으로 받는다.
-      if (!firstOpen) {
-        void this.resync();
-      }
-      firstOpen = false;
+      // 붙을 때마다 내 state vector 로 차분을 받는다 — 첫 접속도 예외가 아니다: GET 스냅숏과
+      // 구독 등록 사이에 남이 보낸 update 는 듣는 이가 없어 사라진다. 재접속이면 끊긴 사이 것.
+      void this.resync();
     };
     source.onmessage = (e) => {
       try {

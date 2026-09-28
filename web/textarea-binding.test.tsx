@@ -5,12 +5,15 @@ import { bindTextarea } from './textarea-binding';
 
 const LOCAL = Symbol('local');
 
-function setup(initial: string) {
+function setup(initial: string, typedBeforeBind?: { baseline: string; value: string }) {
   const doc = new Y.Doc();
   const text = doc.getText(TEXT_KEY);
   text.insert(0, initial);
   const el = document.createElement('textarea');
   document.body.appendChild(el);
+  if (typedBeforeBind) {
+    el.value = typedBeforeBind.value;
+  }
   const events: { paused: number; resumed: number; changes: string[] } = {
     paused: 0,
     resumed: 0,
@@ -18,6 +21,7 @@ function setup(initial: string) {
   };
   const unbind = bindTextarea(el, text, {
     origin: LOCAL,
+    baseline: typedBeforeBind?.baseline,
     pauseRemote: () => events.paused++,
     resumeRemote: () => events.resumed++,
     onChange: (v) => events.changes.push(v),
@@ -56,6 +60,13 @@ describe('bindTextarea', () => {
     doc.transact(() => text.insert(14, '!'), 'remote');
     expect(el.value).toBe('>> hello world!');
     expect(el.selectionStart).toBe(3);
+  });
+
+  test('what was typed while the session opened is carried into the document', () => {
+    // 화면은 "hello" 를 보여 주다가 사용자가 " wo" 를 쳤고, 그 사이 서버 문서는 "hello!" 가 됐다.
+    const { text, el } = setup('hello!', { baseline: 'hello', value: 'hello wo' });
+    expect(text.toString()).toBe('hello wo!');
+    expect(el.value).toBe('hello wo!');
   });
 
   test('composition pauses remote application', () => {

@@ -15,6 +15,12 @@ export interface BindOptions {
   resumeRemote?: () => void;
   /** 본문이 바뀔 때(로컬·원격 모두) — 줄 수 같은 파생 상태용. */
   onChange?: (value: string) => void;
+  /**
+   * 바인딩 전 textarea 가 보여 주던 값. 세션을 여는 사이(비동기) 사용자가 친 글자는 이 값과
+   * `el.value` 의 차이다 — 그 편집을 문서에 먼저 넣고 나서 문서 값으로 덮는다. 없으면 그
+   * 사이의 입력은 버려진다.
+   */
+  baseline?: string;
 }
 
 /** 바인딩을 걸고 해제 함수를 돌려준다. 걸리는 순간 textarea 는 문서 본문으로 덮인다. */
@@ -23,6 +29,22 @@ export function bindTextarea(
   text: Y.Text,
   options: BindOptions,
 ): () => void {
+  if (options.baseline !== undefined && el.value !== options.baseline) {
+    // 세션이 열리기 전에 친 것 — 원격 변경이 그 사이 앞쪽에 끼었으면 자리가 조금 밀릴 수 있지만
+    // 글자를 잃는 것보다 낫다. 인덱스는 문서 길이 안으로 접는다.
+    const typed = diffText(options.baseline, el.value);
+    const len = text.length;
+    const index = Math.min(typed.index, len);
+    const remove = Math.min(typed.remove, len - index);
+    text.doc?.transact(() => {
+      if (remove > 0) {
+        text.delete(index, remove);
+      }
+      if (typed.insert !== '') {
+        text.insert(index, typed.insert);
+      }
+    }, options.origin);
+  }
   let prev = text.toString();
   el.value = prev;
 
