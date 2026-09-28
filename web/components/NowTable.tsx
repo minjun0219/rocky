@@ -31,8 +31,9 @@ export function NowTable() {
   const handoffs = useUiStore((s) => s.nowHandoffs);
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
+  const prs = useUiStore((s) => s.prs);
   const openTodoDetail = useUiStore((s) => s.openTodoDetail);
-  const rows = nowRows({ todos: nowTodos, handoffs, seen: seenComments, collect });
+  const rows = nowRows({ todos: nowTodos, handoffs, seen: seenComments, collect, prs });
   const now = useNow(rows.some((r) => r.since !== undefined));
   const mine = rows.filter((r) => r.stamp.tone !== 'run').length;
 
@@ -74,6 +75,17 @@ export function NowTable() {
                         <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>
                         {row.title}
                       </button>
+                    ) : row.url ? (
+                      <a
+                        className="hover:text-mine"
+                        href={row.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => logUsage('web:now-row', { kind: row.kind })}
+                      >
+                        <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>
+                        {row.title}
+                      </a>
                     ) : (
                       <span>
                         <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>

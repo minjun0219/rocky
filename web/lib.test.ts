@@ -671,3 +671,43 @@ describe('formatClock', () => {
     expect(formatClock('bad', NOW)).toBe('');
   });
 });
+
+describe('nowRows — PR 감시', () => {
+  const pr = (over: Partial<import('./types').PrSnapshot>): import('./types').PrSnapshot => ({
+    repo: 'o/rocky',
+    number: 1,
+    title: 'PR',
+    url: 'https://github.com/o/rocky/pull/1',
+    state: 'OPEN',
+    isDraft: false,
+    base: 'main',
+    head: 'abc',
+    mergeState: 'CLEAN',
+    ci: 'pass',
+    unhandled: 0,
+    rocket: 0,
+    ready: false,
+    updatedAt: '2026-09-28T10:00:00Z',
+    ...over,
+  });
+  test('확인·머지 가능한 것과 충돌난 것만 행이 된다 — 링크를 들고', () => {
+    const rows = nowRows({
+      todos: [],
+      handoffs: [],
+      seen: {},
+      prs: [
+        pr({ number: 1, ready: true }),
+        pr({ number: 2, mergeState: 'DIRTY' }),
+        pr({ number: 3 }),
+        pr({ number: 4, state: 'MERGED', ready: true }),
+      ],
+    });
+    expect(rows.map((r) => [r.ref, r.stamp.label, r.stamp.tone])).toEqual([
+      ['rocky #1', '확인·머지', 'mine'],
+      ['rocky #2', 'PR 충돌', 'dead'],
+    ]);
+    expect(rows[0]?.url).toBe('https://github.com/o/rocky/pull/1');
+    expect(rows[0]?.todoId).toBeUndefined();
+    expect(rows[0]?.kind).toBe('pr');
+  });
+});

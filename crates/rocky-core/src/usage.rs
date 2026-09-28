@@ -271,6 +271,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky handoff"),
     (UsageSource::Cli, "rocky spawn"),
     (UsageSource::Cli, "rocky sessions"),
+    (UsageSource::Cli, "rocky pr"),
     (UsageSource::Cli, "rocky move"),
     (UsageSource::Cli, "rocky start"),
     (UsageSource::Cli, "rocky stop"),

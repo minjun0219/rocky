@@ -72,6 +72,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "comment" => commands::cmd_comment(&ctx, &rest, &board, &printer),
         "move" => commands::cmd_move(&ctx, &rest, &parsed, &board, &printer),
         "sessions" => commands::cmd_sessions(&ctx, &board, &printer),
+        "pr" => commands::cmd_pr(&ctx, &parsed, &board, &printer),
         "spawn" => commands::cmd_spawn(&ctx, &rest, &parsed, &board, &printer),
         "section" => commands::cmd_section(&ctx, &rest, &board, &printer),
         "handoff" => commands::cmd_handoff(&ctx, &rest, &parsed, &board, &printer),

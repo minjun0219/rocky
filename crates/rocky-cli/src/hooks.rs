@@ -11,7 +11,8 @@ use std::time::Duration;
 use rocky_core::config::{load_worklog_config, user_config_path};
 use rocky_core::handoff::build_handoff_prompt;
 use rocky_core::notify::{
-    build_notify_context, filter_human_changes, merge_context, read_cursor, write_cursor,
+    build_notify_context, build_pr_context, filter_human_changes, merge_context, read_cursor,
+    write_cursor,
 };
 use rocky_core::transcript::{build_turn_content, extract_turn, should_capture};
 use rocky_core::types::{ChangesSince, ClaimedHandoff};
@@ -284,6 +285,7 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
     };
 
     let mut change_context: Option<String> = None;
+    let mut pr_context: Option<String> = None;
     match cursor {
         None => {
             // 첫 프롬프트 — 현재 watermark 만 기록하고 과거 히스토리는 주입하지 않는다.
@@ -296,6 +298,8 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
                 if feed.last_id != cursor {
                     write_cursor(&cursor_file, session_id, feed.last_id);
                 }
+                // 데몬의 PR 감시 전이(actor rocky)는 사람 변경 필터에 걸리므로 먼저 따로 뽑는다.
+                pr_context = build_pr_context(&feed.entries);
                 change_context = build_notify_context(&filter_human_changes(feed.entries));
             }
         }
@@ -308,6 +312,7 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
     emit_prompt_context(merge_context(&[
         upgrade_warning,
         change_context,
+        pr_context,
         handoff_context,
     ]));
 }
