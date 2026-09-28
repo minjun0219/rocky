@@ -82,6 +82,7 @@ PATH 에 있으면 터미널에서 `rocky` 가 바로 된다(없으면 셸 rc �
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
 | `usage` | 사용 로그(`dir` 기본 `~/.config/rocky/usage`, `enabled` 기본 true). 표면별 호출을 월별 JSONL 로 남기고 `rocky usage` 로 읽는다 — 내용은 싣지 않는다 |
+| `pr` | PR 감시(`enabled` 기본 true, `intervalMinutes` 기본 3, `notify` 기본 true). `repo` 가 설정된 보드의 PR 을 데몬이 주기적으로 보고 "확인·머지해도 된다"·충돌을 macOS 알림 + 보드 "지금" 표 + 세션 훅 주입으로 알린다. `rocky pr` 로 읽는다 — [`docs/board.md`](./docs/board.md) "PR 감시" |
 | `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `sessionSummary`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수

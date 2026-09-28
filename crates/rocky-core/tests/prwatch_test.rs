@@ -195,3 +195,24 @@ fn single_pr_query_parses_one_or_none_and_queries_carry_the_fragment() {
     assert!(list_query().contains("fragment prFields") && list_query().contains("states:[OPEN]"));
     assert!(one_query().contains("$number:Int!") && one_query().contains("fragment prFields"));
 }
+
+/// 닫혔던 PR 이 다시 열리면 처음 보는 열린 PR 처럼 — opened 와, 이미 ready 면 ready 도.
+#[test]
+fn a_reopened_pr_emits_opened_and_ready() {
+    let prev = vec![snap(1, "CLOSED", false, "UNKNOWN")];
+    let cur = vec![snap(1, "OPEN", true, "CLEAN")];
+    let kinds: Vec<PrEventKind> = diff(&prev, &cur).iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, vec![PrEventKind::Opened, PrEventKind::Ready]);
+    let cur = vec![snap(1, "OPEN", false, "DIRTY")];
+    let kinds: Vec<PrEventKind> = diff(&prev, &cur).iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, vec![PrEventKind::Opened, PrEventKind::Conflict]);
+}
+
+/// 스레드가 첫 페이지를 넘치면 못 본 것이 있다 — ready 로 판정하지 않는다.
+#[test]
+fn truncated_review_threads_block_ready() {
+    let mut node = pr(1, "OPEN", Some("SUCCESS"), vec![thread(false, &["EYES"])]);
+    node["reviewThreads"]["pageInfo"] = json!({ "hasNextPage": true });
+    let snaps = parse_pull_requests(&data(vec![node]), "o/r", "main").unwrap();
+    assert_eq!((snaps[0].unhandled, snaps[0].ready), (1, false));
+}

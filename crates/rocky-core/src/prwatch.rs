@@ -12,7 +12,7 @@ use serde_json::Value;
 const PR_FIELDS: &str = r#"fragment prFields on PullRequest {
   number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt
   commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
-  reviewThreads(first:100) { nodes { isResolved
+  reviewThreads(first:100) { pageInfo { hasNextPage } nodes { isResolved
     comments(first:1) { nodes { reactions(first:30) { nodes { content user { login } } } } } } }
 }"#;
 
@@ -204,6 +204,15 @@ fn parse_pr_node(
     );
     let mut unhandled = 0;
     let mut rocket = 0;
+    // 스레드가 첫 페이지(100)를 넘치면 못 본 것이 있다 — 보수적으로 "처리 안 됨" 하나로 친다.
+    // (이 레포에서 100개를 넘는 PR 은 없다; 넘치면 ready 알림이 안 나가는 쪽이 안전하다.)
+    if node
+        .pointer("/reviewThreads/pageInfo/hasNextPage")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        unhandled += 1;
+    }
     if let Some(threads) = node
         .pointer("/reviewThreads/nodes")
         .and_then(Value::as_array)
@@ -333,6 +342,16 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
             match p.state.as_str() {
                 "MERGED" => out.push(ev(PrEventKind::Merged)),
                 "CLOSED" => out.push(ev(PrEventKind::Closed)),
+                // 다시 열림 — 처음 보는 열린 PR 과 같이 대한다(ready 면 그것도, 충돌이면 그것도).
+                "OPEN" => {
+                    out.push(ev(PrEventKind::Opened));
+                    if p.ready {
+                        out.push(ev(PrEventKind::Ready));
+                    }
+                    if p.merge_state == "DIRTY" {
+                        out.push(ev(PrEventKind::Conflict));
+                    }
+                }
                 _ => {}
             }
             continue;

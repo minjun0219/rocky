@@ -84,7 +84,10 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
 
 **Out** — do not re-add without an explicit request:
 
-- mysql / spec-pact / pr-watch / the old agents & skills — archived on `archive/pre-openapi-only-slim`.
+- mysql / spec-pact / the old `pr-watch` **plugin** / the old agents & skills — archived on
+  `archive/pre-openapi-only-slim`. (The daemon-side PR watch of 2026-09-28 — `rockyd::prwatch`,
+  `rocky.json` `pr` block — is a different thing, built on an explicit owner decision; see
+  *데몬/설치 모델* below. Do not confuse the two.)
   Those agents (`rocky` / `grace` / `mindy`) were opencode-format **persona & routing** agents; the
   current `agents/reviewer.md` is a role extracted from `/rocky:review`, not a revival of them.
 - The old native `@opencode-ai/plugin` surface — once kept in-tree under `.archive/`, now removed
