@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DetailDrawer } from './components/DetailDrawer';
 import { NotesRail } from './components/NotesRail';
+import { NowTable } from './components/NowTable';
 import { Sidebar } from './components/Sidebar';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
@@ -108,8 +109,10 @@ function App() {
   return (
     <div className="app">
       <TopBar />
-      <div className="layout grid min-h-0 flex-1 grid-cols-[200px_1fr_300px]">
-        <Sidebar />
+      {/* 관제판 — 한 열. 맨 위 "지금"(전 보드) → 보드 탭 → 그 보드의 목록 → 메모(접힘). */}
+      <NowTable />
+      <Sidebar />
+      <div className="layout flex min-h-0 flex-1 flex-col">
         <TodoPane />
         <NotesRail />
       </div>

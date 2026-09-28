@@ -1,19 +1,21 @@
 /*
- * 노트 레일 — 정적 스타일은 NotesRail.tsx 의 유틸리티로 옮겼다. 남는 것은
- * 접힘 토글의 기본 상태(responsive.css 가 좁은 화면에서 뒤집는 훅)뿐이다.
+ * 메모 레일 — 목록 아래 한 줄 헤더로 접혀 있고, 토글로 편다(모든 폭). 정적 스타일은
+ * NotesRail.tsx 의 유틸리티.
  */
 
-/* 접힘 토글 — 좁은 화면 전용 장치라 기본은 비활성(본문 항상 표시). responsive.css 가
-   좁은 화면에서 뒤집는다. 캐럿도 거기서만 보인다. */
 .notes-toggle {
-  cursor: default;
+  cursor: pointer;
+  min-height: 36px;
 }
 
 .notes-caret {
+  display: inline;
+}
+
+.notes-body {
   display: none;
 }
 
-/* 카드 스택은 aside 의 flex/gap 흐름을 그대로 탄다 — 래퍼가 박스를 만들지 않는다. */
-.notes-body {
+.notes-rail.is-open .notes-body {
   display: contents;
 }

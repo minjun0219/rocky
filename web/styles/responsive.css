@@ -25,29 +25,7 @@
     gap: 10px;
     padding: 10px 14px;
   }
-  /* 사이드바 → 가로 스크롤 보드 칩 행 */
-  .sidebar {
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: none;
-    border-bottom: 1px solid var(--line);
-    padding: 8px 12px;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  .sidebar-label {
-    display: none;
-  }
-  /* 위 숨김은 칩 행(BOARDS)용이다 — NOTES 토글의 라벨(개수·캐럿 포함)은 보여야 한다. */
-  .notes-toggle .sidebar-label {
-    display: inline;
-  }
   .board-item {
-    white-space: nowrap;
-    flex-shrink: 0;
     min-height: 44px;
   }
   .archived-toggle {
@@ -215,19 +193,6 @@
   .drawer-actions {
     gap: 12px;
   }
-  /* 메모 레일은 보드 칩 행 **바로 아래**로 — DOM 순서(목록 뒤)대로 두면 문서 맨 아래
-     (긴 보드에서 2,600px 아래)에 놓여 폰에서는 있는 줄도 모른다(390px 실측). 접힌 헤더 한 줄이라
-     목록 위에 있어도 자리를 거의 안 먹는다. */
-  .todo-pane {
-    order: 1;
-  }
-  .notes-rail {
-    border-left: none;
-    border-bottom: 1px solid var(--line);
-    padding: 8px 14px;
-    overflow-y: visible;
-    flex-shrink: 0;
-  }
   .notes-rail .notes-add {
     min-height: 44px;
     padding-inline: 12px;
@@ -241,20 +206,6 @@
     min-height: 36px;
   }
 
-  /* 메모는 기본 접힘 — 헤더(개수 표시)만 남기고, 토글로 편다. */
-  .notes-toggle {
-    cursor: pointer;
-    min-height: 44px;
-  }
-  .notes-caret {
-    display: inline;
-  }
-  .notes-body {
-    display: none;
-  }
-  .notes-rail.is-open .notes-body {
-    display: contents;
-  }
   /* 좁은 화면에선 옆이 아니라 **아래에서 올라오는 시트**다. 전폭 오버레이 + 우상단 ✕ 는
      엄지 도달 범위 밖이었다 (보드 항목: 모바일 드로어를 바텀시트로). 닫기는 스크림 띠
      탭·Esc·우하단 pill. 그랩바는 뺐다 — 스와이프 닫기를 안 만들었으므로 그 신호는
@@ -291,6 +242,41 @@
   .actor-input,
   .drawer-desc-edit {
     font-size: 16px;
+  }
+}
+
+/* "지금" 표 — 좁은 화면에선 행이 카드다. 열을 억지로 눌러 넣으면 상태 스탬프가 잘린다(390px 실측).
+   제목이 한 줄 전체, 그 아래 누가 · 경과 · 상태. */
+@media (max-width: 640px) {
+  .now-table thead {
+    display: none;
+  }
+  .now-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "item item item"
+      "who since stamp";
+    align-items: center;
+    column-gap: 8px;
+    padding: 8px 12px;
+  }
+  .now-row td {
+    padding: 0;
+  }
+  .now-item {
+    grid-area: item;
+    padding-bottom: 6px;
+  }
+  .now-who {
+    grid-area: who;
+  }
+  .now-since {
+    grid-area: since;
+  }
+  .now-stamp {
+    grid-area: stamp;
+    justify-self: end;
   }
 }
 

@@ -1,58 +1,35 @@
 import { Archive, ChevronDown, ChevronRight, History } from 'lucide-react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import type { NoteView } from '../types';
 import { boardCommand, copyRefWithFeedback, formatElapsed } from '../lib';
 import { useUiStore } from '../store';
 
-const NARROW_QUERY = '(max-width: 900px)';
-
-/** 좁은 화면인가 — responsive.css 의 900px 경계와 같은 값이다. */
-function useIsNarrow(): boolean {
-  return useSyncExternalStore(
-    (notify) => {
-      const mq = window.matchMedia(NARROW_QUERY);
-      mq.addEventListener('change', notify);
-      return () => mq.removeEventListener('change', notify);
-    },
-    () => window.matchMedia(NARROW_QUERY).matches,
-  );
-}
-
 /**
- * 우측 메모 레일 — 스티커 카드. 인라인 편집, 저장/보관은 서버 확정 후 반영.
- *
- * 좁은 화면에선 세로 스택의 맨 아래라 도달이 멀어 **기본 접힘**이다 — 헤더가 토글이
- * 되고 개수만 보인다(보드 항목: 모바일 메모 레일 접근성). 넓은 화면에선 토글이
- * 비활성이고 본문은 항상 보인다(`responsive.css`).
+ * 메모 레일 — 목록 아래, 기본 접힘. 헤더(개수)가 토글이다. 넓은 화면에서 옆 열로 늘 펼쳐
+ * 있던 시절엔 대개 빈 열이었다 — 관제판에선 필요할 때만 편다.
  */
 export function NotesRail() {
   const notes = useUiStore((s) => s.notes);
   const selected = useUiStore((s) => s.selected);
   const addNote = useUiStore((s) => s.addNote);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  // 넓은 화면에선 본문이 항상 보이므로 토글은 no-op 이고 aria 도 '펼침'이 정직하다.
-  const isNarrow = useIsNarrow();
+  const [open, setOpen] = useState(false);
 
   return (
     <aside
-      className={`notes-rail flex flex-col gap-3 overflow-y-auto border-l border-line px-3.5 py-4 ${mobileOpen ? 'is-open' : ''}`}
+      className={`notes-rail flex shrink-0 flex-col gap-3 border-t border-line px-[22px] py-2 ${open ? 'is-open' : ''}`}
     >
       <div className="notes-head flex items-center justify-between">
         <button
           type="button"
           className="notes-toggle"
-          aria-expanded={isNarrow ? mobileOpen : true}
-          onClick={() => {
-            if (isNarrow) {
-              setMobileOpen((v) => !v);
-            }
-          }}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
         >
           <span className="sidebar-label">
             NOTES
             {notes.length > 0 ? ` · ${notes.length}` : ''}
             <span className="notes-caret">
-              {mobileOpen ? (
+              {open ? (
                 <ChevronDown size={11} aria-hidden className="inline align-[-1px]" />
               ) : (
                 <ChevronRight size={11} aria-hidden className="inline align-[-1px]" />
@@ -64,7 +41,7 @@ export function NotesRail() {
           type="button"
           className="notes-add text-meta text-warm"
           onClick={() => {
-            setMobileOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
+            setOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
             void addNote({
               board: selected === 'all' ? undefined : selected,
               title: '새 메모',

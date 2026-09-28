@@ -34,9 +34,9 @@ function stubNarrow(matches: boolean) {
 }
 
 describe('NotesRail 접힘 토글', () => {
-  // 접힘 자체는 CSS(responsive.css)가 좁은 화면에서만 적용한다 — 여기서는 상태와
-  // 신호(is-open 클래스·캐럿·개수)가 올바르게 오가는지만 고정한다.
-  test('좁은 화면: 토글이 is-open 과 캐럿을 뒤집고, 개수를 보여준다', async () => {
+  // 접힘은 모든 폭에서 같다 — 여기서는 상태와 신호(is-open 클래스·캐럿·개수)가 올바르게
+  // 오가는지만 고정한다.
+  test('토글이 is-open 과 캐럿을 뒤집고, 개수를 보여준다', async () => {
     const restore = stubNarrow(true);
     renderWithStore(<NotesRail />, { notes: [NOTE] });
     const toggle = screen.getByRole('button', { name: /NOTES/ });
@@ -47,18 +47,6 @@ describe('NotesRail 접힘 토글', () => {
     await userEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(document.querySelector('.notes-rail.is-open')).not.toBeNull();
-    restore();
-  });
-
-  // 넓은 화면에선 본문이 항상 보이므로 토글은 no-op 이고 aria 는 '펼침'이어야 한다 —
-  // 스크린리더가 열려 있는 것을 '접힘'으로 읽으면 안 된다.
-  test('넓은 화면: aria-expanded 는 true 고 클릭해도 상태가 안 바뀐다', async () => {
-    const restore = stubNarrow(false);
-    renderWithStore(<NotesRail />, { notes: [NOTE] });
-    const toggle = screen.getByRole('button', { name: /NOTES/ });
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    await userEvent.click(toggle);
-    expect(document.querySelector('.notes-rail.is-open')).toBeNull();
     restore();
   });
 

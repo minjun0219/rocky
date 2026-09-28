@@ -21,6 +21,8 @@ import {
   copyRefWithFeedback,
   type ReorderSibling,
   resolveDropBefore,
+  formatClock,
+  nowRows,
 } from './lib';
 
 /** copyRef 의 execCommand 폴백 경로를 DOM 없이 검증하기 위한 fake document. */
@@ -476,5 +478,196 @@ describe('resolveDropBefore — 드래그 정렬 판정', () => {
     expect(resolveDropBefore(mixed, 'a', 's', false)).toBeUndefined();
     expect(resolveDropBefore(mixed, 'a', 'p', false)).toBeUndefined();
     expect(resolveDropBefore(mixed, 'a', 'o', false)).toBeUndefined();
+  });
+});
+
+describe('nowRows', () => {
+  const NOW = Date.parse('2026-09-28T03:00:00.000Z');
+  const base = (over: Partial<TodoView>): TodoView => ({
+    id: 't',
+    number: 1,
+    boardId: 'b',
+    title: 't',
+    description: '',
+    status: 'todo',
+    priority: 'p4',
+    labels: [],
+    links: [],
+    position: 0,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    ref: 'rocky-1',
+    commentCount: 0,
+    ...over,
+  });
+
+  test('세션 없음 → 핸드오프 → 진행중 → 읽지 않음 → 수집함 순이고, 같은 todo 는 한 행', () => {
+    const todos = [
+      base({
+        id: 'live',
+        ref: 'a-1',
+        title: '도는 중',
+        status: 'doing',
+        doingBy: 'claude-code',
+        doingSince: '2026-09-28T02:00:00.000Z',
+        doingState: 'live',
+        commentCount: 2,
+        lastCommentAt: '2026-09-28T02:30:00.000Z',
+      }),
+      base({
+        id: 'gone',
+        ref: 'a-2',
+        title: '죽음',
+        status: 'doing',
+        doingBy: 'claude-code',
+        doingSince: '2026-08-18T00:00:00.000Z',
+        doingState: 'gone',
+      }),
+      base({
+        id: 'human',
+        ref: 'a-3',
+        title: '내가 듦',
+        status: 'doing',
+        doingBy: 'logan',
+        doingSince: '2026-09-28T01:00:00.000Z',
+        doingState: 'unknown',
+      }),
+      base({
+        id: 'unread',
+        ref: 'a-4',
+        title: '댓글만',
+        commentCount: 1,
+        lastCommentAt: '2026-09-28T02:50:00.000Z',
+      }),
+      base({
+        id: 'seen',
+        ref: 'a-5',
+        title: '읽은 댓글',
+        commentCount: 1,
+        lastCommentAt: '2026-09-27T00:00:00.000Z',
+      }),
+    ];
+    const handoffs = [
+      {
+        id: 'h1',
+        todoId: 'unread',
+        sessionId: 's',
+        note: '',
+        actor: 'logan',
+        status: 'pending',
+        createdAt: '2026-09-28T02:40:00.000Z',
+        phase: 'pending',
+        unstarted: false,
+        stale: false,
+      },
+    ] as unknown as import('./types').HandoffView[];
+    const rows = nowRows(
+      { todos, handoffs, seen: { seen: '2026-09-28T00:00:00.000Z' }, collect: 2 },
+      NOW,
+    );
+    expect(rows.map((r) => `${r.kind}:${r.ref}`)).toEqual([
+      'dead:a-2',
+      'handoff:a-4',
+      'doing:a-3',
+      'doing:a-1',
+      'collect:수집함',
+    ]);
+    // 진행중이면서 댓글이 안 읽힌 것은 행 하나에 합쳐진다.
+    const live = rows.find((r) => r.ref === 'a-1');
+    expect(live?.unread).toBe(2);
+    expect(live?.who).toBe('AGENT');
+    expect(live?.stamp).toEqual({ label: '진행중', tone: 'run' });
+    expect(rows.find((r) => r.ref === 'a-3')?.who).toBe('YOU');
+    expect(rows.find((r) => r.ref === 'a-2')?.stamp.tone).toBe('dead');
+    // 핸드오프가 걸린 todo 의 읽지 않은 댓글은 핸드오프 행에 실린다 — 따로 행을 만들지 않는다.
+    expect(rows.filter((r) => r.ref === 'a-4')).toHaveLength(1);
+    expect(rows.find((r) => r.ref === 'a-4')?.unread).toBe(1);
+  });
+
+  test('집어갔는데 미착수 배달은 내 차례, 착수한 배달은 진행중 행이 대신한다', () => {
+    const todos = [
+      base({
+        id: 'x',
+        ref: 'b-1',
+        title: 'x',
+        status: 'doing',
+        doingBy: 'claude-code',
+        doingSince: '2026-09-28T02:00:00.000Z',
+        doingState: 'live',
+      }),
+    ];
+    const handoffs = [
+      {
+        id: 'h1',
+        todoId: 'x',
+        sessionId: 's',
+        note: '',
+        actor: 'logan',
+        status: 'delivered',
+        createdAt: '2026-09-28T01:00:00.000Z',
+        acceptedAt: '2026-09-28T02:00:00.000Z',
+        phase: 'accepted',
+        unstarted: false,
+        stale: false,
+      },
+      {
+        id: 'h2',
+        todoId: 'y',
+        sessionId: 's2',
+        note: '',
+        actor: 'logan',
+        status: 'delivered',
+        createdAt: '2026-09-28T01:30:00.000Z',
+        phase: 'delivered',
+        unstarted: true,
+        stale: false,
+      },
+    ] as unknown as import('./types').HandoffView[];
+    const rows = nowRows({ todos, handoffs, seen: {} }, NOW);
+    expect(rows.map((r) => r.kind)).toEqual(['handoff', 'doing']);
+    expect(rows[0]?.stamp.label).toBe('집어갔는데 미착수');
+    expect(rows[0]?.title).toBe('(항목)');
+  });
+
+  test('읽지 않은 댓글은 끝난 일을 빼고 최신순 5개까지, 나머지는 한 줄로 접는다', () => {
+    const todos = Array.from({ length: 8 }, (_, i) =>
+      base({
+        id: `c${i}`,
+        ref: `c-${i}`,
+        title: `댓글 ${i}`,
+        commentCount: 1,
+        lastCommentAt: `2026-09-2${i}T00:00:00.000Z`,
+      }),
+    ).concat([
+      base({
+        id: 'done',
+        ref: 'c-done',
+        title: '끝난 일',
+        status: 'done',
+        commentCount: 3,
+        lastCommentAt: '2026-09-29T00:00:00.000Z',
+      }),
+    ]);
+    const rows = nowRows({ todos, handoffs: [], seen: {} }, NOW);
+    expect(rows.map((r) => r.ref)).toEqual(['c-7', 'c-6', 'c-5', 'c-4', 'c-3', '…']);
+    expect(rows[5]?.title).toContain('3개 더');
+    expect(rows[5]?.todoId).toBeUndefined();
+  });
+
+  test('아무것도 없으면 빈 배열, 수집함은 0 이면 안 나온다', () => {
+    expect(nowRows({ todos: [], handoffs: [], seen: {}, collect: 0 }, NOW)).toEqual([]);
+    expect(nowRows({ todos: [], handoffs: [], seen: {}, collect: null }, NOW)).toEqual([]);
+  });
+});
+
+describe('formatClock', () => {
+  const NOW = Date.parse('2026-09-28T03:12:44.000Z');
+  test('하루 미만은 hh:mm:ss, 이상은 일수를 앞에', () => {
+    expect(formatClock('2026-09-28T00:00:00.000Z', NOW)).toBe('03:12:44');
+    expect(formatClock('2026-08-18T00:00:00.000Z', NOW)).toBe('41일 03:12:44');
+    expect(formatClock('2026-09-28T03:12:44.000Z', NOW)).toBe('00:00:00');
+    // 미래 시각은 0 으로 눌러 둔다 — 시계 어긋남으로 음수가 보이면 안 된다.
+    expect(formatClock('2026-09-29T00:00:00.000Z', NOW)).toBe('00:00:00');
+    expect(formatClock('bad', NOW)).toBe('');
   });
 });
