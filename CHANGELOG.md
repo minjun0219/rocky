@@ -1,5 +1,32 @@
 # @minjun0219/rocky
 
+## 0.29.0
+
+### Minor Changes
+
+- [#175](https://github.com/minjun0219/rocky/pull/175) [`18c827d`](https://github.com/minjun0219/rocky/commit/18c827df8e85226c22b8915415f2c9eecf00a2c5) Thanks [@minjun0219](https://github.com/minjun0219)! - 플러그인 업그레이드 중 데몬이 사라지는 사고를 막고, 실패하면 알린다.
+
+  - 부트스트랩이 새 버전을 받은 직후엔 입구(훅/MCP/CLI)와 무관하게 `current` 링크를 건다 — worklog MCP 기동이 받아 놓고 링크는 옛 버전에 남던 구멍.
+  - launchd 교체가 bootout 뒤 서비스가 내려가길 기다린 뒤 bootstrap 을 재시도하고 로드를 확인한다. 그래도 실패하면 데몬을 launchd 밖에서라도 띄우고 세션 컨텍스트에 `⚠ rocky 데몬: …` 로 알린다.
+  - `rocky daemon status` / `rocky config show` 가 "plist 는 있으나 로드되지 않음" 을 가르고 `rocky daemon install` 을 고치는 명령으로 보여 준다. `rocky daemon start` 는 띄운 데몬이 launchd 상주인지 밖인지 적는다.
+  - `rocky version` / `rocky --version` 추가.
+
+- [#176](https://github.com/minjun0219/rocky/pull/176) [`67c9427`](https://github.com/minjun0219/rocky/commit/67c942773537a859080d8646cb0edba99f5b3449) Thanks [@minjun0219](https://github.com/minjun0219)! - 노트 본문이 CRDT(Yjs 호환) 문서가 된다 — 사람과 에이전트가 같은 메모를 동시에 고쳐도 서로 지우지 않고 글자 단위로 합쳐진다. 에이전트·CLI 의 set/append 는 데몬이 최소 편집으로 문서에 넣고, `notes.content` 는 늘 합쳐진 최신 본문이다(기존 노트는 처음 열 때 지금 본문으로 문서를 만든다). 웹·다른 클라이언트용 라우트 `GET/POST /api/notes/:ref/doc`, `GET …/doc/events`(노트별 SSE), `POST …/presence`. 웹 편집 히스토리는 60초 창으로 묶인다.
+
+- [#179](https://github.com/minjun0219/rocky/pull/179) [`e89b70c`](https://github.com/minjun0219/rocky/commit/e89b70c1c7d82e2ab8705b78298f8a5dd8eba40f) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 메모에 두 번째 편집기(CodeMirror) — 메모 헤더의 스위치로 기본 textarea 와 번갈아 쓴다(임시, 하나만 남길 예정). CodeMirror 쪽은 같이 보는 사람의 커서·선택 영역을 이름표와 함께 그린다.
+
+- [#177](https://github.com/minjun0219/rocky/pull/177) [`4c88b70`](https://github.com/minjun0219/rocky/commit/4c88b7091dd04fac7a5cb01bd1add1c8a4ec4180) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 메모가 실시간으로 합쳐진다 — 본문에 포커스가 들어오면 세션이 열리고, 에이전트·CLI·다른 브라우저의 편집이 타이핑 중인 textarea 에 글자 단위로 그 자리에 들어온다(커서 유지, 한글 조합 중엔 잠시 보류). 같이 보는 사람·에이전트 이름을 카드 아래 표시. 제목은 예전처럼 blur 저장.
+
+- [#187](https://github.com/minjun0219/rocky/pull/187) [`580fd16`](https://github.com/minjun0219/rocky/commit/580fd16a0832073338bcd3ed90d0df866bb2337b) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 감시의 바탕 — `rocky.json` 에 `pr` 블록(`enabled` / `intervalMinutes` / `notify`), PR 스냅숏을 기억하는 `pr_watch` 테이블, "확인·머지해도 된다"·충돌·머지·닫힘 전이를 보드 히스토리(actor `rocky`, action `pr-*`)로 남기는 스토어. 데몬의 주기 조회와 알림은 다음 층.
+
+- [#190](https://github.com/minjun0219/rocky/pull/190) [`9fdab07`](https://github.com/minjun0219/rocky/commit/9fdab07d2f3dea526c467e63b00695619a02c75d) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 감시가 데몬에서 돈다 — `repo` 가 설정된 보드의 PR 을 3분마다 보고, "확인·머지해도 된다"(CI 초록 + 리뷰 스레드 처리됨 + 충돌 없음)와 충돌을 macOS 알림·보드 "지금" 표·세션 훅 주입으로 알린다. `rocky pr` 로 열린 PR 상태를 읽는다. `rocky.json` `pr` 블록으로 간격·알림을 조절.
+
+### Patch Changes
+
+- [#184](https://github.com/minjun0219/rocky/pull/184) [`a0a0abb`](https://github.com/minjun0219/rocky/commit/a0a0abb8b8295b68e23cddc9bf70dea702ef9a36) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:resolve-reviews` 에 "확인·머지해도 되면 알려줘" 절차 — 첫 봇 판정까지 기다렸다가 CI 초록 + 지적 전부 처리 + 결정 필요 건 없음일 때 알린다(스택은 맨 아래 PR 만, 머지 뒤 GitHub 의 서버 리베이스를 전제). Codex 자동 리뷰는 ready 때 한 번뿐이라 수정 푸시 뒤엔 CI 만 본다.
+
+- [#174](https://github.com/minjun0219/rocky/pull/174) [`4265769`](https://github.com/minjun0219/rocky/commit/4265769fed8ef0679895943c35796d703941a44e) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI: 전체 보기(또는 다른 보드)에서 상세를 열어도 뒤 화면이 그 todo 의 보드로 바뀌지 않는다. 주소가 보고 있는 보드와 열린 todo 를 따로 싣는다 — `/?todo=rocky-12`, `/tally?todo=rocky-12`. 같은 보드면 예전처럼 `/rocky/12`.
+
 ## 0.28.0
 
 ### Minor Changes
