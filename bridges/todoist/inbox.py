@@ -11,7 +11,7 @@
                       "--filter", "#Inbox"],
           "timeoutMs": 30000 } ] } }
 
-토큰(1Password Agent Vault, hail-mary D-030):
+토큰(1Password Agent Vault — 홈에 평문 토큰 파일을 두지 않는다):
   --op REF          `op read REF` 로 읽는다. 서비스 계정 토큰은 `~/.config/op/service-account-token`
                     (600) 에서 이 프로세스 안에서만 실어 준다. 값은 stdout·argv·에러에 절대 나가지 않는다.
   TODOIST_API_TOKEN 개발용 env 폴백. 홈의 평문 파일에 적지 마라 — `op run --env-file` 로 주입한다.
