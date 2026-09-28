@@ -276,7 +276,6 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({ actor });
   },
   setThemePref: (pref) => {
-    logUsage('web:theme');
     // 화면 갱신을 먼저 한다. 저장은 다음 방문을 위한 부수 효과일 뿐이라, 그게 실패해도
     // 이번 클릭은 반드시 반영돼야 한다 — 순서가 반대면 저장이 막힌 브라우저에서 토글이
     // 통째로 죽고 auto 의 OS 추종까지 멈춘다.

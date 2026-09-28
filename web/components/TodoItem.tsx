@@ -40,6 +40,11 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
   const unread = hasUnreadComments(todo, seenComments);
 
   const handleCopyRef = () => copyRefWithFeedback(boardCommand(todo.ref), setCopied);
+  // 상세를 여는 길은 둘(제목 · 댓글 배지)인데 사용 로그는 한 이름이어야 한다.
+  const openDetail = () => {
+    logUsage('web:todo-open');
+    void openTodoDetail(todo.id);
+  };
 
   return (
     <div
@@ -81,10 +86,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
       <button
         type="button"
         className={`todo-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-body ${done ? 'text-faint line-through' : 'text-text hover:text-warm'}`}
-        onClick={() => {
-          logUsage('web:todo-open');
-          void openTodoDetail(todo.id);
-        }}
+        onClick={openDetail}
       >
         {todo.title}
       </button>
@@ -131,7 +133,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
                 ? `읽지 않은 댓글 ${todo.commentCount}개 — 눌러서 열기`
                 : `댓글 ${todo.commentCount}개 — 눌러서 열기`
             }
-            onClick={() => void openTodoDetail(todo.id)}
+            onClick={openDetail}
           >
             <MessageCircle size={12} aria-hidden className="inline align-[-2px]" />{' '}
             {todo.commentCount}

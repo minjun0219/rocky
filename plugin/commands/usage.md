@@ -14,8 +14,11 @@ rocky 는 자기 표면(REST · MCP 도구 · CLI · 훅 · 웹 UI 이벤트)이
 ### 1. 수치를 받는다
 
 ```bash
-rocky usage --since ${ARGUMENTS:-30d} --json
+rocky usage --since 30d --json   # `$ARGUMENTS` 가 있으면 30d 자리에 그 값을 넣는다 (예: 90d · 2w)
 ```
+
+- 셸 기본값 문법(`${ARGUMENTS:-30d}`)은 쓰지 않는다 — Claude Code 는 `$ARGUMENTS` 만 치환하고
+  그 꼴은 셸의 무관한 환경변수로 풀려 늘 30d 가 된다.
 
 - `rocky` 가 없으면 `~/.local/share/rocky/current/rocky`. 로그가 꺼져 있거나(`usage.enabled:
   false`) 비어 있으면 그 사실만 알리고 끝낸다 — 없는 수치로 제안하지 않는다.
