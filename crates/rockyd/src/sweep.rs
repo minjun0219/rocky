@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rocky_core::doing::{
-    auto_release_note, resolve_doing_state, should_auto_release, AUTO_RELEASE_GRACE_SECS,
+    auto_release_note, board_has_session, doing_unchanged, resolve_doing_state,
+    should_auto_release, AUTO_RELEASE_GRACE_SECS,
 };
 use rocky_core::types::ListTodosFilter;
 use rocky_core::types::{StatusAction, TodoStatus};
@@ -42,13 +43,23 @@ pub async fn release_gone_doing(
         return Vec::new();
     }
     let mut released = Vec::new();
-    for todo in doing {
-        let board_key = store
-            .board_key_of(&todo.board_id)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let doing_state = resolve_doing_state(&todo, &board_key, &sessions);
+    for snapshot in doing {
+        // 세션 조회를 기다리는 사이 바뀐 행은 건드리지 않는다 — 스냅샷과 현재가 같은 doing 일 때만.
+        let Ok(Some(todo)) = store.get_todo(&snapshot.id, None) else {
+            continue;
+        };
+        if !doing_unchanged(&snapshot, &todo) {
+            continue;
+        }
+        let Ok(Some(board)) = store.board_by_id(&todo.board_id) else {
+            continue;
+        };
+        // 귀속 세션이 없는 doing 은 보드 근사인데, key 가 디렉터리와 어긋난 보드(이름 변경)는
+        // `resolve_doing_state` 가 세션이 돌아도 Gone 을 낸다 — 옛 key·path 까지 봐서 누가 있으면 둔다.
+        if todo.doing_session_id.is_none() && board_has_session(&sessions.sessions, &board) {
+            continue;
+        }
+        let doing_state = resolve_doing_state(&todo, &board.key, &sessions);
         if !should_auto_release(&todo, doing_state, now_iso, grace_secs) {
             continue;
         }

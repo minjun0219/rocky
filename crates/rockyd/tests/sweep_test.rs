@@ -106,3 +106,62 @@ async fn leaves_doing_alone_when_a_session_is_alive_or_sessions_are_unknown() {
         TodoStatus::Doing
     );
 }
+
+#[tokio::test]
+async fn does_not_release_unattributed_doing_when_the_board_path_or_old_key_has_a_session() {
+    let f = fx();
+    let agent = started(&f, "이름 바뀐 보드", "claude-code");
+    let later = hours_after(&agent, 48);
+    // key 를 디렉터리와 어긋나게 바꾼다 — match_board 로는 세션을 못 찾는다.
+    f.store
+        .update_board(
+            "rocky-todo",
+            &BoardPatch {
+                key: Some("renamed-board".into()),
+                ..Default::default()
+            },
+            "logan",
+        )
+        .unwrap();
+    // 옛 key 세그먼트를 가진 세션이 돈다 → 둔다.
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![sess(
+            1,
+            "/w/rocky-todo",
+            "sess-1",
+            "rocky-todo-1e",
+            "busy",
+        )])))
+    });
+    assert!(release_gone_doing(&state, &later, AUTO_RELEASE_GRACE_SECS)
+        .await
+        .is_empty());
+    // 설정된 path 하위 세션이 돈다 → 둔다.
+    f.store
+        .set_board_path("renamed-board", "/w/elsewhere", "logan")
+        .unwrap();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![sess(
+            2,
+            "/w/elsewhere/sub",
+            "sess-2",
+            "x",
+            "idle",
+        )])))
+    });
+    assert!(release_gone_doing(&state, &later, AUTO_RELEASE_GRACE_SECS)
+        .await
+        .is_empty());
+    assert_eq!(
+        f.store.get_todo(&agent.id, None).unwrap().unwrap().status,
+        TodoStatus::Doing
+    );
+    // 정말 아무도 없으면 풀린다.
+    let state = rebuild(&f, |o| o.sessions = Some(fixed_sessions(available(vec![]))));
+    assert_eq!(
+        release_gone_doing(&state, &later, AUTO_RELEASE_GRACE_SECS)
+            .await
+            .len(),
+        1
+    );
+}

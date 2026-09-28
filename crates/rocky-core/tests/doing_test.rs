@@ -1,8 +1,8 @@
 //! TS 원본 `src/doing.test.ts` 포팅.
 
 use rocky_core::doing::{
-    auto_release_note, handoff_phase, is_unstarted, resolve_doing_state, should_auto_release,
-    DoingState, HandoffPhase, AUTO_RELEASE_GRACE_SECS,
+    auto_release_note, board_has_session, doing_unchanged, handoff_phase, is_unstarted,
+    resolve_doing_state, should_auto_release, DoingState, HandoffPhase, AUTO_RELEASE_GRACE_SECS,
 };
 use rocky_core::sessions::{AgentSession, SessionsResult};
 use rocky_core::types::*;
@@ -436,4 +436,68 @@ fn auto_release_note_names_actor_start_and_days() {
         auto_release_note(&t, "2026-09-28T09:00:00.000Z"),
         "세션 없음 — 진행중 자동 해제 (claude-code 착수 2026-08-03, 55일)"
     );
+}
+
+fn board(key: &str, previous: Option<Vec<&str>>, path: Option<&str>) -> Board {
+    Board {
+        id: "b".into(),
+        key: key.into(),
+        title: key.into(),
+        description: None,
+        repo: None,
+        path: path.map(str::to_string),
+        previous_keys: previous.map(|v| v.into_iter().map(str::to_string).collect()),
+        created_at: String::new(),
+        archived_at: None,
+    }
+}
+
+#[test]
+fn board_has_session_sees_current_key_old_keys_and_path() {
+    let mut s = session();
+    s.cwd = "/Users/x/dev/gotgan".into();
+    let sessions = vec![s];
+    // 현재 key 가 경로 세그먼트에 있으면.
+    assert!(board_has_session(&sessions, &board("gotgan", None, None)));
+    // 이름을 바꿔 key 가 어긋나도 옛 key 로 잡는다.
+    assert!(board_has_session(
+        &sessions,
+        &board("gotgan-v2", Some(vec!["gotgan"]), None)
+    ));
+    // 설정된 path 하위면 key 와 무관.
+    assert!(board_has_session(
+        &sessions,
+        &board("renamed", None, Some("/Users/x/dev/gotgan"))
+    ));
+    assert!(board_has_session(
+        &sessions,
+        &board("renamed", None, Some("/Users/x/dev"))
+    ));
+    // 아무것도 안 맞으면 없다.
+    assert!(!board_has_session(
+        &sessions,
+        &board("renamed", Some(vec!["other"]), Some("/elsewhere"))
+    ));
+    assert!(!board_has_session(
+        &[],
+        &board("gotgan", None, Some("/Users/x/dev/gotgan"))
+    ));
+}
+
+#[test]
+fn doing_unchanged_requires_same_state_actor_start_and_session() {
+    let snap = doing_by("claude-code", "2026-08-03T10:00:00.000Z");
+    assert!(doing_unchanged(&snap, &snap.clone()));
+    let mut done = snap.clone();
+    done.status = TodoStatus::Done;
+    assert!(!doing_unchanged(&snap, &done));
+    let mut restarted = snap.clone();
+    restarted.doing_since = Some("2026-09-01T00:00:00.000Z".into());
+    assert!(!doing_unchanged(&snap, &restarted));
+    let mut human = snap.clone();
+    human.doing_by = Some("logan".into());
+    assert!(!doing_unchanged(&snap, &human));
+    let mut attributed = snap.clone();
+    attributed.doing_session_id = Some("sess".into());
+    assert!(!doing_unchanged(&snap, &attributed));
 }

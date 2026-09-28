@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::actors::is_agent_actor;
 use crate::sessions::{match_board, AgentSession, SessionsResult};
-use crate::types::{Handoff, HandoffStatus, Todo, TodoStatus};
+use crate::statusline::is_under;
+use crate::types::{Board, Handoff, HandoffStatus, Todo, TodoStatus};
 
 /// doing 하나의 생존 상태.
 ///
@@ -99,6 +100,38 @@ pub fn should_auto_release(todo: &Todo, state: DoingState, now_iso: &str, grace_
         return false;
     };
     now - since >= grace_secs
+}
+
+/// 이 보드에 붙은 세션이 **하나라도** 있는가 — 현재 key 뿐 아니라 옛 key(별칭)와 설정된
+/// `path` 하위까지 본다. `match_board` 는 현재 key 세그먼트만 보므로 key 를 디렉터리와 어긋나게
+/// 바꾼 보드는 세션이 버젓이 돌아도 `Gone` 이 나온다 — 표시라면 사람이 고르면 그만이지만 자동
+/// 해제는 "정말 아무도 없다" 를 확신해야 해서 이 넓은 판정을 쓴다.
+pub fn board_has_session(sessions: &[AgentSession], board: &Board) -> bool {
+    if !match_board(sessions, &board.key).is_empty() {
+        return true;
+    }
+    if board
+        .previous_keys
+        .iter()
+        .flatten()
+        .any(|k| !match_board(sessions, k).is_empty())
+    {
+        return true;
+    }
+    match board.path.as_deref() {
+        Some(path) => sessions.iter().any(|s| is_under(&s.cwd, path)),
+        None => false,
+    }
+}
+
+/// 스냅샷 이후 그 doing 이 그대로인가 — 세션 조회를 기다리는 사이(최대 수 초) 사람이나
+/// 에이전트가 done/stop/재착수했으면 스냅샷 기준의 해제는 엉뚱한 행을 되돌린다. 상태·actor·
+/// 착수 시각·귀속 세션이 전부 같을 때만 같은 doing 으로 본다.
+pub fn doing_unchanged(snapshot: &Todo, current: &Todo) -> bool {
+    current.status == TodoStatus::Doing
+        && current.doing_by == snapshot.doing_by
+        && current.doing_since == snapshot.doing_since
+        && current.doing_session_id == snapshot.doing_session_id
 }
 
 /// 자동 해제 때 남기는 댓글 — 누가 언제 들었다가 왜 풀렸는지.
