@@ -58,6 +58,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
         "daemon" => commands::cmd_daemon(&ctx, &rest, expose_lan, expose_ts),
+        "config" => rocky_cli::config_cmd::cmd_config(&ctx, &rest, &todo_config, &printer),
         "mcp" if rest.first().map(String::as_str) == Some("worklog") => {
             rocky_cli::worklog_mcp::serve_stdio()
         }

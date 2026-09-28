@@ -18,6 +18,14 @@ pub enum ExposeChannel {
 }
 
 impl ExposeChannel {
+    /// 설정 파일에 적는 이름 — `parse` 의 역.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExposeChannel::Lan => "lan",
+            ExposeChannel::TailscaleServe => "tailscale-serve",
+        }
+    }
+
     fn parse(s: &str) -> Option<Self> {
         match s {
             "lan" => Some(ExposeChannel::Lan),

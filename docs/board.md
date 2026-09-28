@@ -611,6 +611,12 @@ REF 는 id 대신 사람이 읽을 수 있는 참조를 받는다: `rocky-12`(�
 
 `inbox` 는 위 "수집함" 절, `sessionSummary` 는 "요약" 절.
 
+**손으로 만들 필요는 없다.** `rocky config show` 가 설정 파일·설치본·데몬·launchd·세션 요약·
+노출·수집함·statusline 연결·보드 ↔ 레포 경로를 한 번에 점검해 `다음 할 일` 을 내고(`--json`),
+`rocky config init` 이 기본 파일(expose off · sessionSummary on)을 없을 때만 만든다. Claude Code
+에서는 `/rocky:config` 가 그 결과를 보고 빠진 항목을 하나씩 물어 채운다(`/rocky:config expose off`
+처럼 값 변경도). `settings.json` 의 statusLine 은 덮어쓰지 않는다 — 조각을 붙일지 묻는다.
+
 | env | 의미 |
 | --- | --- |
 | `ROCKY_TODO_PORT` | 데몬 포트 (기본 8636 — 키패드 "todo") |
