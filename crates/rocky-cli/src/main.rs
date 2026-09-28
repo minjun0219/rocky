@@ -6,6 +6,13 @@ use rocky_cli::flags::parse_flags;
 use rocky_cli::HELP;
 
 fn main() {
+    // Rust 런타임은 SIGPIPE 를 무시해 두므로 `rocky daemon status | head -2` 처럼 읽는 쪽이 먼저
+    // 닫히면 `println!` 이 EPIPE 로 **패닉**한다(실측: "failed printing to stdout: Broken pipe").
+    // 파이프에 쓰는 CLI 는 셸 도구답게 조용히 죽어야 한다 — 기본 동작(종료)으로 되돌린다.
+    // SAFETY: signal(2) 에 상수 둘을 넘길 뿐이고, 스레드가 생기기 전 main 첫 줄에서 부른다.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if let Err(error) = run(&argv) {
         eprintln!("{error}");
