@@ -5,7 +5,7 @@
 //! `x-rocky-actor` 헤더로 전달된다.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::Body;
@@ -116,8 +116,13 @@ pub struct ServerState {
     usage: UsageSink,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
+    /// 노트별 문서 스트림(`GET /api/notes/:ref/doc/events`) — CRDT update 와 프레즌스만.
+    /// 전역 `events` 에 싣지 않는 이유: 그 채널의 구독자는 전부 refetch 하므로 글자마다
+    /// 보드 전체를 다시 읽게 된다. 구독자가 0 이 된 노트의 채널은 다음 방송 때 걷는다.
+    note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
     /// 스토어 구독 해제용.
     _subscription: u64,
+    _doc_subscription: u64,
 }
 
 impl ServerState {
@@ -135,7 +140,40 @@ impl ServerState {
     pub fn record_usage(&self, event: UsageEvent) {
         (self.usage)(event);
     }
+
+    /// 노트의 문서 스트림 — 없으면 만든다. 테스트가 구독해 방송을 본다.
+    /// 노트의 문서 스트림을 **구독한다** — 채널이 없으면 만든다. 구독을 락 안에서 끝내는 이유:
+    /// 보내는 쪽(`broadcast_note`)이 "듣는 이 0" 인 채널을 걷어 내므로, 채널을 꺼내 온 뒤
+    /// 구독하기 전에 방송이 끼면 걷힌 채널을 구독해 그 뒤로 아무것도 못 받는다.
+    pub fn subscribe_note(&self, note_id: &str) -> broadcast::Receiver<String> {
+        let mut streams = self.note_streams.lock().expect("note_streams poisoned");
+        streams
+            .entry(note_id.to_string())
+            .or_insert_with(|| broadcast::channel::<String>(NOTE_STREAM_CAPACITY).0)
+            .subscribe()
+    }
+
+    /// 지금 그 노트를 듣는 연결 수 — 테스트용.
+    pub fn note_receivers(&self, note_id: &str) -> usize {
+        let streams = self.note_streams.lock().expect("note_streams poisoned");
+        streams.get(note_id).map_or(0, |s| s.receiver_count())
+    }
+
+    /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
+    /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
+    pub fn broadcast_note(&self, note_id: &str, payload: &serde_json::Value) {
+        let mut streams = self.note_streams.lock().expect("note_streams poisoned");
+        let Some(sender) = streams.get(note_id) else {
+            return;
+        };
+        if sender.receiver_count() == 0 || sender.send(payload.to_string()).is_err() {
+            streams.remove(note_id);
+        }
+    }
 }
+
+/// 노트 스트림 채널 크기 — 이만큼 밀린 연결은 끊는다(`sse_from`, `on_lag`).
+const NOTE_STREAM_CAPACITY: usize = 256;
 
 /// 서버 상태를 만든다 — 스토어 change 이벤트를 SSE 브로드캐스트로 잇는다.
 pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
@@ -145,6 +183,28 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         if let Ok(payload) = serde_json::to_string(event) {
             let _ = sender.send(payload); // 수신자 없음은 정상 (send 는 sync)
         }
+    });
+    // 노트 문서 갱신은 어느 경로(웹 update·MCP/CLI set/append)든 스토어가 한 건씩 내고, 여기서
+    // 그 노트의 스트림에만 방송한다 — 열린 웹 편집기가 에이전트의 편집을 즉시 본다.
+    let doc_state: Arc<Mutex<Option<std::sync::Weak<ServerState>>>> = Arc::new(Mutex::new(None));
+    let doc_state_for_listener = doc_state.clone();
+    let doc_subscription = options.store.subscribe_note_docs(move |event| {
+        let Some(state) = doc_state_for_listener
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().and_then(std::sync::Weak::upgrade))
+        else {
+            return;
+        };
+        state.broadcast_note(
+            &event.note_id,
+            &json!({
+                "kind": "update",
+                "update": encode_b64(&event.update),
+                "client": event.client,
+                "actor": event.actor,
+            }),
+        );
     });
     let default_gh = default_runner();
     // 주입된 sessions 는 spawn/statusline 조회기의 **폴백**이기도 하다 — 테스트가
@@ -163,7 +223,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         .statusline_sessions
         .or(injected)
         .unwrap_or_else(|| cached_sessions(default_gh.clone(), Duration::from_secs(15)));
-    Arc::new(ServerState {
+    let state = Arc::new(ServerState {
         store: options.store,
         statusline_template: options
             .statusline_template
@@ -191,8 +251,15 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         }),
         usage: options.usage.unwrap_or_else(noop_sink),
         events,
+        note_streams: Mutex::new(HashMap::new()),
         _subscription: subscription,
-    })
+        _doc_subscription: doc_subscription,
+    });
+    // 문서 이벤트 리스너는 상태를 약하게 잡는다 — 강하게 잡으면 서로를 물고 영영 안 죽는다.
+    if let Ok(mut slot) = doc_state.lock() {
+        *slot = Some(Arc::downgrade(&state));
+    }
+    state
 }
 
 // ── 응답 헬퍼 ───────────────────────────────────────────────────────────────
@@ -909,6 +976,94 @@ async fn dispatch(
             StatusCode::CREATED,
         ));
     }
+    // ── notes: CRDT 문서 (docs/design/specs/2026-09-28-note-crdt-design.md) ──
+    if let Some((r, tail)) = seg2_match(path, "/api/notes/", &["doc", "presence"]) {
+        let current_board_id = current_board_id_of(store, query, &r)?;
+        if tail == "doc" && *method == Method::GET {
+            let since = match query.get("sv") {
+                Some(sv) => Some(decode_b64(sv).map_err(StoreError::new)?),
+                None => None,
+            };
+            let doc = store.note_doc_state(&r, since.as_deref(), current_board_id.as_deref())?;
+            return Ok(ok_json(&json!({
+                "noteId": doc.note_id,
+                "update": encode_b64(&doc.update),
+                "sv": encode_b64(&doc.state_vector),
+            })));
+        }
+        if tail == "doc" && *method == Method::POST {
+            let body = read_body(headers, body).await?;
+            let Some(update) = str_field(&body, "update") else {
+                return Ok(error_response(
+                    "update is required",
+                    StatusCode::BAD_REQUEST,
+                ));
+            };
+            let bytes = match decode_b64(update) {
+                Ok(bytes) => bytes,
+                Err(error) => return Ok(error_response(&error, StatusCode::BAD_REQUEST)),
+            };
+            // 방송은 스토어의 문서 이벤트가 한다(에이전트 경로와 같은 길) — 여기서 따로 하지 않는다.
+            let applied = match store.apply_note_update(
+                &r,
+                &bytes,
+                actor,
+                str_field(&body, "client"),
+                current_board_id.as_deref(),
+            ) {
+                Ok(applied) => applied,
+                Err(error) if error.to_string().starts_with("bad update") => {
+                    return Ok(error_response(&error.to_string(), StatusCode::BAD_REQUEST));
+                }
+                Err(error) => return Err(error),
+            };
+            return Ok(ok_json(&json!({
+                "ok": true,
+                "changed": applied.changed,
+                "updatedAt": applied.note.updated_at,
+            })));
+        }
+        if tail == "presence" && *method == Method::POST {
+            let body = read_body(headers, body).await?;
+            let Some(note) = store.get_note(&r, current_board_id.as_deref())? else {
+                return Ok(error_response(
+                    &format!("note not found: {r}"),
+                    StatusCode::NOT_FOUND,
+                ));
+            };
+            // 저장하지 않는다 — 지금 누가 보고 있는지는 지금만 의미가 있다.
+            state.broadcast_note(
+                &note.id,
+                &json!({
+                    "kind": "presence",
+                    "client": str_field(&body, "client"),
+                    "actor": actor,
+                    "state": body.get("state").cloned().unwrap_or(Value::Null),
+                    "at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                }),
+            );
+            return Ok(ok_json(&json!({ "ok": true })));
+        }
+    }
+    if *method == Method::GET {
+        if let Some(rest) = path.strip_prefix("/api/notes/") {
+            if let Some((r, "doc/events")) = rest.split_once('/') {
+                let r = percent_decode(r);
+                let current_board_id = current_board_id_of(store, query, &r)?;
+                let Some(note) = store.get_note(&r, current_board_id.as_deref())? else {
+                    return Ok(error_response(
+                        &format!("note not found: {r}"),
+                        StatusCode::NOT_FOUND,
+                    ));
+                };
+                // 밀리면 끊는다 — 이 구독자는 refetch 가 아니라 update 를 하나씩 적용하므로 한 건이
+                // 빠지면 그 연결이 사는 동안 문서가 낡은 채(뒤 update 는 pending) 남는다. 끊기면
+                // 브라우저가 다시 붙고 `GET doc?sv=` 로 빠진 것을 받는다.
+                return Ok(sse_from(state.subscribe_note(&note.id), OnLag::Close));
+            }
+        }
+    }
+
     if let Some(r) = seg_match(path, "/api/notes/", "") {
         let current_board_id = current_board_id_of(store, query, &r)?;
         if *method == Method::GET {
@@ -1679,16 +1834,52 @@ async fn statusline_inner(
 
 /// GET /api/events — store change 이벤트를 SSE 로 흘린다.
 fn sse_response(state: &Arc<ServerState>) -> Response {
+    // 구독자는 payload 를 보지 않고 refetch 만 하므로 밀려도 무해 — 조용히 이어 간다.
+    sse_from(state.events.subscribe(), OnLag::Skip)
+}
+
+/// broadcast 가 밀렸을 때(`Lagged`) 어떻게 하나.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnLag {
+    /// 그 건만 버리고 계속 — 구독자가 어차피 refetch 하는 채널.
+    Skip,
+    /// 연결을 끝낸다 — 구독자가 건마다 상태를 쌓는 채널. 다시 붙으며 차분을 받는다.
+    Close,
+}
+
+/// update 바이너리 ↔ JSON 문자열. 표준 base64(패딩 있음) — 쿼리에 실을 땐 클라이언트가
+/// percent-encode 한다.
+fn encode_b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn decode_b64(text: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(text.trim())
+        .map_err(|e| format!("bad base64: {e}"))
+}
+
+/// broadcast 채널 하나를 SSE 응답으로 — 전역 `/api/events` 와 노트별 문서 스트림이 같이 쓴다.
+fn sse_from(receiver: broadcast::Receiver<String>, on_lag: OnLag) -> Response {
     use tokio_stream::wrappers::BroadcastStream;
     use tokio_stream::StreamExt;
 
-    let receiver = state.events.subscribe();
-    let stream = BroadcastStream::new(receiver).filter_map(|event| match event {
-        Ok(payload) => Some(Ok::<_, std::convert::Infallible>(
-            format!("data: {payload}\n\n").into_bytes(),
-        )),
-        Err(_) => None, // lagged — 구독자는 refetch 만 하므로 유실 무해
-    });
+    let frame = |payload: String| {
+        Ok::<_, std::convert::Infallible>(format!("data: {payload}\n\n").into_bytes())
+    };
+    let raw = BroadcastStream::new(receiver);
+    let stream: std::pin::Pin<
+        Box<dyn tokio_stream::Stream<Item = Result<Vec<u8>, std::convert::Infallible>> + Send>,
+    > = match on_lag {
+        OnLag::Skip => Box::pin(raw.filter_map(move |event| event.ok().map(frame))),
+        // 첫 Lagged 에서 스트림을 끝낸다 — take_while 이 그 항목을 먹고 멈춘다.
+        OnLag::Close => Box::pin(
+            raw.take_while(|event| event.is_ok())
+                .filter_map(move |event| event.ok().map(frame)),
+        ),
+    };
     let connected = tokio_stream::once(Ok::<_, std::convert::Infallible>(
         b": connected\n\n".to_vec(),
     ));

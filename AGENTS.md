@@ -310,6 +310,34 @@ deterministically, and a per-turn gate would just make every turn slow.
   후보를 못 찾는다(기능은 죽지 않고 사람이 고르게 된다). 이름 변경의 통상 방향은 반대
   (디렉터리에 맞추는 것)라 별칭 매칭까지는 넣지 않았다 — `board_key_for_cwd`(statusline)만
   `boards.path` 를 먼저 보므로 경로가 설정된 보드는 이 어긋남에 영향받지 않는다.
+- **노트 본문은 CRDT 문서다**(`rocky_core::note_doc`, Yjs 호환 `yrs`; 설계
+  `docs/design/specs/2026-09-28-note-crdt-design.md`, 오너 결정 2026-09-28 — `yrs`/`yjs` 두 런타임
+  의존성은 그 결정으로 승인됐다). 사람(웹 `yjs`)과 에이전트(MCP `note_write`·CLI 의 set/append)가
+  같은 메모를 동시에 고쳐도 글자 단위로 합쳐진다. **데몬이 CRDT 피어**라 에이전트·CLI·TUI 는
+  Yjs 를 모른다 — `update_note` 의 set 은 통째 교체가 아니라 공통 접두·접미를 뺀 **최소 편집**으로
+  문서에 들어가고, append 는 끝에 삽입이다. `notes.content` 는 **읽는 쪽의 진실**(목록·TUI·CLI·
+  요약은 그대로), `note_docs.state`(user_version 7)는 **합치는 쪽의 진실**이다; 문서를 열 때
+  둘이 어긋나면(구버전 데몬이 content 만 고친 경우) content 에 맞추고, 씨앗을 심거나 맞춘 문서는
+  **읽기 경로여도 그 자리에서 저장한다** — 안 그러면 열 때마다 다른 client id 의 새 문서가 생겨
+  클라이언트가 받은 상태와 다음 요청의 문서가 다른 히스토리가 된다(같은 글자가 두 번 들어간다).
+  `NoteDoc::apply` 는 **state 가 앞으로 간 것과 본문이 바뀐 것을 가른다** — 같은 글자를 지웠다
+  넣은 편집·의존 update 가 먼저 온 경우는 본문은 그대로인데 state 는 전진하므로, 저장은
+  `state_changed`, content·히스토리는 `text_changed` 기준이다(전자를 후자로 판단하면 그 update 가
+  버려져 뒤이어 오는 update 가 영영 안 붙는다). state·content·history 는 **한 트랜잭션**이다.
+  어느 경로의 편집이든(웹 update·MCP/CLI set/append) 스토어가 `NoteDocEvent`(새로 생긴 조각만)를
+  내고(`subscribe_note_docs`) 서버가 그 노트의 스트림에 방송한다 — 라우트가 직접 방송하지
+  않는다(에이전트 경로가 방송에서 빠져 열린 웹 편집기가 append 를 못 보던 구멍).
+  노트 스트림은 **밀리면 끊는다**(`sse_from` 의 `OnLag::Close`, 채널 256건) — 이 구독자는 refetch 가
+  아니라 update 를 하나씩 쌓으므로 한 건이 빠지면 그 연결이 사는 동안 문서가 낡은 채 남는다;
+  끊기면 브라우저가 다시 붙어 `GET …/doc?sv=` 로 차분을 받는다(전역 `/api/events` 는 반대로
+  건너뛰고 이어 간다). 구독(`subscribe_note`)은 맵 락 안에서 끝낸다 — 보내는 쪽이 "듣는 이 0"
+  채널을 걷어 내므로, 채널을 꺼낸 뒤 구독하기 전에 방송이 끼면 걷힌 채널을 구독하게 된다.
+  전송은 HTTP + **노트별 SSE**(`GET /api/notes/:ref/doc[?sv=]` · `POST …/doc {update}` ·
+  `GET …/doc/events` · `POST …/presence`) — 전역 `/api/events` 에는 싣지 않는다(그 채널의
+  구독자는 전부 refetch 한다). 웹 편집의 히스토리는 같은 actor 60초 창으로 **묶는다**
+  (`NOTE_EDIT_COALESCE_SECS`; 글자마다 한 줄이면 `/api/changes` → 세션 주입까지 잡음이 된다).
+  사용 로그는 여는 `GET …/doc` 만 남기고 편집·프레즌스·스트림은 모양으로 거른다(`SKIPPED_SHAPES`).
+  제목은 CRDT 가 아니다(`PATCH` 그대로). MCP 도구 수는 그대로 5.
 - **번호 참조(ref)**: todo/note 는 랜덤 id(`921gvwnr`, PK 로 유지) 외에 보드별 순번을 갖는다.
   id 를 받는 자리는 어디서든 `rocky-12`(보드 접두사) → `12`(현재 보드 컨텍스트 안의
   번호) → id 정확 일치 → id 유일 prefix 순으로 시도해 해석한다(`resolve_ref_id` in

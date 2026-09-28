@@ -54,6 +54,18 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
     ] {
         assert_eq!(normalize_route("GET", skipped), None, "{skipped}");
     }
+    // 노트 문서 편집·프레즌스·노트별 SSE 는 모양으로 거른다 — 여는 GET 만 남는다.
+    assert_eq!(
+        normalize_route("GET", "/api/notes/n1/doc?sv=abc").as_deref(),
+        Some("GET /api/notes/:ref/doc")
+    );
+    for (method, path) in [
+        ("POST", "/api/notes/n1/doc"),
+        ("GET", "/api/notes/n1/doc/events"),
+        ("POST", "/api/notes/n1/presence"),
+    ] {
+        assert_eq!(normalize_route(method, path), None, "{method} {path}");
+    }
 }
 
 #[test]
