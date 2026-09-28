@@ -10,8 +10,11 @@
  * bun scripts/pr-threads.ts list 154            # 미해결 스레드 JSON (첫 코멘트 id·내 리액션 포함)
  * bun scripts/pr-threads.ts react PRRC_… EYES   # 내 다른 상태 리액션을 떼고 👀 하나만 남긴다
  * bun scripts/pr-threads.ts watch 154 --timeout 300
- *   # CI 가 끝날 때까지 → 현재 head 이후 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
+ *   # CI 가 끝날 때까지 → 현재 head 의 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
  *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(안 옴)
+ * bun scripts/pr-threads.ts ready 154           # "확인·머지해도 되나" 한 번에 — CI 초록 + 👀 없는 스레드 없음 + 🚀 없음. exit 0/1
+ * bun scripts/pr-threads.ts transitions --interval 60
+ *   # 열린 PR 전체를 돌며 MERGED / CLOSED / DIRTY / CONFLICTING 전이만 한 줄씩 — Monitor 에 물린다
  * ```
  *
  * PR 번호를 생략하면 현재 브랜치의 PR 이다.
@@ -89,7 +92,12 @@ export function reactionsToRemove(current: string[], target: StateReaction): str
   return REMOVABLE.filter((c) => c !== target && current.includes(c));
 }
 
-export type ReviewNode = { author: { login: string } | null; submittedAt: string | null };
+export type ReviewNode = {
+  author: { login: string } | null;
+  submittedAt: string | null;
+  /** 리뷰가 붙은 커밋 — Codex 의 "Reviewed commit:" 와 같은 값. 있으면 시각 대신 이걸로 head 와 대조한다. */
+  commit?: { oid: string } | null;
+};
 /** PR 본문에 달린 리액션 — Codex 는 지적이 없으면 코멘트 대신 여기에 👍 만 남긴다. */
 export type ReactionNode = { content: string; createdAt: string; user: { login: string } | null };
 
@@ -108,47 +116,136 @@ export function botVerdict(
   reviews: ReviewNode[],
   reactions: ReactionNode[],
   headCommittedAt: string,
+  head?: string,
 ): BotVerdict {
-  const head = Date.parse(headCommittedAt);
+  const headAt = Date.parse(headCommittedAt);
   // 리뷰 author 는 `chatgpt-codex-connector`, 본문 리액션의 user 는 `chatgpt-codex-connector[bot]` 로
   // 온다 — 같은 앱인데 GraphQL 이 자리마다 다르게 적는다. 접미사를 떼고 비교한다.
   const isBot = (login: string | undefined) =>
     login !== undefined &&
     (REVIEW_BOTS as readonly string[]).includes(login.replace(/\[bot\]$/, ''));
-  const reviewed = reviews.some(
-    (r) => isBot(r.author?.login) && r.submittedAt !== null && Date.parse(r.submittedAt) > head,
-  );
+  // "이 head 를 봤는가" — 리뷰에 커밋이 실려 있으면 그것으로(Codex 의 "Reviewed commit:"),
+  // 없으면 제출 시각이 head 커밋 시각보다 뒤인지로. 서버 리베이스로 head 가 바뀌면 시각 비교는
+  // 옛 리뷰를 새것으로 오인할 수 있어 커밋 대조가 정확하다.
+  const forHead = (r: ReviewNode) =>
+    r.commit?.oid && head
+      ? r.commit.oid.startsWith(head)
+      : r.submittedAt !== null && Date.parse(r.submittedAt) > headAt;
+  const reviewed = reviews.some((r) => isBot(r.author?.login) && forHead(r));
   if (reviewed) {
     return 'findings';
   }
   const clean = reactions.some(
-    (r) => isBot(r.user?.login) && r.content === 'THUMBS_UP' && Date.parse(r.createdAt) > head,
+    (r) => isBot(r.user?.login) && r.content === 'THUMBS_UP' && Date.parse(r.createdAt) > headAt,
   );
   return clean ? 'clean' : 'pending';
 }
 
+export type CiState = 'pass' | 'fail' | 'pending';
+
+export type ReadyVerdict = {
+  ready: boolean;
+  ci: CiState;
+  /** 미해결 스레드 수 / 그중 👀 도 🚀 도 없는 것 / 🚀(호출자 결정 필요). */
+  threads: { total: number; unhandled: number; rocket: number };
+  /** 안 되는 이유들 — 비어 있으면 ready. 사람이 읽을 문장. */
+  reasons: string[];
+};
+
+/**
+ * "확인·머지해도 되나" — `/rocky:resolve-reviews` 9단계의 세 조건을 한 번에. 스레드 수는
+ * 판정 조건이 아니다(닫는 건 사용자 몫) — 처리 안 된 것과 결정 필요한 것만 막는다.
+ */
+export function readyVerdict(threads: ThreadSummary[], ci: CiState): ReadyVerdict {
+  const rocket = threads.filter((t) => t.mine.includes('ROCKET')).length;
+  const unhandled = threads.filter(
+    (t) => !t.mine.includes('EYES') && !t.mine.includes('ROCKET'),
+  ).length;
+  const reasons: string[] = [];
+  if (ci === 'fail') {
+    reasons.push('CI 실패');
+  } else if (ci === 'pending') {
+    reasons.push('CI 진행 중');
+  }
+  if (unhandled > 0) {
+    reasons.push(`처리 안 된 스레드 ${unhandled}건(👀 도 🚀 도 없음)`);
+  }
+  if (rocket > 0) {
+    reasons.push(`호출자 결정 필요 🚀 ${rocket}건 — 알림이 아니라 질문이 먼저`);
+  }
+  return {
+    ready: reasons.length === 0,
+    ci,
+    threads: { total: threads.length, unhandled, rocket },
+    reasons,
+  };
+}
+
+/** `gh pr checks` 한 줄의 둘째 칸(pass/fail/pending/skipping)을 모아 하나로. */
+export function ciStateOf(rows: string[]): CiState {
+  const states = rows.map((r) => r.split('\t')[1] ?? '');
+  if (states.some((x) => x === 'fail')) {
+    return 'fail';
+  }
+  if (states.some((x) => x === 'pending')) {
+    return 'pending';
+  }
+  return 'pass';
+}
+
+export type PrState = { number: number; state: string; mergeState: string };
+
+/**
+ * 두 스냅숏 사이의 전이 중 사람이 움직여야 하는 것만 — 머지·닫힘·충돌. 새로 생긴 PR 이나
+ * 리뷰 상태 변화는 내지 않는다(그건 다른 경로가 본다).
+ */
+export function transitionsBetween(prev: PrState[], cur: PrState[]): string[] {
+  const before = new Map(prev.map((p) => [p.number, p]));
+  const out: string[] = [];
+  for (const p of cur) {
+    const was = before.get(p.number);
+    if (!was) {
+      continue;
+    }
+    if (p.state !== was.state && (p.state === 'MERGED' || p.state === 'CLOSED')) {
+      out.push(`#${p.number} ${p.state}`);
+    } else if (
+      p.mergeState !== was.mergeState &&
+      (p.mergeState === 'DIRTY' || p.mergeState === 'CONFLICTING')
+    ) {
+      out.push(`#${p.number} ${p.state} ${p.mergeState}`);
+    }
+  }
+  return out;
+}
+
 export type Args = {
-  cmd: 'list' | 'react' | 'watch';
+  cmd: 'list' | 'react' | 'watch' | 'ready' | 'transitions';
   pr?: number;
   commentId?: string;
   reaction?: StateReaction;
   timeoutSec: number;
+  intervalSec: number;
 };
 
 /** argv 해석. 잘못된 입력은 메시지와 함께 던진다 — 조용히 기본값으로 흘리지 않는다. */
 export function parseArgs(argv: string[]): Args {
   const [cmd, ...rest] = argv;
-  const args: Args = { cmd: 'list', timeoutSec: 300 };
+  const args: Args = { cmd: 'list', timeoutSec: 300, intervalSec: 60 };
   const positional: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i] ?? '';
-    if (a === '--timeout') {
+    if (a === '--timeout' || a === '--interval') {
       const raw = rest[++i];
       const v = Number(raw);
       if (raw === undefined || !Number.isFinite(v) || v <= 0) {
-        throw new Error(`--timeout 은 양수 초여야 한다 — 받은 값: ${raw ?? '(없음)'}`);
+        throw new Error(`${a} 은 양수 초여야 한다 — 받은 값: ${raw ?? '(없음)'}`);
       }
-      args.timeoutSec = v;
+      if (a === '--timeout') {
+        args.timeoutSec = v;
+      } else {
+        args.intervalSec = v;
+      }
     } else if (a.startsWith('--')) {
       throw new Error(`모르는 옵션: ${a}`);
     } else {
@@ -156,7 +253,15 @@ export function parseArgs(argv: string[]): Args {
     }
   }
   switch (cmd) {
+    case 'transitions': {
+      args.cmd = cmd;
+      if (positional.length > 0) {
+        throw new Error('transitions 는 PR 번호를 받지 않는다 — 열린 PR 전체를 본다');
+      }
+      return args;
+    }
     case 'list':
+    case 'ready':
     case 'watch': {
       args.cmd = cmd;
       if (positional[0] !== undefined) {
@@ -178,7 +283,9 @@ export function parseArgs(argv: string[]): Args {
       return args;
     }
     default:
-      throw new Error(`사용법: pr-threads.ts <list|react|watch> … (받은 명령: ${cmd ?? '(없음)'})`);
+      throw new Error(
+        `사용법: pr-threads.ts <list|react|watch|ready|transitions> … (받은 명령: ${cmd ?? '(없음)'})`,
+      );
   }
 }
 
@@ -238,7 +345,7 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
   repository(owner:$owner, name:$repo) { pullRequest(number:$num) {
     headRefOid mergeStateStatus isDraft
     commits(last:1){ nodes{ commit{ committedDate } } }
-    reviews(last:30){ nodes{ author{ login } submittedAt } }
+    reviews(last:30){ nodes{ author{ login } submittedAt commit{ oid } } }
     reactions(first:30){ nodes{ content createdAt user{ login } } }
     reviewThreads(first:100, after:$after){
       pageInfo{ hasNextPage endCursor }
@@ -364,13 +471,69 @@ async function watch(
   const ci = checks.exitCode === 0 ? 'pass' : 'fail';
   const deadline = Date.now() + timeoutSec * 1000;
   let snap = snapshot(slug, pr);
-  let verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt);
+  let verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
   while (verdict === 'pending' && Date.now() < deadline) {
     await sleep(10_000);
     snap = snapshot(slug, pr);
-    verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt);
+    verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
   }
   return { ...snap, ci, verdict };
+}
+
+/** `gh pr checks` 를 기다리지 않고 지금 상태만 — pass/fail/pending. check 가 없으면 pass 로 본다. */
+function ciNow(pr: number): CiState {
+  const result = Bun.spawnSync(['gh', 'pr', 'checks', String(pr)], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const rows = result.stdout.toString().trim().split('\n').filter(Boolean);
+  if (rows.length === 0) {
+    return 'pass';
+  }
+  return ciStateOf(rows);
+}
+
+function ready(slug: Slug, pr: number): PrSnapshot & { verdict: ReadyVerdict } {
+  const snap = snapshot(slug, pr);
+  return { ...snap, verdict: readyVerdict(snap.threads, ciNow(pr)) };
+}
+
+function openPrStates(): PrState[] {
+  const raw = gh([
+    'pr',
+    'list',
+    '--state',
+    'all',
+    '--limit',
+    '20',
+    '--json',
+    'number,state,mergeStateStatus',
+  ]);
+  const rows = JSON.parse(raw) as Array<{
+    number: number;
+    state: string;
+    mergeStateStatus: string;
+  }>;
+  return rows.map((r) => ({ number: r.number, state: r.state, mergeState: r.mergeStateStatus }));
+}
+
+/** 끝나지 않는다 — Monitor 가 죽일 때까지 전이만 한 줄씩. 한 번의 조회 실패는 건너뛴다. */
+async function transitions(intervalSec: number): Promise<never> {
+  let prev: PrState[] | null = null;
+  for (;;) {
+    try {
+      const cur = openPrStates();
+      if (prev) {
+        for (const line of transitionsBetween(prev, cur)) {
+          console.log(line);
+        }
+      }
+      prev = cur;
+    } catch {
+      // 일시 실패 — 다음 tick 에.
+    }
+    await sleep(intervalSec * 1000);
+  }
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -387,8 +550,17 @@ async function main(argv: string[]): Promise<number> {
       console.log(JSON.stringify(result));
       return 0;
     }
+    if (args.cmd === 'transitions') {
+      await transitions(args.intervalSec);
+    }
     const slug = repoSlug();
     const pr = args.pr ?? currentPr();
+    if (args.cmd === 'ready') {
+      const result = ready(slug, pr);
+      const { reviews: _reviews, reactions: _reactions, ...printable } = result;
+      console.log(JSON.stringify(printable, null, 2));
+      return result.verdict.ready ? 0 : 1;
+    }
     const result =
       args.cmd === 'watch' ? await watch(slug, pr, args.timeoutSec) : snapshot(slug, pr);
     const { reviews: _reviews, reactions: _reactions, ...printable } = result;

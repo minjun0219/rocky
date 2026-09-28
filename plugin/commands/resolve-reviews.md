@@ -274,14 +274,22 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 ### 9. "확인·머지해도 되면 알려줘" — 백그라운드로 기다렸다 알린다
 
 호출자가 그렇게 말했을 때만. 사람이 볼 때 이미 봐도 되는 상태여야 하므로, 판정은 8단계보다
-엄격하다. **알림 조건은 셋을 동시에 만족할 때뿐이고, 어느 분기에서든 셋을 다 다시 본다:**
-
-1. `gh pr checks` 전부 통과(CI 초록)
-2. 미해결 스레드 중 👀 없는 것이 없다(전부 처리됨)
-3. 🚀(호출자 결정 필요) 스레드가 없다 — 있으면 알림이 아니라 7단계의 질문이 먼저다
+엄격하다. **알림 조건은 셋을 동시에 만족할 때뿐이고, 어느 분기에서든 셋을 다 다시 본다** —
+손으로 세지 말고 스크립트에 묻는다(exit 0 = 알려도 됨, 1 = `reasons` 에 왜 아닌지):
 
 ```bash
-bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeout 1500   # 백그라운드로
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" ready "$NUM"
+# → { …, verdict: { ready, ci: pass|fail|pending, threads: { total, unhandled, rocket }, reasons: [...] } }
+```
+
+1. `ci: pass` — `gh pr checks` 전부 통과
+2. `unhandled: 0` — 미해결 스레드 중 👀 도 🚀 도 없는 것이 없다
+3. `rocket: 0` — 🚀(호출자 결정 필요)가 없다. 있으면 알림이 아니라 7단계의 질문이 먼저다
+
+첫 봇 판정은 `watch` 로 기다린다(백그라운드로):
+
+```bash
+bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeout 1500
 ```
 
 - **Codex 는 PR 이 리뷰 대상으로 열릴 때(ready) 한 번만 자동으로 본다** — 수정 푸시는 다시
@@ -293,24 +301,20 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeo
   `watch` 가 같은 리뷰를 다시 찾아 끝없이 돈다. 새 head 를 밀었을 때만 다시 보고, 그때도
   기다리는 건 CI 다(`gh pr checks "$NUM" --watch`).
 - 첫 `verdict: findings` → 2~5단계(고치고 👀, 또는 무효 👀, 또는 🚀). 푸시했으면 CI 를
-  기다린다. 위 셋이 맞으면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 🚀 가
-  있으면 알리지 않고 묻는다. 라운드 제한은 없다: 오너가 재리뷰를 달아 새 지적이 오면 같은 절차.
-- 첫 `verdict: clean`(본문 👍) → 위 셋 확인 뒤 **알린다**(CI 가 아직이면 초록까지 기다린다).
-- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어, 역시 위 셋이 맞을 때만 알린다(자동
-  리뷰가 꺼졌거나 지연).
-- 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘·충돌은 `gh pr list`
-  를 도는 **Monitor** 가 본다(`allowed-tools` 에 있다). 30분마다 만료되니 그때마다 다시 건다:
+  기다린 뒤 `ready` 가 0 이면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 🚀 가
+  있으면 `ready` 가 막는다 — 묻는다. 라운드 제한은 없다: 오너가 재리뷰를 달아 새 지적이 오면
+  같은 절차.
+- 첫 `verdict: clean`(본문 👍) → `ready` 가 0 이면 **알린다**(CI 가 아직이면 초록까지 기다린다).
+- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어, 역시 `ready` 가 0 일 때만 알린다(자동
+  리뷰가 꺼졌거나 지연). `watch` 의 "이 head 를 봤는가" 는 리뷰에 실린 커밋(Codex 의
+  `Reviewed commit:`)으로 대조하므로 서버 리베이스로 head 가 바뀐 뒤의 옛 리뷰를 새것으로 보지
+  않는다.
+- 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘·충돌은 **Monitor**
+  (`allowed-tools` 에 있다)에 이 명령을 물려 본다. 열린 PR 전체의 전이만 한 줄씩 낸다
+  (`#N MERGED` / `#N OPEN DIRTY`), 30분마다 만료되니 그때마다 다시 건다:
 
   ```bash
-  # 열린 PR 전체의 상태 전이만 한 줄씩 — MERGED / CLOSED / DIRTY / CONFLICTING
-  prev=""; while true; do
-    cur=$(gh pr list --state all --limit 20 --json number,state,mergeStateStatus \
-      --jq '.[]|"#\(.number) \(.state) \(.mergeStateStatus)"' 2>/dev/null | sort) || true
-    if [ -n "$prev" ] && [ -n "$cur" ]; then
-      comm -13 <(echo "$prev") <(echo "$cur") | grep -E --line-buffered "MERGED|CLOSED|DIRTY|CONFLICTING" || true
-    fi
-    [ -n "$cur" ] && prev="$cur"; sleep 60
-  done
+  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" transitions --interval 60
   ```
 
   `DIRTY`/`CONFLICTING` 이 오면 충돌을 풀고(양쪽 의도 보존 → 게이트 → force-with-lease) 다시
