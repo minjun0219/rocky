@@ -13,7 +13,10 @@
 #
 # 훅은 fail-open 이다 — 다운로드 실패·미지원 플랫폼이면 stderr 에 한 줄 남기고 0 으로
 # 끝난다. 바이너리가 없는 상태에서 SessionStart 가 아닌 훅(UserPromptSubmit/Stop)은
-# 다운로드를 시도하지 않는다 — 그쪽은 timeout 이 몇 초라 받다가 죽는다.
+# 자기 자리에서 받지 않는다 — 그쪽은 timeout 이 몇 초라 받다가 죽는다. 대신 SessionStart
+# 경로(`hook ensure-daemon`)를 백그라운드로 한 번 띄워 받게 하고 0 으로 끝난다: 그 상황은
+# `/reload-plugins` 로 플러그인만 새 버전이 된 세션이고, 그 끝에서 ensure-daemon 이 데몬도
+# 새 버전으로 올린다. 다음 프롬프트부터는 새 바이너리가 직접 돈다.
 set -eu
 
 REPO="minjun0219/rocky"
@@ -81,6 +84,19 @@ if [ -x "$bin" ]; then
 fi
 
 if [ "$is_hook" = 1 ] && [ "$is_session_start" = 0 ]; then
+  # 마커 디렉터리(mkdir 는 원자적)로 프롬프트마다 겹쳐 띄우지 않는다. 10분 넘은 마커는
+  # 죽은 다운로드가 남긴 것이라 치우고 다시 띄운다. 자식의 stdio 는 전부 끊는다 — 훅의
+  # stdout 파이프를 물고 있으면 Claude Code 가 이 훅이 끝난 줄을 모른다.
+  marker="$install_dir.downloading"
+  mkdir -p "$data_home/rocky" 2>/dev/null || exit 0
+  if [ -d "$marker" ] && [ -n "$(find "$marker" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
+    rmdir "$marker" 2>/dev/null || true
+  fi
+  if mkdir "$marker" 2>/dev/null; then
+    # 리다이렉션은 서브셸 전체에 — 안쪽 명령에만 걸면 서브셸이 훅의 파이프를 물고 있어
+    # Claude Code(와 spawnSync 테스트)가 다운로드가 끝날 때까지 이 훅을 기다린다.
+    ( "$root/bin/rocky" hook ensure-daemon; rmdir "$marker" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+  fi
   exit 0
 fi
 

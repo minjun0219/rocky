@@ -5,8 +5,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -118,13 +121,60 @@ describe('bin/rocky bootstrap', () => {
     });
   });
 
-  test('바이너리가 없을 때 SessionStart 가 아닌 훅은 조용히 0 으로 끝난다', () => {
+  // 백그라운드 다운로드를 관찰하려면 그 잡이 살아 있어야 한다 — 죽은 포트는 즉시 실패해
+  // 마커가 단정 전에 사라진다(레이스). 응답을 영영 안 주는 로컬 서버에 붙여 붙들어 둔다.
+  function hangingRelease(): { base: string; stop: () => void } {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    return { base: `http://127.0.0.1:${server.port}/none`, stop: () => server.stop(true) };
+  }
+
+  test('바이너리가 없을 때 SessionStart 가 아닌 훅은 조용히 0 으로 끝나고, 다운로드는 백그라운드로 한 번만 띄운다', () => {
     const root = join(import.meta.dir, '..', 'plugin');
-    for (const hook of ['notify-todo', 'handoff-stop']) {
-      const r = run(['hook', hook], { CLAUDE_PLUGIN_ROOT: root });
+    const version = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'))
+      .version as string;
+    const marker = join(dir, 'data', 'rocky', `v${version}.downloading`);
+    const release = hangingRelease();
+    try {
+      for (const hook of ['notify-todo', 'handoff-stop']) {
+        const r = run(['hook', hook], {
+          CLAUDE_PLUGIN_ROOT: root,
+          ROCKY_RELEASE_BASE: release.base,
+        });
+        expect(r.code).toBe(0);
+        expect(r.out).toBe('');
+        expect(r.err).toBe('');
+        // /reload-plugins 뒤의 첫 프롬프트 — SessionStart 경로를 백그라운드로 띄운 흔적.
+        // 두 번째 훅은 마커가 있어 새로 띄우지 않는다(마커는 백그라운드 잡이 끝나며 지운다).
+        expect(existsSync(marker)).toBe(true);
+      }
+    } finally {
+      release.stop();
+    }
+  });
+
+  test('10분 넘은 다운로드 마커는 죽은 것으로 보고 다시 띄운다', () => {
+    const root = join(import.meta.dir, '..', 'plugin');
+    const version = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'))
+      .version as string;
+    const marker = join(dir, 'data', 'rocky', `v${version}.downloading`);
+    mkdirSync(marker, { recursive: true });
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(marker, old, old);
+    const release = hangingRelease();
+    try {
+      const r = run(['hook', 'notify-todo'], {
+        CLAUDE_PLUGIN_ROOT: root,
+        ROCKY_RELEASE_BASE: release.base,
+      });
       expect(r.code).toBe(0);
-      expect(r.out).toBe('');
-      expect(r.err).toBe('');
+      // 새로 만든 마커라 mtime 이 방금이다.
+      expect(statSync(marker).mtimeMs).toBeGreaterThan(Date.now() - 60_000);
+    } finally {
+      release.stop();
     }
   });
 

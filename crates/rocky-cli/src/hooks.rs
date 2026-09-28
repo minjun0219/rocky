@@ -135,17 +135,63 @@ fn print_session_summary(ctx: &CliContext) {
     println!("{}", rocky_core::summary::render_summary(&summary));
 }
 
+/// 매 턴 훅의 실제 배선 — `hook_ensure_daemon` 과 같은 의존, 정책만 `OnlyIfOlder`.
+fn upgrade_daemon_if_older(ctx: &CliContext) {
+    ensure_daemon_with_policy(
+        ctx,
+        &EnsureDeps {
+            version: env!("CARGO_PKG_VERSION"),
+            check_health: &daemon_health,
+            spawn: &|ctx| {
+                let _ = ensure_daemon(ctx);
+            },
+            stop: &stop_daemon,
+            is_managed: &is_launchd_registered,
+            replace_managed: &|| {
+                install_launchd();
+            },
+        },
+        RestartPolicy::OnlyIfOlder,
+    );
+}
+
 /// 버전 비교는 정확 문자열 일치다 — 데몬 프로세스는 자기를 띄운 설치본보다 오래 살아,
 /// 플러그인이 갱신돼도 옛 코드가 계속 돈다. version 미보고(≤0.1.0)도 stale 취급.
 /// launchd(KeepAlive) 상주면 PID kill 은 무의미하다(즉시 되살아난다) — job 자체를 현재
 /// 설치 경로로 교체한다. 못 내리면 재기동하지 않는다: 보드가 없는 것보다 구버전이라도
 /// 있는 게 낫다.
 pub fn ensure_daemon_with(ctx: &CliContext, deps: &EnsureDeps) {
+    ensure_daemon_with_policy(ctx, deps, RestartPolicy::ExactVersion);
+}
+
+/// 언제 재기동하는가.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartPolicy {
+    /// SessionStart: 버전이 **다르면** 전부 — 없으면 띄운다. 의도적 다운그레이드(옛 플러그인
+    /// 재설치)도 따라간다.
+    ExactVersion,
+    /// 매 턴(UserPromptSubmit): 데몬이 나보다 **오래됐을 때만** 올린다. 없으면 건드리지 않고
+    /// (`rocky daemon stop` 뒤 개발자가 자기 데몬을 띄우는 흐름을 안 깨려고), 나보다 새 데몬도
+    /// 그대로 둔다 — 안 그러면 옛 플러그인으로 도는 세션과 새 세션이 턴마다 서로 뒤집는다.
+    OnlyIfOlder,
+}
+
+pub fn ensure_daemon_with_policy(ctx: &CliContext, deps: &EnsureDeps, policy: RestartPolicy) {
     let Some(running) = (deps.check_health)(&ctx.base_url) else {
-        (deps.spawn)(ctx);
+        if policy == RestartPolicy::ExactVersion {
+            (deps.spawn)(ctx);
+        }
         return;
     };
-    if running.version.as_deref() == Some(deps.version) {
+    let stale = match policy {
+        RestartPolicy::ExactVersion => running.version.as_deref() != Some(deps.version),
+        // version 미보고(≤0.1.0)는 확실히 옛것. 못 읽는 문자열은 건드리지 않는다.
+        RestartPolicy::OnlyIfOlder => match running.version.as_deref() {
+            None => true,
+            Some(v) => rocky_core::version::is_older(v, deps.version),
+        },
+    };
+    if !stale {
         return;
     }
     if (deps.is_managed)() {
@@ -172,9 +218,13 @@ fn watch_enabled(watch_config: Option<bool>) -> bool {
 /// UserPromptSubmit: 마지막 확인 이후 사람이 보드에서 바꾼 내용 + 이 세션 앞의
 /// 핸드오프를 additionalContext 로 주입한다.
 ///
-/// 훅에서 데몬을 자동 기동하지 않는다 — 기동은 CLI/launchd 몫. 커서는 세션별이고
-/// 첫 프롬프트에서는 현재 위치만 기록한다(과거 히스토리 덤프 방지).
+/// 훅에서 데몬을 새로 띄우지는 않는다 — 기동은 SessionStart/CLI/launchd 몫. 다만 **도는
+/// 데몬이 이 설치본보다 오래됐으면 올린다**(`RestartPolicy::OnlyIfOlder`): `/reload-plugins` 로
+/// 플러그인만 갈아 끼운 세션은 SessionStart 가 다시 돌지 않아, 이 자리가 새 버전이 처음
+/// 데몬을 만나는 곳이다. 커서는 세션별이고 첫 프롬프트에서는 현재 위치만 기록한다(과거
+/// 히스토리 덤프 방지).
 pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
+    upgrade_daemon_if_older(ctx);
     if !watch_enabled(watch_config) {
         return;
     }

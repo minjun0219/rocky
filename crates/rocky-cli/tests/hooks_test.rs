@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 
 use rocky_cli::client::{build_context, DaemonHealth};
-use rocky_cli::hooks::{ensure_daemon_with, EnsureDeps};
+use rocky_cli::hooks::{ensure_daemon_with, ensure_daemon_with_policy, EnsureDeps, RestartPolicy};
 
 fn health(version: Option<&str>, pid: u32) -> DaemonHealth {
     DaemonHealth {
@@ -103,4 +103,65 @@ fn a_managed_daemon_on_the_same_version_is_untouched() {
     run(&log, &|_| Some(health(Some("1.0.0"), 555)), true, true);
     assert_eq!(*log.replaced.borrow(), 0);
     assert_eq!(*log.spawned.borrow(), 0);
+}
+
+// ── 매 턴 정책: 오래된 데몬만 올린다 ────────────────────────────────────────────
+
+fn run_only_if_older(log: &Log, check: &dyn Fn(&str) -> Option<DaemonHealth>, managed: bool) {
+    let ctx = build_context(8636, std::env::temp_dir(), "test");
+    ensure_daemon_with_policy(
+        &ctx,
+        &EnsureDeps {
+            version: "1.0.0",
+            check_health: check,
+            spawn: &|_| {
+                *log.spawned.borrow_mut() += 1;
+            },
+            stop: &|_, pid| {
+                log.stopped.borrow_mut().push(pid);
+                true
+            },
+            is_managed: &move || managed,
+            replace_managed: &|| {
+                *log.replaced.borrow_mut() += 1;
+            },
+        },
+        RestartPolicy::OnlyIfOlder,
+    );
+}
+
+#[test]
+fn only_if_older_upgrades_an_older_daemon() {
+    let log = Log::default();
+    run_only_if_older(&log, &|_| Some(health(Some("0.9.9"), 1)), false);
+    assert_eq!(*log.stopped.borrow(), vec![Some(1)]);
+    assert_eq!(*log.spawned.borrow(), 1);
+    // version 미보고도 옛것.
+    let log = Log::default();
+    run_only_if_older(&log, &|_| Some(health(None, 2)), false);
+    assert_eq!(*log.spawned.borrow(), 1);
+}
+
+#[test]
+fn only_if_older_leaves_same_newer_absent_and_unparseable_alone() {
+    for h in [
+        Some(health(Some("1.0.0"), 3)),
+        Some(health(Some("1.1.0"), 4)),
+        None,
+        Some(health(Some("dev"), 5)),
+    ] {
+        let log = Log::default();
+        run_only_if_older(&log, &|_| h.clone(), false);
+        assert!(log.stopped.borrow().is_empty(), "{h:?}");
+        assert_eq!(*log.spawned.borrow(), 0, "{h:?}");
+        assert_eq!(*log.replaced.borrow(), 0, "{h:?}");
+    }
+}
+
+#[test]
+fn only_if_older_replaces_a_managed_older_daemon() {
+    let log = Log::default();
+    run_only_if_older(&log, &|_| Some(health(Some("0.9.0"), 6)), true);
+    assert_eq!(*log.replaced.borrow(), 1);
+    assert!(log.stopped.borrow().is_empty());
 }

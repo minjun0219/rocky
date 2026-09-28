@@ -58,7 +58,10 @@ claude plugin install rocky@rocky-marketplace
 ## 데몬 기동
 
 설치 후엔 SessionStart 훅이 세션 시작 때 데몬을 자동 기동한다 (없으면 detached spawn, fail-open).
-CLI 도 필요 시 온디맨드로 자동 기동한다. 로그인 시 상시 상주를 원하면:
+플러그인을 올린 뒤에는 **다음 세션 시작** 또는 **`/reload-plugins` 한 세션의 다음 프롬프트**에서
+데몬이 새 버전으로 재기동된다 — 매 턴 훅이 도는 데몬이 자기보다 오래됐을 때만 올린다(더 새
+데몬이나 없는 데몬은 건드리지 않는다). CLI 도 필요 시 온디맨드로 자동 기동한다. 로그인 시
+상시 상주를 원하면:
 
 ```bash
 rocky daemon install     # launchd 등록 (KeepAlive) — macOS

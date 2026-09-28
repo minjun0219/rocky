@@ -22,6 +22,7 @@ pub mod store;
 pub mod summary;
 pub mod transcript;
 pub mod types;
+pub mod version;
 pub mod worklog;
 
 pub use ids::{new_id, ID_LENGTH};
