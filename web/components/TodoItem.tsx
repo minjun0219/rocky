@@ -13,6 +13,7 @@ import {
   linkLabel,
 } from '../lib';
 import { useUiStore } from '../store';
+import { logUsage } from '../usage';
 
 interface TodoItemProps {
   todo: TodoView;
@@ -80,7 +81,10 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
       <button
         type="button"
         className={`todo-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-body ${done ? 'text-faint line-through' : 'text-text hover:text-warm'}`}
-        onClick={() => void openTodoDetail(todo.id)}
+        onClick={() => {
+          logUsage('web:todo-open');
+          void openTodoDetail(todo.id);
+        }}
       >
         {todo.title}
       </button>
