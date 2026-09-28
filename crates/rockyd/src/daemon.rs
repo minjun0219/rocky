@@ -126,6 +126,7 @@ pub async fn run_daemon(
     runtime: TodoRuntimeConfig,
     ui_dist: Option<PathBuf>,
     usage: Option<crate::usage_sink::UsageSink>,
+    pr_watch: rocky_core::config::PrWatchConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
     let base_url = format!("http://127.0.0.1:{}", runtime.port);
@@ -156,6 +157,23 @@ pub async fn run_daemon(
         std::time::Duration::from_secs(60),
         std::time::Duration::from_secs(600),
     );
+    // PR 감시 — repo 가 설정된 보드의 PR 을 주기적으로 보고 ready·충돌을 알린다. 기동 90초 뒤 처음.
+    if pr_watch.enabled != Some(false) {
+        let runner = crate::runner::default_runner();
+        let notifier = if pr_watch.notify.unwrap_or(true) {
+            crate::prwatch::osascript_notifier(runner.clone())
+        } else {
+            crate::prwatch::silent_notifier()
+        };
+        crate::prwatch::spawn_pr_watcher(
+            state.clone(),
+            runner,
+            notifier,
+            pr_watch.notify.unwrap_or(true),
+            std::time::Duration::from_secs(90),
+            std::time::Duration::from_secs(pr_watch.interval_minutes() * 60),
+        );
+    }
     let router = build_router(state, ui_dist.as_deref());
 
     let addr: SocketAddr = format!("{}:{}", runtime.host, runtime.port).parse()?;
@@ -228,5 +246,6 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
         &rocky_core::config::load_usage_block(&config_path),
     )
     .map(crate::usage_sink::file_sink);
-    run_daemon(runtime, ui_dist, usage).await
+    let pr_watch = rocky_core::config::load_pr_block(&config_path);
+    run_daemon(runtime, ui_dist, usage, pr_watch).await
 }
