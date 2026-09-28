@@ -247,7 +247,13 @@ fn pr_context_lists_only_actionable_transitions() {
     }
     };
     assert!(build_pr_context(&[]).is_none());
-    assert!(build_pr_context(&[entry("pr-opened", 1), entry("pr-unready", 2)]).is_none());
+    assert!(build_pr_context(&[
+        entry("pr-opened", 1),
+        entry("pr-unready", 2),
+        entry("pr-merged", 7),
+        entry("pr-closed", 8)
+    ])
+    .is_none());
     let text = build_pr_context(&[
         entry("pr-ready", 3),
         entry("pr-conflict", 4),
@@ -258,7 +264,10 @@ fn pr_context_lists_only_actionable_transitions() {
     assert!(text.starts_with("# rocky: PR 상태 변화"));
     assert!(text.contains("- o/r #3 확인·머지해도 된다 — PR 3 (https://x/pull/3)"));
     assert!(text.contains("#4 충돌"));
-    assert!(text.contains("#5 머지됨"));
+    assert!(
+        !text.contains("#5"),
+        "머지·닫힘은 히스토리에만 — 세션에 넣지 않는다"
+    );
     assert!(!text.contains("#6"));
     assert!(text.contains("감시를 따로 돌리지 말고"));
 }

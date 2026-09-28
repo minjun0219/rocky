@@ -170,17 +170,15 @@ pub fn build_notify_context(entries: &[ChangeFeedEntry]) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-/// PR 감시 전이(actor `rocky`, action `pr-*`)를 세션에 알리는 블록 — 사람이 움직일 것과 끝난 것만
-/// (ready·conflict·merged·closed). `opened`/`unready` 는 잡음이라 뺀다. 데몬이 이미 판정했으므로
-/// 에이전트는 감시하지 않아도 된다는 뜻을 마지막 줄에 적는다.
+/// PR 감시 전이(actor `rocky`, action `pr-*`)를 세션에 알리는 블록 — **사람이 움직일 것만**
+/// (ready·conflict). merged/closed 는 히스토리에만 남긴다(문서의 약속; 세션에 넣으면 지시로
+/// 오독된다). 데몬이 이미 판정했으므로 에이전트는 감시하지 않아도 된다는 뜻을 마지막 줄에 적는다.
 pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
     let mut lines: Vec<String> = Vec::new();
     for e in entries {
         let label = match e.history.action.as_str() {
             "pr-ready" => "확인·머지해도 된다",
             "pr-conflict" => "충돌 — 풀어야 한다",
-            "pr-merged" => "머지됨",
-            "pr-closed" => "닫힘",
             _ => continue,
         };
         let changes = e.history.changes.as_ref();

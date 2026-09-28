@@ -415,7 +415,7 @@ deterministically, and a per-turn gate would just make every turn slow.
   2026-09-28)**: `repo` 가 설정된 보드의 레포마다 `pr.intervalMinutes`(기본 3분)에 한 번 `gh api
   graphql`(레포당 쿼리 하나, `rocky_core::prwatch::PR_QUERY`)을 돌려 스냅숏을 `pr_watch`
   (user_version 8)에 기억하고, 직전과의 전이를 그 레포를 둔 보드의 히스토리에 actor `rocky`·
-  action `pr-*` 로 남긴다 — 그래서 SSE·`/api/changes`·`notify-todo` 훅 주입(`build_pr_context`)
+  action `pr-*` 로 남긴다 — 그래서 SSE·`/api/changes`·`notify-todo` 훅 주입(`build_pr_context` — ready·conflict 만, merged/closed 는 히스토리에만)
   이 그대로 탄다. 판정은 전부 순수(`is_ready`: OPEN·draft 아님·base 가 기본 브랜치·DIRTY 아님·
   CI 통과·viewer 의 👀/🚀 가 없는 미해결 스레드 0·🚀 0). 사람에게는 `ready`·`conflict` 만
   macOS 알림(osascript, `pr.notify`), `merged` 는 기록만. **읽기만 한다** — GitHub 에 쓰는 것은
