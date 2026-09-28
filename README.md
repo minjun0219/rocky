@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Runtime: Bun](https://img.shields.io/badge/Runtime-Bun%20%E2%89%A5%201.0-black)](https://bun.sh)
 
-개인용 에이전트 도구 — **Rust 상주 데몬(공유 todo 보드 + MCP) + CLI** 가 본체이고, 그 위의 얇은 Claude Code 플러그인이 워크로그(기록↔정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary* 의 Rocky 에서. 2026-09 에 별도 레포였던 rocky-todo 를 흡수했다(hail-mary D-046). 화면은 둘 — 터미널용 TUI(`rocky tui`)와 브라우저용 웹 UI(데몬이 `http://127.0.0.1:8636/` 에 서빙).
+개인용 에이전트 도구 — **Rust 상주 데몬(공유 todo 보드 + MCP) + CLI** 가 본체이고, 그 위의 얇은 Claude Code 플러그인이 워크로그(기록↔정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary* 의 Rocky 에서. 2026-09 에 별도 레포였던 rocky-todo 를 흡수했다. 화면은 둘 — 터미널용 TUI(`rocky tui`)와 브라우저용 웹 UI(데몬이 `http://127.0.0.1:8636/` 에 서빙).
 
 > **v0.23 에서 걷어낸 것** — `openapi_*` 7종, `seo_validate`, `notion_*` 4종과 단독 CLI `openapi-mcp`. 39개 레포 5,216 턴의 워크로그를 세어 보니 호출이 0회였다. 전부 git 히스토리에 있으니 필요해지면 거기서 꺼낸다.
 

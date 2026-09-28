@@ -14,7 +14,7 @@ Guide for AI coding agents (Claude Code, opencode, codex) working in **this repo
 
 **rocky** (named after Project Hail Mary's Rocky) — the owner's **personal agent tool**: a Rust
 daemon + CLI (`crates/`) and this thin Claude Code plugin on top. Absorbed the former `rocky-todo`
-repo (hail-mary D-046, 2026-09-22); the merge kept both histories.
+repo (2026-09-22); the merge kept both histories.
 
 - **Daemon `rockyd`** (`crates/rockyd`) — system-wide single instance on `127.0.0.1:8636`,
   SQLite at `~/.config/rocky/todo/`. Serves the board REST + SSE and a streamable HTTP MCP with
