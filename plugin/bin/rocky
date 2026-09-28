@@ -67,9 +67,12 @@ if [ "$is_hook" = 1 ] && [ "${2:-}" = "ensure-daemon" ]; then is_session_start=1
 
 # `$data_home/rocky/current` → `v<version>` — 버전 없는 고정 진입점. 플러그인 밖에서 붙는
 # 쪽(`claude -p --strict-mcp-config` 배치 잡, Codex·opencode 설정)이 릴리스마다 경로를
-# 고치지 않게 `current/rocky mcp worklog` 를 가리키면 된다. 세션마다 한 번(SessionStart)만
-# 갱신하고, 마지막으로 세션을 연 설치본의 버전을 따른다. 임시 링크를 만든 뒤 `mv -h` 로
-# 바꿔 끼워(rename) 읽는 쪽이 링크가 없는 순간을 보지 않게 한다. 실패해도 훅을 막지 않는다.
+# 고치지 않게 `current/rocky mcp worklog` 를 가리키면 된다. 두 시점에 갱신한다 — 세션마다
+# 한 번(SessionStart, 마지막으로 세션을 연 설치본의 버전을 따른다)과 **새 버전을 방금 받았을
+# 때**(입구가 무엇이든). 후자가 없으면 `/reload-plugins` 뒤 worklog MCP 서버 기동이 새 버전을
+# 받아 놓고도 링크는 옛 버전에 남아, `~/.local/bin/rocky` 와 `config show` 가 구버전을 본다
+# (0.27→0.28 에서 실제로 그랬다). 임시 링크를 만든 뒤 `mv -h` 로 바꿔 끼워(rename) 읽는 쪽이
+# 링크가 없는 순간을 보지 않게 한다. 실패해도 훅을 막지 않는다.
 link_current() {
   link="$data_home/rocky/current"
   if [ "$(readlink "$link" 2>/dev/null || true)" != "v$version" ]; then
@@ -160,5 +163,6 @@ fi
 
 # 지난 버전 디렉터리는 지우지 않는다 — 설치본 둘(마켓 + 로컬 레포)이 번갈아 뜨는 경우
 # 버전마다 한 번만 받고 끝나게. 정리는 `rm -rf ~/.local/share/rocky` 로 사용자가 한다.
-if [ "$is_session_start" = 1 ]; then link_current; fi
+# 방금 받은 버전은 입구와 무관하게 `current` 로 삼는다 — 새 버전을 받는 순간이 곧 업그레이드다.
+link_current
 exec "$bin" "$@"

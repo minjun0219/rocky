@@ -1019,7 +1019,9 @@ pub fn cmd_daemon(
     expose_lan: bool,
     expose_tailscale: bool,
 ) -> Result<(), String> {
-    use crate::launchd::{install_launchd, launchd_status, uninstall_launchd};
+    use crate::launchd::{
+        install_launchd, is_launchd_registered, launchd_loaded, launchd_status, uninstall_launchd,
+    };
 
     match rest.first().map(String::as_str) {
         // 포그라운드 실행 — TS 는 daemon.ts 를 in-process import 했고, 여기서는 데몬
@@ -1031,7 +1033,16 @@ pub fn cmd_daemon(
         }
         Some("start") => {
             crate::client::ensure_daemon(ctx)?;
-            println!("✓ daemon on {}", ctx.base_url);
+            // "✓ daemon on" 만 보면 상주가 복구된 줄 안다 — 누가 띄운 프로세스인지를 적는다.
+            // plist 만 있고 로드가 안 된 상태는 재부팅·크래시 뒤 데몬이 사라지는 상태다.
+            let note = if launchd_loaded() {
+                " (launchd 상주)".to_string()
+            } else if is_launchd_registered() {
+                "\n  launchd 밖에서 띄웠다 — plist 는 있으나 로드되지 않아 재부팅·크래시 뒤 살아나지 않는다 → rocky daemon install 로 다시 등록".to_string()
+            } else {
+                " — 온디맨드 프로세스 (로그인 시 상주는 rocky daemon install)".to_string()
+            };
+            println!("✓ daemon on {}{note}", ctx.base_url);
             Ok(())
         }
         Some("stop") => {
@@ -1073,7 +1084,7 @@ pub fn cmd_daemon(
             Ok(())
         }
         Some("install") => {
-            println!("{}", install_launchd());
+            println!("{}", install_launchd()?);
             Ok(())
         }
         Some("uninstall") => {

@@ -48,6 +48,29 @@ function run(args: string[], env: Record<string, string>) {
   return { code: proc.exitCode, out: proc.stdout.toString(), err: proc.stderr.toString() };
 }
 
+/** `run` 의 비동기판 — 같은 프로세스의 `Bun.serve` 가 응답해야 하는 테스트는 spawnSync 로
+ * 이벤트 루프를 막으면 안 된다. */
+async function runAsync(args: string[], env: Record<string, string>) {
+  const proc = Bun.spawn({
+    cmd: [bin, ...args],
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: {
+      PATH: process.env.PATH ?? '',
+      HOME: dir,
+      XDG_DATA_HOME: join(dir, 'data'),
+      ROCKY_RELEASE_BASE: 'http://127.0.0.1:9/none',
+      ...env,
+    },
+  });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, out, err };
+}
+
 function fakeBinary(): string {
   const path = join(dir, 'fake-rocky');
   writeFileSync(path, '#!/bin/sh\necho "fake:$*"\nexit 7\n');
@@ -82,10 +105,14 @@ describe('bin/rocky bootstrap', () => {
   });
 
   describe('current 링크', () => {
-    function installed(version: string): string {
+    function pluginRoot(version: string): string {
       const root = join(dir, `plugin-${version}`);
       mkdirSync(join(root, '.claude-plugin'), { recursive: true });
       writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ version }));
+      return root;
+    }
+    function installed(version: string): string {
+      const root = pluginRoot(version);
       const installDir = join(dir, 'data', 'rocky', `v${version}`);
       mkdirSync(installDir, { recursive: true });
       writeFileSync(join(installDir, 'rocky'), `#!/bin/sh\necho "${version}:$*"\n`);
@@ -132,13 +159,75 @@ describe('bin/rocky bootstrap', () => {
       expect(readFileSync(cli, 'utf8')).toContain('theirs');
     });
 
-    test('SessionStart 가 아닌 호출은 링크를 건드리지 않는다', () => {
+    test('SessionStart 가 아닌 호출은 (이미 받은 버전이면) 링크를 건드리지 않는다', () => {
       const root = installed('1.0.0');
       run(['hook', 'notify-todo'], { CLAUDE_PLUGIN_ROOT: root });
       run(['ls'], { CLAUDE_PLUGIN_ROOT: root });
       expect(existsSync(link())).toBe(false);
       expect(existsSync(join(dir, '.local', 'bin', 'rocky'))).toBe(false);
     });
+
+    /**
+     * 진짜 tarball 을 로컬 서버로 서빙해 다운로드 경로를 끝까지 태운다. 플랫폼 판별이
+     * `uname` 이라 Apple Silicon 에서만 돈다(CI 의 ubuntu 는 그 전에 걸린다).
+     */
+    function fakeRelease(version: string): { base: string; stop: () => void } {
+      const stage = join(dir, `stage-${version}`);
+      mkdirSync(stage, { recursive: true });
+      for (const name of ['rocky', 'rockyd']) {
+        writeFileSync(join(stage, name), `#!/bin/sh\necho "${version}:$*"\n`);
+        chmodSync(join(stage, name), 0o755);
+      }
+      const asset = `rocky-v${version}-aarch64-apple-darwin.tar.gz`;
+      const tgz = join(dir, asset);
+      const tar = Bun.spawnSync({ cmd: ['tar', '-czf', tgz, '-C', stage, 'rocky', 'rockyd'] });
+      if (tar.exitCode !== 0) {
+        throw new Error(`tar failed: ${tar.stderr.toString()}`);
+      }
+      const hasher = new Bun.CryptoHasher('sha256');
+      hasher.update(readFileSync(tgz));
+      const sums = `${hasher.digest('hex')}  ${asset}\n`;
+      const server = Bun.serve({
+        port: 0,
+        hostname: '127.0.0.1',
+        fetch: (req) => {
+          const path = new URL(req.url).pathname;
+          if (path.endsWith(`/${asset}`)) {
+            return new Response(Bun.file(tgz));
+          }
+          if (path.endsWith('/SHA256SUMS')) {
+            return new Response(sums);
+          }
+          return new Response('nope', { status: 404 });
+        },
+      });
+      return { base: `http://127.0.0.1:${server.port}/dl`, stop: () => server.stop(true) };
+    }
+
+    // /reload-plugins 뒤 worklog MCP 서버 기동이 새 버전을 처음 받는 경우 — 0.27→0.28 에서
+    // 이 경로가 받아 놓고 링크는 옛 버전에 남겨 `~/.local/bin/rocky` 가 구버전을 봤다.
+    test.skipIf(process.platform !== 'darwin' || process.arch !== 'arm64')(
+      '새 버전을 받은 호출은 SessionStart 가 아니어도 current 를 그 버전으로 건다',
+      async () => {
+        run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: installed('1.0.0') });
+        expect(readlinkSync(link())).toBe('v1.0.0');
+        const release = fakeRelease('1.1.0');
+        try {
+          const r = await runAsync(['mcp', 'worklog'], {
+            CLAUDE_PLUGIN_ROOT: pluginRoot('1.1.0'),
+            ROCKY_RELEASE_BASE: release.base,
+          });
+          expect(r.code, r.err).toBe(0);
+          expect(r.out).toBe('1.1.0:mcp worklog\n');
+        } finally {
+          release.stop();
+        }
+        expect(readlinkSync(link())).toBe('v1.1.0');
+        expect(readlinkSync(join(dir, '.local', 'bin', 'rocky'))).toBe(
+          join(dir, 'data', 'rocky', 'current', 'rocky'),
+        );
+      },
+    );
   });
 
   // 백그라운드 다운로드를 관찰하려면 그 잡이 살아 있어야 한다 — 죽은 포트는 즉시 실패해

@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
 use rocky_core::config::expand_tilde;
 
@@ -118,6 +119,10 @@ pub fn plist_content(overrides: &PlistValues) -> String {
     )
 }
 
+/// `launchctl` 실행기 — `register_job` 의 주입점. 테스트는 가짜로 bootout/bootstrap/print 의
+/// 응답 순서를 꾸민다.
+pub type Launchctl<'a> = &'a dyn Fn(&[&str]) -> (bool, String);
+
 fn launchctl(args: &[&str]) -> (bool, String) {
     let output = Command::new("launchctl").args(args).output();
     match output {
@@ -139,26 +144,92 @@ fn gui_domain() -> String {
     format!("gui/{uid}")
 }
 
+/// bootout 뒤 서비스가 도메인에서 사라지길 기다리는 횟수 / bootstrap 재시도 횟수.
+/// 실제 사고: 0.27→0.28 업그레이드에서 bootout 직후의 bootstrap 이 실패했는데 훅이 그 결과를
+/// 버려, plist 는 새 경로인데 launchd 에 서비스가 없고 데몬도 없는 상태로 남았다.
+const SETTLE_ATTEMPTS: u32 = 10;
+const BOOTSTRAP_ATTEMPTS: u32 = 5;
+
+/// job 교체의 본체 — bootout → 서비스가 내려갈 때까지 대기 → bootstrap(재시도) → 로드 확인.
+///
+/// `launchctl bootout` 은 비동기다: 옛 서비스가 아직 도메인에 남아 있는 동안 같은 라벨을
+/// bootstrap 하면 `Bootstrap failed: 5: Input/output error` / `36: Operation now in progress`
+/// 로 튄다. 그래서 `print` 가 실패(=서비스 없음)할 때까지 잠깐 기다리고, 그래도 실패하면
+/// `pause` 간격으로 몇 번 더 시도한다. bootstrap 이 성공해도 `print` 로 실제 로드를 확인한
+/// 뒤에야 성공이다 — 여기서 `Err` 면 호출자는 데몬이 **없어졌다**고 봐야 한다(bootout 은
+/// 이미 됐다).
+pub fn register_job(
+    run: Launchctl,
+    domain: &str,
+    plist: &str,
+    pause: Duration,
+) -> Result<(), String> {
+    let target = format!("{domain}/{LAUNCHD_LABEL}");
+    let _ = run(&["bootout", domain, plist]);
+    for _ in 0..SETTLE_ATTEMPTS {
+        if !run(&["print", &target]).0 {
+            break;
+        }
+        std::thread::sleep(pause);
+    }
+    let mut last_error = String::new();
+    for attempt in 1..=BOOTSTRAP_ATTEMPTS {
+        let (ok, out) = run(&["bootstrap", domain, plist]);
+        if ok {
+            for _ in 0..SETTLE_ATTEMPTS {
+                if run(&["print", &target]).0 {
+                    return Ok(());
+                }
+                std::thread::sleep(pause);
+            }
+            return Err(format!(
+                "launchctl bootstrap 은 성공했으나 {target} 이 로드되지 않았다"
+            ));
+        }
+        last_error = out;
+        if attempt < BOOTSTRAP_ATTEMPTS {
+            std::thread::sleep(pause);
+        }
+    }
+    Err(format!(
+        "launchctl bootstrap {target} 이 {BOOTSTRAP_ATTEMPTS}회 실패했다: {last_error}"
+    ))
+}
+
 /// `daemon install` — plist 를 굽고 launchd job 을 (재)등록한다. 멱등.
-pub fn install_launchd() -> String {
+///
+/// # Errors
+/// plist 를 못 쓰거나 `register_job` 이 실패하면 사유. **실패했으면 옛 job 은 이미 내려간
+/// 뒤일 수 있다** — 호출자(훅)는 데몬 유무를 다시 확인해 launchd 밖에서라도 띄운다.
+pub fn install_launchd() -> Result<String, String> {
     let plist = plist_path();
     if let Some(parent) = plist.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::create_dir_all(default_todo_dir());
-    if let Err(error) = std::fs::write(&plist, plist_content(&PlistValues::default())) {
-        return format!("launchd 등록 실패: plist 를 쓰지 못했다 — {error}");
-    }
-    // 재설치를 멱등하게 — 이미 떠 있으면 내리고 다시 올린다.
+    std::fs::write(&plist, plist_content(&PlistValues::default()))
+        .map_err(|error| format!("launchd 등록 실패: plist 를 쓰지 못했다 — {error}"))?;
     let plist_str = plist.to_string_lossy().to_string();
-    launchctl(&["bootout", &gui_domain(), &plist_str]);
-    let (ok, out) = launchctl(&["bootstrap", &gui_domain(), &plist_str]);
-    if !ok {
-        return format!("launchd 등록 실패: {out}\nplist: {plist_str}");
-    }
-    format!(
-        "✓ launchd 등록 완료 ({LAUNCHD_LABEL}) — 로그인 시 자동 기동 + KeepAlive\n  plist: {plist_str}"
+    register_job(
+        &launchctl,
+        &gui_domain(),
+        &plist_str,
+        Duration::from_millis(200),
     )
+    .map_err(|error| format!("launchd 등록 실패: {error}\nplist: {plist_str}"))?;
+    Ok(format!(
+        "✓ launchd 등록 완료 ({LAUNCHD_LABEL}) — 로그인 시 자동 기동 + KeepAlive\n  plist: {plist_str}"
+    ))
+}
+
+/// plist 가 있고 **실제로 launchd 에 로드돼** 있나. `is_launchd_registered` 는 파일만 본다 —
+/// 둘이 갈리는 상태(plist 만 남음)가 "재부팅 뒤 데몬이 안 뜨는" 상태다.
+pub fn launchd_loaded() -> bool {
+    if !is_launchd_registered() {
+        return false;
+    }
+    let target = format!("{}/{LAUNCHD_LABEL}", gui_domain());
+    launchctl(&["print", &target]).0
 }
 
 /// `daemon uninstall` — job 을 내리고 plist 를 지운다.
@@ -186,7 +257,7 @@ pub fn launchd_status() -> String {
     let (ok, out) = launchctl(&["print", &target]);
     if !ok {
         return format!(
-            "launchd: plist 는 있으나 로드되지 않음 ({})",
+            "launchd: plist 는 있으나 로드되지 않음 ({}) — 재부팅·크래시 뒤 데몬이 살아나지 않는다 → rocky daemon install 로 다시 등록",
             plist.display()
         );
     }

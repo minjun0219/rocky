@@ -23,6 +23,7 @@ fn input() -> SetupInput {
             pid: Some(42),
         }),
         launchd_registered: true,
+        launchd_loaded: true,
         statusline_command: Some("/home/u/.claude/statusline.sh".into()),
         statusline_script: Some("curl -sf http://127.0.0.1:8636/api/statusline?cwd=$cwd".into()),
         cwd: Some("/w/rocky".into()),
@@ -88,6 +89,20 @@ fn missing_pieces_become_ordered_next_steps() {
     assert!(text.contains("✗ daemon"));
     assert!(text.contains("· config"));
     assert!(text.contains("다음 할 일:\n  1. rocky daemon start"));
+}
+
+/// 업그레이드 중 launchd 재등록이 실패하면 plist 만 남는다 — 재부팅 뒤 데몬이 안 뜨는 상태라
+/// "등록됨" 으로 보이면 안 되고, 고치는 명령이 붙어야 한다.
+#[test]
+fn a_plist_that_launchd_has_not_loaded_is_flagged_with_install() {
+    let mut i = input();
+    i.launchd_loaded = false;
+    let r = build_report(&i);
+    let c = r.check("launchd").unwrap();
+    assert!(!c.ok);
+    assert!(c.detail.contains("로드되지 않음"));
+    assert_eq!(c.fix.as_deref(), Some("rocky daemon install"));
+    assert!(r.next_steps.contains(&"rocky daemon install".to_string()));
 }
 
 #[test]

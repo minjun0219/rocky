@@ -18,6 +18,11 @@ fn run(argv: &[String]) -> Result<(), String> {
     let command = parsed.positionals.first().map(String::as_str).unwrap_or("");
     let rest: Vec<String> = parsed.positionals.iter().skip(1).cloned().collect();
 
+    // `version` 도 데몬을 건드리지 않고 사용 로그에도 안 남는다 — 설치본을 확인하는 자리다.
+    if command == "version" || parsed.bool_flag("version") {
+        println!("rocky {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     // `help` 와 인자 없음은 데몬을 건드리지 않는다 — 도움말 보려다 데몬이 뜨면 곤란하다.
     if command.is_empty() || command == "help" || parsed.bool_flag("help") {
         println!("{HELP}");
