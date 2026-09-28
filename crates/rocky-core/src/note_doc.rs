@@ -88,17 +88,21 @@ impl NoteDoc {
     /// 의존 update 가 먼저 도착한 경우는 본문은 그대로인데 state 는 앞으로 간다. 호출자는
     /// `state_changed` 로 저장을, `text_changed` 로 content·히스토리를 판단해야 한다. 전자를
     /// 후자로 판단하면 그 update 가 버려져 뒤이어 오는(그것에 기대는) update 가 영영 안 붙는다.
+    ///
+    /// `state_changed` 는 state vector 가 아니라 **인코딩된 전체 상태**(`state()`)로 본다 —
+    /// 선행 조각이 아직 없는 update 는 문서가 pending 으로 붙들 뿐 state vector 를 올리지 않아,
+    /// vector 비교면 "안 바뀜" 으로 버려진다. `encode_state_as_update` 는 pending 까지 싣는다.
     pub fn apply(&self, update: &[u8]) -> Result<Applied, String> {
         let update = Update::decode_v1(update).map_err(|e| format!("bad update: {e}"))?;
         let text_before = self.text();
-        let sv_before = self.doc.transact().state_vector();
+        let state_before = self.state();
         {
             let mut txn = self.doc.transact_mut();
             txn.apply_update(update)
                 .map_err(|e| format!("update rejected: {e}"))?;
         }
         Ok(Applied {
-            state_changed: self.doc.transact().state_vector() != sv_before,
+            state_changed: self.state() != state_before,
             text_changed: self.text() != text_before,
         })
     }

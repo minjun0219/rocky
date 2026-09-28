@@ -100,3 +100,30 @@ fn a_delete_and_reinsert_of_the_same_text_changes_state_but_not_text() {
     let applied = server.apply(&diff).unwrap();
     assert!(applied.state_changed && !applied.text_changed);
 }
+
+/// 같은 클라이언트의 두 배치가 역순으로 오면 뒤 배치는 선행 조각이 없어 pending 이 된다 —
+/// 그것도 "바뀐 상태" 라 저장돼야 하고, 저장된 state 로 다시 열어도 붙들려 있다가 선행
+/// 배치가 오면 붙는다.
+#[test]
+fn an_out_of_order_update_counts_as_a_state_change_and_survives_a_reopen() {
+    let server = NoteDoc::open(None, "x");
+    let client = NoteDoc::from_state(&server.state()).unwrap();
+    let sv0 = client.state_vector();
+    client.append("first");
+    let sv1 = client.state_vector();
+    let batch1 = client.diff_since(&sv0).unwrap();
+    client.append("second");
+    let batch2 = client.diff_since(&sv1).unwrap();
+
+    let applied = server.apply(&batch2).unwrap();
+    assert!(
+        applied.state_changed && !applied.text_changed,
+        "{applied:?}"
+    );
+    assert_eq!(server.text(), "x");
+    // 저장 → 다시 열기 → 선행 배치 도착.
+    let reopened = NoteDoc::open(Some(&server.state()), "x");
+    let applied = reopened.apply(&batch1).unwrap();
+    assert!(applied.state_changed && applied.text_changed);
+    assert_eq!(reopened.text(), "x\nfirst\nsecond");
+}
