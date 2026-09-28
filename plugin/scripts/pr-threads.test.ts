@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  hasFreshBotReview,
+  botVerdict,
   parseArgs,
   reactionsToRemove,
   summarizeThreads,
@@ -72,25 +72,66 @@ describe('reactionsToRemove', () => {
   });
 });
 
-describe('hasFreshBotReview', () => {
+describe('botVerdict', () => {
   const head = '2026-09-28T01:00:00Z';
-  it('head 이후 봇 리뷰만 인정한다 — 이전 리뷰·사람 리뷰·미제출은 아니다', () => {
-    const bot = (submittedAt: string | null) => ({
-      author: { login: 'chatgpt-codex-connector' },
-      submittedAt,
-    });
-    expect(hasFreshBotReview([bot('2026-09-28T01:05:00Z')], head)).toBe(true);
-    expect(hasFreshBotReview([bot('2026-09-28T00:55:00Z')], head)).toBe(false);
-    expect(hasFreshBotReview([bot(null)], head)).toBe(false);
+  const bot = (submittedAt: string | null) => ({
+    author: { login: 'chatgpt-codex-connector' },
+    submittedAt,
+  });
+  const thumbs = (login: string, createdAt: string, content = 'THUMBS_UP') => ({
+    content,
+    createdAt,
+    user: { login },
+  });
+
+  it('head 이후 봇 리뷰 제출 = findings — 이전 리뷰·사람 리뷰·미제출은 아니다', () => {
+    expect(botVerdict([bot('2026-09-28T01:05:00Z')], [], head)).toBe('findings');
+    expect(botVerdict([bot('2026-09-28T00:55:00Z')], [], head)).toBe('pending');
+    expect(botVerdict([bot(null)], [], head)).toBe('pending');
     expect(
-      hasFreshBotReview(
+      botVerdict(
         [{ author: { login: 'minjun0219' }, submittedAt: '2026-09-28T02:00:00Z' }],
+        [],
         head,
       ),
-    ).toBe(false);
-    expect(hasFreshBotReview([{ author: null, submittedAt: '2026-09-28T02:00:00Z' }], head)).toBe(
-      false,
+    ).toBe('pending');
+    expect(botVerdict([{ author: null, submittedAt: '2026-09-28T02:00:00Z' }], [], head)).toBe(
+      'pending',
     );
+  });
+
+  it('본문의 봇 👍 = clean — 사람 👍·👀·head 이전 것은 아니다', () => {
+    expect(botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T01:03:00Z')], head)).toBe(
+      'clean',
+    );
+    // 실제 GraphQL 은 리액션 user 를 `[bot]` 접미사로 준다(#158 실측).
+    expect(
+      botVerdict([], [thumbs('chatgpt-codex-connector[bot]', '2026-09-28T01:03:00Z')], head),
+    ).toBe('clean');
+    expect(botVerdict([], [thumbs('minjun0219', '2026-09-28T01:03:00Z')], head)).toBe('pending');
+    expect(
+      botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T01:03:00Z', 'EYES')], head),
+    ).toBe('pending');
+    expect(botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T00:30:00Z')], head)).toBe(
+      'pending',
+    );
+    expect(
+      botVerdict(
+        [],
+        [{ content: 'THUMBS_UP', createdAt: '2026-09-28T02:00:00Z', user: null }],
+        head,
+      ),
+    ).toBe('pending');
+  });
+
+  it('리뷰와 👍 가 둘 다 있으면 findings 가 이긴다', () => {
+    expect(
+      botVerdict(
+        [bot('2026-09-28T01:05:00Z')],
+        [thumbs('chatgpt-codex-connector', '2026-09-28T01:06:00Z')],
+        head,
+      ),
+    ).toBe('findings');
   });
 });
 
