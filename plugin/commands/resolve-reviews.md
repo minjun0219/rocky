@@ -1,7 +1,7 @@
 ---
 description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(👀 수정 완료 / 🚀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 👀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 검토받는 건 /rocky:review). 재리뷰를 기다리지 않는다.
 argument-hint: "[PR 번호] (생략 시 현재 브랜치의 PR)"
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification, Monitor
 ---
 
 # resolve-reviews — PR 리뷰 해소
@@ -274,7 +274,11 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 ### 9. "확인·머지해도 되면 알려줘" — 백그라운드로 기다렸다 알린다
 
 호출자가 그렇게 말했을 때만. 사람이 볼 때 이미 봐도 되는 상태여야 하므로, 판정은 8단계보다
-엄격하다 — **CI 초록 + 봇 판정이 끝났고 지적이 남지 않은 것**.
+엄격하다. **알림 조건은 셋을 동시에 만족할 때뿐이고, 어느 분기에서든 셋을 다 다시 본다:**
+
+1. `gh pr checks` 전부 통과(CI 초록)
+2. 미해결 스레드 중 👀 없는 것이 없다(전부 처리됨)
+3. 🚀(호출자 결정 필요) 스레드가 없다 — 있으면 알림이 아니라 7단계의 질문이 먼저다
 
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeout 1500   # 백그라운드로
@@ -283,15 +287,34 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeo
 - **Codex 는 PR 이 리뷰 대상으로 열릴 때(ready) 한 번만 자동으로 본다** — 수정 푸시는 다시
   보지 않는다(공식 문서 "Codex will post a review whenever someone opens a new PR for review";
   재리뷰는 `@codex review` 멘션으로만). 그래서 `watch` 는 **첫 판정**(보통 5~10분: 코멘트 아니면
-  본문 👍)까지만 의미가 있고, 수정 푸시 뒤엔 기다리지 않는다.
-- 첫 `verdict: findings` → 2~5단계를 돌고(고치고 👀) 푸시 → **CI 만** 기다린다(`gh pr checks
-  --watch`). 초록이 되면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 라운드 제한은
-  없다: 오너가 재리뷰를 달아 새 지적이 오면 같은 절차.
-- 첫 `verdict: clean`(본문 👍) + `ci: pass` → **알린다**.
-- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어 알린다(자동 리뷰가 꺼졌거나 지연).
-  👀 없는 스레드가 남아 있으면 어느 경우든 알리지 않는다.
-- 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘까지는 `gh pr list`
-  를 도는 Monitor 가 따로 본다(충돌·`DIRTY` 로 바뀌면 그때 다시 한다).
+  본문 👍)까지만 의미가 있고, 그 뒤엔 부르지 않는다.
+- **같은 head 에 `watch` 를 두 번 부르지 않는다.** `botVerdict` 는 현재 head 이후의 봇 리뷰가
+  있으면 계속 `findings` 라 — 지적을 무효로 판정해 리액션만 바꾸고 커밋을 안 밀었으면 다음
+  `watch` 가 같은 리뷰를 다시 찾아 끝없이 돈다. 새 head 를 밀었을 때만 다시 보고, 그때도
+  기다리는 건 CI 다(`gh pr checks "$NUM" --watch`).
+- 첫 `verdict: findings` → 2~5단계(고치고 👀, 또는 무효 👀, 또는 🚀). 푸시했으면 CI 를
+  기다린다. 위 셋이 맞으면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 🚀 가
+  있으면 알리지 않고 묻는다. 라운드 제한은 없다: 오너가 재리뷰를 달아 새 지적이 오면 같은 절차.
+- 첫 `verdict: clean`(본문 👍) → 위 셋 확인 뒤 **알린다**(CI 가 아직이면 초록까지 기다린다).
+- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어, 역시 위 셋이 맞을 때만 알린다(자동
+  리뷰가 꺼졌거나 지연).
+- 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘·충돌은 `gh pr list`
+  를 도는 **Monitor** 가 본다(`allowed-tools` 에 있다). 30분마다 만료되니 그때마다 다시 건다:
+
+  ```bash
+  # 열린 PR 전체의 상태 전이만 한 줄씩 — MERGED / CLOSED / DIRTY / CONFLICTING
+  prev=""; while true; do
+    cur=$(gh pr list --state all --limit 20 --json number,state,mergeStateStatus \
+      --jq '.[]|"#\(.number) \(.state) \(.mergeStateStatus)"' 2>/dev/null | sort) || true
+    if [ -n "$prev" ] && [ -n "$cur" ]; then
+      comm -13 <(echo "$prev") <(echo "$cur") | grep -E --line-buffered "MERGED|CLOSED|DIRTY|CONFLICTING" || true
+    fi
+    [ -n "$cur" ] && prev="$cur"; sleep 60
+  done
+  ```
+
+  `DIRTY`/`CONFLICTING` 이 오면 충돌을 풀고(양쪽 의도 보존 → 게이트 → force-with-lease) 다시
+  이 단계부터. `MERGED` 가 오면 스택의 다음 PR 을 같은 기준으로.
 - **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
   수 없다 — 알림에 순서를 같이 적는다("#182 → #176 → #177 → #179 순"). 아래가 머지되면 **GitHub 이
   다음 PR 을 main 위로 서버에서 리베이스하고 base 를 옮긴다**(공식 문서: "the next unmerged pull
