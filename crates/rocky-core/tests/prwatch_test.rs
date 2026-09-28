@@ -1,8 +1,8 @@
 //! PR 감시의 순수 판정 — GraphQL 응답 파싱, ready 규칙, 전이, 알림 문구.
 
 use rocky_core::prwatch::{
-    diff, is_ready, notification_text, osascript_args, parse_pull_requests, CiState, PrEventKind,
-    PrSnapshot,
+    diff, is_ready, list_query, notification_text, one_query, osascript_args, parse_pull_request,
+    parse_pull_requests, CiState, PrEventKind, PrSnapshot,
 };
 use serde_json::json;
 
@@ -31,7 +31,8 @@ fn pr(
 }
 
 fn data(prs: Vec<serde_json::Value>) -> serde_json::Value {
-    json!({ "viewer": { "login": "me" }, "repository": { "pullRequests": { "nodes": prs } } })
+    let (open, recent): (Vec<_>, Vec<_>) = prs.into_iter().partition(|p| p["state"] == "OPEN");
+    json!({ "viewer": { "login": "me" }, "repository": { "open": { "nodes": open }, "recent": { "nodes": recent } } })
 }
 
 #[test]
@@ -182,4 +183,15 @@ fn notification_text_and_osascript_escaping() {
         args[2],
         "display notification \"b \\\\ x\" with title \"t \\\"q\\\"\""
     );
+}
+
+#[test]
+fn single_pr_query_parses_one_or_none_and_queries_carry_the_fragment() {
+    let d = json!({ "viewer": { "login": "me" }, "repository": { "pullRequest": pr(9, "MERGED", Some("SUCCESS"), vec![]) } });
+    let one = parse_pull_request(&d, "o/r", "main").unwrap().unwrap();
+    assert_eq!((one.number, one.state.as_str()), (9, "MERGED"));
+    let none = json!({ "viewer": { "login": "me" }, "repository": { "pullRequest": null } });
+    assert!(parse_pull_request(&none, "o/r", "main").unwrap().is_none());
+    assert!(list_query().contains("fragment prFields") && list_query().contains("states:[OPEN]"));
+    assert!(one_query().contains("$number:Int!") && one_query().contains("fragment prFields"));
 }

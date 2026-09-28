@@ -8,21 +8,47 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// 데몬이 보내는 GraphQL 쿼리 — 레포당 한 번. 여기 두는 이유는 `parse_pull_requests` 가 읽는
-/// 모양과 한 파일에서 맞추기 위해서다(변수: `owner`, `name`).
+/// PR 한 건에서 읽는 필드 — 목록 쿼리와 낱개 쿼리가 같은 조각을 쓴다.
+const PR_FIELDS: &str = r#"fragment prFields on PullRequest {
+  number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt
+  commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
+  reviewThreads(first:100) { nodes { isResolved
+    comments(first:1) { nodes { reactions(first:30) { nodes { content user { login } } } } } } }
+}"#;
+
+/// 데몬이 보내는 GraphQL 쿼리 — 레포당 한 번. **열린 PR 은 전부**(최대 100), 닫힌 것은 최근
+/// 갱신 30건만. 열린 것을 창으로 자르면 다른 PR 갱신에 밀린 열린 PR 이 영영 OPEN 으로 남는다.
+/// 여기 두는 이유는 `parse_pull_requests` 가 읽는 모양과 한 파일에서 맞추기 위해서다
+/// (변수: `owner`, `name`).
 pub const PR_QUERY: &str = r#"query($owner:String!, $name:String!) {
   viewer { login }
   repository(owner:$owner, name:$name) {
-    pullRequests(last:30, states:[OPEN, MERGED, CLOSED], orderBy:{field:UPDATED_AT, direction:ASC}) {
-      nodes {
-        number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt
-        commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
-        reviewThreads(first:100) { nodes { isResolved
-          comments(first:1) { nodes { reactions(first:30) { nodes { content user { login } } } } } } }
-      }
-    }
+    defaultBranchRef { name }
+    open: pullRequests(first:100, states:[OPEN], orderBy:{field:UPDATED_AT, direction:ASC}) { nodes { ...prFields } }
+    recent: pullRequests(last:30, states:[MERGED, CLOSED], orderBy:{field:UPDATED_AT, direction:ASC}) { nodes { ...prFields } }
   }
-}"#;
+}
+"#;
+
+/// 낱개 쿼리 — 직전엔 OPEN 이었는데 목록에 없는 PR(닫힌 창 밖으로 밀린 것)의 지금 상태.
+/// 변수: `owner`, `name`, `number`.
+pub const PR_ONE_QUERY: &str = r#"query($owner:String!, $name:String!, $number:Int!) {
+  viewer { login }
+  repository(owner:$owner, name:$name) {
+    defaultBranchRef { name }
+    pullRequest(number:$number) { ...prFields }
+  }
+}
+"#;
+
+/// 쿼리 문자열 + 조각 — `gh api graphql -f query=` 에 그대로 준다.
+pub fn list_query() -> String {
+    format!("{PR_QUERY}\n{PR_FIELDS}")
+}
+
+pub fn one_query() -> String {
+    format!("{PR_ONE_QUERY}\n{PR_FIELDS}")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -110,102 +136,131 @@ fn ci_of(rollup: Option<&str>) -> CiState {
     }
 }
 
-/// `PR_QUERY` 의 응답(`data` 아래)을 스냅숏 목록으로. 모양이 다르면 빈 목록이 아니라 에러 —
-/// 조용히 "PR 없음" 이 되면 전이가 엉뚱하게 난다.
+/// `PR_QUERY` 의 응답(`data` 아래)을 스냅숏 목록으로 — 열린 것 전부 + 최근 닫힌 것. 모양이
+/// 다르면 빈 목록이 아니라 에러 — 조용히 "PR 없음" 이 되면 전이가 엉뚱하게 난다.
 pub fn parse_pull_requests(
     data: &Value,
     repo: &str,
     default_branch: &str,
 ) -> Result<Vec<PrSnapshot>, String> {
-    let viewer = data
-        .pointer("/viewer/login")
-        .and_then(Value::as_str)
-        .ok_or("viewer.login 없음")?;
-    let nodes = data
-        .pointer("/repository/pullRequests/nodes")
+    let viewer = viewer_of(data)?;
+    let open = data
+        .pointer("/repository/open/nodes")
         .and_then(Value::as_array)
-        .ok_or("repository.pullRequests.nodes 없음")?;
-    let mut out = Vec::with_capacity(nodes.len());
-    for node in nodes {
-        let str_of = |key: &str| {
-            node.get(key)
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
-        let number = node
-            .get("number")
-            .and_then(Value::as_i64)
-            .ok_or("number 없음")?;
-        let is_draft = node
-            .get("isDraft")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let ci = ci_of(
-            node.pointer("/commits/nodes/0/commit/statusCheckRollup/state")
-                .and_then(Value::as_str),
-        );
-        let mut unhandled = 0;
-        let mut rocket = 0;
-        if let Some(threads) = node
-            .pointer("/reviewThreads/nodes")
-            .and_then(Value::as_array)
-        {
-            for thread in threads {
-                if thread.get("isResolved").and_then(Value::as_bool) == Some(true) {
-                    continue;
-                }
-                let mine: Vec<&str> = thread
-                    .pointer("/comments/nodes/0/reactions/nodes")
-                    .and_then(Value::as_array)
-                    .map(|rs| {
-                        rs.iter()
-                            .filter(|r| {
-                                r.pointer("/user/login").and_then(Value::as_str) == Some(viewer)
-                            })
-                            .filter_map(|r| r.get("content").and_then(Value::as_str))
-                            .filter(|c| is_bot_or_state_reaction(c))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if mine.contains(&"ROCKET") {
-                    rocket += 1;
-                } else if !mine.contains(&"EYES") {
-                    unhandled += 1;
-                }
-            }
-        }
-        let state = str_of("state");
-        let base = str_of("baseRefName");
-        let merge_state = str_of("mergeStateStatus");
-        let ready = is_ready(
-            &state,
-            is_draft,
-            &base,
-            default_branch,
-            &merge_state,
-            ci,
-            unhandled,
-            rocket,
-        );
-        out.push(PrSnapshot {
-            repo: repo.to_string(),
-            number,
-            title: str_of("title"),
-            url: str_of("url"),
-            state,
-            is_draft,
-            base,
-            head: str_of("headRefOid").chars().take(7).collect(),
-            merge_state,
-            ci,
-            unhandled,
-            rocket,
-            ready,
-            updated_at: str_of("updatedAt"),
-        });
+        .ok_or("repository.open.nodes 없음")?;
+    let recent = data
+        .pointer("/repository/recent/nodes")
+        .and_then(Value::as_array)
+        .ok_or("repository.recent.nodes 없음")?;
+    let mut out = Vec::with_capacity(open.len() + recent.len());
+    for node in open.iter().chain(recent.iter()) {
+        out.push(parse_pr_node(node, viewer, repo, default_branch)?);
     }
     Ok(out)
+}
+
+/// `PR_ONE_QUERY` 의 응답 — PR 하나. 없으면(`null`) `Ok(None)`.
+pub fn parse_pull_request(
+    data: &Value,
+    repo: &str,
+    default_branch: &str,
+) -> Result<Option<PrSnapshot>, String> {
+    let viewer = viewer_of(data)?;
+    match data.pointer("/repository/pullRequest") {
+        None | Some(Value::Null) => Ok(None),
+        Some(node) => parse_pr_node(node, viewer, repo, default_branch).map(Some),
+    }
+}
+
+fn viewer_of(data: &Value) -> Result<&str, String> {
+    data.pointer("/viewer/login")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "viewer.login 없음".to_string())
+}
+
+fn parse_pr_node(
+    node: &Value,
+    viewer: &str,
+    repo: &str,
+    default_branch: &str,
+) -> Result<PrSnapshot, String> {
+    let str_of = |key: &str| {
+        node.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let number = node
+        .get("number")
+        .and_then(Value::as_i64)
+        .ok_or("number 없음")?;
+    let is_draft = node
+        .get("isDraft")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let ci = ci_of(
+        node.pointer("/commits/nodes/0/commit/statusCheckRollup/state")
+            .and_then(Value::as_str),
+    );
+    let mut unhandled = 0;
+    let mut rocket = 0;
+    if let Some(threads) = node
+        .pointer("/reviewThreads/nodes")
+        .and_then(Value::as_array)
+    {
+        for thread in threads {
+            if thread.get("isResolved").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
+            let mine: Vec<&str> = thread
+                .pointer("/comments/nodes/0/reactions/nodes")
+                .and_then(Value::as_array)
+                .map(|rs| {
+                    rs.iter()
+                        .filter(|r| {
+                            r.pointer("/user/login").and_then(Value::as_str) == Some(viewer)
+                        })
+                        .filter_map(|r| r.get("content").and_then(Value::as_str))
+                        .filter(|c| is_bot_or_state_reaction(c))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if mine.contains(&"ROCKET") {
+                rocket += 1;
+            } else if !mine.contains(&"EYES") {
+                unhandled += 1;
+            }
+        }
+    }
+    let state = str_of("state");
+    let base = str_of("baseRefName");
+    let merge_state = str_of("mergeStateStatus");
+    let ready = is_ready(
+        &state,
+        is_draft,
+        &base,
+        default_branch,
+        &merge_state,
+        ci,
+        unhandled,
+        rocket,
+    );
+    Ok(PrSnapshot {
+        repo: repo.to_string(),
+        number,
+        title: str_of("title"),
+        url: str_of("url"),
+        state,
+        is_draft,
+        base,
+        head: str_of("headRefOid").chars().take(7).collect(),
+        merge_state,
+        ci,
+        unhandled,
+        rocket,
+        ready,
+        updated_at: str_of("updatedAt"),
+    })
 }
 
 /// 사람이 움직여야 하는 전이. `Opened` 는 기록용(알리지 않는다), `Unready` 도 기록용.
