@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use crate::actors::is_agent_actor;
 use crate::ids::{new_id, ID_LENGTH};
 use crate::migrations::{run_migrations, RunMigrationsOptions};
+use crate::note_doc::NoteDoc;
 use crate::refs::GLOBAL_NOTE_PREFIX;
 use crate::types::*;
 
@@ -98,6 +99,11 @@ CREATE TABLE IF NOT EXISTS notes (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   archived_at TEXT
+);
+CREATE TABLE IF NOT EXISTS note_docs (
+  note_id TEXT PRIMARY KEY REFERENCES notes(id),
+  state BLOB NOT NULL,
+  updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -309,12 +315,17 @@ pub struct CommentStats {
 }
 
 type Listener = Box<dyn Fn(&ChangeEvent) + Send + Sync>;
+type DocListener = Box<dyn Fn(&NoteDocEvent) + Send + Sync>;
 
 /// rocky 스토어 — 데몬 프로세스 안에서 단일 인스턴스로 쓰인다.
 pub struct TodoStore {
     conn: Mutex<Connection>,
     listeners: Mutex<Vec<(u64, Listener)>>,
     next_listener_id: AtomicU64,
+    /// 노트별 마지막 `edit` 변경 이벤트 시각 — 웹 편집을 전역 이벤트로 흘릴 때의 조절용.
+    note_edit_events: Mutex<HashMap<String, std::time::Instant>>,
+    /// 노트 문서 갱신 구독 — 서버가 노트별 SSE 로 방송한다.
+    doc_listeners: Mutex<Vec<(u64, DocListener)>>,
 }
 
 impl TodoStore {
@@ -340,6 +351,8 @@ impl TodoStore {
             conn: Mutex::new(conn),
             listeners: Mutex::new(Vec::new()),
             next_listener_id: AtomicU64::new(1),
+            note_edit_events: Mutex::new(HashMap::new()),
+            doc_listeners: Mutex::new(Vec::new()),
         })
     }
 
@@ -353,6 +366,8 @@ impl TodoStore {
             conn: Mutex::new(conn),
             listeners: Mutex::new(Vec::new()),
             next_listener_id: AtomicU64::new(1),
+            note_edit_events: Mutex::new(HashMap::new()),
+            doc_listeners: Mutex::new(Vec::new()),
         })
     }
 
@@ -375,6 +390,42 @@ impl TodoStore {
             .lock()
             .expect("listeners mutex poisoned")
             .retain(|(lid, _)| *lid != id);
+    }
+
+    /// 노트 문서 갱신 구독 — 어느 경로의 편집이든(웹 update·MCP/CLI set/append) 한 건씩.
+    pub fn subscribe_note_docs(
+        &self,
+        listener: impl Fn(&NoteDocEvent) + Send + Sync + 'static,
+    ) -> u64 {
+        let id = self.next_listener_id.fetch_add(1, Ordering::Relaxed);
+        self.doc_listeners
+            .lock()
+            .expect("doc_listeners mutex poisoned")
+            .push((id, Box::new(listener)));
+        id
+    }
+
+    pub fn unsubscribe_note_docs(&self, id: u64) {
+        self.doc_listeners
+            .lock()
+            .expect("doc_listeners mutex poisoned")
+            .retain(|(lid, _)| *lid != id);
+    }
+
+    /// conn 락을 놓은 뒤 — `emit_all` 과 같은 규칙.
+    fn emit_docs(&self, events: Vec<NoteDocEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        let listeners = self
+            .doc_listeners
+            .lock()
+            .expect("doc_listeners mutex poisoned");
+        for event in &events {
+            for (_, listener) in listeners.iter() {
+                listener(event);
+            }
+        }
     }
 
     /// conn 락을 **놓은 뒤** 부른다 — 리스너가 스토어를 재진입해도 데드락이 없다.
@@ -735,6 +786,75 @@ fn must_get_note_conn(
 ) -> StoreResult<Note> {
     get_note_conn(conn, note_ref, current_board_id)?
         .ok_or_else(|| StoreError::new(format!("note not found: {note_ref}")))
+}
+
+/// 웹 편집의 히스토리 묶음 창(초) — 이 안의 같은 actor `edit` 는 한 줄로 친다.
+pub const NOTE_EDIT_COALESCE_SECS: i64 = 60;
+/// 히스토리 줄 없이도 전역 변경 이벤트를 흘리는 최소 간격 — 다른 화면이 따라오는 속도.
+pub const NOTE_EDIT_EVENT_THROTTLE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// 노트의 CRDT 문서를 연다 — `note_docs.state` 가 있으면 그것으로, 없거나 본문과 어긋나면
+/// `notes.content` 로(`NoteDoc::open` 이 맞춘다). 기존 노트는 첫 열기에 content 로 씨앗을 심는다.
+///
+/// **씨앗을 심었으면(또는 맞췄으면) 그 자리에서 저장한다** — 읽기 경로(`note_doc_state`)여도.
+/// 저장하지 않으면 열 때마다 다른 client id 의 새 문서가 생겨, 클라이언트가 받은 상태와
+/// 다음 요청이 여는 문서가 서로 다른 히스토리가 된다(같은 글자가 두 번 들어간다).
+fn load_note_doc_conn(conn: &Connection, note: &Note) -> StoreResult<NoteDoc> {
+    let state: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT state FROM note_docs WHERE note_id = ?1",
+            params![note.id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let doc = NoteDoc::open(state.as_deref(), &note.content);
+    let seeded = match &state {
+        None => true,
+        Some(bytes) => doc.state() != *bytes,
+    };
+    if seeded {
+        save_note_doc_conn(conn, &note.id, &doc)?;
+    }
+    Ok(doc)
+}
+
+fn save_note_doc_conn(conn: &Connection, note_id: &str, doc: &NoteDoc) -> StoreResult<()> {
+    conn.execute(
+        "INSERT INTO note_docs (note_id, state, updated_at) VALUES (?1, ?2, ?3)\n\
+         ON CONFLICT(note_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at",
+        params![note_id, doc.state(), now_iso()],
+    )?;
+    Ok(())
+}
+
+/// 같은 actor 의 `edit` 가 묶음 창 안에 이미 있나 — 히스토리 최신 한 줄만 본다(다른 actor 의
+/// 편집이나 다른 action 이 끼어들면 새 줄을 남긴다: "누가 언제" 가 히스토리의 뜻이다).
+fn recent_edit_exists_conn(
+    conn: &Connection,
+    note_id: &str,
+    actor: &str,
+    now: &str,
+) -> StoreResult<bool> {
+    let last: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT actor, action, at FROM history WHERE entity = 'note' AND entity_id = ?1 ORDER BY id DESC LIMIT 1",
+            params![note_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((last_actor, action, at)) = last else {
+        return Ok(false);
+    };
+    if last_actor != actor || action != "edit" {
+        return Ok(false);
+    }
+    let (Ok(then), Ok(now)) = (
+        chrono::DateTime::parse_from_rfc3339(&at),
+        chrono::DateTime::parse_from_rfc3339(now),
+    ) else {
+        return Ok(false);
+    };
+    Ok((now - then).num_seconds() < NOTE_EDIT_COALESCE_SECS)
 }
 
 // ── boards / sections ───────────────────────────────────────────────────────
@@ -1797,41 +1917,52 @@ impl TodoStore {
         current_board_id: Option<&str>,
     ) -> StoreResult<Note> {
         let mut events = Vec::new();
+        let mut doc_events = Vec::new();
         let note = {
             let conn = self.lock();
             let current = must_get_note_conn(&conn, note_ref, current_board_id)?;
-            let mut changes = Changes::new();
-            let mut sets: Vec<&str> = Vec::new();
-            let mut vals: Vec<String> = Vec::new();
+            // state·content·history 는 한 트랜잭션 — 사이에서 죽으면 새 state 와 옛 본문이 같이
+            // 남고, 다음 열기가 content 를 진실로 보고 편집을 되돌리는 삭제를 저장한다.
+            conn.execute_batch("BEGIN")?;
+            let result = (|| -> StoreResult<Note> {
+                let mut changes = Changes::new();
+                let mut sets: Vec<&str> = Vec::new();
+                let mut vals: Vec<String> = Vec::new();
 
-            if let Some(title) = &patch.title {
-                if *title != current.title {
-                    changes.insert("title".into(), json!([current.title, title]));
-                    sets.push("title = ?");
-                    vals.push(title.clone());
-                }
-            }
-            if let Some(content) = &patch.content {
-                let next = match patch.mode {
-                    NoteContentMode::Append => {
-                        if current.content.is_empty() {
-                            content.clone()
-                        } else {
-                            format!("{}\n{}", current.content, content)
-                        }
+                if let Some(title) = &patch.title {
+                    if *title != current.title {
+                        changes.insert("title".into(), json!([current.title, title]));
+                        sets.push("title = ?");
+                        vals.push(title.clone());
                     }
-                    NoteContentMode::Set => content.clone(),
-                };
-                if next != current.content {
-                    changes.insert("content".into(), json!([current.content, next]));
-                    sets.push("content = ?");
-                    vals.push(next);
                 }
-            }
+                if let Some(content) = &patch.content {
+                    // 본문은 CRDT 문서를 거친다 — set 도 통째 교체가 아니라 최소 편집이라, 같은
+                    // 순간 웹에서 고치던 글자가 살아남는다(설계 2026-09-28-note-crdt-design).
+                    let doc = load_note_doc_conn(&conn, &current)?;
+                    let sv_before = doc.state_vector();
+                    match patch.mode {
+                        NoteContentMode::Append => doc.append(content),
+                        NoteContentMode::Set => doc.set_text(content),
+                    }
+                    let next = doc.text();
+                    if next != current.content {
+                        save_note_doc_conn(&conn, &current.id, &doc)?;
+                        doc_events.push(NoteDocEvent {
+                            note_id: current.id.clone(),
+                            update: doc.diff_since(&sv_before).map_err(StoreError::new)?,
+                            actor: actor.to_string(),
+                            client: None,
+                        });
+                        changes.insert("content".into(), json!([current.content, next]));
+                        sets.push("content = ?");
+                        vals.push(next);
+                    }
+                }
 
-            if sets.is_empty() {
-                current
-            } else {
+                if sets.is_empty() {
+                    return Ok(current.clone());
+                }
                 sets.push("updated_at = ?");
                 vals.push(now_iso());
                 vals.push(current.id.clone());
@@ -1848,11 +1979,143 @@ impl TodoStore {
                     current.board_id.as_deref(),
                     true,
                 )?;
-                must_get_note_conn(&conn, &current.id, None)?
+                must_get_note_conn(&conn, &current.id, None)
+            })();
+            match result {
+                Ok(note) => {
+                    conn.execute_batch("COMMIT")?;
+                    note
+                }
+                Err(error) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    return Err(error);
+                }
             }
         };
         self.emit_all(events);
+        self.emit_docs(doc_events);
         Ok(note)
+    }
+
+    /// 노트 문서의 상태 — 처음 여는 클라이언트에게 주는 전체 update 와 서버의 state vector.
+    /// `since` 가 있으면 그 이후의 차분만.
+    pub fn note_doc_state(
+        &self,
+        note_ref: &str,
+        since: Option<&[u8]>,
+        current_board_id: Option<&str>,
+    ) -> StoreResult<NoteDocState> {
+        let conn = self.lock();
+        let note = must_get_note_conn(&conn, note_ref, current_board_id)?;
+        let doc = load_note_doc_conn(&conn, &note)?;
+        let update = match since {
+            Some(sv) => doc.diff_since(sv).map_err(StoreError::new)?,
+            None => doc.state(),
+        };
+        Ok(NoteDocState {
+            note_id: note.id,
+            update,
+            state_vector: doc.state_vector(),
+        })
+    }
+
+    /// 클라이언트(웹 yjs)의 update 를 적용한다. state 가 앞으로 갔으면 저장하고(본문이 그대로여도
+    /// — 의존 update 가 먼저 오거나 같은 글자를 지웠다 넣은 경우), 본문이 바뀌면 `notes.content`
+    /// 도 따라간다. state·content·history 는 한 트랜잭션이다.
+    ///
+    /// 히스토리는 **묶는다** — 글자마다 한 줄이면 히스토리도 `/api/changes`(→ 세션 주입)도
+    /// 잡음이 된다. 같은 actor 의 직전 `edit` 가 `NOTE_EDIT_COALESCE_SECS` 안이면 새 줄을
+    /// 남기지 않는다. `client` 는 보낸 편집기의 id — 방송에 실려 자기 메아리를 버리게 한다.
+    pub fn apply_note_update(
+        &self,
+        note_ref: &str,
+        update: &[u8],
+        actor: &str,
+        client: Option<&str>,
+        current_board_id: Option<&str>,
+    ) -> StoreResult<NoteDocApplied> {
+        let mut events = Vec::new();
+        let mut doc_events = Vec::new();
+        let applied = {
+            let conn = self.lock();
+            let current = must_get_note_conn(&conn, note_ref, current_board_id)?;
+            conn.execute_batch("BEGIN")?;
+            let result = (|| -> StoreResult<NoteDocApplied> {
+                let doc = load_note_doc_conn(&conn, &current)?;
+                let sv_before = doc.state_vector();
+                let applied = doc.apply(update).map_err(StoreError::new)?;
+                if !applied.state_changed {
+                    return Ok(NoteDocApplied {
+                        note: current.clone(),
+                        changed: false,
+                    });
+                }
+                save_note_doc_conn(&conn, &current.id, &doc)?;
+                doc_events.push(NoteDocEvent {
+                    note_id: current.id.clone(),
+                    update: doc.diff_since(&sv_before).map_err(StoreError::new)?,
+                    actor: actor.to_string(),
+                    client: client.map(str::to_string),
+                });
+                if !applied.text_changed {
+                    return Ok(NoteDocApplied {
+                        note: current.clone(),
+                        changed: false,
+                    });
+                }
+                let now = now_iso();
+                conn.execute(
+                    "UPDATE notes SET content = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![doc.text(), now, current.id],
+                )?;
+                // 히스토리는 60초로 묶지만 **화면은 그보다 자주** 따라와야 한다 — 같은 노트를
+                // 열어 둔 다른 브라우저·TUI 는 전역 이벤트로 refetch 하므로, 히스토리 줄이 없어도
+                // 노트당 `NOTE_EDIT_EVENT_THROTTLE` 마다 한 번은 흘린다(글자마다는 아니다).
+                let mut throttle = self.note_edit_events.lock().expect("note_edit_events");
+                let due = throttle
+                    .get(&current.id)
+                    .is_none_or(|last| last.elapsed() >= NOTE_EDIT_EVENT_THROTTLE);
+                if !recent_edit_exists_conn(&conn, &current.id, actor, &now)? {
+                    record_history(
+                        &conn,
+                        &mut events,
+                        HistoryEntity::Note,
+                        &current.id,
+                        actor,
+                        "edit",
+                        None,
+                        current.board_id.as_deref(),
+                        true,
+                    )?;
+                    throttle.insert(current.id.clone(), std::time::Instant::now());
+                } else if due {
+                    events.push(ChangeEvent {
+                        entity: HistoryEntity::Note,
+                        entity_id: current.id.clone(),
+                        action: "edit".into(),
+                        board_id: current.board_id.clone(),
+                    });
+                    throttle.insert(current.id.clone(), std::time::Instant::now());
+                }
+                Ok(NoteDocApplied {
+                    note: must_get_note_conn(&conn, &current.id, None)?,
+                    changed: true,
+                })
+            })();
+            match result {
+                Ok(applied) => {
+                    conn.execute_batch("COMMIT")?;
+                    applied
+                }
+                Err(error) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    return Err(error);
+                }
+            }
+        };
+        self.emit_all(events);
+        self.emit_docs(doc_events);
+        Ok(applied)
     }
 
     pub fn archive_note(

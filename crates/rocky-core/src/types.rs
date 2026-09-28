@@ -381,6 +381,33 @@ pub struct HistoryEntry {
     pub at: String,
 }
 
+/// `note_doc_state` 의 결과 — 클라이언트에 줄 update 와 서버의 state vector(둘 다 v1 바이너리).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteDocState {
+    pub note_id: String,
+    pub update: Vec<u8>,
+    pub state_vector: Vec<u8>,
+}
+
+/// 노트 문서가 앞으로 간 사건 — 어느 경로(웹 update·에이전트 set/append)로든. 서버가 노트별
+/// SSE 로 방송한다. `client` 는 웹 편집기의 것(자기 메아리를 버리는 데 쓴다), 에이전트·CLI 는 None.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteDocEvent {
+    pub note_id: String,
+    /// 이번에 새로 생긴 부분만(update v1).
+    pub update: Vec<u8>,
+    pub actor: String,
+    pub client: Option<String>,
+}
+
+/// `apply_note_update` 의 결과.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteDocApplied {
+    pub note: Note,
+    /// 본문이 실제로 바뀌었나 — 이미 아는 update 면 false.
+    pub changed: bool,
+}
+
 /// SSE 로 흘리는 변경 이벤트 — 구독자는 payload 를 보지 않고 refetch 만 한다.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

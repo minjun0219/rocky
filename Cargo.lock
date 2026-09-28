@@ -1982,7 +1982,6 @@ name = "rockyd"
 version = "0.28.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
  "chrono",
  "rmcp",
  "rocky-core",

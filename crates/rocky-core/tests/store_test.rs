@@ -2881,3 +2881,312 @@ fn move_to_board_records_history_with_board_and_number() {
         serde_json::json!(["origin", "target"])
     );
 }
+
+// ── 노트 CRDT 문서 ───────────────────────────────────────────────────────────
+
+fn note_with(f: &Fx, content: &str) -> Note {
+    f.store
+        .create_note(
+            &CreateNoteInput {
+                board: Some("rocky".into()),
+                title: "패드".into(),
+                content: Some(content.into()),
+            },
+            "tester",
+        )
+        .unwrap()
+}
+
+/// 웹(yjs)이 고치는 동안 에이전트가 set 으로 다른 자리를 고쳐도 둘 다 남는다 — 설계의 핵심
+/// 약속. 클라이언트 쪽은 같은 `NoteDoc` 으로 흉내 낸다.
+#[test]
+fn a_web_edit_and_an_agent_set_on_the_same_note_both_survive() {
+    use rocky_core::note_doc::NoteDoc;
+    let f = fx();
+    let note = note_with(&f, "## 계획\n- a\n\n## 메모\n");
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let web = NoteDoc::open(Some(&state.update), &note.content);
+    web.set_text("## 계획\n- a\n- b\n\n## 메모\n");
+    // 에이전트가 먼저 set(전체 본문) — 둘째 절에 문장 추가.
+    f.store
+        .update_note(
+            &note.id,
+            &UpdateNotePatch {
+                content: Some("## 계획\n- a\n\n## 메모\n에이전트\n".into()),
+                ..Default::default()
+            },
+            "agent",
+            None,
+        )
+        .unwrap();
+    // 웹의 변경이 뒤늦게 도착.
+    let diff = web.diff_since(&state.state_vector).unwrap();
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &diff, "logan", None, None)
+        .unwrap();
+    assert!(applied.changed);
+    assert_eq!(
+        applied.note.content,
+        "## 계획\n- a\n- b\n\n## 메모\n에이전트\n"
+    );
+    // 목록도 같은 본문(content 가 읽는 쪽의 진실).
+    let listed = f.store.get_note(&note.id, None).unwrap().unwrap();
+    assert_eq!(listed.content, applied.note.content);
+}
+
+#[test]
+fn a_known_update_changes_nothing_and_records_nothing() {
+    let f = fx();
+    let note = note_with(&f, "x");
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let before = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(note.id.clone()),
+            ..Default::default()
+        })
+        .unwrap()
+        .len();
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &state.update, "logan", None, None)
+        .unwrap();
+    assert!(!applied.changed);
+    let after = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(note.id.clone()),
+            ..Default::default()
+        })
+        .unwrap()
+        .len();
+    assert_eq!(before, after);
+}
+
+/// 글자마다 히스토리 한 줄이면 잡음이다 — 같은 actor 의 연속 편집은 한 줄로 묶인다.
+#[test]
+fn web_edits_by_the_same_actor_coalesce_into_one_history_row() {
+    use rocky_core::note_doc::NoteDoc;
+    let f = fx();
+    let note = note_with(&f, "");
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let web = NoteDoc::open(Some(&state.update), "");
+    let mut sv = state.state_vector.clone();
+    for piece in ["ㄱ", "ㄴ", "ㄷ"] {
+        web.append(piece);
+        let diff = web.diff_since(&sv).unwrap();
+        let applied = f
+            .store
+            .apply_note_update(&note.id, &diff, "logan", None, None)
+            .unwrap();
+        assert!(applied.changed);
+        sv = f
+            .store
+            .note_doc_state(&note.id, None, None)
+            .unwrap()
+            .state_vector;
+    }
+    let history = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(note.id.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    let edits: Vec<_> = history.iter().filter(|h| h.action == "edit").collect();
+    assert_eq!(edits.len(), 1, "{history:?}");
+    assert_eq!(edits[0].actor, "logan");
+    // 전역 이벤트도 글자마다는 아니다 — 첫 편집이 흘린 뒤 2초 안의 편집은 조용하다.
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+    let counter = seen.clone();
+    let sub = f.store.subscribe(move |e| {
+        if e.action == "edit" {
+            *counter.lock().unwrap() += 1;
+        }
+    });
+    web.append("ㅁ");
+    let diff = web.diff_since(&sv).unwrap();
+    f.store
+        .apply_note_update(&note.id, &diff, "logan", None, None)
+        .unwrap();
+    assert_eq!(
+        *seen.lock().unwrap(),
+        0,
+        "2초 안 — 히스토리도 이벤트도 없다"
+    );
+    f.store.unsubscribe(sub);
+    sv = f
+        .store
+        .note_doc_state(&note.id, None, None)
+        .unwrap()
+        .state_vector;
+    // 다른 actor 가 끼어들면 새 줄.
+    let other = NoteDoc::open(
+        Some(&f.store.note_doc_state(&note.id, None, None).unwrap().update),
+        "",
+    );
+    other.append("ㄹ");
+    let diff = other.diff_since(&sv).unwrap();
+    f.store
+        .apply_note_update(&note.id, &diff, "codex", None, None)
+        .unwrap();
+    let history = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(note.id.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.iter().filter(|h| h.action == "edit").count(), 2);
+}
+
+#[test]
+fn doc_state_diff_since_and_bad_input() {
+    let f = fx();
+    let note = note_with(&f, "hello");
+    let first = f.store.note_doc_state(&note.id, None, None).unwrap();
+    f.store
+        .update_note(
+            &note.id,
+            &UpdateNotePatch {
+                content: Some("world".into()),
+                mode: NoteContentMode::Append,
+                ..Default::default()
+            },
+            "agent",
+            None,
+        )
+        .unwrap();
+    let diff = f
+        .store
+        .note_doc_state(&note.id, Some(&first.state_vector), None)
+        .unwrap();
+    assert!(
+        diff.update.len()
+            < f.store
+                .note_doc_state(&note.id, None, None)
+                .unwrap()
+                .update
+                .len()
+    );
+    assert!(f
+        .store
+        .note_doc_state(&note.id, Some(b"\xff"), None)
+        .is_err());
+    assert!(f
+        .store
+        .apply_note_update(&note.id, b"junk", "x", None, None)
+        .is_err());
+    assert!(f.store.note_doc_state("nope-1", None, None).is_err());
+}
+
+/// 본문이 그대로인 update(같은 글자를 지웠다 넣음)도 state 는 저장돼야 한다 — 안 그러면 그것에
+/// 기대는 다음 update 가 영영 안 붙는다. `changed` 와 히스토리는 본문 기준 그대로.
+#[test]
+fn a_text_preserving_update_is_still_stored_so_later_updates_apply() {
+    use rocky_core::note_doc::NoteDoc;
+    let f = fx();
+    let note = note_with(&f, "x");
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let web = NoteDoc::open(Some(&state.update), "x");
+    web.set_text("");
+    web.set_text("x");
+    let first = web.diff_since(&state.state_vector).unwrap();
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &first, "logan", Some("c1"), None)
+        .unwrap();
+    assert!(!applied.changed);
+    // 그 위에 얹은 편집 — 앞의 update 가 저장돼 있어야 붙는다.
+    let sv = f
+        .store
+        .note_doc_state(&note.id, None, None)
+        .unwrap()
+        .state_vector;
+    web.append("y");
+    let second = web.diff_since(&sv).unwrap();
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &second, "logan", Some("c1"), None)
+        .unwrap();
+    assert!(applied.changed);
+    assert_eq!(applied.note.content, "x\ny");
+}
+
+/// 어느 경로의 편집이든 문서 갱신 이벤트가 난다 — 서버가 노트별 SSE 로 방송할 재료.
+#[test]
+fn every_edit_path_emits_a_note_doc_event() {
+    use rocky_core::note_doc::NoteDoc;
+    let f = fx();
+    let note = note_with(&f, "a");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<NoteDocEvent>::new()));
+    let sink = seen.clone();
+    f.store
+        .subscribe_note_docs(move |e| sink.lock().unwrap().push(e.clone()));
+    // 에이전트 append.
+    f.store
+        .update_note(
+            &note.id,
+            &UpdateNotePatch {
+                content: Some("b".into()),
+                mode: NoteContentMode::Append,
+                ..Default::default()
+            },
+            "codex",
+            None,
+        )
+        .unwrap();
+    // 웹 update.
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let web = NoteDoc::open(Some(&state.update), "a\nb");
+    web.append("c");
+    let diff = web.diff_since(&state.state_vector).unwrap();
+    f.store
+        .apply_note_update(&note.id, &diff, "logan", Some("c1"), None)
+        .unwrap();
+    let events = seen.lock().unwrap().clone();
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert_eq!(
+        (events[0].actor.as_str(), events[0].client.as_deref()),
+        ("codex", None)
+    );
+    assert_eq!(
+        (events[1].actor.as_str(), events[1].client.as_deref()),
+        ("logan", Some("c1"))
+    );
+    // 방송된 조각을 처음 상태에 얹으면 서버 본문이 된다.
+    let replay = NoteDoc::open(None, "a");
+    let seeded =
+        NoteDoc::from_state(&f.store.note_doc_state(&note.id, None, None).unwrap().update).unwrap();
+    assert_eq!(seeded.text(), "a\nb\nc");
+    drop(replay);
+}
+
+/// 역순 배치 — 뒤 배치가 먼저 와도 저장돼 있다가 선행 배치가 오면 본문이 된다(문서를
+/// 요청마다 새로 여는 스토어에서 특히 중요하다).
+#[test]
+fn an_out_of_order_batch_is_kept_until_its_predecessor_arrives() {
+    use rocky_core::note_doc::NoteDoc;
+    let f = fx();
+    let note = note_with(&f, "x");
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let web = NoteDoc::from_state(&state.update).unwrap();
+    let sv0 = web.state_vector();
+    web.append("first");
+    let sv1 = web.state_vector();
+    let batch1 = web.diff_since(&sv0).unwrap();
+    web.append("second");
+    let batch2 = web.diff_since(&sv1).unwrap();
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &batch2, "logan", Some("c1"), None)
+        .unwrap();
+    assert!(!applied.changed);
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &batch1, "logan", Some("c1"), None)
+        .unwrap();
+    assert!(applied.changed);
+    assert_eq!(applied.note.content, "x\nfirst\nsecond");
+}
