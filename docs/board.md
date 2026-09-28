@@ -146,6 +146,25 @@ PATH 에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`
 - 글자 크기는 여섯 단(`text-micro` 11 · `chip` 12 · `meta` 13 · `sm` 14 · `body` 15 · `title` 20,
   `web/styles/tokens.css`)뿐이다 — 임의 px 유틸리티를 새로 만들지 않는다.
 
+## 노트 — 사람과 에이전트가 같이 쓰는 스크래치 패드
+
+노트 본문은 CRDT(Yjs 호환) 문서다. 웹에서 타이핑하는 동안 에이전트가 `note_write` 로
+set/append 해도, CLI 가 `rocky note append` 해도 서로 지우지 않고 글자 단위로 합쳐진다.
+에이전트·CLI 는 Yjs 를 모른다 — 데몬이 그들의 set 을 "바뀐 구간만" 편집으로 넣는다.
+목록·TUI·CLI 가 읽는 `content` 는 늘 합쳐진 최신 본문이다. 기존 노트는 손댈 게 없다 — 처음
+열 때 지금 본문으로 문서를 만든다.
+
+웹이 쓰는 라우트(다른 클라이언트도 붙을 수 있다):
+
+```
+GET  /api/notes/:ref/doc[?sv=<base64>]   전체 상태(update) 또는 sv 이후 차분 + 서버 state vector
+POST /api/notes/:ref/doc {update,client}  적용·저장 → 같은 노트 구독자에게 방송
+GET  /api/notes/:ref/doc/events           노트별 SSE {kind:"update"|"presence", …}
+POST /api/notes/:ref/presence {client,state}  누가 보고 있는지 — 저장하지 않는다
+```
+
+웹 편집의 히스토리는 같은 사람의 연속 편집을 60초 창으로 한 줄로 묶는다.
+
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 
 "지금 뭐 봐야 하나" 를 몇 줄로. 셋이 같은 판정(`rocky_core::summary`)을 쓴다.

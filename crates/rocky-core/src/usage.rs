@@ -92,6 +92,14 @@ const SKIPPED_ROUTES: &[&str] = &[
     "/api/usage",
 ];
 
+/// 접은 모양으로 거르는 라우트 — 노트 문서 편집은 150ms 마다 POST 하고 프레즌스는 주기적이라
+/// 남기면 로그가 그것뿐이 된다. 노트를 **여는** `GET /api/notes/:ref/doc` 하나가 사용 신호다.
+const SKIPPED_SHAPES: &[&str] = &[
+    "POST /api/notes/:ref/doc",
+    "GET /api/notes/:ref/doc/events",
+    "POST /api/notes/:ref/presence",
+];
+
 /// REST 이름 — `GET /api/todos/abc123` → `GET /api/todos/:ref`. 셋째 세그먼트(id·key)만
 /// 접고 그 뒤 동작 이름(`handoff`·`archive`·`comments`)은 남긴다. 기록 안 할 라우트는 None.
 pub fn normalize_route(method: &str, path: &str) -> Option<String> {
@@ -104,7 +112,11 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     if segs.len() >= 3 && segs[0] == "api" && !LITERAL_THIRD.contains(&segs[2]) {
         segs[2] = ":ref";
     }
-    Some(format!("{} /{}", method.to_uppercase(), segs.join("/")))
+    let shape = format!("{} /{}", method.to_uppercase(), segs.join("/"));
+    if SKIPPED_SHAPES.contains(&shape.as_str()) {
+        return None;
+    }
+    Some(shape)
 }
 
 /// 클라이언트 종류 — `x-rocky-client` 헤더가 있으면 그것, 없으면 User-Agent 로 추정.
@@ -219,6 +231,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/notes"),
     (UsageSource::Rest, "POST /api/notes"),
     (UsageSource::Rest, "GET /api/notes/:ref"),
+    (UsageSource::Rest, "GET /api/notes/:ref/doc"),
     (UsageSource::Rest, "PATCH /api/notes/:ref"),
     (UsageSource::Rest, "POST /api/notes/:ref/archive"),
     (UsageSource::Rest, "POST /api/notes/:ref/unarchive"),
