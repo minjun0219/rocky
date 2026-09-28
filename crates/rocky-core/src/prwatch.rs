@@ -5,49 +5,146 @@
 //!
 //! DB·HTTP·프로세스를 모른다 — 스토어가 스냅숏을 기억하고, 데몬이 쿼리와 알림을 한다.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// PR 한 건에서 읽는 필드 — 목록 쿼리와 낱개 쿼리가 같은 조각을 쓴다.
+/// 열린 PR 한 건의 판정 재료 — CI 와 미해결 스레드. **상세 쿼리에서만** 쓴다.
+///
+/// **쿼리 비용은 실제 노드가 아니라 `first:` 로 요청한 노드 수로 매겨진다**(GraphQL 시간당
+/// 5,000 포인트; 2026-09-28 실측 — 열린 PR 이 0개인 레포에서도 `first:100` × 스레드 100 ×
+/// 리액션 30 이 263 포인트였다). 첫 판은 그걸 3분 × 레포 10개로 돌려 두 tick 만에 한도가
+/// 바닥났고, 한도는 계정 단위라 **세션·터미널의 `gh` 까지 막혔다**. 그래서 (1) 목록은 상태
+/// 조각만 싸게 받고, (2) 이 조각은 **실제로 열린 PR** 에만 별칭 배치로 묻고(비용이 현실의
+/// 열린 PR 수에 비례), (3) 리액션은 노드 대신 `viewerHasReacted` 만 묻는다.
 const PR_FIELDS: &str = r#"fragment prFields on PullRequest {
-  number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt
+  ...prState
   commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
-  reviewThreads(first:100) { pageInfo { hasNextPage } nodes { isResolved
-    comments(first:1) { nodes { reactions(first:30) { nodes { content user { login } } } } } } }
+  reviewThreads(first:50) { pageInfo { hasNextPage } nodes { isResolved
+    comments(first:1) { nodes {
+      eyes: reactions(first:1, content:EYES) { viewerHasReacted }
+      rocket: reactions(first:1, content:ROCKET) { viewerHasReacted } } } } }
 }"#;
 
-/// 데몬이 보내는 GraphQL 쿼리 — 레포당 한 번. **열린 PR 은 전부**(최대 100), 닫힌 것은 최근
-/// 갱신 30건만. 열린 것을 창으로 자르면 다른 PR 갱신에 밀린 열린 PR 이 영영 OPEN 으로 남는다.
-/// 여기 두는 이유는 `parse_pull_requests` 가 읽는 모양과 한 파일에서 맞추기 위해서다
-/// (변수: `owner`, `name`).
-pub const PR_QUERY: &str = r#"query($owner:String!, $name:String!) {
-  viewer { login }
+/// 상태 조각 — 목록 쿼리는 이것만 받는다(열린 것도). 닫힌 PR 은 이걸로 스냅숏이 완성된다
+/// (`is_ready` 가 OPEN 을 요구하므로 스레드·CI 가 필요 없다).
+const PR_STATE_FIELDS: &str = r#"fragment prState on PullRequest {
+  number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt
+}"#;
+
+/// 응답마다 실어 오는 잔여 예산 — 데몬이 tick 을 쉴지 정하는 재료.
+const RATE_LIMIT_FIELDS: &str = "rateLimit { cost remaining resetAt }";
+
+/// 목록 쿼리 — 레포당 한 번, **상태만**. 열린 PR 은 최근 갱신 순 50건(창을 넘친 옛 열린 PR 은
+/// 직전 스냅숏에서 알아 상세 쿼리에 끼운다), 닫힌 것은 최근 갱신 30건. 여기 두는 이유는
+/// `parse_pr_list` 가 읽는 모양과 한 파일에서 맞추기 위해서다(변수: `owner`, `name`).
+pub const PR_LIST_QUERY: &str = r#"query($owner:String!, $name:String!) {
+  rateLimit { cost remaining resetAt }
   repository(owner:$owner, name:$name) {
     defaultBranchRef { name }
-    open: pullRequests(first:100, states:[OPEN], orderBy:{field:UPDATED_AT, direction:ASC}) { nodes { ...prFields } }
-    recent: pullRequests(last:30, states:[MERGED, CLOSED], orderBy:{field:UPDATED_AT, direction:ASC}) { nodes { ...prFields } }
+    open: pullRequests(first:50, states:[OPEN], orderBy:{field:UPDATED_AT, direction:DESC}) { pageInfo { hasNextPage } nodes { ...prState } }
+    recent: pullRequests(last:30, states:[MERGED, CLOSED], orderBy:{field:UPDATED_AT, direction:ASC}) { nodes { ...prState } }
   }
 }
 "#;
 
-/// 낱개 쿼리 — 직전엔 OPEN 이었는데 목록에 없는 PR(닫힌 창 밖으로 밀린 것)의 지금 상태.
-/// 변수: `owner`, `name`, `number`.
-pub const PR_ONE_QUERY: &str = r#"query($owner:String!, $name:String!, $number:Int!) {
-  viewer { login }
-  repository(owner:$owner, name:$name) {
-    defaultBranchRef { name }
-    pullRequest(number:$number) { ...prFields }
-  }
-}
-"#;
-
-/// 쿼리 문자열 + 조각 — `gh api graphql -f query=` 에 그대로 준다.
+/// 목록 쿼리 문자열 + 조각 — `gh api graphql -f query=` 에 그대로 준다.
 pub fn list_query() -> String {
-    format!("{PR_QUERY}\n{PR_FIELDS}")
+    debug_assert!(PR_LIST_QUERY.contains(RATE_LIMIT_FIELDS));
+    format!(
+        "{PR_LIST_QUERY}
+{PR_STATE_FIELDS}"
+    )
 }
 
-pub fn one_query() -> String {
-    format!("{PR_ONE_QUERY}\n{PR_FIELDS}")
+/// 상세 쿼리 — 번호마다 `p<번호>: pullRequest(number:<번호>) { ...prFields }` 별칭으로 한 요청에
+/// 묶는다(변수: `owner`, `name`). 번호가 없으면 부르지 않는다(`None`). 번호는 쿼리 문자열에
+/// 박히지만 정수라 주입이 없다.
+pub fn detail_query(numbers: &[i64]) -> Option<String> {
+    if numbers.is_empty() {
+        return None;
+    }
+    let fields: Vec<String> = numbers
+        .iter()
+        .map(|n| format!("    p{n}: pullRequest(number:{n}) {{ ...prFields }}"))
+        .collect();
+    Some(format!(
+        "query($owner:String!, $name:String!) {{\n  {RATE_LIMIT_FIELDS}\n  repository(owner:$owner, name:$name) {{\n    defaultBranchRef {{ name }}\n{}\n  }}\n}}\n{PR_FIELDS}\n{PR_STATE_FIELDS}",
+        fields.join("\n")
+    ))
+}
+
+/// 이 밑으로 남으면 데몬은 다음 리셋까지 쉰다 — 한도는 사용자 계정 하나에 걸리므로, 데몬이
+/// 끝까지 쓰면 세션·터미널의 `gh` 가 죽는다. 5,000 의 1/5 을 남긴다.
+pub const RATE_LIMIT_FLOOR: i64 = 1_000;
+
+/// 리셋 시각을 모를 때 쉬는 길이 — GraphQL 한도 창(1시간)의 1/4.
+pub const RATE_LIMIT_BLIND_PAUSE_SECS: u64 = 15 * 60;
+
+/// `rateLimit { cost remaining resetAt }` — 응답 한 건의 예산 정보.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimit {
+    /// 이 응답(또는 tick 누계)의 포인트.
+    pub cost: i64,
+    /// 응답 시점의 잔여 포인트.
+    pub remaining: i64,
+    /// 한도 창이 리셋되는 시각(ISO).
+    pub reset_at: String,
+}
+
+impl RateLimit {
+    /// 응답의 `rateLimit` 블록. 없으면 None — 판정은 못 하지만 스냅숏은 정상이다.
+    pub fn of(data: &Value) -> Option<RateLimit> {
+        let rl = data.get("rateLimit")?;
+        Some(RateLimit {
+            cost: rl.get("cost").and_then(Value::as_i64)?,
+            remaining: rl.get("remaining").and_then(Value::as_i64)?,
+            reset_at: rl.get("resetAt").and_then(Value::as_str)?.to_string(),
+        })
+    }
+
+    /// 예산 바닥 — 이 tick 을 여기서 멈추고 리셋까지 쉰다.
+    pub fn exhausted(&self) -> bool {
+        self.remaining < RATE_LIMIT_FLOOR
+    }
+
+    /// `now` 부터 리셋까지 남은 시간. 리셋이 이미 지났거나 시각을 못 읽으면 None.
+    pub fn until_reset(&self, now: chrono::DateTime<chrono::Utc>) -> Option<Duration> {
+        let reset = chrono::DateTime::parse_from_rfc3339(&self.reset_at).ok()?;
+        (reset.with_timezone(&chrono::Utc) - now).to_std().ok()
+    }
+}
+
+/// `gh api graphql` 의 실패 출력이 레이트 리밋인가 — 본문의 `errors[].type` 이 `RATE_LIMIT`
+/// 또는 `RATE_LIMITED`(GitHub 이 둘 다 낸다 — 2026-09-28 실측; gh 는 실패해도 응답 JSON 을
+/// stdout 에 그대로 낸다), 없으면 stderr 문구로.
+pub fn is_rate_limit_error(stdout: &str, stderr: &str) -> bool {
+    if let Ok(body) = serde_json::from_str::<Value>(stdout) {
+        if let Some(errors) = body.get("errors").and_then(Value::as_array) {
+            if errors.iter().any(|e| {
+                e.get("type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| t.starts_with("RATE_LIMIT"))
+            }) {
+                return true;
+            }
+        }
+    }
+    let s = stderr.to_ascii_lowercase();
+    s.contains("rate limit") || s.contains("ratelimit")
+}
+
+/// 한도에 걸렸거나 바닥이 보일 때 얼마나 쉴지 — 리셋을 알면 그때까지(+1분 여유), 모르면
+/// 고정 길이. 상한은 한도 창(1시간) + 여유 — 시계가 어긋나도 영영 쉬지 않는다.
+pub fn pause_for(limit: Option<&RateLimit>, now: chrono::DateTime<chrono::Utc>) -> Duration {
+    let grace = Duration::from_secs(60);
+    let cap = Duration::from_secs(60 * 60) + grace;
+    match limit.and_then(|l| l.until_reset(now)) {
+        Some(d) => (d + grace).min(cap),
+        None => Duration::from_secs(RATE_LIMIT_BLIND_PAUSE_SECS),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,10 +220,6 @@ pub fn is_ready(
         && rocket == 0
 }
 
-fn is_bot_or_state_reaction(content: &str) -> bool {
-    content == "EYES" || content == "ROCKET"
-}
-
 /// `statusCheckRollup.state` → CI 상태. check 가 없으면(null) 통과로 본다 — 막을 근거가 없다.
 fn ci_of(rollup: Option<&str>) -> CiState {
     match rollup {
@@ -144,14 +237,19 @@ pub fn default_branch_of(data: &Value) -> String {
         .to_string()
 }
 
-/// `PR_QUERY` 의 응답(`data` 아래)을 스냅숏 목록으로 — 열린 것 전부 + 최근 닫힌 것. 모양이
-/// 다르면 빈 목록이 아니라 에러 — 조용히 "PR 없음" 이 되면 전이가 엉뚱하게 난다.
-pub fn parse_pull_requests(
-    data: &Value,
-    repo: &str,
-    default_branch: &str,
-) -> Result<Vec<PrSnapshot>, String> {
-    let viewer = viewer_of(data)?;
+/// 목록 쿼리의 응답(`data` 아래) — 열린 PR 의 번호와 닫힌 PR 의 완성된 스냅숏. 모양이 다르면
+/// 빈 목록이 아니라 에러 — 조용히 "PR 없음" 이 되면 전이가 엉뚱하게 난다.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PrList {
+    /// 열린 PR 번호(최근 갱신 순). 상세 쿼리의 대상.
+    pub open: Vec<i64>,
+    /// 열린 것이 창(50)을 넘쳤다 — 나머지는 직전 스냅숏의 열린 것에서 보충한다.
+    pub open_truncated: bool,
+    /// 최근 닫힌 PR — 상태만으로 스냅숏이 완성된다.
+    pub closed: Vec<PrSnapshot>,
+}
+
+pub fn parse_pr_list(data: &Value, repo: &str, default_branch: &str) -> Result<PrList, String> {
     let open = data
         .pointer("/repository/open/nodes")
         .and_then(Value::as_array)
@@ -160,38 +258,59 @@ pub fn parse_pull_requests(
         .pointer("/repository/recent/nodes")
         .and_then(Value::as_array)
         .ok_or("repository.recent.nodes 없음")?;
-    let mut out = Vec::with_capacity(open.len() + recent.len());
-    for node in open.iter().chain(recent.iter()) {
-        out.push(parse_pr_node(node, viewer, repo, default_branch)?);
+    let mut list = PrList {
+        open_truncated: data
+            .pointer("/repository/open/pageInfo/hasNextPage")
+            .and_then(Value::as_bool)
+            == Some(true),
+        ..PrList::default()
+    };
+    for node in open {
+        list.open.push(
+            node.get("number")
+                .and_then(Value::as_i64)
+                .ok_or("number 없음")?,
+        );
+    }
+    for node in recent {
+        list.closed.push(parse_pr_node(node, repo, default_branch)?);
+    }
+    Ok(list)
+}
+
+/// 상세 쿼리의 응답 — `repository` 아래 `p<번호>` 별칭마다 스냅숏 하나. `null`(사라진 PR)은
+/// 건너뛴다. `repository` 자체가 없으면 에러.
+pub fn parse_pr_details(
+    data: &Value,
+    repo: &str,
+    default_branch: &str,
+) -> Result<Vec<PrSnapshot>, String> {
+    let repository = data
+        .get("repository")
+        .and_then(Value::as_object)
+        .ok_or("repository 없음")?;
+    let mut out = Vec::new();
+    for (key, node) in repository {
+        if !key.starts_with('p') || key[1..].parse::<i64>().is_err() {
+            continue;
+        }
+        if node.is_null() {
+            continue;
+        }
+        out.push(parse_pr_node(node, repo, default_branch)?);
     }
     Ok(out)
 }
 
-/// `PR_ONE_QUERY` 의 응답 — PR 하나. 없으면(`null`) `Ok(None)`.
-pub fn parse_pull_request(
-    data: &Value,
-    repo: &str,
-    default_branch: &str,
-) -> Result<Option<PrSnapshot>, String> {
-    let viewer = viewer_of(data)?;
-    match data.pointer("/repository/pullRequest") {
-        None | Some(Value::Null) => Ok(None),
-        Some(node) => parse_pr_node(node, viewer, repo, default_branch).map(Some),
-    }
+/// 스레드 첫 코멘트에 내가 그 리액션을 달았는가 — `<alias>: reactions(content:…) { viewerHasReacted }`.
+fn viewer_reacted(thread: &Value, alias: &str) -> bool {
+    thread
+        .pointer(&format!("/comments/nodes/0/{alias}/viewerHasReacted"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
-fn viewer_of(data: &Value) -> Result<&str, String> {
-    data.pointer("/viewer/login")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "viewer.login 없음".to_string())
-}
-
-fn parse_pr_node(
-    node: &Value,
-    viewer: &str,
-    repo: &str,
-    default_branch: &str,
-) -> Result<PrSnapshot, String> {
+fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSnapshot, String> {
     let str_of = |key: &str| {
         node.get(key)
             .and_then(Value::as_str)
@@ -212,8 +331,8 @@ fn parse_pr_node(
     );
     let mut unhandled = 0;
     let mut rocket = 0;
-    // 스레드가 첫 페이지(100)를 넘치면 못 본 것이 있다 — 보수적으로 "처리 안 됨" 하나로 친다.
-    // (이 레포에서 100개를 넘는 PR 은 없다; 넘치면 ready 알림이 안 나가는 쪽이 안전하다.)
+    // 스레드가 첫 페이지(50)를 넘치면 못 본 것이 있다 — 보수적으로 "처리 안 됨" 하나로 친다.
+    // (이 레포에서 50개를 넘는 PR 은 없다; 넘치면 ready 알림이 안 나가는 쪽이 안전하다.)
     if node
         .pointer("/reviewThreads/pageInfo/hasNextPage")
         .and_then(Value::as_bool)
@@ -229,22 +348,9 @@ fn parse_pr_node(
             if thread.get("isResolved").and_then(Value::as_bool) == Some(true) {
                 continue;
             }
-            let mine: Vec<&str> = thread
-                .pointer("/comments/nodes/0/reactions/nodes")
-                .and_then(Value::as_array)
-                .map(|rs| {
-                    rs.iter()
-                        .filter(|r| {
-                            r.pointer("/user/login").and_then(Value::as_str) == Some(viewer)
-                        })
-                        .filter_map(|r| r.get("content").and_then(Value::as_str))
-                        .filter(|c| is_bot_or_state_reaction(c))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if mine.contains(&"ROCKET") {
+            if viewer_reacted(thread, "rocket") {
                 rocket += 1;
-            } else if !mine.contains(&"EYES") {
+            } else if !viewer_reacted(thread, "eyes") {
                 unhandled += 1;
             }
         }

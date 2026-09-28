@@ -191,6 +191,12 @@ rocky pr --all      # 전 보드
 `rocky.json`: `"pr": { "enabled": true, "intervalMinutes": 3, "notify": true }`. 데몬은 읽기만 한다 —
 리액션·코멘트·머지는 사람(과 세션)이 한다. 상태는 `/api/health` 의 `prWatch` 에.
 
+GitHub GraphQL 한도(시간당 5,000 포인트)는 계정 하나에 걸린다 — 데몬이 다 쓰면 터미널의 `gh` 까지
+막힌다. 그래서 조회는 싸게(레포당 상태 목록 한 번 + 실제로 열린 PR 에만 CI·스레드 상세 한 번,
+비용이 열린 PR 수에 비례) 하고, 응답마다 잔여 예산을 보고, 1,000 밑으로 내려가거나 한도 에러를 받으면 그
+tick 을 멈추고 리셋까지 쉰다. 쉬는 동안 `prWatch` 는 `available: false` 에 사유와 `pausedUntil`
+을 싣고, `rateLimit` 에 마지막 tick 의 비용(`cost`)과 잔여(`remaining`)를 적는다.
+
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 
 "지금 뭐 봐야 하나" 를 몇 줄로. 셋이 같은 판정(`rocky_core::summary`)을 쓴다.
