@@ -1,47 +1,10 @@
 {
   "name": "@minjun0219/rocky",
   "version": "0.28.0",
-  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/, and the board web UI under web/ (built to dist/ at release, served by the daemon). This package holds the Bun dev tooling and the UI build — there is no TypeScript server code.",
-  "license": "MIT",
   "author": "Minjun Kim",
-  "homepage": "https://github.com/minjun0219/rocky",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/minjun0219/rocky.git"
-  },
-  "type": "module",
-  "engines": {
-    "bun": ">=1.0.0"
-  },
-  "keywords": [
-    "claude-code",
-    "mcp",
-    "todo",
-    "board",
-    "daemon",
-    "worklog",
-    "rocky",
-    "rust",
-    "bun"
-  ],
-  "scripts": {
-    "check": "biome check .",
-    "fix": "biome check --write .",
-    "format": "biome format --write .",
-    "lint": "biome lint .",
-    "lint:fix": "biome lint --write .",
-    "test": "bun run test:unit && bun run test:dom",
-    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
-    "changeset": "bunx changeset",
-    "changeset:version": "bunx changeset version && bun scripts/sync-plugin-version.ts",
-    "prepare": "husky",
-    "check:changesets": "bun scripts/check-changesets.ts",
-    "build:ui": "bun scripts/build-ui.ts",
-    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./bridges ./web",
-    "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web"
-  },
-  "lint-staged": {
-    "*.{ts,json,jsonc,md}": "biome check --write --no-errors-on-unmatched"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
@@ -63,6 +26,44 @@
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.4.5",
+    "yjs": "^13.6.33",
     "zustand": "^5.0.14"
-  }
+  },
+  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/, and the board web UI under web/ (built to dist/ at release, served by the daemon). This package holds the Bun dev tooling and the UI build — there is no TypeScript server code.",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "homepage": "https://github.com/minjun0219/rocky",
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "todo",
+    "board",
+    "daemon",
+    "worklog",
+    "rocky",
+    "rust",
+    "bun"
+  ],
+  "license": "MIT",
+  "lint-staged": {
+    "*.{ts,json,jsonc,md}": "biome check --write --no-errors-on-unmatched"
+  },
+  "scripts": {
+    "check": "biome check .",
+    "fix": "biome check --write .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "test": "bun run test:unit && bun run test:dom",
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
+    "changeset": "bunx changeset",
+    "changeset:version": "bunx changeset version && bun scripts/sync-plugin-version.ts",
+    "prepare": "husky",
+    "check:changesets": "bun scripts/check-changesets.ts",
+    "build:ui": "bun scripts/build-ui.ts",
+    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./bridges ./web",
+    "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web"
+  },
+  "type": "module"
 }
