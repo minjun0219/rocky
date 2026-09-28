@@ -10,11 +10,23 @@ interface HistoryEvent {
 
 const LIMIT = 48;
 
+/** 캡션 한 줄 — 마지막 활동이 언제·누구였는지. 눈금만으로는 읽히지 않던 것을 글자로 준다. */
+export function thermalCaption(events: HistoryEvent[], now = Date.now()): string {
+  const latest = events[events.length - 1];
+  if (!latest) {
+    return '';
+  }
+  const who = actorTone(latest.actor) === 'warm' ? '에이전트' : '사람';
+  const elapsed = formatElapsed(latest.at, now);
+  return elapsed === '방금' ? `${who} · 방금` : `${who} · ${elapsed} 전`;
+}
+
 /**
- * 온도 띠 — 최근 활동을 시간순(왼쪽=과거)으로 늘어놓은 눈금.
- * 눈금 하나 = 히스토리 이벤트 하나, 색은 두 대기 그대로(warm=에이전트, cool=사람),
- * 과거로 갈수록 식는다(투명해진다). 보드가 지금 얼마나 뜨거운지, 누가 데우고
- * 있는지를 한 눈에 준다. 스타일은 Tailwind 유틸리티 + 토큰 var — 전용 CSS 없음.
+ * 온도 띠 — 보드의 최근 활동 48건을 시간순(왼쪽=과거)으로 늘어놓은 눈금. 눈금 하나 =
+ * 히스토리 이벤트 하나, 색은 두 대기 그대로(warm=에이전트, cool=사람), 과거로 갈수록
+ * 식는다(투명해진다). "지금 이 보드가 얼마나 뜨겁고 누가 데우고 있나" 를 한 눈에 주는
+ * 장식이었는데, 무슨 뜻인지가 안 읽혔다 — 그래서 눈금 옆에 **마지막 활동을 글자로**
+ * 붙였다(`thermalCaption`). 눈금 위에 올리면 그 한 건의 actor·시각이 뜬다.
  */
 export function ThermalStrip() {
   const [events, setEvents] = useState<HistoryEvent[]>([]);
@@ -42,24 +54,31 @@ export function ThermalStrip() {
   if (events.length === 0) {
     return null;
   }
+  const caption = thermalCaption(events);
   return (
     <div
-      className="flex h-3 items-stretch gap-px overflow-hidden max-[560px]:hidden"
+      className="thermal flex items-center gap-3 max-[560px]:hidden"
       role="img"
-      aria-label={`최근 활동 ${events.length}건 — 앰버는 에이전트, 블루는 사람`}
+      aria-label={`최근 활동 ${events.length}건 — 앰버는 에이전트, 블루는 사람. 마지막: ${caption}`}
+      title="최근 활동 — 왼쪽이 과거, 오른쪽이 방금. 앰버는 에이전트, 블루는 사람"
     >
-      {events.map((e, i) => (
-        <span
-          key={e.id}
-          title={`${e.actor} · ${formatElapsed(e.at)}`}
-          className="w-[3px] rounded-[1px]"
-          style={{
-            background: `var(--${actorTone(e.actor)})`,
-            // 식는 곡선 — 최신(오른쪽)이 1, 과거로 갈수록 0.15 까지.
-            opacity: 0.15 + 0.85 * (i / Math.max(1, events.length - 1)),
-          }}
-        />
-      ))}
+      <div className="flex h-3.5 items-stretch gap-[2px] overflow-hidden">
+        {events.map((e, i) => (
+          <span
+            key={e.id}
+            title={`${e.actor} · ${formatElapsed(e.at)} 전`}
+            className="w-1 rounded-[1px]"
+            style={{
+              background: `var(--${actorTone(e.actor)})`,
+              // 식는 곡선 — 최신(오른쪽)이 1, 과거로 갈수록 0.2 까지.
+              opacity: 0.2 + 0.8 * (i / Math.max(1, events.length - 1)),
+            }}
+          />
+        ))}
+      </div>
+      <span className="thermal-caption whitespace-nowrap font-mono text-micro tracking-[0.12em] text-muted">
+        {caption}
+      </span>
     </div>
   );
 }

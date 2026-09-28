@@ -36,11 +36,11 @@ export function TopBar() {
 
   return (
     <header className="topbar flex items-center gap-4 border-b border-line bg-surface px-5 py-[10px]">
-      <span className="wordmark font-mono text-[13px] font-bold tracking-[0.22em]">
+      <span className="wordmark font-mono text-sm font-bold tracking-[0.22em]">
         ROCKY<span className="text-warm">·</span>BOARD
       </span>
       <span
-        className={`link-status inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.18em] ${connected ? 'is-on text-warm' : 'text-faint'}`}
+        className={`link-status inline-flex items-center gap-1.5 font-mono text-micro tracking-[0.18em] ${connected ? 'is-on text-warm' : 'text-faint'}`}
         title="데몬 SSE 연결 상태"
       >
         <span className="link-pulse size-1.5 rounded-full bg-current" />
@@ -57,7 +57,7 @@ export function TopBar() {
       <div className="ml-auto flex items-center gap-2.5">
         <button
           type="button"
-          className="theme-toggle inline-flex items-center justify-center font-mono text-[13px] text-muted hover:text-text"
+          className="theme-toggle inline-flex items-center justify-center font-mono text-sm text-muted hover:text-text"
           title={`테마 — ${THEME_LABEL[themePref]} (눌러서 ${THEME_LABEL[THEME_CYCLE[themePref]]})`}
           aria-label={`테마 — 현재 ${THEME_LABEL[themePref]}. 눌러서 ${THEME_LABEL[THEME_CYCLE[themePref]]}`}
           onClick={() => setThemePref(THEME_CYCLE[themePref])}
@@ -67,7 +67,7 @@ export function TopBar() {
             return <Icon size={15} aria-hidden />;
           })()}
         </button>
-        <label className="archived-toggle flex cursor-pointer items-center gap-1.5 text-xs text-muted">
+        <label className="archived-toggle flex cursor-pointer items-center gap-1.5 text-meta text-muted">
           <input
             type="checkbox"
             checked={showArchived}
@@ -88,7 +88,7 @@ export function TopBar() {
             }}
           >
             <input
-              className="actor-input w-[120px] rounded-full border border-cool bg-bg px-3 py-[3px] font-mono text-xs text-cool"
+              className="actor-input w-[120px] rounded-full border border-cool bg-bg px-3 py-[3px] font-mono text-meta text-cool"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               // biome-ignore lint/a11y/noAutofocus: 호출자 이름 편집 진입 시 즉시 입력
@@ -99,7 +99,7 @@ export function TopBar() {
         ) : (
           <button
             type="button"
-            className="actor-button rounded-full border border-cool-dim px-3 py-[3px] font-mono text-xs text-cool"
+            className="actor-button rounded-full border border-cool-dim px-3 py-[3px] font-mono text-meta text-cool"
             title="호출자 이름 — 웹에서의 편집은 이 이름으로 기록된다"
             onClick={() => {
               setDraft(actor);

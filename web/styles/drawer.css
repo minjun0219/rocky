@@ -41,7 +41,7 @@
   top: 14px;
   right: 16px;
   color: var(--faint);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .drawer-close:hover {
@@ -53,7 +53,7 @@
   border: 0;
   background: none;
   color: var(--muted);
-  font-size: 0.9em;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -65,7 +65,7 @@
 
 .drawer-id {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.14em;
   color: var(--faint);
   opacity: 0.6;
@@ -82,9 +82,9 @@
 
 .drawer-section-label {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.22em;
-  color: var(--faint);
+  color: var(--muted);
   margin: 16px 0 6px;
 }
 
@@ -95,9 +95,10 @@
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 .drawer-desc-static {
@@ -115,7 +116,7 @@
 
 .md-line code {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   background: var(--surface-2);
   border-radius: 4px;
   padding: 0 4px;
@@ -130,8 +131,9 @@
   background: var(--bg);
   border: 1px solid var(--warm-dim);
   border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.6;
   resize: vertical;
 }
 
@@ -143,8 +145,8 @@
 }
 
 .drawer-btn {
-  font-size: 12px;
-  padding: 6px 12px;
+  font-size: 13px;
+  padding: 7px 14px;
   border-radius: 7px;
   border: 1px solid var(--line);
   background: var(--surface-2);
@@ -173,7 +175,7 @@
   background: var(--surface);
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 .drawer-desc-more:hover {

@@ -79,7 +79,7 @@ export function Sidebar() {
       {adding ? (
         <div className="py-0.5">
           <input
-            className="w-full rounded-md border border-warm-dim bg-surface px-2.5 py-1.5 text-[13px] text-text"
+            className="w-full rounded-md border border-warm-dim bg-surface px-2.5 py-1.5 text-sm text-text"
             value={key}
             placeholder="보드 이름 (레포 이름 권장)"
             aria-label="새 보드 이름"
@@ -99,7 +99,7 @@ export function Sidebar() {
           />
           {/* 생성 실패 사유는 즉시 읽혀야 한다 — 보이기만 하면 스크린리더가 놓친다. */}
           {error && (
-            <div className="px-0.5 pt-1 text-xs leading-[1.4] text-p1" role="alert">
+            <div className="px-0.5 pt-1 text-meta leading-[1.4] text-p1" role="alert">
               {error}
             </div>
           )}

@@ -221,7 +221,7 @@ export function TodoDetail() {
         <label className="mt-2.5 mb-1 flex items-center gap-2">
           <span className="drawer-section-label">섹션</span>
           <select
-            className="flex-auto rounded-md border border-line bg-surface px-2 py-[5px] text-[13px] text-text"
+            className="flex-auto rounded-md border border-line bg-surface px-2 py-[5px] text-sm text-text"
             value={todo.sectionId ?? ''}
             onChange={(e) => {
               const picked = boardSections.find((s) => s.id === e.target.value);
@@ -246,7 +246,7 @@ export function TodoDetail() {
         <label className="mt-1 mb-1 flex items-center gap-2">
           <span className="drawer-section-label">보드</span>
           <select
-            className="flex-auto rounded-md border border-line bg-surface px-2 py-[5px] text-[13px] text-text"
+            className="flex-auto rounded-md border border-line bg-surface px-2 py-[5px] text-sm text-text"
             value={todo.boardId}
             onChange={(e) => {
               const picked = boards.find((b) => b.id === e.target.value);
@@ -379,7 +379,7 @@ export function TodoDetail() {
                   폭으로 늘어나 시트에 가로 스크롤을 만든다(실기기 제보). 폭을 컨테이너에
                   가두면 긴 옵션은 select 상자 안에서 잘려 보인다. */}
               <select
-                className="w-full min-w-0 rounded-md border border-line bg-surface px-2 py-[5px] text-[13px] text-text"
+                className="w-full min-w-0 rounded-md border border-line bg-surface px-2 py-[5px] text-sm text-text"
                 value={handoffSession}
                 onChange={(e) => setHandoffSession(e.target.value)}
               >

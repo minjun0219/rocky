@@ -62,7 +62,7 @@ export function NotesRail() {
         </button>
         <button
           type="button"
-          className="notes-add text-xs text-warm"
+          className="notes-add text-meta text-warm"
           onClick={() => {
             setMobileOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
             void addNote({
@@ -76,7 +76,7 @@ export function NotesRail() {
       </div>
       <div className="notes-body">
         {notes.length === 0 && (
-          <div className="empty-state px-1 py-[18px] text-[13px] text-faint">
+          <div className="empty-state px-1 py-[18px] text-sm text-faint">
             메모가 없다. 스크래치패드로 쓰자.
           </div>
         )}
@@ -130,14 +130,14 @@ function NoteCard({ note }: { note: NoteView }) {
           {copied ? '✓' : note.number}
         </button>
         <input
-          className="note-title min-w-0 flex-1 border-none bg-transparent py-0.5 text-[13px] font-semibold"
+          className="note-title min-w-0 flex-1 border-none bg-transparent py-0.5 text-sm font-semibold"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={save}
         />
         <button
           type="button"
-          className="note-action px-1 py-0.5 text-xs text-faint hover:text-text"
+          className="note-action px-1 py-0.5 text-meta text-faint hover:text-text"
           title="히스토리"
           aria-label="히스토리"
           onClick={() => void openNoteDetail(note.id)}
@@ -146,7 +146,7 @@ function NoteCard({ note }: { note: NoteView }) {
         </button>
         <button
           type="button"
-          className="note-action px-1 py-0.5 text-xs text-faint hover:text-text"
+          className="note-action px-1 py-0.5 text-meta text-faint hover:text-text"
           title="보관 (삭제는 없다)"
           aria-label="보관"
           onClick={() => void archiveNote(note.id)}
@@ -155,7 +155,7 @@ function NoteCard({ note }: { note: NoteView }) {
         </button>
       </div>
       <textarea
-        className="note-content mt-1 w-full resize-y border-none bg-transparent text-[13px] leading-[1.55] text-muted focus:text-text focus:outline-none"
+        className="note-content mt-1 w-full resize-y border-none bg-transparent text-sm leading-[1.55] text-muted focus:text-text focus:outline-none"
         value={content}
         rows={Math.min(12, Math.max(3, content.split('\n').length + 1))}
         onChange={(e) => setContent(e.target.value)}
@@ -166,7 +166,7 @@ function NoteCard({ note }: { note: NoteView }) {
           }
         }}
       />
-      <div className="mt-1 font-mono text-[10px] text-faint">
+      <div className="mt-1 font-mono text-micro text-faint">
         {dirty ? '수정중… (blur 로 저장)' : `갱신 ${formatElapsed(note.updatedAt)} 전`}
       </div>
     </div>

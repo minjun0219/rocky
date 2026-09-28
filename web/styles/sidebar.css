@@ -6,10 +6,10 @@
 
 .sidebar-label {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.22em;
-  color: var(--faint);
-  padding: 0 10px 6px;
+  color: var(--muted);
+  padding: 0 10px 8px;
 }
 
 .doing-dot {

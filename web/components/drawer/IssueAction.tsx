@@ -32,7 +32,7 @@ export function IssueAction({ todo }: { todo: TodoView }) {
   if (!issueCreateAllowed) {
     return (
       <div className="mt-2.5">
-        <p className="m-0 text-xs leading-[1.4] text-muted">
+        <p className="m-0 text-meta leading-[1.4] text-muted">
           GitHub 이슈 만들기는 로컬(루프백)에서만 — 이 화면은 노출된 데몬을 거쳐 열렸다.
         </p>
       </div>
@@ -85,7 +85,7 @@ export function IssueAction({ todo }: { todo: TodoView }) {
       </div>
       {/* 실패 사유는 즉시 읽혀야 한다 — 보이기만 하면 스크린리더가 놓친다. */}
       {error && (
-        <div className="mt-1.5 whitespace-pre-wrap text-xs leading-[1.4] text-p1" role="alert">
+        <div className="mt-1.5 whitespace-pre-wrap text-meta leading-[1.4] text-p1" role="alert">
           {error}
         </div>
       )}

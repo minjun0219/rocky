@@ -25,11 +25,11 @@ export function BoardHeader({ board }: { board: Board }) {
   return (
     <header className="mb-4">
       <div className="flex items-baseline gap-2.5">
-        <h1 className="m-0 text-[17px] font-bold leading-[1.3]">{board.title}</h1>
+        <h1 className="m-0 text-title font-bold leading-[1.3]">{board.title}</h1>
         {/* 제목이 key 그대로면 같은 글자를 두 번 찍지 않는다. */}
         {board.title !== board.key && (
           <span
-            className="font-mono text-[11px] text-faint"
+            className="font-mono text-chip text-faint"
             title="보드 key — 참조 접두사이자 cwd 로 유추되는 이름"
           >
             {board.key}
@@ -38,14 +38,14 @@ export function BoardHeader({ board }: { board: Board }) {
         <div className="flex-1" />
         <button
           type="button"
-          className="text-[11px] text-faint hover:text-warm"
+          className="text-chip text-faint hover:text-warm"
           onClick={() => setEditing(true)}
           title="보드 이름·slug·설명·GitHub 레포 수정"
         >
           편집
         </button>
       </div>
-      {board.description && <p className="mt-1 mb-0 text-[13px] text-muted">{board.description}</p>}
+      {board.description && <p className="mt-1 mb-0 text-sm text-muted">{board.description}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {board.repo && (
           <a
@@ -135,11 +135,11 @@ function BoardEditForm({
       }}
     >
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
           이름
         </span>
         <input
-          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-[13px] text-text placeholder:text-faint"
+          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={title}
           // biome-ignore lint/a11y/noAutofocus: 편집 버튼을 눌러 진입한 폼이라 즉시 입력이 기대 동작
           autoFocus
@@ -147,40 +147,40 @@ function BoardEditForm({
         />
       </label>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
           key
         </span>
         <input
-          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-[13px] text-text placeholder:text-faint"
+          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={key}
           onChange={(e) => setKey(e.target.value)}
           aria-describedby="board-edit-key-hint"
         />
       </label>
       <p
-        className="mb-2 ml-[66px] mt-0 text-[11px] leading-normal text-faint [&_code]:font-mono"
+        className="mb-2 ml-[66px] mt-0 text-chip leading-normal text-faint [&_code]:font-mono"
         id="board-edit-key-hint"
       >
         key 는 참조 접두사(<code>{key.trim() || board.key}-12</code>)이자 레포 이름으로 유추되는
         식별자다. 바꿔도 옛 참조는 계속 풀린다.
       </p>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
           설명
         </span>
         <input
-          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-[13px] text-text placeholder:text-faint"
+          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={description}
           placeholder="이 보드가 무엇인가 (한 줄)"
           onChange={(e) => setDescription(e.target.value)}
         />
       </label>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
           GitHub
         </span>
         <input
-          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-[13px] text-text placeholder:text-faint"
+          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={repo}
           placeholder="OWNER/NAME"
           onChange={(e) => setRepo(e.target.value)}
