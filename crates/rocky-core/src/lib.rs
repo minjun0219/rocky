@@ -22,6 +22,7 @@ pub mod store;
 pub mod summary;
 pub mod transcript;
 pub mod types;
+pub mod usage;
 pub mod version;
 pub mod worklog;
 

@@ -75,6 +75,7 @@ claude plugin install rocky@rocky-marketplace
 | 키 | 내용 |
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
+| `usage` | 사용 로그(`dir` 기본 `~/.config/rocky/usage`, `enabled` 기본 true). 표면별 호출을 월별 JSONL 로 남기고 `rocky usage` 로 읽는다 — 내용은 싣지 않는다 |
 | `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `sessionSummary`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수
@@ -86,6 +87,8 @@ claude plugin install rocky@rocky-marketplace
 | `ROCKY_CONFIG` | `~/.config/rocky/rocky.json` | user-level `rocky.json` 경로 override |
 | `ROCKY_WORKLOG_DIR` | `~/.config/rocky/worklog/<project-key>` | 워크로그 JSONL 위치. `worklog.dir` 보다 우선 |
 | `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` | `Stop` 훅 턴 자동 기록 on/off. `0`/`false`/`off`/`no` 만 비활성 |
+| `ROCKY_USAGE` | `1` | 사용 로그 on/off. `0`/`false`/`off`/`no` 만 비활성 |
+| `ROCKY_USAGE_DIR` | `~/.config/rocky/usage` | 사용 로그 JSONL 위치. `usage.dir` 보다 우선 |
 
 ## 문서 맵
 

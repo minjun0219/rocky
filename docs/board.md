@@ -621,6 +621,25 @@ REF 는 id 대신 사람이 읽을 수 있는 참조를 받는다: `rocky-12`(�
 (`#12` 등)처럼 `#` 로 시작하는 REF 는 bash/zsh 에서 주석 시작 문자로 해석되므로 따옴표로
 감싼다: `rocky show '#12'`.
 
+## 사용 로그 — 무엇이 쓰이나 (`rocky usage`)
+
+rocky 의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.23 에 도구 12개를 걷어낼 때는
+39개 레포의 워크로그를 손으로 뒤져 "0건" 을 셌는데, 그 셈을 명령 하나로 만든 것이다.
+
+- **무엇을**: 데몬 REST 라우트(웹·TUI·CLI 가 다 지나간다) · MCP 도구(보드 5 + worklog 4) ·
+  `rocky <cmd>` · 훅 4개 · 웹 UI 의 이름 붙인 이벤트(`web:now-row` 등). 한 줄 = 이름 · 누가
+  (`x-rocky-actor`) · 클라이언트(`x-rocky-client`: web/tui/cli) · 성공 여부 · 걸린 시간.
+  **내용은 싣지 않는다** — 제목·본문·id 없이 `GET /api/todos/:ref` 처럼 모양만.
+- **어디에**: `~/.config/rocky/usage/YYYY-MM.jsonl`(월별 append-only). 데몬은 전용 스레드로,
+  CLI·훅·worklog MCP 는 자기가 직접 쓴다(데몬을 안 거치므로). 1초마다 도는 statusline 과
+  SSE·health 는 기록하지 않는다.
+- **읽기**: `rocky usage [--since 30d] [--json]` — 많이 쓴 표면(에러 수·p50/p95), **알려진
+  표면 중 한 번도 안 쓰인 것**, 날짜·시각 분포, 클라이언트 비율. 데몬 없이 파일만 읽는다.
+- **끄기**: `rocky.json` `usage.enabled: false` 또는 env `ROCKY_USAGE=0`. 위치는 `usage.dir` /
+  `ROCKY_USAGE_DIR`.
+- **개선 루프**: 표면을 빼거나 바꾸는 PR 은 이 수치를 인용한다(AGENTS.md). 판단은 사람이 —
+  로그가 자동으로 무엇을 끄지는 않는다.
+
 ## 설정
 
 `rocky.json` (user 레벨 권장 — 데몬은 project rocky.json 을 보지 않는다). **`enabled` 필드는

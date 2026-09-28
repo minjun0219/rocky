@@ -198,6 +198,10 @@ deterministically, and a per-turn gate would just make every turn slow.
    `crates/rockyd/tests/mcp_test.rs`, `crates/rocky-cli/tests/worklog_mcp_test.rs`); removed
    names (openapi / seo / notion / mysql / spec-pact / pr-watch) must not reappear.
 7. User-facing change → `bunx changeset`. Tooling-only chores need none.
+8. Removing or reshaping a surface (tool / route / command / hook / web action) → cite
+   `rocky usage --since 90d` in the PR body (counts, last use). The usage log
+   (`rocky_core::usage`, `~/.config/rocky/usage/*.jsonl`) exists so that "nobody uses it" is a
+   number, not a memory. New surfaces go into `KNOWN_SURFACES` so they show up as unused until used.
 
 ## 데몬/설치 모델 (핵심)
 

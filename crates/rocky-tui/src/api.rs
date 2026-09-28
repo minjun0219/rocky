@@ -115,6 +115,7 @@ impl Api {
         let response = agent
             .get(self.url(path))
             .header("x-rocky-actor", ACTOR)
+            .header("x-rocky-client", "tui")
             .call()
             .map_err(|e| format!("{path}: {e}"))?;
         Self::parse(path, response)
@@ -137,6 +138,7 @@ impl Api {
         let response = agent
             .post(self.url(path))
             .header("x-rocky-actor", ACTOR)
+            .header("x-rocky-client", "tui")
             .header("content-type", "application/json")
             .send(body.to_string().as_bytes())
             .map_err(|e| format!("{path}: {e}"))?;

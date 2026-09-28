@@ -20,6 +20,7 @@ use rocky_core::local_request::NON_LOCAL_ISSUE_MESSAGE;
 use rocky_core::refs::{ref_needs_board_context, with_ref_note, with_ref_todo};
 use rocky_core::store::{StoreError, StoreResult, TodoStore};
 use rocky_core::types::*;
+use rocky_core::usage::{UsageEvent, UsageSource};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -188,7 +189,10 @@ impl TodoMcp {
         description = "공유 todo 보드 조회. board 로 보드 하나, 생략 시 전체. id 를 주면 해당 todo 상세 + 히스토리, boards:true 면 보드 목록. 필터: status / label / includeArchived. id 는 참조 문법(12, rocky-12, id, id prefix)을 받는다 — 맨숫자 12 로 조회하려면 board 를 함께 줘야 한다. 옛 표기(#12, rocky#12)도 계속 받는다."
     )]
     async fn todo_list(&self, Parameters(args): Parameters<TodoListArgs>) -> CallToolResult {
-        tool_outcome(self.todo_list_inner(args))
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.todo_list_inner(args));
+        self.record_tool("todo_list", started, &out);
+        out
     }
 
     #[tool(
@@ -196,7 +200,10 @@ impl TodoMcp {
         description = "todo 생성/수정. id 없으면 생성(board + title 필수), 있으면 부분 수정. section 은 이름으로 자동 upsert. links 에 GitHub 이슈 / Todoist URL 을 첨부해 맥락을 연결한다. 삭제는 없다 — todo_status 의 archive 를 쓴다. id 는 참조 문법(12, rocky-12, id, id prefix)을 받는다 — 맨숫자 12 로 수정하려면 board 를 함께 줘야 한다. 옛 표기(#12, rocky#12)도 계속 받는다. 진행 상황·중간 보고·사용자에게 묻고 싶은 것은 description 을 덮어쓰지 말고 comment 로 남긴다 — description 은 \"이 할 일이 무엇인가\"의 자리이고, comment 는 사용자와 주고받는 타임라인이다. createIssue: true 를 주면 이 todo 를 GitHub 이슈로 올리고 그 URL 을 links 에 붙인다 (보드에 repo 가 설정돼 있어야 한다)."
     )]
     async fn todo_write(&self, Parameters(args): Parameters<TodoWriteArgs>) -> CallToolResult {
-        tool_outcome(self.todo_write_inner(args).await)
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.todo_write_inner(args).await);
+        self.record_tool("todo_write", started, &out);
+        out
     }
 
     #[tool(
@@ -204,7 +211,10 @@ impl TodoMcp {
         description = "todo 상태 전이. start=처리 시작(누가 작업중인지 웹 UI 에 표시됨 — 작업 착수 시 반드시 호출), stop=중단, done=완료, reopen=재오픈, archive/unarchive=보관/복원. id 는 참조 문법(12, rocky-12, id, id prefix)을 받는다 — 맨숫자 12 로 지정하려면 board 를 함께 줘야 한다. 옛 표기(#12, rocky#12)도 계속 받는다."
     )]
     async fn todo_status(&self, Parameters(args): Parameters<TodoStatusArgs>) -> CallToolResult {
-        tool_outcome(self.todo_status_inner(args))
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.todo_status_inner(args));
+        self.record_tool("todo_status", started, &out);
+        out
     }
 
     #[tool(
@@ -212,7 +222,10 @@ impl TodoMcp {
         description = "스크래치패드/메모 조회. board 로 보드 소속, global:true 로 보드 미소속 메모 목록. id 를 주면 상세 + 히스토리. id 는 참조 문법(note-3, rocky-12, 12, id, id prefix)을 받는다. 전역(보드 미소속) 메모는 note-N 으로 지정하는 것이 가장 안전하다 — 이 접두사는 예약어라 board 인자와 무관하게 늘 전역 메모를 가리킨다. 반면 맨숫자 12 는 board 인자 유무로 완전히 다른 행이 된다: board 를 생략하면 전역 번호 공간, 주면 그 보드의 번호 공간이다. 옛 표기(#12, rocky#12)도 계속 받는다."
     )]
     async fn note_list(&self, Parameters(args): Parameters<NoteListArgs>) -> CallToolResult {
-        tool_outcome(self.note_list_inner(args))
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.note_list_inner(args));
+        self.record_tool("note_list", started, &out);
+        out
     }
 
     #[tool(
@@ -220,11 +233,23 @@ impl TodoMcp {
         description = "스크래치패드/메모 작성. id 없으면 생성(title 필수), 있으면 수정. mode: set=content 교체(기본) / append=뒤에 이어붙임 / archive=보관 / unarchive=복원. 삭제는 없다. id 는 참조 문법(note-3, rocky-12, 12, id, id prefix)을 받는다. 전역(보드 미소속) 메모를 수정/보관하려면 note-N 으로 지정한다 — 예약 접두사라 board 인자와 무관하게 늘 전역 메모다. 맨숫자 12 는 board 인자 유무로 완전히 다른 행을 가리킨다: board 를 생략하면 전역 메모, 주면 그 보드의 같은 번호 메모가 대신 수정/보관된다(에러 없이 조용히). 옛 표기(#12, rocky#12)도 계속 받는다."
     )]
     async fn note_write(&self, Parameters(args): Parameters<NoteWriteArgs>) -> CallToolResult {
-        tool_outcome(self.note_write_inner(args).await)
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.note_write_inner(args).await);
+        self.record_tool("note_write", started, &out);
+        out
     }
 }
 
 impl TodoMcp {
+    /// 도구 한 번을 사용 로그에 — MCP 에는 actor 헤더가 없으니 `agent` 로 적는다.
+    fn record_tool(&self, name: &str, started: std::time::Instant, out: &CallToolResult) {
+        let mut event = UsageEvent::new(UsageSource::Mcp, name, out.is_error != Some(true));
+        event.actor = Some("agent".into());
+        event.client = Some("mcp".into());
+        event.ms = Some(started.elapsed().as_millis() as u64);
+        self.state.record_usage(event);
+    }
+
     fn todo_list_inner(&self, args: TodoListArgs) -> Result<CallToolResult, StoreError> {
         let store = &self.state.store;
         if args.boards == Some(true) {

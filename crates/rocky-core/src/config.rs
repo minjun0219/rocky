@@ -323,3 +323,52 @@ pub fn load_worklog_config(user_path: &Path, project_root: &Path) -> WorklogConf
     let project = load_worklog_block(&project_root.join("rocky.json"));
     user.merged_with(&project)
 }
+
+/// `rocky.json` 의 `usage` 블록 — 사용 로그(`rocky_core::usage`). 기본 켜짐, `~/.config/rocky/usage`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UsageConfig {
+    pub dir: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+/// 파일 없음 / 파싱 실패 / 블록 없음은 기본값(fail-open).
+pub fn load_usage_block(config_path: &Path) -> UsageConfig {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return UsageConfig::default();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return UsageConfig::default();
+    };
+    let Some(block) = parsed.get("usage").and_then(|v| v.as_object()) else {
+        return UsageConfig::default();
+    };
+    UsageConfig {
+        dir: block
+            .get("dir")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        enabled: block.get("enabled").and_then(|v| v.as_bool()),
+    }
+}
+
+/// 사용 로그 디렉터리 — None 이면 끔. env `ROCKY_USAGE`(0/false/off/no 로 끔) ·
+/// `ROCKY_USAGE_DIR` 이 설정 파일보다 우선. 기본 `~/.config/rocky/usage`.
+pub fn resolve_usage_dir(env: &EnvMap, usage: &UsageConfig) -> Option<PathBuf> {
+    if let Some(flag) = env.get("ROCKY_USAGE") {
+        let value = flag.trim().to_lowercase();
+        if matches!(value.as_str(), "0" | "false" | "off" | "no") {
+            return None;
+        }
+    } else if usage.enabled == Some(false) {
+        return None;
+    }
+    let raw = env
+        .get("ROCKY_USAGE_DIR")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| usage.dir.clone())
+        .unwrap_or_else(|| "~/.config/rocky/usage".to_string());
+    Some(expand_tilde(&raw))
+}

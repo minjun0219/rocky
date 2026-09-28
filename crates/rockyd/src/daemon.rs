@@ -125,6 +125,7 @@ async fn mcp_handler(
 pub async fn run_daemon(
     runtime: TodoRuntimeConfig,
     ui_dist: Option<PathBuf>,
+    usage: Option<crate::usage_sink::UsageSink>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
     let base_url = format!("http://127.0.0.1:{}", runtime.port);
@@ -146,6 +147,7 @@ pub async fn run_daemon(
     let state = build_server(ServerOptions {
         statusline_template: Some(runtime.statusline_template.clone()),
         inbox_sources: runtime.inbox.clone(),
+        usage,
         ..ServerOptions::new(store)
     });
     // 죽은 세션이 쥔 doing 자동 해제 — 기동 1분 뒤부터 10분마다.
@@ -220,5 +222,11 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
     let todo = rocky_core::config::load_todo_config(&config_path);
     let env = rocky_core::config::env_snapshot();
     let runtime = resolve_runtime_config(&env, &todo);
-    run_daemon(runtime, ui_dist).await
+    // 사용 로그 — 켜져 있으면 파일 싱크, 아니면 안 남긴다.
+    let usage = rocky_core::config::resolve_usage_dir(
+        &env,
+        &rocky_core::config::load_usage_block(&config_path),
+    )
+    .map(crate::usage_sink::file_sink);
+    run_daemon(runtime, ui_dist, usage).await
 }

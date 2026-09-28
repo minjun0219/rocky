@@ -227,10 +227,15 @@ pub fn request_value(
     // 문자열 하나로 합칠 수 없다. 데몬이 쓰는 다섯 가지만 받는다.
     let upper = method.to_ascii_uppercase();
     let sent = match upper.as_str() {
-        "GET" => agent.get(&url).header("x-rocky-actor", &ctx.actor).call(),
+        "GET" => agent
+            .get(&url)
+            .header("x-rocky-actor", &ctx.actor)
+            .header("x-rocky-client", "cli")
+            .call(),
         "DELETE" => agent
             .delete(&url)
             .header("x-rocky-actor", &ctx.actor)
+            .header("x-rocky-client", "cli")
             .call(),
         "POST" | "PATCH" | "PUT" => {
             let builder = match upper.as_str() {
@@ -238,7 +243,8 @@ pub fn request_value(
                 "PATCH" => agent.patch(&url),
                 _ => agent.put(&url),
             }
-            .header("x-rocky-actor", &ctx.actor);
+            .header("x-rocky-actor", &ctx.actor)
+            .header("x-rocky-client", "cli");
             match body {
                 Some(payload) => builder
                     .header("content-type", "application/json")

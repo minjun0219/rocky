@@ -32,6 +32,7 @@ use rocky_core::statusline::{
 use rocky_core::store::{StoreError, StoreResult, TodoStore};
 use rocky_core::summary::{build_summary, count_unpromoted, due_bucket, Summary};
 use rocky_core::types::*;
+use rocky_core::usage::{client_of, normalize_route, UsageEvent, UsageSource};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
@@ -45,6 +46,7 @@ use crate::spawnctl::{
     default_spawn_fn, find_live_session_at, worktree_name_for, worktree_path_for, RecentSpawns,
     SpawnFn, SpawnInput, RECENT_SPAWN_TTL,
 };
+use crate::usage_sink::{noop_sink, UsageSink};
 
 /// 상태를 바꾸는 메서드 — cross-site 가드가 적용되는 범위.
 fn is_mutating(method: &Method) -> bool {
@@ -75,6 +77,8 @@ pub struct ServerOptions {
     pub inbox_sources: Vec<InboxSource>,
     /// 수집함 조회기 — 테스트가 fake 를 넣는다.
     pub inbox: Option<InboxProvider>,
+    /// 사용 로그 싱크 — 없으면 안 남긴다(테스트·끈 설정).
+    pub usage: Option<UsageSink>,
 }
 
 impl ServerOptions {
@@ -92,6 +96,7 @@ impl ServerOptions {
             recent_spawns: None,
             inbox_sources: Vec::new(),
             inbox: None,
+            usage: None,
         }
     }
 }
@@ -108,6 +113,7 @@ pub struct ServerState {
     real_path: RealPath,
     recent_spawns: Arc<RecentSpawns>,
     inbox: InboxProvider,
+    usage: UsageSink,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
     /// 스토어 구독 해제용.
@@ -123,6 +129,11 @@ impl ServerState {
     /// 일반 라우트와 같은(TTL 캐시) 세션 목록 — 스윕이 쓴다.
     pub async fn sessions(&self) -> SessionsResult {
         (self.sessions)().await
+    }
+
+    /// 사용 로그 한 건 — REST 입구와 MCP 도구가 부른다.
+    pub fn record_usage(&self, event: UsageEvent) {
+        (self.usage)(event);
     }
 }
 
@@ -178,6 +189,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
                 Duration::from_secs(INBOX_CACHE_TTL_SECS),
             )
         }),
+        usage: options.usage.unwrap_or_else(noop_sink),
         events,
         _subscription: subscription,
     })
@@ -424,10 +436,24 @@ pub async fn handle_api(
         return error_response(CROSS_SITE_MESSAGE, StatusCode::FORBIDDEN);
     }
 
-    match dispatch(state, &method, &path, &query, &headers, body, &actor, local).await {
-        Ok(response) => response,
-        Err(error) => to_http_error(&error),
+    let started = std::time::Instant::now();
+    let response =
+        match dispatch(state, &method, &path, &query, &headers, body, &actor, local).await {
+            Ok(response) => response,
+            Err(error) => to_http_error(&error),
+        };
+    // 사용 로그 — 이름은 모양만(`GET /api/todos/:ref`), 1초마다 도는 라우트는 빠진다.
+    if let Some(name) = normalize_route(method.as_str(), &path) {
+        let mut event = UsageEvent::new(UsageSource::Rest, name, response.status().as_u16() < 400);
+        event.actor = Some(actor.clone());
+        event.client = Some(client_of(
+            header_of(&headers, "x-rocky-client").as_deref(),
+            header_of(&headers, "user-agent").as_deref(),
+        ));
+        event.ms = Some(started.elapsed().as_millis() as u64);
+        state.record_usage(event);
     }
+    response
 }
 
 /// `?board=` 쿼리(보드 key) → boardId. 없으면 None. 있는데 안 풀리면 — ref 가 맨숫자
@@ -485,6 +511,27 @@ async fn dispatch(
 ) -> StoreResult<Response> {
     let store = &state.store;
     let flag = |name: &str| query.get(name).map(String::as_str) == Some("true");
+
+    // ── usage — 웹 UI 가 서버를 안 거치는 조작을 이름으로 남긴다 ──
+    if *method == Method::POST && path == "/api/usage" {
+        let body = read_body(headers, body).await?;
+        let name = body
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|n| n.starts_with("web:") && n.len() <= 64 && !n.contains(char::is_whitespace))
+            .ok_or_else(|| StoreError::new("name must be `web:<event>` (≤64 chars)"))?;
+        let mut event = UsageEvent::new(UsageSource::Web, name, true);
+        event.actor = Some(actor.to_string());
+        event.client = Some("web".into());
+        // meta 는 작은 객체만 — 내용을 실어 오는 통로가 되지 않게 256자에서 자른다.
+        event.meta = body
+            .get("meta")
+            .filter(|m| m.is_object() && m.to_string().len() <= 256)
+            .cloned();
+        state.record_usage(event);
+        return Ok(ok_json(&json!({ "ok": true })));
+    }
 
     // ── health ──
     if *method == Method::GET && path == "/api/health" {
