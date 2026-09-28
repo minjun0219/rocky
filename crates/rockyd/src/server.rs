@@ -120,6 +120,8 @@ pub struct ServerState {
     /// 전역 `events` 에 싣지 않는 이유: 그 채널의 구독자는 전부 refetch 하므로 글자마다
     /// 보드 전체를 다시 읽게 된다. 구독자가 0 이 된 노트의 채널은 다음 방송 때 걷는다.
     note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
+    /// PR 감시 잡의 마지막 결과 — health 가 낸다.
+    pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
     /// 스토어 구독 해제용.
     _subscription: u64,
     _doc_subscription: u64,
@@ -142,6 +144,15 @@ impl ServerState {
     }
 
     /// 노트의 문서 스트림 — 없으면 만든다. 테스트가 구독해 방송을 본다.
+    /// PR 감시 상태 — 잡이 tick 마다 갱신한다.
+    pub fn set_pr_watch(&self, status: crate::prwatch::PrWatchStatus) {
+        *self.pr_watch.lock().expect("pr_watch poisoned") = status;
+    }
+
+    pub fn pr_watch(&self) -> crate::prwatch::PrWatchStatus {
+        self.pr_watch.lock().expect("pr_watch poisoned").clone()
+    }
+
     /// 노트의 문서 스트림을 **구독한다** — 채널이 없으면 만든다. 구독을 락 안에서 끝내는 이유:
     /// 보내는 쪽(`broadcast_note`)이 "듣는 이 0" 인 채널을 걷어 내므로, 채널을 꺼내 온 뒤
     /// 구독하기 전에 방송이 끼면 걷힌 채널을 구독해 그 뒤로 아무것도 못 받는다.
@@ -252,6 +263,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         usage: options.usage.unwrap_or_else(noop_sink),
         events,
         note_streams: Mutex::new(HashMap::new()),
+        pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
         _subscription: subscription,
         _doc_subscription: doc_subscription,
     });
@@ -609,6 +621,7 @@ async fn dispatch(
             "pid": std::process::id(),
             "issueCreateAllowed": local,
             "spawnAllowed": local,
+            "prWatch": state.pr_watch(),
         })));
     }
 
@@ -1164,6 +1177,36 @@ async fn dispatch(
                 .body(Body::empty())
                 .unwrap(),
         });
+    }
+
+    // ── PR 감시 — 기억하고 있는 스냅숏 (읽기 전용) ──
+    if *method == Method::GET && path == "/api/prs" {
+        let repo = match query.get("board").filter(|k| !k.is_empty()) {
+            Some(key) => match store.board_id_of(key)? {
+                Some(id) => store.board_by_id(&id)?.and_then(|b| b.repo),
+                None => {
+                    return Ok(error_response(
+                        &format!("unknown board: {key}"),
+                        StatusCode::BAD_REQUEST,
+                    ))
+                }
+            },
+            None => None,
+        };
+        if query.contains_key("board") && repo.is_none() {
+            return Ok(ok_json(&Vec::<rocky_core::prwatch::PrSnapshot>::new()));
+        }
+        let mut prs = store.list_prs(repo.as_deref(), flag("open"))?;
+        if repo.is_none() {
+            // 전역 목록은 지금 보드에 설정된 레포만 — 떼어 낸 레포의 옛 스냅숏이 새 tick 전에 보이지 않게.
+            let watched: std::collections::HashSet<String> = store
+                .list_boards(false)?
+                .into_iter()
+                .filter_map(|b| b.repo)
+                .collect();
+            prs.retain(|p| watched.contains(&p.repo));
+        }
+        return Ok(ok_json(&prs));
     }
 
     if *method == Method::GET && path == "/api/handoffs" {

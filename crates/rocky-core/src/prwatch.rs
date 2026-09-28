@@ -136,6 +136,14 @@ fn ci_of(rollup: Option<&str>) -> CiState {
     }
 }
 
+/// 응답의 기본 브랜치 이름 — 없으면 `main`.
+pub fn default_branch_of(data: &Value) -> String {
+    data.pointer("/repository/defaultBranchRef/name")
+        .and_then(Value::as_str)
+        .unwrap_or("main")
+        .to_string()
+}
+
 /// `PR_QUERY` 의 응답(`data` 아래)을 스냅숏 목록으로 — 열린 것 전부 + 최근 닫힌 것. 모양이
 /// 다르면 빈 목록이 아니라 에러 — 조용히 "PR 없음" 이 되면 전이가 엉뚱하게 난다.
 pub fn parse_pull_requests(

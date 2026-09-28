@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rocky_core::prwatch::{
-    default_branch_of, notification_text, osascript_args, parse_pull_requests, PrEvent, PR_QUERY,
+    default_branch_of, list_query, notification_text, one_query, osascript_args,
+    parse_pull_request, parse_pull_requests, PrEvent, PrSnapshot,
 };
 use serde::Serialize;
 
@@ -74,7 +75,40 @@ fn watched_repos(state: &ServerState) -> Vec<String> {
         .collect()
 }
 
-/// 한 레포 한 번 — 쿼리 → 파싱 → 스토어 → 알림. 실패는 사유 문자열.
+/// `gh api graphql` 한 번 — `data` 를 돌려준다.
+async fn graphql(
+    runner: &Runner,
+    query: String,
+    fields: &[(String, String)],
+) -> Result<serde_json::Value, String> {
+    let mut cmd = vec![
+        "gh".to_string(),
+        "api".into(),
+        "graphql".into(),
+        "-f".into(),
+        format!("query={query}"),
+    ];
+    for (k, v) in fields {
+        cmd.push("-F".into());
+        cmd.push(format!("{k}={v}"));
+    }
+    let out = runner(cmd, String::new(), QUERY_TIMEOUT).await;
+    if !out.ok() {
+        return Err(format!(
+            "gh api graphql 실패(exit {}): {}",
+            out.code,
+            out.stderr.trim()
+        ));
+    }
+    let body: serde_json::Value =
+        serde_json::from_str(&out.stdout).map_err(|e| format!("응답이 JSON 이 아니다: {e}"))?;
+    body.get("data")
+        .cloned()
+        .ok_or_else(|| "응답에 data 가 없다".to_string())
+}
+
+/// 한 레포 한 번 — 쿼리 → 파싱 → (창 밖으로 밀린 옛 열린 PR 은 낱개로) → 스토어 → 알림.
+/// 실패는 사유 문자열.
 async fn tick_repo(
     state: &Arc<ServerState>,
     runner: &Runner,
@@ -85,34 +119,32 @@ async fn tick_repo(
     let Some((owner, name)) = repo.split_once('/') else {
         return Err(format!("repo 표기가 owner/name 이 아니다: {repo}"));
     };
-    let out = runner(
-        vec![
-            "gh".into(),
-            "api".into(),
-            "graphql".into(),
-            "-f".into(),
-            format!("query={PR_QUERY}"),
-            "-F".into(),
-            format!("owner={owner}"),
-            "-F".into(),
-            format!("name={name}"),
-        ],
-        String::new(),
-        QUERY_TIMEOUT,
-    )
-    .await;
-    if !out.ok() {
-        return Err(format!(
-            "gh api graphql 실패(exit {}): {}",
-            out.code,
-            out.stderr.trim()
-        ));
+    let repo_vars = vec![
+        ("owner".to_string(), owner.to_string()),
+        ("name".to_string(), name.to_string()),
+    ];
+    let data = graphql(runner, list_query(), &repo_vars).await?;
+    let default_branch = default_branch_of(&data);
+    let mut snapshots = parse_pull_requests(&data, repo, &default_branch)?;
+    // 직전엔 OPEN 이었는데 이번 목록(열린 것 전부 + 최근 닫힌 30건)에 없는 PR — 닫힌 지 오래돼
+    // 창 밖으로 밀린 것이다. 낱개로 물어 전이(merged/closed)를 잃지 않는다.
+    let prev_open: Vec<PrSnapshot> = state
+        .store
+        .list_prs(Some(repo), true)
+        .map_err(|e| e.to_string())?;
+    let missing: Vec<i64> = prev_open
+        .iter()
+        .filter(|p| !snapshots.iter().any(|s| s.number == p.number))
+        .map(|p| p.number)
+        .collect();
+    for number in missing {
+        let mut vars = repo_vars.clone();
+        vars.push(("number".to_string(), number.to_string()));
+        let one = graphql(runner, one_query(), &vars).await?;
+        if let Some(snap) = parse_pull_request(&one, repo, &default_branch)? {
+            snapshots.push(snap);
+        }
     }
-    let body: serde_json::Value =
-        serde_json::from_str(&out.stdout).map_err(|e| format!("응답이 JSON 이 아니다: {e}"))?;
-    let data = body.get("data").ok_or("응답에 data 가 없다")?;
-    let default_branch = default_branch_of(data);
-    let snapshots = parse_pull_requests(data, repo, &default_branch)?;
     let events = state
         .store
         .apply_pr_snapshot(repo, &snapshots, PR_WATCH_ACTOR)
@@ -126,7 +158,8 @@ async fn tick_repo(
     Ok(events)
 }
 
-/// 한 번 훑는다 — 레포마다 독립(하나가 실패해도 나머지는 돈다). 결과는 health 에 반영.
+/// 한 번 훑는다 — 레포마다 독립(하나가 실패해도 나머지는 돈다). 더는 보지 않는 레포의 스냅숏은
+/// 걷는다. 결과는 health 에 반영.
 pub async fn tick(
     state: &Arc<ServerState>,
     runner: &Runner,
@@ -134,6 +167,7 @@ pub async fn tick(
     notify: bool,
 ) -> Vec<PrEvent> {
     let repos = watched_repos(state);
+    let _ = state.store.retain_pr_repos(&repos);
     let mut events = Vec::new();
     let mut failures = Vec::new();
     for repo in &repos {
