@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::actors::is_agent_actor;
 use crate::sessions::{match_board, AgentSession, SessionsResult};
-use crate::types::{Handoff, HandoffStatus, Todo, TodoStatus};
+use crate::statusline::is_under;
+use crate::types::{Board, Handoff, HandoffStatus, Todo, TodoStatus};
 
 /// doing 하나의 생존 상태.
 ///
@@ -67,6 +68,84 @@ pub fn resolve_doing_state(todo: &Todo, board_key: &str, sessions: &SessionsResu
         }
         _ => DoingState::Unknown,
     }
+}
+
+/// 죽은 세션이 쥔 doing 을 놓아주기까지의 유예 — 24시간. 세션 목록에서 잠깐 빠진
+/// 경우(재시작 중)를 "죽었다" 로 오판하지 않으려는 여유다.
+pub const AUTO_RELEASE_GRACE_SECS: i64 = 24 * 60 * 60;
+
+fn iso_epoch(value: Option<&str>) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value?)
+        .ok()
+        .map(|d| d.timestamp())
+}
+
+/// 이 doing 을 자동으로 놓아줄 것인가 — **에이전트 actor** 가 쥐고, 세션이 **`Gone`** 이고,
+/// 착수 후 유예가 지났을 때만. 사람이 든 것·`Idle`(세션 살아 있음)·`Unknown` 은 절대 건드리지
+/// 않는다. 시각을 못 읽으면 false(모르는 건 안 건드린다).
+pub fn should_auto_release(todo: &Todo, state: DoingState, now_iso: &str, grace_secs: i64) -> bool {
+    if todo.status != TodoStatus::Doing || state != DoingState::Gone {
+        return false;
+    }
+    let Some(actor) = todo.doing_by.as_deref() else {
+        return false;
+    };
+    if !is_agent_actor(actor) {
+        return false;
+    }
+    let (Some(since), Some(now)) = (
+        iso_epoch(todo.doing_since.as_deref()),
+        iso_epoch(Some(now_iso)),
+    ) else {
+        return false;
+    };
+    now - since >= grace_secs
+}
+
+/// 이 보드에 붙은 세션이 **하나라도** 있는가 — 현재 key 뿐 아니라 옛 key(별칭)와 설정된
+/// `path` 하위까지 본다. `match_board` 는 현재 key 세그먼트만 보므로 key 를 디렉터리와 어긋나게
+/// 바꾼 보드는 세션이 버젓이 돌아도 `Gone` 이 나온다 — 표시라면 사람이 고르면 그만이지만 자동
+/// 해제는 "정말 아무도 없다" 를 확신해야 해서 이 넓은 판정을 쓴다.
+pub fn board_has_session(sessions: &[AgentSession], board: &Board) -> bool {
+    if !match_board(sessions, &board.key).is_empty() {
+        return true;
+    }
+    if board
+        .previous_keys
+        .iter()
+        .flatten()
+        .any(|k| !match_board(sessions, k).is_empty())
+    {
+        return true;
+    }
+    match board.path.as_deref() {
+        Some(path) => sessions.iter().any(|s| is_under(&s.cwd, path)),
+        None => false,
+    }
+}
+
+/// 스냅샷 이후 그 doing 이 그대로인가 — 세션 조회를 기다리는 사이(최대 수 초) 사람이나
+/// 에이전트가 done/stop/재착수했으면 스냅샷 기준의 해제는 엉뚱한 행을 되돌린다. 상태·actor·
+/// 착수 시각·귀속 세션이 전부 같을 때만 같은 doing 으로 본다.
+pub fn doing_unchanged(snapshot: &Todo, current: &Todo) -> bool {
+    current.status == TodoStatus::Doing
+        && current.doing_by == snapshot.doing_by
+        && current.doing_since == snapshot.doing_since
+        && current.doing_session_id == snapshot.doing_session_id
+}
+
+/// 자동 해제 때 남기는 댓글 — 누가 언제 들었다가 왜 풀렸는지.
+pub fn auto_release_note(todo: &Todo, now_iso: &str) -> String {
+    let actor = todo.doing_by.as_deref().unwrap_or("?");
+    let since = todo.doing_since.as_deref().unwrap_or("?");
+    let days = match (iso_epoch(Some(since)), iso_epoch(Some(now_iso))) {
+        (Some(a), Some(b)) => format!(", {}일", (b - a) / 86_400),
+        _ => String::new(),
+    };
+    format!(
+        "세션 없음 — 진행중 자동 해제 ({actor} 착수 {}{days})",
+        since.get(..10).unwrap_or(since)
+    )
 }
 
 /// 핸드오프가 어디까지 갔는지 — 타임스탬프에서 파생한다.

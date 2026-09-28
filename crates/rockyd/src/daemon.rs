@@ -148,6 +148,12 @@ pub async fn run_daemon(
         inbox_sources: runtime.inbox.clone(),
         ..ServerOptions::new(store)
     });
+    // 죽은 세션이 쥔 doing 자동 해제 — 기동 1분 뒤부터 10분마다.
+    crate::sweep::spawn_sweeper(
+        state.clone(),
+        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(600),
+    );
     let router = build_router(state, ui_dist.as_deref());
 
     let addr: SocketAddr = format!("{}:{}", runtime.host, runtime.port).parse()?;

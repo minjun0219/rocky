@@ -217,7 +217,8 @@ fn normalize_path(path: &str) -> String {
 }
 
 /// `/a/b` 가 `/a/bc` 에 걸리지 않도록 경로 경계까지 본다.
-fn is_under(cwd: &str, path: &str) -> bool {
+/// `cwd` 가 `path` 자신이거나 그 아래인가(끝 `/` 무시). 보드 path 판정의 공통 규약.
+pub fn is_under(cwd: &str, path: &str) -> bool {
     let base = normalize_path(path);
     let here = normalize_path(cwd);
     if here == base {

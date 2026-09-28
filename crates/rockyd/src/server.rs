@@ -119,6 +119,11 @@ impl ServerState {
     pub fn mcp_gh_runner(&self) -> Runner {
         self.gh_runner.clone()
     }
+
+    /// 일반 라우트와 같은(TTL 캐시) 세션 목록 — 스윕이 쓴다.
+    pub async fn sessions(&self) -> SessionsResult {
+        (self.sessions)().await
+    }
 }
 
 /// 서버 상태를 만든다 — 스토어 change 이벤트를 SSE 브로드캐스트로 잇는다.
