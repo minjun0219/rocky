@@ -80,3 +80,35 @@ async fn web_events_are_named_and_bounded() {
     assert_eq!(events[0].client.as_deref(), Some("web"));
     assert_eq!(events[0].meta, Some(serde_json::json!({ "kind": "dead" })));
 }
+
+/// `KNOWN_SURFACES` 의 REST 항목이 실제 라우트인지 — 각 모양을 요청해 라우트 없음(`not found:
+/// METHOD PATH`)이 아닌지 본다. 없는 id 로 부르므로 404 는 나와도 되지만 그건 라우트가 잡힌
+/// 뒤의 "todo not found" 라 본문이 다르다.
+#[tokio::test]
+async fn every_known_rest_surface_is_a_real_route() {
+    let f = fx();
+    let (sink, _captured) = capture_sink();
+    let state = rebuild(&f, |o| o.usage = Some(sink));
+    for (source, name) in rocky_core::usage::KNOWN_SURFACES {
+        if *source != UsageSource::Rest {
+            continue;
+        }
+        let (method, path) = name.split_once(' ').unwrap();
+        let path = path.replace(":ref", "zzzz-nope");
+        let req = Request::builder()
+            .method(method)
+            .uri(path.as_str())
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let response = handle_api(&state, req, Some("127.0.0.1".into())).await;
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            !text.contains(&format!("not found: {method} ")),
+            "{name} 은 라우트가 아니다: {text}"
+        );
+    }
+}

@@ -81,6 +81,9 @@ pub fn now_iso() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// 셋째 세그먼트가 id 가 아니라 동작인 라우트.
+const LITERAL_THIRD: &[&str] = &["claim"];
+
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
 const SKIPPED_ROUTES: &[&str] = &[
     "/api/health",
@@ -97,7 +100,8 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
         return None;
     }
     let mut segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    if segs.len() >= 3 && segs[0] == "api" {
+    // 셋째 자리가 id·key 가 아니라 동작 이름인 라우트는 접지 않는다(`/api/handoffs/claim`).
+    if segs.len() >= 3 && segs[0] == "api" && !LITERAL_THIRD.contains(&segs[2]) {
         segs[2] = ":ref";
     }
     Some(format!("{} /{}", method.to_uppercase(), segs.join("/")))
@@ -129,13 +133,16 @@ pub fn month_file(dir: &Path, ts: &str) -> PathBuf {
 /// 한 줄 append. 디렉터리가 없으면 만든다. 실패는 호출자가 무시한다(로그가 본업을 막지 않는다).
 pub fn append_event(dir: &Path, event: &UsageEvent) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    let line = serde_json::to_string(event).map_err(std::io::Error::other)?;
+    // 한 줄 = 한 번의 write — 데몬 싱크와 CLI·훅 프로세스가 같은 달 파일에 동시에 append 하므로,
+    // 본문과 개행을 따로 쓰면 `{a}{b}\n\n` 으로 섞여 두 줄 다 깨진다. O_APPEND 의 단일 write 는
+    // 이 크기(수십 바이트)에서 원자적이다.
+    let mut line = serde_json::to_string(event).map_err(std::io::Error::other)?;
+    line.push('\n');
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(month_file(dir, &event.ts))?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")
+    file.write_all(line.as_bytes())
 }
 
 /// `since`(ISO) 이후의 이벤트 전부 — 그 달부터의 파일만 연다. 깨진 줄은 건너뛴다.
@@ -190,6 +197,42 @@ pub fn parse_since(spec: &str, now: DateTime<Utc>) -> Option<String> {
 /// 표면 전수 — "한 번도 안 쓰인 것" 을 세려면 무엇이 있는지 알아야 한다. CLI 는 `rocky <cmd>`
 /// 접두사로 맞춘다(`rocky board path` 는 `rocky board` 에 속한다).
 pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
+    // REST — `rockyd::server::dispatch` 의 라우트를 `normalize_route` 모양으로. 라우트를 더하거나
+    // 빼면 여기도 같이(rockyd 의 usage 테스트가 잡는다). health·statusline·events·usage 는 기록 제외.
+    (UsageSource::Rest, "GET /api/boards"),
+    (UsageSource::Rest, "POST /api/boards"),
+    (UsageSource::Rest, "PATCH /api/boards/:ref"),
+    (UsageSource::Rest, "GET /api/todos"),
+    (UsageSource::Rest, "POST /api/todos"),
+    (UsageSource::Rest, "GET /api/todos/:ref"),
+    (UsageSource::Rest, "PATCH /api/todos/:ref"),
+    (UsageSource::Rest, "POST /api/todos/:ref/status"),
+    (UsageSource::Rest, "POST /api/todos/:ref/issue"),
+    (UsageSource::Rest, "POST /api/todos/:ref/board"),
+    (UsageSource::Rest, "POST /api/todos/:ref/move"),
+    (UsageSource::Rest, "POST /api/todos/:ref/handoff"),
+    (UsageSource::Rest, "POST /api/todos/:ref/spawn"),
+    (UsageSource::Rest, "POST /api/todos/:ref/comments"),
+    (UsageSource::Rest, "PATCH /api/comments/:ref"),
+    (UsageSource::Rest, "POST /api/comments/:ref/archive"),
+    (UsageSource::Rest, "POST /api/comments/:ref/unarchive"),
+    (UsageSource::Rest, "GET /api/notes"),
+    (UsageSource::Rest, "POST /api/notes"),
+    (UsageSource::Rest, "GET /api/notes/:ref"),
+    (UsageSource::Rest, "PATCH /api/notes/:ref"),
+    (UsageSource::Rest, "POST /api/notes/:ref/archive"),
+    (UsageSource::Rest, "POST /api/notes/:ref/unarchive"),
+    (UsageSource::Rest, "GET /api/sections"),
+    (UsageSource::Rest, "POST /api/sections"),
+    (UsageSource::Rest, "POST /api/sections/:ref/archive"),
+    (UsageSource::Rest, "GET /api/handoffs"),
+    (UsageSource::Rest, "POST /api/handoffs/claim"),
+    (UsageSource::Rest, "POST /api/handoffs/:ref/cancel"),
+    (UsageSource::Rest, "GET /api/changes"),
+    (UsageSource::Rest, "GET /api/history"),
+    (UsageSource::Rest, "GET /api/inbox"),
+    (UsageSource::Rest, "GET /api/sessions"),
+    (UsageSource::Rest, "GET /api/summary"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),

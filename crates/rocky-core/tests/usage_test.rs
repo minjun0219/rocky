@@ -37,6 +37,15 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         normalize_route("GET", "/api/todos").as_deref(),
         Some("GET /api/todos")
     );
+    // 셋째 자리가 동작 이름인 라우트는 접지 않는다.
+    assert_eq!(
+        normalize_route("POST", "/api/handoffs/claim").as_deref(),
+        Some("POST /api/handoffs/claim")
+    );
+    assert_eq!(
+        normalize_route("POST", "/api/handoffs/h1/cancel").as_deref(),
+        Some("POST /api/handoffs/:ref/cancel")
+    );
     for skipped in [
         "/api/health",
         "/api/statusline",
@@ -216,6 +225,10 @@ fn empty_report_says_so_and_known_surfaces_are_distinct() {
         KNOWN_SURFACES,
     );
     assert_eq!(r.unused.len(), KNOWN_SURFACES.len());
+    assert!(
+        KNOWN_SURFACES.iter().any(|(s, _)| *s == UsageSource::Rest),
+        "REST 라우트가 전수 목록에 없다"
+    );
     assert!(render_report(&r).contains("기록 없음"));
     let mut names: Vec<&str> = KNOWN_SURFACES.iter().map(|(_, n)| *n).collect();
     let before = names.len();
