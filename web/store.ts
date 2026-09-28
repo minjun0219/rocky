@@ -42,6 +42,8 @@ interface UiState {
   todos: TodoView[];
   /** 전 보드의 미보관 todo — "지금" 표는 보고 있는 보드와 무관하게 전체를 본다. */
   nowTodos: TodoView[];
+  /** 전 보드의 열린 핸드오프 — 위 `handoffs` 는 보고 있는 보드로 좁혀져 있어 표에는 못 쓴다. */
+  nowHandoffs: HandoffView[];
   /** 수집함 미올림 수 — 데몬이 캐시로 모르면 null. */
   collect: number | null;
   sections: Section[];
@@ -221,6 +223,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   boards: [],
   todos: [],
   nowTodos: [],
+  nowHandoffs: [],
   collect: null,
   sections: [],
   notes: [],
@@ -294,29 +297,31 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     const qs = params.size > 0 ? `?${params.toString()}` : '';
 
-    const [boards, todos, notes, sections, handoffs, nowTodos, summary] = await Promise.all([
-      api<Board[]>('/api/boards', actor),
-      api<TodoView[]>(`/api/todos${qs}`, actor),
-      api<NoteView[]>(`/api/notes${qs}`, actor),
-      selected === 'all'
-        ? Promise.resolve([] as Section[])
-        : api<Section[]>(`/api/sections?board=${encodeURIComponent(selected)}`, actor),
-      // `open=true` — 대기 중인 것에 더해 **배달됐는데 아직 안 끝난** 것까지 받는다.
-      // 후자가 없으면 "집어가 놓고 아무것도 안 한다"가 화면에 나타날 길이 없다.
-      api<HandoffView[]>(
-        `/api/handoffs?open=true${
-          selected === 'all' ? '' : `&board=${encodeURIComponent(selected)}`
-        }`,
-        actor,
-      ),
-      // "지금" 표의 재료 — 보고 있는 보드와 무관하게 전 보드. 전체 뷰면 위 todos 와 같지만
-      // 분기하면 코드가 두 갈래가 되므로 그냥 한 번 더 받는다(로컬 데몬, 수십 KB).
-      api<TodoView[]>('/api/todos', actor),
-      // 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름".
-      api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
-        (): { collect?: number } => ({}),
-      ),
-    ]);
+    const [boards, todos, notes, sections, handoffs, nowTodos, nowHandoffs, summary] =
+      await Promise.all([
+        api<Board[]>('/api/boards', actor),
+        api<TodoView[]>(`/api/todos${qs}`, actor),
+        api<NoteView[]>(`/api/notes${qs}`, actor),
+        selected === 'all'
+          ? Promise.resolve([] as Section[])
+          : api<Section[]>(`/api/sections?board=${encodeURIComponent(selected)}`, actor),
+        // `open=true` — 대기 중인 것에 더해 **배달됐는데 아직 안 끝난** 것까지 받는다.
+        // 후자가 없으면 "집어가 놓고 아무것도 안 한다"가 화면에 나타날 길이 없다.
+        api<HandoffView[]>(
+          `/api/handoffs?open=true${
+            selected === 'all' ? '' : `&board=${encodeURIComponent(selected)}`
+          }`,
+          actor,
+        ),
+        // "지금" 표의 재료 — 보고 있는 보드와 무관하게 전 보드. 전체 뷰면 위 todos 와 같지만
+        // 분기하면 코드가 두 갈래가 되므로 그냥 한 번 더 받는다(로컬 데몬, 수십 KB).
+        api<TodoView[]>('/api/todos', actor),
+        api<HandoffView[]>('/api/handoffs?open=true', actor),
+        // 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름".
+        api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
+          (): { collect?: number } => ({}),
+        ),
+      ]);
     set({
       boards,
       todos,
@@ -324,6 +329,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       sections,
       handoffs,
       nowTodos,
+      nowHandoffs,
       collect: typeof summary.collect === 'number' ? summary.collect : null,
     });
 

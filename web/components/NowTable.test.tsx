@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 describe('NowTable', () => {
   test('행이 없으면 한 줄 문장만', () => {
-    renderWithStore(<NowTable />, { nowTodos: [], handoffs: [], collect: null });
+    renderWithStore(<NowTable />, { nowTodos: [], nowHandoffs: [], collect: null });
     expect(screen.getByText('도는 일도, 내 차례도 없다.')).toBeTruthy();
     expect(document.querySelector('table')).toBeNull();
   });
@@ -36,7 +36,7 @@ describe('NowTable', () => {
           doingState: 'live',
         }),
       ],
-      handoffs: [],
+      nowHandoffs: [],
       collect: 2,
       openTodoDetail,
     });
