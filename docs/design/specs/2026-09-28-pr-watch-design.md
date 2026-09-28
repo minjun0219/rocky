@@ -33,6 +33,13 @@ PR 이 "확인·머지해도 되는" 상태가 됐는지, 머지·닫힘·충돌
 5. **알림은 셋으로 간다.**
    - 사람: macOS 알림(`osascript -e 'display notification …'`, `pr.notify` 기본 켬) —
      `ready`·`conflict` 만. `merged` 는 대개 오너 자신이 한 일이라 조용히 기록만.
+     **알림 브릿지**(2026-09-29 추가, `pr.notifiers[]`): 맥 앞에 없을 때의 채널은 환경마다 다르다
+     (폰이면 텔레그램, 다른 기기면 ntfy…). 그래서 데몬에 서비스를 박지 않고 수집함과 같은
+     **브릿지 = 명령** 규약으로 붙인다 — 데몬은 stdin 에 전이 JSON 을 주고 exit code 만 본다,
+     서비스 코드는 `bridges/<name>/`. 첫 판(`pr.telegram` 을 데몬에 직접)은 오너가 "브릿지로,
+     환경마다 선택" 으로 돌렸다. GitHub 댓글로 알리는 안은 기각 — 본인 활동엔 GitHub 알림이
+     안 오고, "데몬은 읽기만 한다" 가 깨지며, 전이마다 스레드에 로그가 쌓인다. 세션 경유
+     (Remote Control + PushNotification)는 세션이 떠 있을 때만 닿는다.
    - 세션: 전이가 보드 히스토리(actor `rocky`, action `pr-ready`/`pr-conflict`/`pr-merged`/
      `pr-closed`)로 남고 `/api/changes` 를 타므로, `notify-todo` 훅이 다음 턴에
      "#179 확인·머지해도 된다" 를 additionalContext 로 넣는다 — 에이전트가 감시하지 않아도 안다.

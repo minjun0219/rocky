@@ -15,8 +15,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rocky_core::prwatch::{
-    default_branch_of, detail_query, is_rate_limit_error, list_query, notification_text,
-    osascript_args, parse_pr_details, parse_pr_list, pause_for, PrEvent, PrSnapshot, RateLimit,
+    bridge_payload, default_branch_of, detail_query, is_rate_limit_error, list_query,
+    notification_text, osascript_args, parse_pr_details, parse_pr_list, pause_for, PrEvent,
+    PrSnapshot, RateLimit,
 };
 use serde::Serialize;
 
@@ -28,15 +29,17 @@ pub const PR_WATCH_ACTOR: &str = "rocky";
 /// `gh api graphql` 한 번의 상한.
 const QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// (제목, 본문) → 사람에게. 기본은 osascript, 테스트는 붙잡는다.
-pub type Notifier = Arc<dyn Fn(String, String) + Send + Sync>;
+/// 전이 한 건 → 사람에게. 기본은 osascript, 브릿지는 명령, 테스트는 붙잡는다. 알림기가
+/// 문구를 만든다(`notification_text` / `bridge_payload`) — tick 은 전이만 건넨다.
+pub type Notifier = Arc<dyn Fn(&PrEvent) + Send + Sync>;
 
 /// osascript 로 macOS 알림. 다른 OS 면 조용히 아무것도 안 한다.
 pub fn osascript_notifier(runner: Runner) -> Notifier {
-    Arc::new(move |title, body| {
+    Arc::new(move |event| {
         if !cfg!(target_os = "macos") {
             return;
         }
+        let (title, body) = notification_text(event);
         let runner = runner.clone();
         tokio::spawn(async move {
             let _ = runner(
@@ -50,7 +53,42 @@ pub fn osascript_notifier(runner: Runner) -> Notifier {
 }
 
 pub fn silent_notifier() -> Notifier {
-    Arc::new(|_, _| {})
+    Arc::new(|_| {})
+}
+
+/// 브릿지 기본 상한 — 수집함 어댑터와 같다.
+pub const DEFAULT_BRIDGE_TIMEOUT_MS: u64 = 10_000;
+
+/// 알림 브릿지(`pr.notifiers[]`) — 명령을 argv 그대로 실행하고 stdin 에 `bridge_payload` JSON 을
+/// 준다. exit ≠ 0 이면 stderr 첫 줄을 데몬 로그에 남긴다(이름과 함께). 토큰은 브릿지가
+/// 스스로 읽는다 — 데몬은 어떤 서비스인지 모른다.
+pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge) -> Notifier {
+    Arc::new(move |event| {
+        let runner = runner.clone();
+        let bridge = bridge.clone();
+        let stdin = bridge_payload(event).to_string();
+        tokio::spawn(async move {
+            let timeout =
+                Duration::from_millis(bridge.timeout_ms.unwrap_or(DEFAULT_BRIDGE_TIMEOUT_MS));
+            let out = runner(bridge.command.clone(), stdin, timeout).await;
+            if !out.ok() {
+                let reason = out.stderr.lines().next().unwrap_or("").trim().to_string();
+                eprintln!(
+                    "rocky: 알림 브릿지 {} 실패(exit {}): {reason}",
+                    bridge.name, out.code
+                );
+            }
+        });
+    })
+}
+
+/// 여러 알림기를 하나로 — 전부에게 같은 전이. 비어 있으면 조용하다.
+pub fn compose_notifiers(notifiers: Vec<Notifier>) -> Notifier {
+    Arc::new(move |event| {
+        for n in &notifiers {
+            n(event);
+        }
+    })
 }
 
 /// `/api/health` 의 `prWatch` — 핸드오프의 `sessions` 와 같은 모양(가능 여부 + 사유).
@@ -201,8 +239,7 @@ async fn tick_repo(
         .map_err(|e| QueryError::Other(e.to_string()))?;
     if notify {
         for event in events.iter().filter(|e| e.kind.notifies()) {
-            let (title, body) = notification_text(event);
-            notifier(title, body);
+            notifier(event);
         }
     }
     Ok(RepoOutcome { events, limit })

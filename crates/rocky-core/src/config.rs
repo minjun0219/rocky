@@ -331,7 +331,14 @@ pub struct PrWatchConfig {
     pub enabled: Option<bool>,
     pub interval_minutes: Option<u64>,
     pub notify: Option<bool>,
+    /// 알림 브릿지 — ready·conflict 마다 실행하는 명령들(`pr.notifiers[]`). 환경마다 고른다
+    /// (텔레그램·ntfy·…은 `bridges/<name>/`). `notify`(macOS 배너)와 독립.
+    pub notifiers: Vec<CommandBridge>,
 }
+
+/// 명령 하나로 된 브릿지 — `todo.inbox[]`(읽기)와 `pr.notifiers[]`(알림)가 같은 모양이다.
+/// 셸을 거치지 않고 argv 그대로 실행하며, 토큰은 명령이 스스로 읽는다(`op read`).
+pub type CommandBridge = InboxSource;
 
 impl PrWatchConfig {
     pub const DEFAULT_INTERVAL_MINUTES: u64 = 3;
@@ -358,6 +365,11 @@ pub fn load_pr_block(config_path: &Path) -> PrWatchConfig {
         enabled: block.get("enabled").and_then(|v| v.as_bool()),
         interval_minutes: block.get("intervalMinutes").and_then(|v| v.as_u64()),
         notify: block.get("notify").and_then(|v| v.as_bool()),
+        notifiers: block
+            .get("notifiers")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(parse_inbox_source).collect())
+            .unwrap_or_default(),
     }
 }
 

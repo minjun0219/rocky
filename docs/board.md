@@ -197,6 +197,43 @@ GitHub GraphQL 한도(시간당 5,000 포인트)는 계정 하나에 걸린다 �
 tick 을 멈추고 리셋까지 쉰다. 쉬는 동안 `prWatch` 는 `available: false` 에 사유와 `pausedUntil`
 을 싣고, `rateLimit` 에 마지막 tick 의 비용(`cost`)과 잔여(`remaining`)를 적는다.
 
+**알림 브릿지 — 환경마다 고르는 알림 채널(`pr.notifiers[]`).** macOS 배너(`notify`)는 맥 앞에 있을
+때의 채널이다. 그 밖(폰·다른 기기)은 수집함 어댑터와 같은 **브릿지 = 명령** 규약으로 붙인다: 데몬이
+ready·충돌마다 등록된 명령을 argv 그대로 실행하고(셸 없음) stdin 에 전이 JSON 하나를 준다. 어느
+서비스로 보내는지는 데몬이 모른다 — 코드는 `bridges/<name>/` 에만 있다(`AGENTS.md` Scope).
+
+```json
+{ "pr": { "notify": true, "notifiers": [
+  { "name": "telegram", "command": ["bun", "/path/to/rocky/bridges/telegram/notify.ts",
+                                    "--op", "op://Agent Vault/<item-uuid>/credential", "--chat", "123456789"],
+    "timeoutMs": 15000 }
+] } }
+```
+
+| 필드 | 의미 |
+| --- | --- |
+| `name` | `[a-z0-9-]+`. 실패 로그의 이름 |
+| `command` | argv 배열. env 는 데몬 것을 물려받는다. **토큰은 브릿지가 스스로 읽는다**(`op read` — 홈의 평문 파일 금지) |
+| `timeoutMs` | 기본 10000. 넘기면 죽인다(그 알림만 유실). `op read` + 외부 API 면 그 합보다 크게 |
+
+**브릿지 규약** — stdin 에 JSON 하나, 출력 없음, exit 0 = 보냄. exit ≠ 0 이면 stderr 첫 줄이 데몬
+로그에 이름과 함께 남는다(`rocky: 알림 브릿지 telegram 실패(exit 1): …`).
+
+```json
+{ "kind": "ready", "repo": "owner/name", "number": 194, "title": "…", "url": "https://github.com/…/pull/194",
+  "heading": "rocky · owner/name", "text": "#194 확인·머지해도 된다 — …" }
+```
+
+`kind` 는 `ready` / `conflict`. `heading`·`text` 는 macOS 배너와 같은 문구라 그대로 보내도 되고, 나머지
+필드로 직접 조립해도 된다. 참조 구현: [`bridges/telegram/notify.ts`](../bridges/telegram/notify.ts) —
+Bot API `sendMessage`, 토큰은 `--op REF` 로 `op read`(없으면 env `ROCKY_TELEGRAM_TOKEN`, 테스트용),
+`--api` 로 엔드포인트를 바꿔 가짜 서버로 테스트한다.
+
+텔레그램 준비: [BotFather](https://t.me/BotFather) `/newbot` → 토큰을 Agent Vault 에 넣고(항목 제목은
+ASCII) → 봇에게 아무 말이나 보낸 뒤 `curl -s "https://api.telegram.org/bot$(op read REF)/getUpdates" |
+jq '.result[-1].message.chat.id'` 로 chat id → 위처럼 등록 → 데몬 재기동(`rocky daemon stop` 뒤 다음
+세션, 또는 `rocky daemon install`).
+
 **세션을 그 자리에서 깨우기 — rocky 채널.** 훅 주입은 사람이 타이핑해야 열리는 턴에 실린다. 세션이
 떠 있을 때 전이 직후에 움직이게 하려면(폰 알림, 리뷰 대응) Claude Code 의 channels(리서치 프리뷰)를
 쓴다 — 플러그인의 worklog stdio 서버가 채널이기도 해서, 데몬의 ready·충돌 전이가
@@ -210,7 +247,7 @@ claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace
 대화상자를 한 번 넘긴다. 이 플래그 없이 띄운 세션에는 아무것도 오지 않는다(조용히 버림) — "알림
 담당" 세션 하나만 이렇게 띄우면 된다. 시작 이후의 전이만 보내고 과거는 재생하지 않는다. 채널이
 깨운 세션이 폰까지 알리려면 Remote Control 이 켜져 있어야 한다(`PushNotification`); 세션 없이
-폰에 받는 건 데몬 쪽 알림 채널의 몫이다.
+폰에 받으려면 위의 알림 브릿지다.
 
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 
