@@ -3162,3 +3162,31 @@ fn every_edit_path_emits_a_note_doc_event() {
     assert_eq!(seeded.text(), "a\nb\nc");
     drop(replay);
 }
+
+/// 역순 배치 — 뒤 배치가 먼저 와도 저장돼 있다가 선행 배치가 오면 본문이 된다(문서를
+/// 요청마다 새로 여는 스토어에서 특히 중요하다).
+#[test]
+fn an_out_of_order_batch_is_kept_until_its_predecessor_arrives() {
+    use rocky_core::note_doc::NoteDoc;
+    let f = fx();
+    let note = note_with(&f, "x");
+    let state = f.store.note_doc_state(&note.id, None, None).unwrap();
+    let web = NoteDoc::from_state(&state.update).unwrap();
+    let sv0 = web.state_vector();
+    web.append("first");
+    let sv1 = web.state_vector();
+    let batch1 = web.diff_since(&sv0).unwrap();
+    web.append("second");
+    let batch2 = web.diff_since(&sv1).unwrap();
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &batch2, "logan", Some("c1"), None)
+        .unwrap();
+    assert!(!applied.changed);
+    let applied = f
+        .store
+        .apply_note_update(&note.id, &batch1, "logan", Some("c1"), None)
+        .unwrap();
+    assert!(applied.changed);
+    assert_eq!(applied.note.content, "x\nfirst\nsecond");
+}
