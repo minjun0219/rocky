@@ -53,10 +53,11 @@ claude plugin marketplace add minjun0219/rocky
 claude plugin install rocky@rocky-marketplace
 ```
 
-설치 후 첫 세션이 열리면 `SessionStart` 훅이 릴리스 바이너리를 `~/.local/share/rocky/v<버전>/` 에
-받고 `~/.local/bin/rocky` 를 걸어 준다 — `~/.local/bin` 이 PATH 에 있으면 터미널에서 `rocky` 가
-바로 된다(없으면 셸 rc 에 `export PATH="$HOME/.local/bin:$PATH"`). 상태는 `rocky config show` 의
-`cli` 행, 세션을 안 열고 지금 걸려면 `~/.local/share/rocky/current/rocky config link`.
+설치 후 첫 세션이 열리면 `SessionStart` 훅이 릴리스 바이너리를 데이터 홈(`$XDG_DATA_HOME`, 기본
+`~/.local/share`)의 `rocky/v<버전>/` 에 받고 `~/.local/bin/rocky` 를 걸어 준다 — `~/.local/bin` 이
+PATH 에 있으면 터미널에서 `rocky` 가 바로 된다(없으면 셸 rc 에 `export PATH="$HOME/.local/bin:$PATH"`).
+상태는 `rocky config show` 의 `cli` 행, 세션을 안 열고 지금 걸려면
+`"${XDG_DATA_HOME:-$HOME/.local/share}/rocky/current/rocky" config link`.
 
 원격 세션 안에서는 `/plugin` 슬래시 커맨드로 동일하게 설치한다. 설치본은 GitHub `main`에서 clone되므로 코드 변경은 push 후 `claude plugin update rocky`로 반영된다.
 

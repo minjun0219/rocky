@@ -169,7 +169,7 @@ fn gather(ctx: &CliContext, todo: &TodoConfig) -> SetupInput {
         todo: todo.clone(),
         port: ctx.port,
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
-        install_current: std::fs::read_link(expand_tilde("~/.local/share/rocky/current"))
+        install_current: std::fs::read_link(data_home().join("rocky").join("current"))
             .ok()
             .map(|p| p.to_string_lossy().to_string()),
         daemon,

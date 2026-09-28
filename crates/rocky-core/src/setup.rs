@@ -68,7 +68,8 @@ pub struct SetupInput {
     /// env 까지 반영된 실제 포트.
     pub port: u16,
     pub cli_version: String,
-    /// `~/.local/share/rocky/current` 가 가리키는 곳. 레포에서 직접 빌드해 쓰면 None.
+    /// 데이터 홈(`$XDG_DATA_HOME` > `~/.local/share`)의 `rocky/current` 가 가리키는 곳. 레포에서 직접
+    /// 빌드해 쓰면 None.
     pub install_current: Option<String>,
     pub daemon: Option<DaemonState>,
     pub launchd_registered: bool,
@@ -179,14 +180,14 @@ pub fn build_report(input: &SetupInput) -> SetupReport {
             "install",
             CheckKind::Info,
             true,
-            format!("~/.local/share/rocky/current → {target}"),
+            format!("설치본 current → {target}"),
             None,
         ),
         None => check(
             "install",
             CheckKind::Info,
             true,
-            "~/.local/share/rocky/current 없음 — 레포 빌드나 다른 경로의 바이너리를 쓰는 중",
+            "설치본 current 링크 없음 — 레포 빌드나 다른 경로의 바이너리를 쓰는 중",
             None,
         ),
     });
