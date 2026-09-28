@@ -223,7 +223,9 @@ deterministically, and a per-turn gate would just make every turn slow.
   훅(`notify-todo`)이 같은 검사를 `RestartPolicy::OnlyIfOlder` 로 한다 — 도는 데몬이 자기보다
   **오래됐을 때만** 올리고, 없거나 더 새 데몬은 건드리지 않는다(옛 플러그인으로 도는 세션과
   새 세션이 턴마다 서로 뒤집는 걸 막는다). 비교는 `rocky_core::version::is_older`(세 자리 +
-  `-next.N`, 못 읽으면 false).
+  `-next.N`, 못 읽으면 false). 그 전 단계로, 새 버전 바이너리가 아직 없으면 `bin/rocky`
+  부트스트랩이 SessionStart 가 아닌 훅에서 `hook ensure-daemon` 을 **백그라운드로** 한 번
+  띄워 받게 한다(마커 디렉터리로 중복 방지) — 그 끝에서 데몬도 올라간다.
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed` 는 `/mcp` retry / 다음 세션 / launchd 로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json 의 todo 블록만.
