@@ -1,7 +1,8 @@
 //! TS `src/notify.test.ts` 포팅.
 
 use rocky_core::notify::{
-    build_notify_context, filter_human_changes, merge_context, read_cursor, write_cursor,
+    build_notify_context, build_pr_context, filter_human_changes, merge_context, read_cursor,
+    write_cursor,
 };
 use rocky_core::types::{ChangeFeedEntry, Changes, HistoryEntity, HistoryEntry};
 use serde_json::json;
@@ -220,4 +221,44 @@ fn empty_strings_count_as_absent() {
         merge_context(&[Some(String::new()), Some("B".into())]).as_deref(),
         Some("B")
     );
+}
+
+#[test]
+fn pr_context_lists_only_actionable_transitions() {
+    use rocky_core::types::{ChangeFeedEntry, HistoryEntity, HistoryEntry};
+    let entry = |action: &str, number: i64| {
+        ChangeFeedEntry {
+        history: HistoryEntry {
+            id: number,
+            entity: HistoryEntity::Board,
+            entity_id: "b1".into(),
+            actor: "rocky".into(),
+            action: action.into(),
+            changes: Some(
+                serde_json::json!({ "number": number, "title": format!("PR {number}"), "url": format!("https://x/pull/{number}"), "repo": "o/r" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+            at: "2026-09-28T10:00:00Z".into(),
+        },
+        title: "rocky".into(),
+        board_key: Some("rocky".into()),
+    }
+    };
+    assert!(build_pr_context(&[]).is_none());
+    assert!(build_pr_context(&[entry("pr-opened", 1), entry("pr-unready", 2)]).is_none());
+    let text = build_pr_context(&[
+        entry("pr-ready", 3),
+        entry("pr-conflict", 4),
+        entry("pr-merged", 5),
+        entry("update", 6),
+    ])
+    .unwrap();
+    assert!(text.starts_with("# rocky: PR 상태 변화"));
+    assert!(text.contains("- o/r #3 확인·머지해도 된다 — PR 3 (https://x/pull/3)"));
+    assert!(text.contains("#4 충돌"));
+    assert!(text.contains("#5 머지됨"));
+    assert!(!text.contains("#6"));
+    assert!(text.contains("감시를 따로 돌리지 말고"));
 }

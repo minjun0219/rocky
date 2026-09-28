@@ -411,6 +411,18 @@ deterministically, and a per-turn gate would just make every turn slow.
   (오너 결정 2026-09-28). 판정은 `rocky_core::doing::should_auto_release`. UI 용 목록은
   `/api/handoffs?open=true`(대기 중 + 미완료 배달 — **보관된 todo 의 것은 제외**, 요약의
   `handoffsOpen` 도 같은 규칙).
+- **PR 감시(`rockyd::prwatch`, 설계 `docs/design/specs/2026-09-28-pr-watch-design.md`, 오너 결정
+  2026-09-28)**: `repo` 가 설정된 보드의 레포마다 `pr.intervalMinutes`(기본 3분)에 한 번 `gh api
+  graphql`(레포당 쿼리 하나, `rocky_core::prwatch::PR_QUERY`)을 돌려 스냅숏을 `pr_watch`
+  (user_version 8)에 기억하고, 직전과의 전이를 그 레포를 둔 보드의 히스토리에 actor `rocky`·
+  action `pr-*` 로 남긴다 — 그래서 SSE·`/api/changes`·`notify-todo` 훅 주입(`build_pr_context`)
+  이 그대로 탄다. 판정은 전부 순수(`is_ready`: OPEN·draft 아님·base 가 기본 브랜치·DIRTY 아님·
+  CI 통과·viewer 의 👀/🚀 가 없는 미해결 스레드 0·🚀 0). 사람에게는 `ready`·`conflict` 만
+  macOS 알림(osascript, `pr.notify`), `merged` 는 기록만. **읽기만 한다** — GitHub 에 쓰는 것은
+  없다(리액션·코멘트·머지는 여전히 세션/사람 몫). 러너·알림기는 주입 가능이라 테스트가 가짜
+  `gh` 로 tick 을 돈다. `/api/health` 의 `prWatch { available, reason, lastTick, repos }`,
+  `GET /api/prs[?board=&open=true]`, `rocky pr`. 세션 스크립트 `pr-threads.ts` 의 `ready`/
+  `transitions` 는 데몬이 없는 곳의 폴백이다.
 - **statusline 세그먼트(`GET /api/statusline`)**: 보드를 보려고 창을 하나 더 띄우지 않으려는
   표면. `?cwd=&session=` 을 받아 **완성된 한 줄**을 `text/plain` 으로 낸다 — 렌더를 데몬이
   하는 이유는 소비자(Claude Code statusline 명령)를 `curl` 한 줄로 유지하려는 것이다.

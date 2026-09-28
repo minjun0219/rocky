@@ -2,7 +2,7 @@
  * UI 순수 헬퍼 — actor 톤(두 대기 컨셉), 시간 표기, 초경량 markdown 렌더 토큰화.
  */
 import { isAgentActor } from './actors';
-import type { HandoffView, TodoView } from './types';
+import type { HandoffView, PrSnapshot, TodoView } from './types';
 import type { Comment, HistoryEntry } from './types';
 
 /**
@@ -522,7 +522,7 @@ export function resolveDropBefore(
 
 // ── "지금" 표 — 첫 화면이 답할 한 가지: 무슨 일이 돌고 있고, 무엇이 내 차례인가 ──
 
-export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect';
+export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect' | 'pr';
 
 export interface NowRow {
   key: string;
@@ -530,8 +530,10 @@ export interface NowRow {
   /** 표시 참조 — todo 는 `acorn-server-28`, 수집함은 `수집함`. */
   ref: string;
   title: string;
-  /** 눌러서 열 todo. 수집함 행에는 없다. */
+  /** 눌러서 열 todo. 수집함·PR 행에는 없다. */
   todoId?: string;
+  /** 바깥 링크(PR). 있으면 항목이 새 탭으로 열린다. */
+  url?: string;
   /** 누가 들고 있나 — 색이 아니라 글자로. */
   who: 'AGENT' | 'YOU' | '—';
   /** 경과의 기준 시각(ISO). 없으면 경과 칸이 빈다. */
@@ -541,7 +543,14 @@ export interface NowRow {
   stamp: { label: string; tone: 'run' | 'mine' | 'dead' };
 }
 
-const NOW_ORDER: Record<NowKind, number> = { dead: 0, handoff: 1, doing: 2, unread: 3, collect: 4 };
+const NOW_ORDER: Record<NowKind, number> = {
+  dead: 0,
+  handoff: 1,
+  pr: 2,
+  doing: 3,
+  unread: 4,
+  collect: 5,
+};
 /** "지금" 표에 싣는 읽지 않은 댓글 행의 상한. */
 export const UNREAD_ROW_MAX = 5;
 
@@ -555,6 +564,8 @@ export function nowRows(
     handoffs: HandoffView[];
     seen: Record<string, string>;
     collect?: number | null;
+    /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
+    prs?: PrSnapshot[];
   },
   now = Date.now(),
 ): NowRow[] {
@@ -646,6 +657,24 @@ export function nowRows(
       who: '—',
       unread: 0,
       stamp: { label: '더 있음', tone: 'mine' },
+    });
+  }
+
+  // PR — 데몬이 판정한 "내 차례": 확인·머지해도 되는 것, 충돌난 것. 대기 중인 것은 잡음이라 뺀다.
+  for (const p of input.prs ?? []) {
+    if (p.state !== 'OPEN' || (!p.ready && p.mergeState !== 'DIRTY')) {
+      continue;
+    }
+    rows.push({
+      key: `pr:${p.repo}#${p.number}`,
+      kind: 'pr',
+      ref: `${p.repo.split('/')[1] ?? p.repo} #${p.number}`,
+      title: p.title,
+      url: p.url,
+      who: 'YOU',
+      since: p.updatedAt,
+      unread: 0,
+      stamp: p.ready ? { label: '확인·머지', tone: 'mine' } : { label: 'PR 충돌', tone: 'dead' },
     });
   }
 

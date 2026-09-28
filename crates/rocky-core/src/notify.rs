@@ -170,6 +170,55 @@ pub fn build_notify_context(entries: &[ChangeFeedEntry]) -> Option<String> {
     Some(lines.join("\n"))
 }
 
+/// PR 감시 전이(actor `rocky`, action `pr-*`)를 세션에 알리는 블록 — 사람이 움직일 것과 끝난 것만
+/// (ready·conflict·merged·closed). `opened`/`unready` 는 잡음이라 뺀다. 데몬이 이미 판정했으므로
+/// 에이전트는 감시하지 않아도 된다는 뜻을 마지막 줄에 적는다.
+pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for e in entries {
+        let label = match e.history.action.as_str() {
+            "pr-ready" => "확인·머지해도 된다",
+            "pr-conflict" => "충돌 — 풀어야 한다",
+            "pr-merged" => "머지됨",
+            "pr-closed" => "닫힘",
+            _ => continue,
+        };
+        let changes = e.history.changes.as_ref();
+        let number = changes
+            .and_then(|c| c.get("number"))
+            .and_then(|v| v.as_i64())
+            .map(|n| format!("#{n}"))
+            .unwrap_or_default();
+        let title = changes
+            .and_then(|c| c.get("title"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let url = changes
+            .and_then(|c| c.get("url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let repo = changes
+            .and_then(|c| c.get("repo"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        lines.push(format!("- {repo} {number} {label} — {title} ({url})"));
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    let mut out = vec![
+        "# rocky: PR 상태 변화 (데몬 감시)".to_string(),
+        String::new(),
+    ];
+    out.extend(lines);
+    out.push(String::new());
+    out.push(
+        "(자동 주입 — 데몬이 CI·리뷰 스레드를 보고 판정한 것이다. 감시를 따로 돌리지 말고, 확인·머지는 사용자 몫이니 알려만 준다)"
+            .to_string(),
+    );
+    Some(out.join("\n"))
+}
+
 /// 여러 주입 블록을 하나의 additionalContext 로 합친다 — 사람의 보드 변경과 핸드오프
 /// 요청이 같은 프롬프트에 함께 도착할 수 있다. 실을 내용이 없으면 `None`.
 pub fn merge_context(parts: &[Option<String>]) -> Option<String> {

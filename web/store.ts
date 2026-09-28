@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { HandoffView } from './types';
+import type { HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
 import type { AgentSession } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
@@ -46,6 +46,8 @@ interface UiState {
   nowTodos: TodoView[];
   /** 전 보드의 열린 핸드오프 — 위 `handoffs` 는 보고 있는 보드로 좁혀져 있어 표에는 못 쓴다. */
   nowHandoffs: HandoffView[];
+  /** 데몬 PR 감시의 열린 PR(전 보드). */
+  prs: PrSnapshot[];
   /** 수집함 미올림 수 — 데몬이 캐시로 모르면 null. */
   collect: number | null;
   sections: Section[];
@@ -231,6 +233,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   todos: [],
   nowTodos: [],
   nowHandoffs: [],
+  prs: [],
   collect: null,
   sections: [],
   notes: [],
@@ -307,7 +310,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     const qs = params.size > 0 ? `?${params.toString()}` : '';
 
-    const [boards, todos, notes, sections, handoffs, nowTodos, nowHandoffs, summary] =
+    const [boards, todos, notes, sections, handoffs, nowTodos, nowHandoffs, summary, prs] =
       await Promise.all([
         api<Board[]>('/api/boards', actor),
         api<TodoView[]>(`/api/todos${qs}`, actor),
@@ -331,6 +334,8 @@ export const useUiStore = create<UiState>((set, get) => ({
         api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
           (): { collect?: number } => ({}),
         ),
+        // PR 감시 스냅숏 — 없거나 실패하면 빈 목록("모름" 이 아니라 "없음" 으로 보여도 무해).
+        api<PrSnapshot[]>('/api/prs?open=true', actor).catch((): PrSnapshot[] => []),
       ]);
     set({
       boards,
@@ -340,6 +345,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       handoffs,
       nowTodos,
       nowHandoffs,
+      prs,
       collect: typeof summary.collect === 'number' ? summary.collect : null,
     });
 

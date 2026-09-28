@@ -175,6 +175,22 @@ POST /api/notes/:ref/presence {client,state}  누가 보고 있는지 — 저장
 CodeMirror 쪽은 같이 보는 사람의 커서·선택 영역을 이름표와 함께 그린다(에이전트는 커서가
 없다 — 이름만). 선택은 브라우저에 남는다(`localStorage`).
 
+## PR 감시 — "확인·머지해도 된다" 를 데몬이 알린다
+
+`repo` 가 설정된 보드의 PR 을 데몬이 3분마다 본다(`gh api graphql`, 레포당 한 번). 열려 있고
+draft 가 아니고 main 을 향하고(스택의 맨 아래) 충돌이 없고 CI 가 통과했고 리뷰 스레드가 전부
+처리(👀)됐거나 결정 대기(🚀)가 없으면 **확인·머지해도 되는 상태**다. 그 순간과 충돌이 생긴
+순간을 macOS 알림으로 쏘고, 보드의 "지금" 표에 행이 뜨며(누르면 PR 로), 다음 세션 턴에
+`notify-todo` 훅이 같은 사실을 주입한다. 머지·닫힘은 히스토리에만 남는다.
+
+```bash
+rocky pr            # 현재 보드의 열린 PR — ✓ 확인·머지 가능 / ✗ 충돌 / · 대기
+rocky pr --all      # 전 보드
+```
+
+`rocky.json`: `"pr": { "enabled": true, "intervalMinutes": 3, "notify": true }`. 데몬은 읽기만 한다 —
+리액션·코멘트·머지는 사람(과 세션)이 한다. 상태는 `/api/health` 의 `prWatch` 에.
+
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 
 "지금 뭐 봐야 하나" 를 몇 줄로. 셋이 같은 판정(`rocky_core::summary`)을 쓴다.

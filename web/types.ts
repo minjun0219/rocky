@@ -205,3 +205,21 @@ export interface NoteView extends Note {
  * 중복 표시하지 않는다. Rust `rocky_core::types::DETAIL_HISTORY_EXCLUDED` 와 같은 목록.
  */
 export const DETAIL_HISTORY_EXCLUDED: ReadonlySet<string> = new Set(['comment', 'comment-edit']);
+
+/** 데몬 PR 감시의 스냅숏 — Rust `rocky_core::prwatch::PrSnapshot` 의 사본. */
+export interface PrSnapshot {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  isDraft: boolean;
+  base: string;
+  head: string;
+  mergeState: string;
+  ci: 'pass' | 'fail' | 'pending';
+  unhandled: number;
+  rocket: number;
+  ready: boolean;
+  updatedAt: string;
+}

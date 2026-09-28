@@ -303,6 +303,62 @@ pub fn cmd_sessions(ctx: &CliContext, board: &str, printer: &Printer) -> Result<
     Ok(())
 }
 
+/// `pr [--all] [--json]` — 데몬이 기억하는 PR 스냅숏(열린 것만). 기본은 현재 보드의 레포.
+pub fn cmd_pr(
+    ctx: &CliContext,
+    flags: &ParsedFlags,
+    board: &str,
+    printer: &Printer,
+) -> Result<(), String> {
+    let path = if flags.bool_flag("all") {
+        "/api/prs?open=true".to_string()
+    } else {
+        format!("/api/prs?open=true&board={}", encode_uri_component(board))
+    };
+    let raw = request_value(ctx, "GET", &path, None)?;
+    let prs: Vec<rocky_core::prwatch::PrSnapshot> =
+        serde_json::from_value(raw.clone()).map_err(|e| format!("응답을 읽지 못했다: {e}"))?;
+    printer.emit(&raw, || format_prs(&prs));
+    Ok(())
+}
+
+fn format_prs(prs: &[rocky_core::prwatch::PrSnapshot]) -> String {
+    if prs.is_empty() {
+        return "열린 PR 없음 (또는 보드에 repo 미설정 · 데몬이 아직 안 봄)".to_string();
+    }
+    prs.iter()
+        .map(|p| {
+            let mark = if p.ready {
+                "✓ 확인·머지 가능"
+            } else if p.merge_state == "DIRTY" {
+                "✗ 충돌"
+            } else if p.is_draft {
+                "· draft"
+            } else {
+                "· 대기"
+            };
+            format!(
+                "{mark}  {} #{}  {}  [ci {}{}{}]",
+                p.repo,
+                p.number,
+                p.title,
+                p.ci.as_str(),
+                if p.unhandled > 0 {
+                    format!(" · 미처리 {}", p.unhandled)
+                } else {
+                    String::new()
+                },
+                if p.rocket > 0 {
+                    format!(" · 결정 필요 {}", p.rocket)
+                } else {
+                    String::new()
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// `spawn` — 그 todo 전용 워크트리에 새 세션.
 pub fn cmd_spawn(
     ctx: &CliContext,
