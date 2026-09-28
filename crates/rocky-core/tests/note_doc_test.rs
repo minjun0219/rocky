@@ -127,3 +127,18 @@ fn an_out_of_order_update_counts_as_a_state_change_and_survives_a_reopen() {
     assert!(applied.state_changed && applied.text_changed);
     assert_eq!(reopened.text(), "x\nfirst\nsecond");
 }
+
+/// 삭제만 있는 update 는 Yjs 의 state vector(삽입 clock)를 안 올리고 DeleteSet 만 바꾼다 —
+/// vector 비교면 "안 바뀜" 이 되어 지운 글자가 다음 동기화에 되살아난다. 전체 상태 비교라야 잡힌다.
+#[test]
+fn a_delete_only_update_is_a_state_change() {
+    let server = NoteDoc::open(None, "hello");
+    let client = NoteDoc::from_state(&server.state()).unwrap();
+    client.set_text("hllo");
+    let diff = client.diff_since(&server.state_vector()).unwrap();
+    let applied = server.apply(&diff).unwrap();
+    assert!(applied.state_changed && applied.text_changed, "{applied:?}");
+    assert_eq!(server.text(), "hllo");
+    // 저장했다 다시 열어도 지워진 채다.
+    assert_eq!(NoteDoc::open(Some(&server.state()), "hllo").text(), "hllo");
+}
