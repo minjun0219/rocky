@@ -15,6 +15,7 @@
  * bun scripts/pr-threads.ts ready 154           # "확인·머지해도 되나" 한 번에 — CI 초록 + 👀 없는 스레드 없음 + 🚀 없음. exit 0/1
  * bun scripts/pr-threads.ts transitions --interval 60
  *   # 열린 PR 전체를 돌며 MERGED / CLOSED / DIRTY / CONFLICTING 전이만 한 줄씩 — Monitor 에 물린다
+ *   # (폴백 — repo 가 설정된 보드의 PR 은 데몬 `rockyd::prwatch` 가 보고 알린다)
  * ```
  *
  * PR 번호를 생략하면 현재 브랜치의 PR 이다.

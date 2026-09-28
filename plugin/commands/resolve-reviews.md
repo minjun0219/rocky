@@ -271,54 +271,44 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
   않는다.
 - **머지는 하지 않는다.** 머지는 사용자 몫이다.
 
-### 9. "확인·머지해도 되면 알려줘" — 백그라운드로 기다렸다 알린다
+### 9. "확인·머지해도 되면 알려줘" — 데몬이 본다, 세션은 확인만
 
-호출자가 그렇게 말했을 때만. 사람이 볼 때 이미 봐도 되는 상태여야 하므로, 판정은 8단계보다
-엄격하다. **알림 조건은 셋을 동시에 만족할 때뿐이고, 어느 분기에서든 셋을 다 다시 본다** —
-손으로 세지 말고 스크립트에 묻는다(exit 0 = 알려도 됨, 1 = `reasons` 에 왜 아닌지):
+**PR 감시는 데몬 몫이다**(`rockyd::prwatch`, `repo` 가 설정된 보드의 레포를 3분마다). "확인·머지해도
+된다"(CI 초록 + 처리 안 된/결정 필요 스레드 0 + 충돌 없음 + base 가 기본 브랜치)와 충돌이 되면
+데몬이 macOS 알림을 쏘고, 보드 "지금" 표에 행이 뜨며, 다음 턴의 `notify-todo` 훅이 같은 사실을
+additionalContext 로 넣는다. 그러니 **이 세션에서 Monitor 를 걸거나 `watch` 를 반복하지 않는다.**
+
+이 단계에서 할 일은 둘뿐이다:
+
+1. 첫 봇 판정까지만 `watch` 로 기다린다(Codex 는 PR 이 ready 로 열릴 때 한 번 본다 — 수정
+   푸시는 다시 보지 않고, 재리뷰는 `@codex review` 로만). `findings` 면 2~5단계, 푸시했으면
+   CI 만 기다린다(`gh pr checks "$NUM" --watch`). 같은 head 에 `watch` 를 두 번 부르지 않는다.
+2. 훅 주입("#N 확인·머지해도 된다")을 받았거나 CI 가 초록이 됐으면 `ready` 로 한 번 확인하고
+   알린다 — 알림 조건은 스크립트가 판정한다(exit 0 = 알려도 됨; 🚀 가 있으면 알림이 아니라
+   7단계의 질문이 먼저):
 
 ```bash
 bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" ready "$NUM"
-# → { …, verdict: { ready, ci: pass|fail|pending, threads: { total, unhandled, rocket }, reasons: [...] } }
+# → { …, verdict: { ready, ci: pass|fail|pending, threads: { total, unhandled, rocket }, reasons } }
 ```
 
-1. `ci: pass` — `gh pr checks` 전부 통과
-2. `unhandled: 0` — 미해결 스레드 중 👀 도 🚀 도 없는 것이 없다
-3. `rocket: 0` — 🚀(호출자 결정 필요)가 없다. 있으면 알림이 아니라 7단계의 질문이 먼저다
-
-첫 봇 판정은 `watch` 로 기다린다(백그라운드로):
-
-```bash
-bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch "$NUM" --timeout 1500
-```
-
-- **Codex 는 PR 이 리뷰 대상으로 열릴 때(ready) 한 번만 자동으로 본다** — 수정 푸시는 다시
-  보지 않는다(공식 문서 "Codex will post a review whenever someone opens a new PR for review";
-  재리뷰는 `@codex review` 멘션으로만). 그래서 `watch` 는 **첫 판정**(보통 5~10분: 코멘트 아니면
-  본문 👍)까지만 의미가 있고, 그 뒤엔 부르지 않는다.
-- **같은 head 에 `watch` 를 두 번 부르지 않는다.** `botVerdict` 는 현재 head 이후의 봇 리뷰가
-  있으면 계속 `findings` 라 — 지적을 무효로 판정해 리액션만 바꾸고 커밋을 안 밀었으면 다음
-  `watch` 가 같은 리뷰를 다시 찾아 끝없이 돈다. 새 head 를 밀었을 때만 다시 보고, 그때도
-  기다리는 건 CI 다(`gh pr checks "$NUM" --watch`).
-- 첫 `verdict: findings` → 2~5단계(고치고 👀, 또는 무효 👀, 또는 🚀). 푸시했으면 CI 를
-  기다린 뒤 `ready` 가 0 이면 **알린다** — "지적 N건 👀, 재리뷰는 `@codex review` 로". 🚀 가
-  있으면 `ready` 가 막는다 — 묻는다. 라운드 제한은 없다: 오너가 재리뷰를 달아 새 지적이 오면
-  같은 절차.
-- 첫 `verdict: clean`(본문 👍) → `ready` 가 0 이면 **알린다**(CI 가 아직이면 초록까지 기다린다).
-- 첫 판정이 timeout 까지 `pending` 이면 그 사실을 적어, 역시 `ready` 가 0 일 때만 알린다(자동
-  리뷰가 꺼졌거나 지연). `watch` 의 "이 head 를 봤는가" 는 리뷰에 실린 커밋(Codex 의
-  `Reviewed commit:`)으로 대조하므로 서버 리베이스로 head 가 바뀐 뒤의 옛 리뷰를 새것으로 보지
-  않는다.
-- 알림 문구는 8단계의 것 그대로. 알린 뒤에도 감시를 끊지 않는다 — 머지·닫힘·충돌은 **Monitor**
-  (`allowed-tools` 에 있다)에 이 명령을 물려 본다. 열린 PR 전체의 전이만 한 줄씩 낸다
-  (`#N MERGED` / `#N OPEN DIRTY`), 30분마다 만료되니 그때마다 다시 건다:
+- 알림 문구는 8단계의 것 그대로. 스택이면 맨 아래 PR 만 알린다(데몬도 base 가 기본 브랜치인
+  PR 만 ready 로 친다).
+- **맡기기 전에 데몬이 정말 보고 있는지 확인한다** — 켜져 있어도 `pr.enabled: false` 면 잡이 없고,
+  `gh` 가 실패하면 `available: false` 다. 이 레포가 `repos` 에 있고 `available` 이 true 일 때만
+  맡긴다:
 
   ```bash
-  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" transitions --interval 60
+  curl -sf http://127.0.0.1:8636/api/health | jq '.prWatch'
+  # → { "available": true, "lastTick": "…", "repos": ["minjun0219/rocky", …] }
   ```
 
-  `DIRTY`/`CONFLICTING` 이 오면 충돌을 풀고(양쪽 의도 보존 → 게이트 → force-with-lease) 다시
-  이 단계부터. `MERGED` 가 오면 스택의 다음 PR 을 같은 기준으로.
+- **폴백** — 위 확인이 실패하는 경우 전부(`repo` 미설정 보드, `prWatch.available: false`,
+  `pr.enabled: false`, 이 레포가 `repos` 에 없음, 데몬 없음)는 세션이 직접 본다:
+  `pr-threads.ts transitions --interval 60` 을 Monitor 에 물리고(30분마다 만료), `DIRTY`/
+  `CONFLICTING` 이 오면 충돌을 풀고, `MERGED` 가 오면 다음 PR 을 같은 기준으로. `repo` 가 없는
+  것이 이유면 `rocky board repo OWNER/NAME` 을 설정하는 편이 낫다 — 다음 tick 부터 데몬이 본다.
+  `available: false` 면 그 사유(`reason`)를 호출자에게 알린다(대개 `gh` 인증).
 - **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
   수 없다 — 알림에 순서를 같이 적는다("#182 → #176 → #177 → #179 순"). 아래가 머지되면 **GitHub 이
   다음 PR 을 main 위로 서버에서 리베이스하고 base 를 옮긴다**(공식 문서: "the next unmerged pull
