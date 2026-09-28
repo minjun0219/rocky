@@ -79,6 +79,7 @@ export function NotesRail() {
 function NoteCard({ note }: { note: NoteView }) {
   const saveNote = useUiStore((s) => s.saveNote);
   const archiveNote = useUiStore((s) => s.archiveNote);
+  const refetch = useUiStore((s) => s.refetch);
   const openNoteDetail = useUiStore((s) => s.openNoteDetail);
   const actor = useUiStore((s) => s.actor);
   const [title, setTitle] = useState(note.title);
@@ -107,7 +108,7 @@ function NoteCard({ note }: { note: NoteView }) {
     }
   }, [note.content, live]);
 
-  const stopLive = () => {
+  const stopLive = async () => {
     if (lingerRef.current) {
       clearTimeout(lingerRef.current);
       lingerRef.current = null;
@@ -118,9 +119,18 @@ function NoteCard({ note }: { note: NoteView }) {
     }
     unbindRef.current?.();
     unbindRef.current = null;
-    syncRef.current?.close();
+    const sync = syncRef.current;
     syncRef.current = null;
     setOthers([]);
+    if (sync) {
+      // idle 로 돌아가면 위의 effect 가 textarea 를 note.content 로 덮는다. 마지막 편집이
+      // 서버의 2초 이벤트 조절 창 안에 끝났으면 스토어의 note.content 는 그 전 POST 에
+      // 머물러 있어, 저장된 글이 되돌아간 것처럼 보인다. 남은 편집을 보내고 목록을 다시
+      // 읽어 스토어를 맞춘 뒤에야 idle 이 된다 — 그동안 textarea 는 문서 값을 그대로 든다.
+      await sync.flush();
+      sync.close();
+      await refetch().catch(() => {});
+    }
     setLive('idle');
   };
 
@@ -172,12 +182,17 @@ function NoteCard({ note }: { note: NoteView }) {
     if (!syncRef.current || lingerRef.current) {
       return;
     }
-    lingerRef.current = setTimeout(stopLive, LIVE_LINGER_MS);
+    lingerRef.current = setTimeout(() => void stopLive(), LIVE_LINGER_MS);
   };
 
   // 카드가 사라지면 세션도 닫는다.
   // biome-ignore lint/correctness/useExhaustiveDependencies: 언마운트에 한 번 — stopLive 는 ref 만 만져 최신 값이 필요 없다
-  useEffect(() => stopLive, []);
+  useEffect(
+    () => () => {
+      void stopLive();
+    },
+    [],
+  );
 
   const titleDirty = title !== note.title;
   const saveTitle = () => {
