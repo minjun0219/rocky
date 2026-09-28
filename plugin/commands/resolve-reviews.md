@@ -294,10 +294,21 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" ready "$NUM"
 
 - 알림 문구는 8단계의 것 그대로. 스택이면 맨 아래 PR 만 알린다(데몬도 base 가 기본 브랜치인
   PR 만 ready 로 친다).
-- **폴백** — `repo` 가 설정되지 않은 보드의 레포나 데몬이 없는 곳에서만 세션이 직접 본다:
+- **맡기기 전에 데몬이 정말 보고 있는지 확인한다** — 켜져 있어도 `pr.enabled: false` 면 잡이 없고,
+  `gh` 가 실패하면 `available: false` 다. 이 레포가 `repos` 에 있고 `available` 이 true 일 때만
+  맡긴다:
+
+  ```bash
+  curl -sf http://127.0.0.1:8636/api/health | jq '.prWatch'
+  # → { "available": true, "lastTick": "…", "repos": ["minjun0219/rocky", …] }
+  ```
+
+- **폴백** — 위 확인이 실패하는 경우 전부(`repo` 미설정 보드, `prWatch.available: false`,
+  `pr.enabled: false`, 이 레포가 `repos` 에 없음, 데몬 없음)는 세션이 직접 본다:
   `pr-threads.ts transitions --interval 60` 을 Monitor 에 물리고(30분마다 만료), `DIRTY`/
-  `CONFLICTING` 이 오면 충돌을 풀고, `MERGED` 가 오면 다음 PR 을 같은 기준으로. 그 전에 보드에
-  `rocky board repo OWNER/NAME` 을 설정하는 편이 낫다 — 그러면 데몬이 본다.
+  `CONFLICTING` 이 오면 충돌을 풀고, `MERGED` 가 오면 다음 PR 을 같은 기준으로. `repo` 가 없는
+  것이 이유면 `rocky board repo OWNER/NAME` 을 설정하는 편이 낫다 — 다음 tick 부터 데몬이 본다.
+  `available: false` 면 그 사유(`reason`)를 호출자에게 알린다(대개 `gh` 인증).
 - **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
   수 없다 — 알림에 순서를 같이 적는다("#182 → #176 → #177 → #179 순"). 아래가 머지되면 **GitHub 이
   다음 PR 을 main 위로 서버에서 리베이스하고 base 를 옮긴다**(공식 문서: "the next unmerged pull
