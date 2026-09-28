@@ -422,7 +422,18 @@ deterministically, and a per-turn gate would just make every turn slow.
   없다(리액션·코멘트·머지는 여전히 세션/사람 몫). 러너·알림기는 주입 가능이라 테스트가 가짜
   `gh` 로 tick 을 돈다. `/api/health` 의 `prWatch { available, reason, lastTick, repos }`,
   `GET /api/prs[?board=&open=true]`, `rocky pr`. 세션 스크립트 `pr-threads.ts` 의 `ready`/
-  `transitions` 는 데몬이 없는 곳의 폴백이다.
+  `transitions` 는 데몬이 없는 곳의 폴백이다. **예산을 지킨다** — GraphQL 한도(시간당 5,000 포인트)는
+  사용자 계정 하나에 걸리므로 데몬이 다 쓰면 세션·터미널의 `gh` 까지 막힌다(2026-09-28 실측: 스레드
+  100 × 리액션 30 노드를 요청하던 첫 쿼리가 레포당 263 포인트 — **비용은 실제가 아니라 `first:`
+  로 요청한 노드 수**라 열린 PR 이 0개여도 그렇다 — 3분 × 레포 10개에 두 tick 만에 바닥). 그래서
+  레포당 호출은 둘이다: 목록(`PR_LIST_QUERY`)은 열린 50·닫힌 30의 **상태 조각(`prState`)만**
+  받고, CI·스레드는 **실제로 열린 PR 번호에만** 별칭 배치(`detail_query`, `p<번호>:
+  pullRequest`)로 묻는다 — 비용이 현실의 열린 PR 수에 비례한다(열린 것이 없으면 목록 한 번).
+  리액션은 노드 대신 `viewerHasReacted` 만 묻는다. 직전엔 열려 있었는데 목록에 없는 번호도
+  상세에 끼워 merged/closed 전이를 잃지 않는다. 응답마다
+  `rateLimit` 을 읽어 잔여가 `RATE_LIMIT_FLOOR`(1,000) 밑이거나 한도 에러를 받으면 그 tick 을 멈추고
+  리셋까지 쉰다(`pause_for`; 리셋 시각을 모르면 15분). health 의 `prWatch.rateLimit`(tick 누계
+  cost·마지막 remaining)·`pausedUntil` 이 그 상태다.
 - **statusline 세그먼트(`GET /api/statusline`)**: 보드를 보려고 창을 하나 더 띄우지 않으려는
   표면. `?cwd=&session=` 을 받아 **완성된 한 줄**을 `text/plain` 으로 낸다 — 렌더를 데몬이
   하는 이유는 소비자(Claude Code statusline 명령)를 `curl` 한 줄로 유지하려는 것이다.

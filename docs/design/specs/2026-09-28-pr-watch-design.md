@@ -18,6 +18,13 @@ PR 이 "확인·머지해도 되는" 상태가 됐는지, 머지·닫힘·충돌
    레포당 한 번의 쿼리: 최근 갱신 순 PR 30건(OPEN·MERGED·CLOSED)의 상태·`mergeStateStatus`·
    head·`statusCheckRollup`(CI)·미해결 리뷰 스레드의 첫 코멘트에 내(viewer)가 단 리액션.
    기본 3분 간격(`pr.intervalMinutes`). 외부 API 를 초당 도는 경로가 아니다.
+   **비용은 실제 노드가 아니라 `first:` 로 요청한 노드 수다** (릴리스 뒤 추가, 2026-09-28 실측
+   — 열린 PR 이 0개인 레포에서도 첫 판 쿼리가 263 포인트). 레포 10개 × 3분이면 두 tick 에 시간당
+   5,000 포인트가 바닥나고, 한도는 계정 단위라 세션의 `gh` 까지 막혔다. 그래서 레포당 호출을
+   둘로 나눈다: **목록**은 열린 50·닫힌 30의 상태 조각만(1 포인트대), **상세**는 실제로 열린
+   PR 번호에만 `p<번호>: pullRequest(number:) { CI·스레드 }` 별칭 배치로(PR 당 2 포인트대) —
+   비용이 현실의 열린 PR 수에 비례하고 열린 것이 없으면 목록 한 번이다. 리액션은
+   `reactions(content:EYES) { viewerHasReacted }` 로 노드 없이 묻고, 응답마다 `rateLimit` 을 읽는다.
 3. **판정은 순수 코드(`rocky_core::prwatch`)** — 세션 스크립트 `readyVerdict`/`transitionsBetween`
    의 Rust 판. `ready` = OPEN · draft 아님 · CI 통과 · 👀 도 🚀 도 없는 미해결 스레드 0 · 🚀 0.
    전이 = 직전 스냅숏과의 차이: `opened`·`ready`·`unready`·`conflict`·`merged`·`closed`.
@@ -56,3 +63,7 @@ PR 이 "확인·머지해도 되는" 상태가 됐는지, 머지·닫힘·충돌
   reason }` 을 싣는다 — 핸드오프의 `claude` 부재와 같은 모양.
 - 쿼리 한 번의 실패는 스냅숏을 바꾸지 않는다(전이 없음). 레포가 사라졌거나 403 이면 그 레포만
   건너뛰고 사유를 health 에 남긴다.
+- **예산이 바닥이면 쉰다** — 잔여가 1,000(`RATE_LIMIT_FLOOR`) 밑이거나 한도 에러(`errors[].type ==
+  RATE_LIMIT`)를 받으면 그 tick 의 남은 레포는 묻지 않고(똑같이 실패한다) 리셋 시각(+1분)까지
+  다음 tick 을 미룬다. 리셋 시각을 모르면 15분. 남긴 1/5 은 세션·터미널의 `gh` 몫이다. health 의
+  `prWatch.pausedUntil`·`rateLimit` 이 그 상태를 말한다.

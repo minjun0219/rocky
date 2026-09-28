@@ -1,17 +1,22 @@
 //! PR 감시의 순수 판정 — GraphQL 응답 파싱, ready 규칙, 전이, 알림 문구.
 
+use std::time::Duration;
+
 use rocky_core::prwatch::{
-    diff, is_ready, list_query, notification_text, one_query, osascript_args, parse_pull_request,
-    parse_pull_requests, CiState, PrEventKind, PrSnapshot,
+    detail_query, diff, is_rate_limit_error, is_ready, list_query, notification_text,
+    osascript_args, parse_pr_details, parse_pr_list, pause_for, CiState, PrEventKind, PrSnapshot,
+    RateLimit, RATE_LIMIT_BLIND_PAUSE_SECS, RATE_LIMIT_FLOOR,
 };
 use serde_json::json;
 
+/// 스레드 — 첫 코멘트에 내가 단 리액션은 `viewerHasReacted` 로만 온다(노드를 받지 않는다).
 fn thread(resolved: bool, mine: &[&str]) -> serde_json::Value {
     json!({
         "isResolved": resolved,
-        "comments": { "nodes": [ { "reactions": { "nodes":
-            mine.iter().map(|c| json!({ "content": c, "user": { "login": "me" } })).collect::<Vec<_>>()
-        } } ] }
+        "comments": { "nodes": [ {
+            "eyes": { "viewerHasReacted": mine.contains(&"EYES") },
+            "rocket": { "viewerHasReacted": mine.contains(&"ROCKET") }
+        } ] }
     })
 }
 
@@ -30,14 +35,36 @@ fn pr(
     })
 }
 
-fn data(prs: Vec<serde_json::Value>) -> serde_json::Value {
+/// 닫힌 PR 은 상태 조각(`prState`)만 온다 — commits·reviewThreads 가 없다.
+fn closed_pr(number: i64, state: &str) -> serde_json::Value {
+    json!({
+        "number": number, "title": format!("PR {number}"), "url": format!("https://x/pull/{number}"),
+        "state": state, "isDraft": false, "headRefOid": "abcdef0123456789", "mergeStateStatus": "UNKNOWN",
+        "baseRefName": "main", "updatedAt": "2026-09-28T10:00:00Z"
+    })
+}
+
+/// 목록 응답 — 열린 것은 번호만 뜻이 있고(상태 조각), 닫힌 것은 그대로.
+fn list_data(prs: Vec<serde_json::Value>) -> serde_json::Value {
     let (open, recent): (Vec<_>, Vec<_>) = prs.into_iter().partition(|p| p["state"] == "OPEN");
-    json!({ "viewer": { "login": "me" }, "repository": { "open": { "nodes": open }, "recent": { "nodes": recent } } })
+    json!({
+        "rateLimit": { "cost": 12, "remaining": 4800, "resetAt": "2026-09-28T11:00:00Z" },
+        "repository": { "open": { "pageInfo": { "hasNextPage": false }, "nodes": open }, "recent": { "nodes": recent } }
+    })
+}
+
+/// 상세 응답 — `p<번호>` 별칭마다 PR 하나.
+fn detail_data(prs: Vec<serde_json::Value>) -> serde_json::Value {
+    let mut repository = serde_json::Map::new();
+    for p in prs {
+        repository.insert(format!("p{}", p["number"]), p);
+    }
+    json!({ "rateLimit": { "cost": 3, "remaining": 4700, "resetAt": "2026-09-28T11:00:00Z" }, "repository": repository })
 }
 
 #[test]
 fn parses_ci_threads_and_ready_from_the_query_shape() {
-    let d = data(vec![
+    let d = detail_data(vec![
         pr(
             1,
             "OPEN",
@@ -46,10 +73,10 @@ fn parses_ci_threads_and_ready_from_the_query_shape() {
         ),
         pr(2, "OPEN", Some("FAILURE"), vec![thread(false, &[])]),
         pr(3, "OPEN", None, vec![thread(false, &["ROCKET"])]),
-        pr(4, "MERGED", Some("SUCCESS"), vec![]),
     ]);
-    let snaps = parse_pull_requests(&d, "o/r", "main").unwrap();
-    assert_eq!(snaps.len(), 4);
+    let mut snaps = parse_pr_details(&d, "o/r", "main").unwrap();
+    snaps.sort_by_key(|s| s.number);
+    assert_eq!(snaps.len(), 3);
     let s1 = &snaps[0];
     assert_eq!(
         (s1.ci, s1.unhandled, s1.rocket, s1.ready),
@@ -64,13 +91,97 @@ fn parses_ci_threads_and_ready_from_the_query_shape() {
         (CiState::Pass, 1, false),
         "check 없음 = pass, 🚀 는 막는다"
     );
-    assert!(!snaps[3].ready, "머지된 것은 ready 가 아니다");
+
+    let list = parse_pr_list(
+        &list_data(vec![pr(7, "OPEN", None, vec![]), closed_pr(4, "MERGED")]),
+        "o/r",
+        "main",
+    )
+    .unwrap();
+    assert_eq!(list.open, vec![7], "열린 것은 번호만 — 상세 쿼리의 대상");
+    assert!(!list.open_truncated);
+    assert_eq!(list.closed.len(), 1);
+    let c = &list.closed[0];
+    assert!(!c.ready, "머지된 것은 ready 가 아니다");
+    assert_eq!(
+        (c.ci, c.unhandled, c.state.as_str()),
+        (CiState::Pass, 0, "MERGED"),
+        "닫힌 PR 은 상태 조각만 — CI·스레드 없이도 스냅숏이 완성된다"
+    );
 }
 
 #[test]
 fn a_wrong_shape_is_an_error_not_an_empty_list() {
-    assert!(parse_pull_requests(&json!({ "viewer": { "login": "me" } }), "o/r", "main").is_err());
-    assert!(parse_pull_requests(&json!({}), "o/r", "main").is_err());
+    assert!(parse_pr_list(&json!({ "repository": {} }), "o/r", "main").is_err());
+    assert!(parse_pr_list(&json!({}), "o/r", "main").is_err());
+    assert!(parse_pr_details(&json!({}), "o/r", "main").is_err());
+}
+
+/// 예산 — 응답의 `rateLimit`, 바닥 판정, 리셋까지 쉬는 길이.
+#[test]
+fn rate_limit_is_read_and_decides_the_pause() {
+    let d = list_data(vec![]);
+    let rl = RateLimit::of(&d).unwrap();
+    assert_eq!((rl.cost, rl.remaining), (12, 4800));
+    assert!(!rl.exhausted());
+    assert!(RateLimit::of(&json!({ "repository": {} })).is_none());
+    let low = RateLimit {
+        cost: 1,
+        remaining: RATE_LIMIT_FLOOR - 1,
+        reset_at: "2026-09-28T11:00:00Z".into(),
+    };
+    assert!(low.exhausted());
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-28T10:40:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    assert_eq!(
+        pause_for(Some(&low), now),
+        Duration::from_secs(20 * 60 + 60),
+        "리셋까지 + 1분 여유"
+    );
+    let past = RateLimit {
+        reset_at: "2026-09-28T10:00:00Z".into(),
+        ..low.clone()
+    };
+    assert_eq!(
+        pause_for(Some(&past), now),
+        Duration::from_secs(RATE_LIMIT_BLIND_PAUSE_SECS),
+        "리셋이 지났으면(낡은 정보) 고정 길이"
+    );
+    assert_eq!(
+        pause_for(None, now),
+        Duration::from_secs(RATE_LIMIT_BLIND_PAUSE_SECS)
+    );
+    let far = RateLimit {
+        reset_at: "2026-09-29T10:00:00Z".into(),
+        ..low
+    };
+    assert_eq!(
+        pause_for(Some(&far), now),
+        Duration::from_secs(61 * 60),
+        "상한은 한도 창 + 여유"
+    );
+}
+
+/// gh 는 한도에 걸려도 응답 JSON 을 stdout 에 낸다 — `errors[].type` 이 정본, stderr 는 폴백.
+#[test]
+fn rate_limit_errors_are_recognised_from_body_or_stderr() {
+    let body = r#"{"errors":[{"type":"RATE_LIMIT","code":"graphql_rate_limit","message":"API rate limit already exceeded for user ID 1."}]}"#;
+    assert!(is_rate_limit_error(body, ""));
+    let body2 = r#"{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded for user ID 1."}]}"#;
+    assert!(
+        is_rate_limit_error(body2, ""),
+        "GitHub 은 두 철자를 다 낸다"
+    );
+    assert!(is_rate_limit_error(
+        "",
+        "gh: API rate limit already exceeded for user ID 1."
+    ));
+    assert!(!is_rate_limit_error(
+        r#"{"errors":[{"type":"NOT_FOUND","message":"x"}]}"#,
+        "gh: HTTP 404: Not Found"
+    ));
+    assert!(!is_rate_limit_error("", "gh: HTTP 404: Not Found"));
 }
 
 #[test]
@@ -185,15 +296,39 @@ fn notification_text_and_osascript_escaping() {
     );
 }
 
+/// 상세 쿼리는 번호마다 별칭 하나로 한 요청 — 사라진 PR(`null`)은 건너뛴다. 번호가 없으면 부르지 않는다.
 #[test]
-fn single_pr_query_parses_one_or_none_and_queries_carry_the_fragment() {
-    let d = json!({ "viewer": { "login": "me" }, "repository": { "pullRequest": pr(9, "MERGED", Some("SUCCESS"), vec![]) } });
-    let one = parse_pull_request(&d, "o/r", "main").unwrap().unwrap();
-    assert_eq!((one.number, one.state.as_str()), (9, "MERGED"));
-    let none = json!({ "viewer": { "login": "me" }, "repository": { "pullRequest": null } });
-    assert!(parse_pull_request(&none, "o/r", "main").unwrap().is_none());
-    assert!(list_query().contains("fragment prFields") && list_query().contains("states:[OPEN]"));
-    assert!(one_query().contains("$number:Int!") && one_query().contains("fragment prFields"));
+fn detail_query_batches_numbers_and_parses_each_alias() {
+    assert!(detail_query(&[]).is_none());
+    let q = detail_query(&[9, 12]).unwrap();
+    assert!(q.contains("p9: pullRequest(number:9) { ...prFields }"));
+    assert!(q.contains("p12: pullRequest(number:12) { ...prFields }"));
+    let mut d = detail_data(vec![pr(9, "MERGED", Some("SUCCESS"), vec![])]);
+    d["repository"]["p12"] = json!(null);
+    let snaps = parse_pr_details(&d, "o/r", "main").unwrap();
+    assert_eq!(snaps.len(), 1);
+    assert_eq!((snaps[0].number, snaps[0].state.as_str()), (9, "MERGED"));
+    assert!(
+        parse_pr_details(&json!({ "repository": {} }), "o/r", "main")
+            .unwrap()
+            .is_empty()
+    );
+    for q in [list_query(), q] {
+        assert!(q.contains("fragment prState"));
+        assert!(q.contains("rateLimit { cost remaining resetAt }"));
+        assert!(
+            !q.contains("user { login }"),
+            "리액션 노드를 받지 않는다 — 비용"
+        );
+    }
+    assert!(
+        !list_query().contains("reviewThreads") && list_query().contains("{ ...prState }"),
+        "목록은 상태만 — 스레드는 열린 PR 에만 상세로"
+    );
+    assert!(
+        list_query().contains("states:[OPEN]") && list_query().contains("states:[MERGED, CLOSED]")
+    );
+    assert!(detail_query(&[1]).unwrap().contains("viewerHasReacted"));
 }
 
 /// 닫혔던 PR 이 다시 열리면 처음 보는 열린 PR 처럼 — opened 와, 이미 ready 면 ready 도.
@@ -213,6 +348,15 @@ fn a_reopened_pr_emits_opened_and_ready() {
 fn truncated_review_threads_block_ready() {
     let mut node = pr(1, "OPEN", Some("SUCCESS"), vec![thread(false, &["EYES"])]);
     node["reviewThreads"]["pageInfo"] = json!({ "hasNextPage": true });
-    let snaps = parse_pull_requests(&data(vec![node]), "o/r", "main").unwrap();
+    let snaps = parse_pr_details(&detail_data(vec![node]), "o/r", "main").unwrap();
     assert_eq!((snaps[0].unhandled, snaps[0].ready), (1, false));
+}
+
+/// 열린 것이 창을 넘치면 그 사실을 알린다 — 데몬이 직전 스냅숏의 열린 것으로 보충한다.
+#[test]
+fn a_truncated_open_list_is_flagged() {
+    let mut d = list_data(vec![pr(1, "OPEN", None, vec![])]);
+    d["repository"]["open"]["pageInfo"]["hasNextPage"] = json!(true);
+    let list = parse_pr_list(&d, "o/r", "main").unwrap();
+    assert!(list.open_truncated && list.open == vec![1]);
 }
