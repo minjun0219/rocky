@@ -110,8 +110,11 @@ export function botVerdict(
   headCommittedAt: string,
 ): BotVerdict {
   const head = Date.parse(headCommittedAt);
+  // 리뷰 author 는 `chatgpt-codex-connector`, 본문 리액션의 user 는 `chatgpt-codex-connector[bot]` 로
+  // 온다 — 같은 앱인데 GraphQL 이 자리마다 다르게 적는다. 접미사를 떼고 비교한다.
   const isBot = (login: string | undefined) =>
-    login !== undefined && (REVIEW_BOTS as readonly string[]).includes(login);
+    login !== undefined &&
+    (REVIEW_BOTS as readonly string[]).includes(login.replace(/\[bot\]$/, ''));
   const reviewed = reviews.some(
     (r) => isBot(r.author?.login) && r.submittedAt !== null && Date.parse(r.submittedAt) > head,
   );

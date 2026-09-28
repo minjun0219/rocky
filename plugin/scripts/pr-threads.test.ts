@@ -104,6 +104,10 @@ describe('botVerdict', () => {
     expect(botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T01:03:00Z')], head)).toBe(
       'clean',
     );
+    // 실제 GraphQL 은 리액션 user 를 `[bot]` 접미사로 준다(#158 실측).
+    expect(
+      botVerdict([], [thumbs('chatgpt-codex-connector[bot]', '2026-09-28T01:03:00Z')], head),
+    ).toBe('clean');
     expect(botVerdict([], [thumbs('minjun0219', '2026-09-28T01:03:00Z')], head)).toBe('pending');
     expect(
       botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T01:03:00Z', 'EYES')], head),
