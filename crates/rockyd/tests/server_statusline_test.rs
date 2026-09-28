@@ -342,6 +342,44 @@ async fn collect_uses_cached_inbox_only_and_excludes_promoted() {
 }
 
 #[tokio::test]
+async fn summary_ignores_handoffs_of_archived_todos() {
+    let f = fx();
+    let todo = f
+        .store
+        .create_todo(
+            &CreateTodoInput {
+                board: "rocky-todo".into(),
+                title: "보관될 것".into(),
+                ..Default::default()
+            },
+            "logan",
+        )
+        .unwrap();
+    f.store
+        .create_handoff(&CreateHandoffInput {
+            todo_ref: todo.id.clone(),
+            session_id: "sess-9".into(),
+            session_name: None,
+            session_cwd: None,
+            note: None,
+            actor: "logan".into(),
+            current_board_id: None,
+        })
+        .unwrap();
+    // 배달만 되고 착수 없음 → 요약의 "대기" 1.
+    f.store.claim_handoff("sess-9", HandoffVia::Stop).unwrap();
+    let state = statusline_state(&f, None);
+    let (_, body) = get(&state, "/api/summary?cwd=/w/rocky-todo").await;
+    assert_eq!(body["handoffsOpen"], 1);
+    // todo 를 보관하면 그 핸드오프는 더 이상 대기가 아니다.
+    f.store
+        .set_todo_status(&todo.id, StatusAction::Archive, "logan", None)
+        .unwrap();
+    let (_, body) = get(&state, "/api/summary?cwd=/w/rocky-todo").await;
+    assert_eq!(body["handoffsOpen"], 0);
+}
+
+#[tokio::test]
 async fn summary_route_returns_board_counts_and_items() {
     let f = fx();
     f.store

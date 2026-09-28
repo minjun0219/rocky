@@ -2387,7 +2387,9 @@ impl TodoStore {
         pending_handoff_of_conn(&conn, todo_id)
     }
 
-    /// 큐 조회 — 최신순. `open` 은 대기 중이거나 배달됐는데 완료되지 않은 것.
+    /// 큐 조회 — 최신순. `open` 은 대기 중이거나 배달됐는데 완료되지 않은 것 — 단 todo 가
+    /// **보관되면 그 핸드오프는 열린 것이 아니다**. 보관은 "이 일은 더 안 본다" 이므로 그 위의
+    /// 미완료 배달·대기가 요약과 UI 에 영원히 남는 걸 막는다(해제하면 다시 열린다).
     pub fn list_handoffs(&self, filter: &ListHandoffsFilter) -> StoreResult<Vec<Handoff>> {
         let conn = self.lock();
         let mut clauses: Vec<&str> = Vec::new();
@@ -2396,6 +2398,7 @@ impl TodoStore {
             clauses.push(
                 "(h.status = 'pending' OR (h.status = 'delivered' AND h.completed_at IS NULL))",
             );
+            clauses.push("h.todo_id IN (SELECT id FROM todos WHERE archived_at IS NULL)");
         }
         if let Some(board_id) = &filter.board_id {
             clauses.push("h.todo_id IN (SELECT id FROM todos WHERE board_id = ?)");
@@ -2435,9 +2438,11 @@ impl TodoStore {
             let conn = self.lock();
             conn.execute_batch("BEGIN")?;
             let result = (|| -> StoreResult<Option<ClaimedHandoff>> {
+                // 보관된 todo 의 pending 은 집지 않는다 — open 목록·요약에서 빠진 요청이 훅에서만
+                // 튀어나와 사용자가 접은 일을 세션이 착수하게 되는 걸 막는다. 해제하면 다시 집힌다.
                 let row = conn
                     .query_row(
-                        "SELECT * FROM handoffs WHERE session_id = ?1 AND status = 'pending' ORDER BY created_at ASC, rowid ASC LIMIT 1",
+                        "SELECT * FROM handoffs WHERE session_id = ?1 AND status = 'pending' AND todo_id IN (SELECT id FROM todos WHERE archived_at IS NULL) ORDER BY created_at ASC, rowid ASC LIMIT 1",
                         params![session_id],
                         handoff_from_row,
                     )
@@ -2455,7 +2460,7 @@ impl TodoStore {
                     return Ok(None);
                 };
                 let remaining: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM handoffs WHERE session_id = ?1 AND status = 'pending'",
+                    "SELECT COUNT(*) FROM handoffs WHERE session_id = ?1 AND status = 'pending' AND todo_id IN (SELECT id FROM todos WHERE archived_at IS NULL)",
                     params![session_id],
                     |r| r.get(0),
                 )?;

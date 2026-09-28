@@ -2171,6 +2171,47 @@ fn claim_takes_oldest_and_reports_remaining() {
 }
 
 #[test]
+fn claim_skips_pending_handoff_of_archived_todo() {
+    let f = fx();
+    let archived = create(&f.store, "rocky-todo", "접은 일", "logan");
+    let live = create(&f.store, "rocky-todo", "산 일", "logan");
+    f.store
+        .create_handoff(&handoff_input(&archived.id, "sess-1", "logan"))
+        .unwrap();
+    f.store
+        .create_handoff(&handoff_input(&live.id, "sess-1", "logan"))
+        .unwrap();
+    f.store
+        .set_todo_status(&archived.id, StatusAction::Archive, "logan", None)
+        .unwrap();
+
+    // 더 오래된 요청이지만 todo 가 보관됐으니 건너뛰고, remaining 에도 세지 않는다.
+    let claimed = f
+        .store
+        .claim_handoff("sess-1", HandoffVia::Stop)
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.todo_title, "산 일");
+    assert_eq!(claimed.remaining, 0);
+    assert!(f
+        .store
+        .claim_handoff("sess-1", HandoffVia::Stop)
+        .unwrap()
+        .is_none());
+
+    // 보관을 풀면 그 요청은 그대로 pending 이라 다시 집힌다.
+    f.store
+        .set_todo_status(&archived.id, StatusAction::Unarchive, "logan", None)
+        .unwrap();
+    let again = f
+        .store
+        .claim_handoff("sess-1", HandoffVia::Prompt)
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.todo_title, "접은 일");
+}
+
+#[test]
 fn claim_does_not_take_other_sessions_requests() {
     let f = fx();
     let todo = create(&f.store, "rocky-todo", "x", "logan");
@@ -2250,6 +2291,55 @@ fn list_handoffs_open_includes_pending_and_undone_delivered() {
     let mut expected = vec![in_flight.id, waiting.id];
     expected.sort();
     assert_eq!(todo_ids, expected);
+}
+
+#[test]
+fn list_handoffs_open_excludes_archived_todo() {
+    let f = fx();
+    let kept = create(&f.store, "rocky-todo", "산 것", "logan");
+    let archived = create(&f.store, "rocky-todo", "보관될 것", "logan");
+    f.store
+        .create_handoff(&handoff_input(&kept.id, "sess-1", "logan"))
+        .unwrap();
+    f.store
+        .create_handoff(&handoff_input(&archived.id, "sess-2", "logan"))
+        .unwrap();
+    // 배달됐지만 미착수인 채로 todo 를 보관 — 옛 테스트 핸드오프가 이 모양으로 영원히 남았다.
+    f.store.claim_handoff("sess-2", HandoffVia::Stop).unwrap();
+    f.store
+        .set_todo_status(&archived.id, StatusAction::Archive, "logan", None)
+        .unwrap();
+
+    let open = f
+        .store
+        .list_handoffs(&ListHandoffsFilter {
+            open: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        open.iter().map(|h| h.todo_id.as_str()).collect::<Vec<_>>(),
+        vec![kept.id.as_str()]
+    );
+    // open 없이 보면 여전히 보인다 — 기록은 지우지 않는다.
+    let all = f
+        .store
+        .list_handoffs(&ListHandoffsFilter::default())
+        .unwrap();
+    assert_eq!(all.len(), 2);
+
+    // 보관 해제하면 다시 열린다.
+    f.store
+        .set_todo_status(&archived.id, StatusAction::Unarchive, "logan", None)
+        .unwrap();
+    let open = f
+        .store
+        .list_handoffs(&ListHandoffsFilter {
+            open: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(open.len(), 2);
 }
 
 #[test]
