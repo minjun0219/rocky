@@ -342,7 +342,11 @@ deterministically, and a per-turn gate would just make every turn slow.
   프레즌스; `fetch`/`EventSource` 주입으로 단위 테스트)와 `web/textarea-binding.ts`(textarea ↔
   `Y.Text`, 로컬은 input 마다 최소 diff, 원격은 delta 로 커서 이동, IME 조합 중엔 원격 적용을
   멈춘다). `NoteCard` 는 포커스에 세션을 열고 blur 20초 뒤 닫는다 — 카드마다 늘 SSE 를 물면
-  브라우저의 호스트당 연결 한도(HTTP/1.1 6개)에 걸린다.
+  브라우저의 호스트당 연결 한도(HTTP/1.1 6개)에 걸린다. 편집기 후보 (b) `web/codemirror-editor.ts`
+  (CodeMirror 6 + `y-codemirror.next`)는 같은 `NoteSync` 위에 올라가고, y-protocols `Awareness`
+  를 프레즌스 라우트의 `state`(awareness update 의 base64)에 실어 나른다(`bridgeAwareness`) —
+  상대 커서·선택 영역. 헤더의 편집기 스위치(`rocky.noteEditor` in localStorage)는 **둘 중 하나를
+  지우기 위한 임시**다(결정 6). 번들 +500KB(minified) 가 (b)의 값이다.
 - **번호 참조(ref)**: todo/note 는 랜덤 id(`921gvwnr`, PK 로 유지) 외에 보드별 순번을 갖는다.
   id 를 받는 자리는 어디서든 `rocky-12`(보드 접두사) → `12`(현재 보드 컨텍스트 안의
   번호) → id 정확 일치 → id 유일 prefix 순으로 시도해 해석한다(`resolve_ref_id` in

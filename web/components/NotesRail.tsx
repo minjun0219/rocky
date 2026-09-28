@@ -1,6 +1,13 @@
 import { Archive, ChevronDown, ChevronRight, History } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { NoteView } from '../types';
+import {
+  type MountedEditor,
+  mountNoteEditor,
+  type NoteEditorKind,
+  readEditorPref,
+  writeEditorPref,
+} from '../codemirror-editor';
 import { boardCommand, copyRefWithFeedback, formatElapsed } from '../lib';
 import { NoteSync, PRESENCE_PING_MS } from '../notedoc';
 import { useUiStore } from '../store';
@@ -15,12 +22,25 @@ const LIVE_LINGER_MS = 20_000;
 /**
  * 메모 레일 — 목록 아래, 기본 접힘. 헤더(개수)가 토글이다. 넓은 화면에서 옆 열로 늘 펼쳐
  * 있던 시절엔 대개 빈 열이었다 — 관제판에선 필요할 때만 편다.
+ *
+ * 편집기 스위치(textarea / CodeMirror)는 둘을 번갈아 써 보고 하나를 지우기 위한 임시 것이다
+ * (설계 2026-09-28-note-crdt-design, 결정 6). 결정 뒤 지운다.
  */
 export function NotesRail() {
   const notes = useUiStore((s) => s.notes);
   const selected = useUiStore((s) => s.selected);
   const addNote = useUiStore((s) => s.addNote);
   const [open, setOpen] = useState(false);
+  const [editor, setEditor] = useState<NoteEditorKind>(() => readEditorPref(localStorage));
+
+  const switchEditor = (kind: NoteEditorKind) => {
+    if (kind === editor) {
+      return;
+    }
+    logUsage('web:note-editor', { kind });
+    writeEditorPref(localStorage, kind);
+    setEditor(kind);
+  };
 
   return (
     <aside
@@ -48,19 +68,40 @@ export function NotesRail() {
             </span>
           </span>
         </button>
-        <button
-          type="button"
-          className="notes-add text-meta text-warm"
-          onClick={() => {
-            setOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
-            void addNote({
-              board: selected === 'all' ? undefined : selected,
-              title: '새 메모',
-            });
-          }}
-        >
-          + 메모
-        </button>
+        <div className="flex items-center gap-2">
+          {open && (
+            <span
+              className="note-editor-switch font-mono text-micro text-faint"
+              title="편집기 — 둘 다 써 보고 하나만 남긴다"
+            >
+              편집기{' '}
+              {(['textarea', 'codemirror'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className={`px-1 ${editor === kind ? 'text-text underline' : 'hover:text-text'}`}
+                  aria-pressed={editor === kind}
+                  onClick={() => switchEditor(kind)}
+                >
+                  {kind === 'textarea' ? '기본' : 'CodeMirror'}
+                </button>
+              ))}
+            </span>
+          )}
+          <button
+            type="button"
+            className="notes-add text-meta text-warm"
+            onClick={() => {
+              setOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
+              void addNote({
+                board: selected === 'all' ? undefined : selected,
+                title: '새 메모',
+              });
+            }}
+          >
+            + 메모
+          </button>
+        </div>
       </div>
       <div className="notes-body">
         {notes.length === 0 && (
@@ -69,14 +110,14 @@ export function NotesRail() {
           </div>
         )}
         {notes.map((note) => (
-          <NoteCard key={note.id} note={note} />
+          <NoteCard key={`${note.id}:${editor}`} note={note} editor={editor} />
         ))}
       </div>
     </aside>
   );
 }
 
-function NoteCard({ note }: { note: NoteView }) {
+function NoteCard({ note, editor }: { note: NoteView; editor: NoteEditorKind }) {
   const saveNote = useUiStore((s) => s.saveNote);
   const archiveNote = useUiStore((s) => s.archiveNote);
   const refetch = useUiStore((s) => s.refetch);
@@ -90,8 +131,10 @@ function NoteCard({ note }: { note: NoteView }) {
   const [live, setLive] = useState<'idle' | 'opening' | 'on'>('idle');
   const [others, setOthers] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cmHostRef = useRef<HTMLDivElement>(null);
   const syncRef = useRef<NoteSync | null>(null);
   const unbindRef = useRef<(() => void) | null>(null);
+  const mountedRef = useRef<MountedEditor | null>(null);
   const lingerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -100,7 +143,7 @@ function NoteCard({ note }: { note: NoteView }) {
   }, [note.title]);
 
   // 다른 경로(에이전트·CLI)의 편집이 SSE refetch 로 들어오면, 실시간 세션이 없을 때만 그린다 —
-  // 세션이 있으면 그 편집은 이미 문서 스트림으로 들어와 textarea 에 그려졌다.
+  // 세션이 있으면 그 편집은 이미 문서 스트림으로 들어와 편집기에 그려졌다.
   useEffect(() => {
     if (live === 'idle' && textareaRef.current && textareaRef.current.value !== note.content) {
       textareaRef.current.value = note.content;
@@ -119,6 +162,8 @@ function NoteCard({ note }: { note: NoteView }) {
     }
     unbindRef.current?.();
     unbindRef.current = null;
+    mountedRef.current?.destroy();
+    mountedRef.current = null;
     const sync = syncRef.current;
     syncRef.current = null;
     setOthers([]);
@@ -134,19 +179,26 @@ function NoteCard({ note }: { note: NoteView }) {
     setLive('idle');
   };
 
-  const startLive = async () => {
+  const scheduleStop = () => {
+    if (!syncRef.current || lingerRef.current) {
+      return;
+    }
+    lingerRef.current = setTimeout(() => void stopLive(), LIVE_LINGER_MS);
+  };
+
+  const cancelStop = () => {
     if (lingerRef.current) {
       clearTimeout(lingerRef.current);
       lingerRef.current = null;
     }
+  };
+
+  const startLive = async () => {
+    cancelStop();
     if (syncRef.current) {
       return;
     }
-    const el = textareaRef.current;
-    if (!el) {
-      return;
-    }
-    logUsage('web:note-live');
+    logUsage('web:note-live', { editor });
     setLive('opening');
     const sync = new NoteSync(note.id, actor);
     syncRef.current = sync;
@@ -164,6 +216,30 @@ function NoteCard({ note }: { note: NoteView }) {
       sync.close(); // 여는 사이 닫혔다
       return;
     }
+    sync.onPresence = setOthers;
+    if (editor === 'codemirror') {
+      const host = cmHostRef.current;
+      if (!host) {
+        stopLive();
+        return;
+      }
+      const mounted = mountNoteEditor(host, sync, {
+        actor,
+        onFocus: (focused) => (focused ? cancelStop() : scheduleStop()),
+      });
+      mountedRef.current = mounted;
+      void sync.ping(mounted.pingState());
+      pingRef.current = setInterval(() => void sync.ping(mounted.pingState()), PRESENCE_PING_MS);
+      setLive('on');
+      // 미리보기가 걷힌 다음 프레임에 포커스 — 같은 틱에 부르면 아직 그려지지 않은 편집기라 놓친다.
+      requestAnimationFrame(() => mounted.view.focus());
+      return;
+    }
+    const el = textareaRef.current;
+    if (!el) {
+      stopLive();
+      return;
+    }
     unbindRef.current = bindTextarea(el, sync.text, {
       origin: LOCAL_ORIGIN,
       // 세션을 여는 사이 친 글자는 화면값과 이 기준값의 차이다 — 문서에 먼저 넣는다.
@@ -172,17 +248,9 @@ function NoteCard({ note }: { note: NoteView }) {
       resumeRemote: () => sync.resumeRemote(),
       onChange: (value) => setLines(value.split('\n').length),
     });
-    sync.onPresence = setOthers;
     void sync.ping();
     pingRef.current = setInterval(() => void sync.ping(), PRESENCE_PING_MS);
     setLive('on');
-  };
-
-  const scheduleStop = () => {
-    if (!syncRef.current || lingerRef.current) {
-      return;
-    }
-    lingerRef.current = setTimeout(() => void stopLive(), LIVE_LINGER_MS);
   };
 
   // 카드가 사라지면 세션도 닫는다.
@@ -251,24 +319,44 @@ function NoteCard({ note }: { note: NoteView }) {
           <Archive size={13} aria-hidden />
         </button>
       </div>
-      <textarea
-        ref={textareaRef}
-        className="note-content mt-1 w-full resize-y border-none bg-transparent text-sm leading-[1.55] text-muted focus:text-text focus:outline-none"
-        defaultValue={note.content}
-        rows={Math.min(12, Math.max(3, lines + 1))}
-        readOnly={live === 'opening'}
-        aria-label={`${note.title} 본문`}
-        onFocus={() => void startLive()}
-        onBlur={scheduleStop}
-        onInput={(e) => {
-          if (live === 'idle') {
-            // 세션이 열리기 전(readOnly 가 걸리기 전 한 틱)의 입력은 세션이 열리면 문서 값으로
-            // 덮인다 — 그 한 틱을 잃지 않게 세션을 연다.
-            void startLive();
-          }
-          setLines(e.currentTarget.value.split('\n').length);
-        }}
-      />
+      {editor === 'codemirror' ? (
+        // 세션 전엔 미리보기, 클릭하면 그 자리에 CodeMirror 가 뜬다(문서를 받은 뒤라야 편집기를
+        // 만들 수 있다 — yCollab 은 만들 때의 Y.Text 에 묶인다).
+        <div className="note-cm">
+          {live !== 'on' && (
+            <button
+              type="button"
+              className="note-cm-preview block w-full border-none bg-transparent p-0 text-left text-sm leading-[1.55] text-muted"
+              aria-label={`${note.title} 본문 (클릭해 편집)`}
+              onClick={() => void startLive()}
+              onFocus={() => void startLive()}
+            >
+              {note.content || '\u00a0'}
+              {live === 'opening' && <span className="text-faint"> …</span>}
+            </button>
+          )}
+          <div ref={cmHostRef} />
+        </div>
+      ) : (
+        <textarea
+          ref={textareaRef}
+          className="note-content mt-1 w-full resize-y border-none bg-transparent text-sm leading-[1.55] text-muted focus:text-text focus:outline-none"
+          defaultValue={note.content}
+          rows={Math.min(12, Math.max(3, lines + 1))}
+          readOnly={live === 'opening'}
+          aria-label={`${note.title} 본문`}
+          onFocus={() => void startLive()}
+          onBlur={scheduleStop}
+          onInput={(e) => {
+            if (live === 'idle') {
+              // 세션이 열리기 전(readOnly 가 걸리기 전 한 틱)의 입력은 세션이 열리면 문서 값으로
+              // 덮인다 — 그 한 틱을 잃지 않게 세션을 연다.
+              void startLive();
+            }
+            setLines(e.currentTarget.value.split('\n').length);
+          }}
+        />
+      )}
       <div className="mt-1 font-mono text-micro text-faint">{status}</div>
     </div>
   );

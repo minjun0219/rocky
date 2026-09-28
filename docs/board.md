@@ -171,6 +171,10 @@ POST /api/notes/:ref/presence {client,state}  누가 보고 있는지 — 저장
 "같이 보는 중: codex" 처럼 이름이 붙는다. 포커스가 빠지고 20초 뒤 세션을 닫는다(그 뒤엔
 일반 갱신으로 따라온다). 제목은 예전처럼 blur 때 저장한다.
 
+메모 헤더의 **편집기 스위치**(기본 / CodeMirror)는 임시다 — 둘을 번갈아 써 보고 하나만 남긴다.
+CodeMirror 쪽은 같이 보는 사람의 커서·선택 영역을 이름표와 함께 그린다(에이전트는 커서가
+없다 — 이름만). 선택은 브라우저에 남는다(`localStorage`).
+
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 
 "지금 뭐 봐야 하나" 를 몇 줄로. 셋이 같은 판정(`rocky_core::summary`)을 쓴다.
