@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import {
+  AWARENESS_FLUSH_MS,
   bridgeAwareness,
   colorFor,
   EDITOR_PREF_KEY,
@@ -26,13 +27,18 @@ describe('bridgeAwareness', () => {
     };
   }
 
-  test('local awareness changes ride the presence ping', async () => {
+  test('local awareness changes ride the presence ping, coalesced to the latest state', async () => {
     const doc = new Y.Doc();
     const awareness = new Awareness(doc);
     const sync = fakeSync();
     const bridge = bridgeAwareness(awareness, sync);
+    // 연속 갱신(타이핑·커서 이동)은 하나로 묶인다 — 창 안에는 아무것도 안 나간다.
     awareness.setLocalStateField('user', { name: 'logan', color: '#000' });
+    awareness.setLocalStateField('cursor', { anchor: 1 });
+    awareness.setLocalStateField('cursor', { anchor: 2 });
     await Promise.resolve();
+    expect(sync.pings.length).toBe(0);
+    await new Promise((r) => setTimeout(r, AWARENESS_FLUSH_MS + 50));
     expect(sync.pings.length).toBe(1);
     // toMatchObject + expect.any 는 bun 1.3 에서 받은 객체를 고쳐 놓는다(매처가 값 자리에 남는다)
     // — 뒤에서 그 값을 다시 쓰므로 typeof 로 본다.

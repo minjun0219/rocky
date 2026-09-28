@@ -43,10 +43,15 @@ function isAwarenessState(state: unknown): state is AwarenessState {
   );
 }
 
+/** 커서 이동을 묶어 보내는 간격 — 문서 편집의 배치(150ms)와 같은 결로. */
+export const AWARENESS_FLUSH_MS = 150;
+
 /**
  * awareness ↔ 프레즌스 다리. 돌려주는 함수로 걷는다.
  *
  * - 로컬 상태가 바뀌면(커서 이동·이름 설정) 내 clientID 의 update 를 `sync.ping` 에 실어 보낸다.
+ *   타이핑·커서 이동은 글자마다 awareness 를 바꾸므로 **150ms 로 묶어 마지막 상태만** 보낸다
+ *   (그대로 두면 키 입력마다 POST + 방송이 나가 터널 지연에서 밀린다). 떠나는 것(removed)만 즉시.
  * - `sync.onPresenceState` 로 온 남의 update 를 awareness 에 넣는다.
  * - 20초 핑도 같은 페이로드로 — 호출자는 `pingState()` 를 핑에 쓴다.
  */
@@ -57,6 +62,14 @@ export function bridgeAwareness(
   const pingState = (): AwarenessState => ({
     awareness: toB64(encodeAwarenessUpdate(awareness, [awareness.clientID])),
   });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    void sync.ping(pingState());
+  };
   const onUpdate = (
     { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
@@ -66,9 +79,13 @@ export function bridgeAwareness(
     }
     const me = awareness.clientID;
     // 떠나는 것(removed)도 실어 보낸다 — 안 그러면 남들은 내 커서를 30초 만료까지 들고 있고,
-    // 그 사이 다시 열면 새 client id 라 같은 이름의 커서가 둘 보인다.
-    if (added.includes(me) || updated.includes(me) || removed.includes(me)) {
-      void sync.ping(pingState());
+    // 그 사이 다시 열면 새 client id 라 같은 이름의 커서가 둘 보인다. 이건 미루지 않는다.
+    if (removed.includes(me)) {
+      flush();
+      return;
+    }
+    if ((added.includes(me) || updated.includes(me)) && !timer) {
+      timer = setTimeout(flush, AWARENESS_FLUSH_MS);
     }
   };
   awareness.on('update', onUpdate);
@@ -85,6 +102,11 @@ export function bridgeAwareness(
     pingState,
     dispose: () => {
       // 걷기 전에 "나 갔다" 를 먼저 보낸다 — onUpdate 가 아직 붙어 있어야 핑이 나간다.
+      // 묶여 있던 커서 갱신은 버린다(떠나는 상태가 그걸 덮는다).
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
       removeAwarenessStates(awareness, [awareness.clientID], 'local');
       awareness.off('update', onUpdate);
       sync.onPresenceState = null;
