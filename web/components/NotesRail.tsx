@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { NoteView } from '../types';
 import { boardCommand, copyRefWithFeedback, formatElapsed } from '../lib';
 import { useUiStore } from '../store';
+import { logUsage } from '../usage';
 
 /**
  * 메모 레일 — 목록 아래, 기본 접힘. 헤더(개수)가 토글이다. 넓은 화면에서 옆 열로 늘 펼쳐
@@ -23,7 +24,10 @@ export function NotesRail() {
           type="button"
           className="notes-toggle"
           aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            logUsage('web:notes-toggle');
+            setOpen((v) => !v);
+          }}
         >
           <span className="sidebar-label">
             NOTES

@@ -2,6 +2,7 @@ import { Moon, Sun, SunMoon } from 'lucide-react';
 import { useState } from 'react';
 import type { ThemePref } from '../lib';
 import { useUiStore } from '../store';
+import { logUsage } from '../usage';
 import { ThermalStrip } from './ThermalStrip';
 
 /** 토글 순환 — auto 에서 시작해 명시 선택을 거쳐 다시 auto 로 돌아온다. */
@@ -60,7 +61,11 @@ export function TopBar() {
           className="theme-toggle inline-flex items-center justify-center font-mono text-sm text-muted hover:text-text"
           title={`테마 — ${THEME_LABEL[themePref]} (눌러서 ${THEME_LABEL[THEME_CYCLE[themePref]]})`}
           aria-label={`테마 — 현재 ${THEME_LABEL[themePref]}. 눌러서 ${THEME_LABEL[THEME_CYCLE[themePref]]}`}
-          onClick={() => setThemePref(THEME_CYCLE[themePref])}
+          onClick={() => {
+            // 사용 로그는 사람이 누른 것만 — OS 가 낮/밤을 바꿔 setThemePref('auto') 가 다시 돌 때는 아니다.
+            logUsage('web:theme');
+            setThemePref(THEME_CYCLE[themePref]);
+          }}
         >
           {(() => {
             const Icon = THEME_ICON[themePref];

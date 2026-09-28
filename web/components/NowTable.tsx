@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatClock, nowRows } from '../lib';
 import { useUiStore } from '../store';
+import { logUsage } from '../usage';
 
 /** 1초마다 갱신되는 현재 시각 — 경과 열이 초 단위로 흐르게. 행이 없으면 돌지 않는다. */
 function useNow(active: boolean): number {
@@ -65,7 +66,10 @@ export function NowTable() {
                       <button
                         type="button"
                         className="text-left hover:text-mine"
-                        onClick={() => void openTodoDetail(row.todoId as string)}
+                        onClick={() => {
+                          logUsage('web:now-row', { kind: row.kind });
+                          void openTodoDetail(row.todoId as string);
+                        }}
                       >
                         <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>
                         {row.title}

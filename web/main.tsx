@@ -8,6 +8,7 @@ import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { parseRoute } from './route';
 import { useUiStore } from './store';
+import { setUsageActor } from './usage';
 
 /**
  * rocky 웹 UI 루트 — `bun run build:ui` 가 dist/ 로 번들하고 데몬(rockyd)이 서빙한다.
@@ -58,6 +59,8 @@ function App() {
     // 출처는 화면 수명 동안 바뀌지 않으니 부팅에 한 번만 확인한다 (refetch 에 얹으면
     // SSE 이벤트마다 health 를 다시 묻게 된다).
     void useUiStore.getState().loadCapabilities();
+    // 사용 로그가 붙일 actor — 스토어를 import 하지 않는 모듈이라 여기서 한 번 맞춘다.
+    setUsageActor(useUiStore.getState().actor);
 
     const onPopState = () => {
       void applyRoute();

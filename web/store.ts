@@ -4,6 +4,7 @@ import type { NoteView, TodoView } from './types';
 import type { AgentSession } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
 import { markSeen, readSeen, readThemePref, resolveTheme, THEME_KEY, type ThemePref } from './lib';
+import { logUsage, setUsageActor } from './usage';
 import {
   type BoardSelection,
   buildPath,
@@ -251,6 +252,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   sessions: { available: true, list: [] },
 
   setSelected: (selected) => {
+    logUsage('web:board-tab');
     // 같은 보드를 다시 고른 클릭도 refetch 는 그대로 수행한다(새로고침 용도로 쓰인다) —
     // 다만 선택이 실제로 바뀌지 않았으면 pushState 는 건너뛴다. 아니면 전체/같은 보드를
     // 다섯 번 눌렀을 때 동일한 히스토리 항목이 다섯 개 쌓여 뒤로가기를 다섯 번 눌러야
@@ -264,10 +266,12 @@ export const useUiStore = create<UiState>((set, get) => ({
     void get().refetch();
   },
   setShowArchived: (showArchived) => {
+    logUsage('web:archived-toggle');
     set({ showArchived });
     void get().refetch();
   },
   setActor: (actor) => {
+    setUsageActor(actor);
     localStorage.setItem(ACTOR_KEY, actor);
     set({ actor });
   },
@@ -474,6 +478,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   addTodo: async (input) => {
+    logUsage('web:quick-add');
     const { actor } = get();
     await api('/api/todos', actor, { method: 'POST', body: JSON.stringify(input) });
     await get().refetch();
