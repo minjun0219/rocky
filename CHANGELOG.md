@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.31.0
+
+### Minor Changes
+
+- [#196](https://github.com/minjun0219/rocky/pull/196) [`13df326`](https://github.com/minjun0219/rocky/commit/13df326fbc198f235555da6cd6437aa10ad43e1c) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 감시의 ready·충돌 알림을 **알림 브릿지**로도 보낸다 — `rocky.json` `pr.notifiers[]`(수집함 `todo.inbox[]` 와 같은 명령 규약). 데몬이 argv 그대로 실행하고 stdin 에 전이 JSON 을 준다; 어느 서비스인지는 데몬이 모른다. 참조 구현 `bridges/telegram/notify.ts`(Bot API, 토큰은 `op read`). macOS 배너(`pr.notify`)와 독립.
+
 ## 0.30.0
 
 ### Minor Changes
