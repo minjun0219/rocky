@@ -14,7 +14,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::actors::is_agent_actor;
-use crate::types::{ChangeFeedEntry, HistoryEntity};
+use crate::types::{ChangeFeedEntry, ChangesSince, HistoryEntity};
 
 /// 사람이 낸 변경만 남긴다 (에이전트 자신의 변경을 주입하는 자기 반향 방지).
 ///
@@ -237,6 +237,23 @@ pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
             .to_string(),
     );
     Some(out.join("\n"))
+}
+
+/// 변경 피드를 한 페이지 읽은 뒤의 다음 cursor — `(cursor, 더 있음)`. 페이지가 꽉 찼으면(`limit` 건)
+/// 응답의 `last_id`(전역 MAX) 가 아니라 **받은 마지막 항목의 id** 까지만 전진한다 — 안 그러면 그
+/// 사이 행을 영영 건너뛴다(밀린 사이 100건 넘게 쌓인 경우). 비었으면 `last_id` 로 맞춘다.
+pub fn page_cursor(feed: &ChangesSince, limit: usize) -> (i64, bool) {
+    if limit > 0 && feed.entries.len() >= limit {
+        let last = feed
+            .entries
+            .iter()
+            .map(|e| e.history.id)
+            .max()
+            .unwrap_or(feed.last_id);
+        (last, last < feed.last_id)
+    } else {
+        (feed.last_id, false)
+    }
 }
 
 /// Claude Code 채널(`notifications/claude/channel`)로 밀어 넣을 전이 한 건 — `content` 가

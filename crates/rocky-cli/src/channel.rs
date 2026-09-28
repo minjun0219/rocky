@@ -24,7 +24,7 @@ use std::time::Duration;
 use rmcp::model::{CustomNotification, JsonObject, ServerNotification};
 use rmcp::service::Peer;
 use rmcp::RoleServer;
-use rocky_core::notify::pr_channel_events;
+use rocky_core::notify::{page_cursor, pr_channel_events};
 use rocky_core::types::ChangesSince;
 
 /// Claude Code 가 채널로 인식하는 capability 키 — `capabilities.experimental` 아래.
@@ -39,6 +39,8 @@ pub const INSTRUCTIONS: &str = "rocky 채널: 데몬의 PR 감시 전이가 <cha
 const BACKOFF_SECS: [u64; 4] = [1, 2, 4, 8];
 /// 데몬이 없을 때 다시 두드리는 간격.
 const NO_DAEMON_RETRY: Duration = Duration::from_secs(30);
+/// `/api/changes` 한 페이지.
+const PAGE: usize = 100;
 
 pub fn channel_capabilities() -> BTreeMap<String, JsonObject> {
     BTreeMap::from([(CHANNEL_CAPABILITY.to_string(), JsonObject::new())])
@@ -81,6 +83,37 @@ fn fetch_changes(
     response.body_mut().read_json().ok()
 }
 
+/// cursor 이후의 전이를 전부 밀어 넣고 새 cursor 를 돌려준다 — 페이지가 꽉 찼으면 이어서 읽는다
+/// (전역 last_id 로 뛰면 그 사이를 잃는다). 조회 실패면 cursor 그대로(다음 신호에 다시).
+/// 클라이언트가 떠났으면 `None`.
+fn drain(
+    peer: &Peer<RoleServer>,
+    handle: &tokio::runtime::Handle,
+    agent: &ureq::Agent,
+    base_url: &str,
+    mut cursor: i64,
+) -> Option<i64> {
+    loop {
+        let Some(feed) = fetch_changes(agent, base_url, cursor, PAGE as i64) else {
+            return Some(cursor);
+        };
+        for event in pr_channel_events(&feed.entries) {
+            let notification = channel_notification(&event.content, &event.meta);
+            if handle
+                .block_on(peer.send_notification(notification))
+                .is_err()
+            {
+                return None;
+            }
+        }
+        let (next, more) = page_cursor(&feed, PAGE);
+        cursor = next;
+        if !more {
+            return Some(cursor);
+        }
+    }
+}
+
 fn run(peer: &Peer<RoleServer>, base_url: &str, handle: &tokio::runtime::Handle) {
     // SSE 는 열어 둔 채 기다리는 연결이라 전역 timeout 을 두지 않는다 — 연결 단계만 제한.
     let stream_agent: ureq::Agent = ureq::Agent::config_builder()
@@ -106,28 +139,34 @@ fn run(peer: &Peer<RoleServer>, base_url: &str, handle: &tokio::runtime::Handle)
         if let Ok(mut response) = stream_agent.get(format!("{base_url}/api/events")).call() {
             if response.status().is_success() {
                 attempt = 0;
+                // 붙자마자 한 번 따라잡는다 — 스트림은 재생하지 않으므로, 마지막 조회와 구독 성립
+                // 사이(첫 구독의 레이스·재연결 공백)에 난 전이는 다음 `data:` 를 기다리면 못 본다.
+                match drain(
+                    peer,
+                    handle,
+                    &fetch_agent,
+                    base_url,
+                    cursor.unwrap_or_default(),
+                ) {
+                    Some(next) => cursor = Some(next),
+                    None => return,
+                }
                 let reader = BufReader::new(response.body_mut().as_reader());
                 for line in reader.lines() {
                     let Ok(line) = line else { break };
                     if !line.starts_with("data:") {
                         continue;
                     }
-                    let since = cursor.unwrap_or_default();
-                    let Some(feed) = fetch_changes(&fetch_agent, base_url, since, 100) else {
-                        continue;
-                    };
-                    if feed.last_id != since {
-                        cursor = Some(feed.last_id);
-                    }
-                    for event in pr_channel_events(&feed.entries) {
-                        let notification = channel_notification(&event.content, &event.meta);
-                        if handle
-                            .block_on(peer.send_notification(notification))
-                            .is_err()
-                        {
-                            // 클라이언트가 떠났다 — 프로세스도 곧 끝난다.
-                            return;
-                        }
+                    match drain(
+                        peer,
+                        handle,
+                        &fetch_agent,
+                        base_url,
+                        cursor.unwrap_or_default(),
+                    ) {
+                        Some(next) => cursor = Some(next),
+                        // 클라이언트가 떠났다 — 프로세스도 곧 끝난다.
+                        None => return,
                     }
                 }
             }
