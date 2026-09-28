@@ -36,6 +36,12 @@ PR 이 "확인·머지해도 되는" 상태가 됐는지, 머지·닫힘·충돌
    - 세션: 전이가 보드 히스토리(actor `rocky`, action `pr-ready`/`pr-conflict`/`pr-merged`/
      `pr-closed`)로 남고 `/api/changes` 를 타므로, `notify-todo` 훅이 다음 턴에
      "#179 확인·머지해도 된다" 를 additionalContext 로 넣는다 — 에이전트가 감시하지 않아도 안다.
+     **채널**(2026-09-29 추가): 훅 주입은 턴이 열려야 실리므로 idle 세션엔 닿지 않는다. 플러그인의
+     worklog stdio 서버가 Claude Code channels(`claude/channel` capability,
+     `notifications/claude/channel`)를 선언하고 데몬 SSE 를 구독해 ready·conflict 를 밀어 넣으면
+     세션이 그 자리에서 깨어난다. 리서치 프리뷰라 `--dangerously-load-development-channels
+     plugin:rocky@rocky-marketplace` 로 띄운 세션만 받는다. 규칙은 훅 주입과 같고 모양만 다르다
+     (`rocky_core::notify::pr_channel_events`).
    - 보드: "지금" 표에 `ready`·`conflict` PR 행. `GET /api/prs[?board=]` 가 재료.
 6. **세션 스크립트는 남긴다** — `list`/`react` 는 리뷰 대응에 여전히 필요하고, `ready`/
    `transitions` 는 데몬이 없는 곳(다른 레포)의 폴백이다. `/rocky:resolve-reviews` 9단계의

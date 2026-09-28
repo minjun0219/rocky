@@ -12,7 +12,7 @@
 
 ## 한눈에
 
-MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 CLI 의 stdio 서버(`rocky mcp worklog`, worklog 4 도구 — 프로젝트별이라 세션 cwd 를 아는 쪽이 연다). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md).
+MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도구)와 CLI 의 stdio 서버(`rocky mcp worklog`, worklog 4 도구 — 프로젝트별이라 세션 cwd 를 아는 쪽이 연다; 같은 서버가 **rocky 채널**이기도 해서 데몬의 PR 전이(확인·머지 가능 / 충돌)를 세션에 밀어 넣는다 — `claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace` 로 띄운 세션만 받는다, [`docs/board.md`](./docs/board.md) "PR 감시"). Claude Code plugin 은 `.claude-plugin/plugin.json` 의 `mcpServers` 로 둘 다 붙이고, Codex / opencode 는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md).
 
 ### MCP 도구 표면
 

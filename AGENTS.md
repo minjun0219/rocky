@@ -31,6 +31,14 @@ repo (2026-09-22); the merge kept both histories.
   4 `worklog_*` tools, per project. It lives in the CLI, not the daemon, because the worklog is keyed
   by the caller's repo root and the daemon cannot see the caller's cwd; a plugin stdio server is spawned
   in the session's project directory. `hook log-turn` (Stop) appends the turn from the same crate.
+  The same server is also the **rocky channel** (`crates/rocky-cli/src/channel.rs`): it declares the
+  `claude/channel` experimental capability and forwards the daemon's `pr-ready` / `pr-conflict`
+  transitions (SSE `/api/events` → `/api/changes` diff, watermark from process start) as
+  `notifications/claude/channel`, which wakes the session. Claude Code delivers only in sessions
+  launched with `--dangerously-load-development-channels plugin:rocky@rocky-marketplace` (research
+  preview; our marketplace is not on the allowlist) — everywhere else the notification is dropped
+  silently, so the capability is declared unconditionally. Pure event shaping is
+  `rocky_core::notify::pr_channel_events` (same ready·conflict rule as the hook injection).
 - **No TypeScript server code.** `package.json` carries dev tooling (biome, changesets, the
   release / bootstrap / permalink scripts under `scripts/` and `plugin/scripts/`) and the **browser
   bundle build** for `web/` (React + zustand + Tailwind v4, `bun run build:ui` → `dist/`). Everything

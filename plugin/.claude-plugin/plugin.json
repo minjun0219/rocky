@@ -18,5 +18,11 @@
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/rocky",
       "args": ["mcp", "worklog"]
     }
-  }
+  },
+  "channels": [
+    {
+      "server": "worklog",
+      "displayName": "rocky"
+    }
+  ]
 }
