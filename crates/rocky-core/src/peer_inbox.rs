@@ -70,14 +70,14 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     let todo = match event.kind {
         PrEventKind::Ready => {
             "데몬이 기계적으로 본 결과다 — CI 녹색, 리뷰 스레드 전부 처리(🚀, 결정 필요 👀 없음). 리뷰는 머지 \
-             전까지 언제든 붙을 수 있으니 알리기 전에 이 세션이 판단한다: `/rocky:resolve-reviews` 의 \
+             전까지 언제든 붙을 수 있으니 알리기 전에 이 세션이 판단한다: `/rocky:review-fix` 의 \
              8단계(머지 후보 판단)대로 요청된 리뷰어 응답·봇 리뷰(메모리가 필수라 한 레포만)·방금 한 \
              푸시·작업 중 표시를 본다. 걸리는 게 없으면 사용자에게 한 줄로 알리고(PushNotification 이 \
              있으면 그것으로), 있으면 무엇을 기다리는지만 적고 알리지 않는다. 머지는 사용자 몫이다."
         }
         PrEventKind::Merged => {
             "사용자가 머지했다 — 다시 알리지 않는다(PushNotification 도 보내지 않는다). 이 세션이 그 PR 을 만든 곳이면 머지 뒤 정리를 \
-             한 번 한다(`/rocky:resolve-reviews` 11단계): 로컬을 최신 main 으로 맞추고 끝난 브랜치를 \
+             한 번 한다(`/rocky:review-fix` 11단계): 로컬을 최신 main 으로 맞추고 끝난 브랜치를 \
              정리하고, 새 릴리스 PR·스택의 다음 PR·머지 뒤 리뷰(`after-merge`)가 있는지 본다. 다른 \
              작업 중이면 끝낸 뒤에, 무관한 세션이면 아무것도 하지 않는다."
         }
@@ -93,13 +93,13 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
 }
 
 /// 리뷰가 붙은 PR 을 세션에 처리시키는 본문 — 그 레포의 보드가 autoResolve 를 켰을 때만 보낸다. 받는
-/// Claude 가 할 일을 명시한다: 그 PR 의 세션이면 resolve-reviews 절차를 한 번 돈다.
+/// Claude 가 할 일을 명시한다: 그 PR 의 세션이면 review-fix 절차를 한 번 돈다.
 pub fn review_session_message(event: &PrEvent) -> Option<String> {
     if event.kind != PrEventKind::Review {
         return None;
     }
     Some(format!(
-        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:resolve-reviews {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 🚀/👀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 PR 을 작업 중이면 끝낸 뒤에, 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포의 보드는 자동 처리가 켜져 있다 — 끄려면 `rocky board auto-resolve off`.)",
+        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:review-fix {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 🚀/👀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 PR 을 작업 중이면 끝낸 뒤에, 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포의 보드는 자동 처리가 켜져 있다 — 끄려면 `rocky board auto-resolve off`.)",
         event.repo, event.number, event.title, event.url, event.number
     ))
 }

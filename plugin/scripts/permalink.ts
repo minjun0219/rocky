@@ -1,13 +1,13 @@
 /**
  * 포인터(`경로:심볼` / `경로:42` / `경로:42-58`)를 GitHub permalink 로 바꾼다.
  *
- * `/rocky:finish` 의 PR 본문 "봐 주세요" 절이 쓴다. 매번 에이전트가 remote URL 을 파싱하고
+ * `/rocky:review-request` 의 PR 본문 "봐 주세요" 절이 쓴다. 매번 에이전트가 remote URL 을 파싱하고
  * 심볼의 줄 번호를 세는 대신 이 스크립트를 부른다 — 링크를 손으로 조립하면 owner/repo 를
  * 틀리거나 브랜치명으로 걸어(머지 후 깨진다) 조용히 죽은 링크가 남는다.
  *
  * ```
- * bun scripts/permalink.ts --pr 127 commands/finish.md:12-18
- * # → [commands/finish.md:12-18](https://github.com/…/pull/127/files#diff-<해시>R12-R18)
+ * bun scripts/permalink.ts --pr 127 commands/review-request.md:12-18
+ * # → [commands/review-request.md:12-18](https://github.com/…/pull/127/files#diff-<해시>R12-R18)
  *
  * bun scripts/permalink.ts src/core/handlers.ts:handleOpenapiSearch
  * # → [src/core/handlers.ts:118](https://github.com/…/blob/<sha>/src/core/handlers.ts#L118)
@@ -50,7 +50,7 @@ export function parseRepoSlug(remoteUrl: string): RepoSlug {
 /**
  * 포인터 경로를 저장소 루트 기준 상대 경로로 정규화한다.
  *
- * 두 가지를 동시에 막는다 — `./commands/finish.md` 처럼 군더더기가 붙으면 `buildDiffLink` 의
+ * 두 가지를 동시에 막는다 — `./commands/review-request.md` 처럼 군더더기가 붙으면 `buildDiffLink` 의
  * sha256 앵커가 GitHub 의 실제 앵커(루트 기준 경로)와 어긋나 링크가 조용히 깨지고, `../` 로
  * 루트를 벗어나는 경로는 저장소 밖 파일을 읽게 한다.
  *
@@ -171,7 +171,7 @@ export function formatPointerLabel(path: string, line?: { start: number; end: nu
  * 경로의 sha256 이라는 것은 실제 PR 의 Files changed HTML 로 확인했다.
  *
  * blob permalink 와 달리 **PR 번호가 필요하므로 PR 을 만든 뒤에야 링크를 만들 수 있다** —
- * `/rocky:finish` 는 PR 생성 → 번호 확보 → 본문 갱신 순으로 돈다.
+ * `/rocky:review-request` 는 PR 생성 → 번호 확보 → 본문 갱신 순으로 돈다.
  */
 export function buildDiffLink(input: {
   slug: RepoSlug;
@@ -227,7 +227,7 @@ async function main(argv: string[]): Promise<number> {
   if (pointers.length === 0) {
     console.error(
       '사용법: bun scripts/permalink.ts [--pr <번호>] [--url] <경로[:심볼|:줄|:시작-끝]> ...\n' +
-        '예: bun scripts/permalink.ts --pr 127 commands/finish.md:12-18\n' +
+        '예: bun scripts/permalink.ts --pr 127 commands/review-request.md:12-18\n' +
         '--pr 이면 그 PR 의 Files changed 위치로, 없으면 blob permalink 로 건다.\n' +
         '기본 출력은 `[경로:줄](URL)` 마크다운 링크. --url 이면 날 URL 만 출력한다.',
     );

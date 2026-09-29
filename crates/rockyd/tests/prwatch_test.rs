@@ -658,7 +658,7 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 리뷰 도착 — 그 레포 보드의 autoResolve 가 켜졌을 때만 세션에 resolve-reviews 를 시킨다. 꺼진 보드는 조용하다.
+/// 리뷰 도착 — 그 레포 보드의 autoResolve 가 켜졌을 때만 세션에 review-fix 를 시킨다. 꺼진 보드는 조용하다.
 #[cfg(unix)]
 #[tokio::test]
 async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
@@ -693,7 +693,7 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
     session_notifier(f.state.clone())(&review);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(listener.accept().is_err(), "autoResolve 가 꺼진 레포");
-    // 그 레포의 세션이 자기 보드를 켰다 — resolve-reviews 를 시킨다.
+    // 그 레포의 세션이 자기 보드를 켰다 — review-fix 를 시킨다.
     let (status, _) = patch(
         &f.state,
         "/api/boards/rocky",
@@ -711,6 +711,6 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
     })
     .await
     .unwrap();
-    assert!(received.contains("/rocky:resolve-reviews 9"));
+    assert!(received.contains("/rocky:review-fix 9"));
     let _ = std::fs::remove_dir_all(&dir);
 }

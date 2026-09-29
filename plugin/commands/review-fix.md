@@ -1,16 +1,16 @@
 ---
-description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(🚀 수정 완료 / 👀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 🚀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 검토받는 건 /rocky:review). 재리뷰를 기다리지 않는다.
+description: PR 에 붙은 리뷰(Copilot / Codex / 사람)를 반영한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(🚀 수정 완료 / 👀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 🚀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 PR 전에 검토하는 건 기본 /code-review 와 /rocky:review-request). 재리뷰를 기다리지 않는다.
 argument-hint: "[PR 번호] (생략 시 현재 브랜치의 PR)"
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification, Monitor
 ---
 
-# resolve-reviews — PR 리뷰 해소
+# review-fix — 리뷰 반영 (PR 을 올린 뒤부터 머지까지)
 
 PR 에 지금 붙어 있는 리뷰를 처리한다. `$ARGUMENTS` 는 PR 번호(있으면). 출력·코멘트는
 **한국어** (코드 identifier / 경로 / 명령어는 영어 그대로).
 
 **PR 을 리뷰하는 커맨드가 아니다** — 이미 받은 리뷰 스레드를 해소하는 쪽이다. 내 작업
-diff 를 검토받는 것은 `/rocky:review`, GitHub PR 을 리뷰하는 것은 빌트인 `/review`.
+diff 를 PR 전에 검토하는 것은 기본 `/code-review`(버그)와 `/rocky:review-request` 의 요구사항 점검이다.
 
 **한 번 돌고 끝난다.** 재리뷰를 폴링하지 않는다 — 리뷰를 한 번 더 받고 싶으면 사용자가
 `@copilot review` / `@codex review` 를 직접 달고 이 커맨드를 다시 부른다. 봇 자동 재리뷰를 켜 두고
@@ -55,7 +55,7 @@ git branch --show-current
 ```
 
 - `gh` 미인증 → 중단.
-- 인자가 없으면 현재 브랜치의 PR 을 쓴다. PR 이 없으면 중단하고 `/rocky:finish` 를 안내한다.
+- 인자가 없으면 현재 브랜치의 PR 을 쓴다. PR 이 없으면 중단하고 `/rocky:review-request` 를 안내한다.
 - 현재 브랜치가 PR 의 `headRefName` 과 다르면 **중단**하고 체크아웃을 안내한다. `main` 에서는
   실행하지 않는다.
 - `owner` / `repo` 는 `gh repo view --json owner,name` 으로 얻는다.
@@ -390,7 +390,7 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" after-merge
 - 푸시한 뒤 그 스레드에 🚀 — 원래 PR 의 스레드도 규칙은 같다(코멘트·resolve 없음). [확인 필요] 는 👀 +
   채팅으로 묻는다.
 - 지금 처리 중인 PR 이 없으면(머지 판정만 하러 온 경우) 고치지 않는다 — 채팅에 목록만 남기고, 다음 PR 을
-  만들 때(`/rocky:finish`) 싣는다.
+  만들 때(`/rocky:review-request`) 싣는다.
 
 ### 11. 머지된 뒤 — 정리
 
@@ -412,7 +412,7 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" after-merge
 | --- | --- |
 | `main` 브랜치 / PR head 불일치 | 즉시 중단, 체크아웃 안내 |
 | `gh` 미인증 | 즉시 중단 |
-| PR 없음 | 중단하고 `/rocky:finish` 안내 |
+| PR 없음 | 중단하고 `/rocky:review-request` 안내 |
 | 미해결 스레드 0 | 8단계로 바로 이동, 보고에 명시 |
 | 게이트 실패 | 푸시 없이 중단, 실패 로그 인용 |
 | 리액션 실패 | 치명적이지 않음 — 보고에 한 줄 남기고 계속 |

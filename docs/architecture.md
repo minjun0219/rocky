@@ -139,6 +139,14 @@ in git history.
   value there is worktree isolation + the plugin-surface integrity check.
 - **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks). **Removed in
   v0.19** — 1,737 LOC that ran a single job across its whole life.
+- **2026-09-29** — `/rocky:finish` → `/rocky:review-request`, `/rocky:resolve-reviews` → `/rocky:review-fix`.
+  `finish` did not say what it finished (it stops at opening the PR), and `resolve-reviews` said the one
+  thing it never does — it leaves resolving threads to the owner. The pair now reads as the PR's two sides:
+  ask for review, then act on it. No aliases are kept (personal plugin).
+- **2026-09-29** — `/rocky:review` removed. The built-in `/code-review` now does the bug hunt on the same diff
+  (background subagent, effort levels, `--fix` / `--comment`), so the only part it did not cover — checking the
+  implementation against the requirements — moved into `/rocky:finish` step 2.5, which dispatches the `reviewer`
+  subagent for risky changes. Slash commands are not in the usage log, so there is no call count to cite.
 - **2026-07-30** — `/rocky:review-pr` renamed to `/rocky:resolve-reviews`. The old name parsed as
   verb + object ("review the PR" — which is what the built-in `/review` does), so it kept getting
   confused with `/rocky:review`. The new name says what it does to what: it resolves review threads.
