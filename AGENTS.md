@@ -71,6 +71,7 @@ rocky/                          single package — @minjun0219/rocky
 │   └── scripts/permalink.ts    /rocky:finish uses it — must live inside the plugin to exist after install
 ├── Cargo.toml · Cargo.lock     Rust workspace — crates/rocky-core · rockyd · rocky-cli · rocky-tui
 ├── web/                        ★ 보드 웹 UI (React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/ (gitignore).
+│                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본)
 │                                 데몬이 실행 파일 옆 dist/ 를 `/` 에 서빙. types.ts 는 Rust 응답 타입의 사본
 ├── bridges/                    수집함 어댑터 — `todo.inbox[]` 에 등록되는 명령(stdout JSON 규약, docs/board.md "수집함").
 │                                 외부 태스크 서비스 코드는 여기에만. file/ 은 규약의 참조 구현
@@ -110,8 +111,9 @@ and the Claude Code-only surfaces. Surface details are in `README.md`; rationale
   compression pass, then dropped entirely).
 - `/rocky:codex` and `/rocky:issue` — removed in v0.19. Codex delegation is covered by the official
   `openai/codex-plugin-cc` plugin.
-- The rocky-todo **Tauri app** (`app/`, `DESIGN.md`) — left in rocky-todo's history when the repo
-  was absorbed. (The **web UI** was revived on 2026-09-28 by owner request as `web/` — it is a client
+- The rocky-todo **Tauri app** (`app/`, its root `DESIGN.md`) — left in rocky-todo's history when the repo
+  was absorbed. (`web/DESIGN.md` is a different, current document for the web UI.) (The **web UI** was
+  revived on 2026-09-28 by owner request as `web/` — it is a client
   of the daemon like the TUI, not a runtime; the reason to have it is reaching the board without the
   tailnet, via Cloudflare Tunnel + Access, which is the next piece.)
 - The TypeScript reference implementation of the daemon (rocky-todo's `src/*.ts`) — the Rust
