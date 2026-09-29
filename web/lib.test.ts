@@ -4,6 +4,8 @@ import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
 import type { NowRow } from './lib';
 import {
+  prRows,
+  prStatus,
   advanceSeen,
   hasNoteNews,
   boardCommand,
@@ -799,5 +801,56 @@ describe('advanceSeen — 서버 시각으로만 전진', () => {
     expect(advanceSeen('bad', [{ updatedAt: '2026-09-28T01:00:00.000Z' }])).toBe(
       '2026-09-28T01:00:00.000Z',
     );
+  });
+});
+
+describe('prRows — PR 현황', () => {
+  const pr = (over: Partial<import('./types').PrSnapshot>): import('./types').PrSnapshot => ({
+    repo: 'o/rocky',
+    number: 1,
+    title: 'PR',
+    url: 'https://github.com/o/rocky/pull/1',
+    state: 'OPEN',
+    isDraft: false,
+    base: 'main',
+    head: 'abc',
+    mergeState: 'BLOCKED',
+    ci: 'pending',
+    unhandled: 0,
+    rocket: 0,
+    ready: false,
+    updatedAt: '2026-09-28T10:00:00Z',
+    ...over,
+  });
+
+  test('상태 판정 — 충돌이 먼저, 초안은 CI 와 무관하게 초안', () => {
+    expect(prStatus(pr({ mergeState: 'DIRTY', ready: true }))).toBe('conflict');
+    expect(prStatus(pr({ ready: true, ci: 'pass' }))).toBe('ready');
+    expect(prStatus(pr({ isDraft: true, ci: 'fail' }))).toBe('draft');
+    expect(prStatus(pr({ ci: 'fail', rocket: 1 }))).toBe('failing');
+    expect(prStatus(pr({ ci: 'pass', rocket: 1 }))).toBe('decide');
+    expect(prStatus(pr({ ci: 'pending', unhandled: 2 }))).toBe('waiting');
+  });
+
+  test('열린 것만, 손댈 순서 → 최근 갱신 순, 레포로 거른다', () => {
+    const prs = [
+      pr({ number: 1, updatedAt: '2026-09-28T09:00:00Z' }),
+      pr({ number: 2, ready: true, ci: 'pass' }),
+      pr({ number: 3, mergeState: 'DIRTY' }),
+      pr({ number: 4, updatedAt: '2026-09-28T11:00:00Z', unhandled: 2 }),
+      pr({ number: 5, state: 'MERGED' }),
+      pr({ number: 6, repo: 'o/tally' }),
+    ];
+    const rows = prRows(prs, 'o/rocky');
+    expect(rows.map((r) => [r.number, r.status])).toEqual([
+      [3, 'conflict'],
+      [2, 'ready'],
+      [4, 'waiting'],
+      [1, 'waiting'],
+    ]);
+    expect(rows[2]?.detail).toBe('CI 도는 중 · 스레드 2');
+    expect(rows[1]?.detail).toBe('확인·머지');
+    // 전체 보기(null)면 레포와 무관하게.
+    expect(prRows(prs, null).map((r) => r.number)).toContain(6);
   });
 });

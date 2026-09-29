@@ -1,5 +1,27 @@
+import {
+  CircleAlert,
+  CircleDot,
+  CircleHelp,
+  CircleOff,
+  CircleX,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestDraft,
+  type LucideIcon,
+  TriangleAlert,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { formatAge, mineCount, type NowGlyph, type NowRow, needsSecondTick, nowRows } from '../lib';
+import {
+  formatAge,
+  mineCount,
+  type NowGlyph,
+  type NowRow,
+  needsSecondTick,
+  nowRows,
+  type PrRow,
+  type PrStatus,
+  prRows,
+} from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 
@@ -20,13 +42,40 @@ function useNow(rows: NowRow[]): number {
   return now;
 }
 
-/** 행 앞 글리프 — 색만으로 말하지 않도록 모양이 상태마다 다르다. */
-const GLYPH: Record<NowGlyph, { char: string; className: string; label: string }> = {
-  run: { char: '●', className: 'text-run', label: '돌고 있음' },
-  mine: { char: '◆', className: 'text-mine', label: '내 차례' },
-  dead: { char: '◌', className: 'text-dead', label: '세션 없음' },
-  unknown: { char: '○', className: 'text-faint', label: '세션 모름' },
+/**
+ * 행 앞 상태 아이콘 — 색만으로 말하지 않도록 모양이 상태마다 다르다(`web/DESIGN.md` "State
+ * Vocabulary"). lucide 아이콘이라 글꼴에 따라 모양이 흔들리지 않는다. 움직이지 않는다.
+ */
+const GLYPH: Record<NowGlyph, { Icon: LucideIcon; className: string; label: string }> = {
+  run: { Icon: CircleDot, className: 'text-run', label: '돌고 있음' },
+  mine: { Icon: CircleAlert, className: 'text-mine', label: '내 차례' },
+  dead: { Icon: CircleOff, className: 'text-dead', label: '세션 없음' },
+  unknown: { Icon: CircleHelp, className: 'text-faint', label: '세션 모름' },
 };
+
+/** PR 상태 아이콘 — 머지 가능·충돌은 내 차례 색, 대기·초안은 무채색. */
+const PR_ICON: Record<PrStatus, { Icon: LucideIcon; className: string; label: string }> = {
+  conflict: { Icon: TriangleAlert, className: 'text-dead', label: '충돌' },
+  ready: { Icon: GitMerge, className: 'text-mine', label: '확인·머지 가능' },
+  failing: { Icon: CircleX, className: 'text-dead', label: 'CI 실패' },
+  decide: { Icon: CircleAlert, className: 'text-mine', label: '결정 필요' },
+  waiting: { Icon: GitPullRequest, className: 'text-muted', label: '대기' },
+  draft: { Icon: GitPullRequestDraft, className: 'text-faint', label: '초안' },
+};
+
+/** 아이콘 한 칸 — 행 제목의 첫 줄에 맞춘다. */
+function StateIcon(props: { Icon: LucideIcon; className: string; label: string }) {
+  const { Icon } = props;
+  return (
+    <span
+      className={`mt-0.5 flex w-4 shrink-0 justify-center ${props.className}`}
+      role="img"
+      aria-label={props.label}
+    >
+      <Icon size={14} strokeWidth={2.25} aria-hidden />
+    </span>
+  );
+}
 
 /**
  * "지금" — 첫 화면이 답할 두 가지: 무엇이 내 차례인가, 무엇이 돌고 있나. 보고 있는 보드와
@@ -50,6 +99,12 @@ export function NowTable() {
   const now = useNow(rows);
   const mine = rows.filter((r) => r.group !== 'run');
   const run = rows.filter((r) => r.group === 'run');
+  // PR 현황 — 보고 있는 보드의 레포(전체 보기면 전 보드)의 열린 PR 전부.
+  const selected = useUiStore((s) => s.selected);
+  const boards = useUiStore((s) => s.boards);
+  const repo =
+    selected === 'all' ? null : (boards.find((b) => b.key === selected)?.repo ?? undefined);
+  const pullRequests = repo === undefined ? [] : prRows(prs, repo);
 
   return (
     <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="지금">
@@ -81,6 +136,18 @@ export function NowTable() {
           </ul>
         </>
       ) : null}
+      {pullRequests.length > 0 ? (
+        <>
+          <div className="mt-3">
+            <NowGroupHead title="PR" count={pullRequests.length} tone="run" />
+          </div>
+          <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+            {pullRequests.map((pr) => (
+              <PrItem key={pr.key} pr={pr} now={now} showRepo={repo === null} />
+            ))}
+          </ul>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -106,7 +173,9 @@ function NowGroupHead(props: { title: string; count: number; tone: 'mine' | 'run
 function NowItem(props: { row: NowRow; now: number }) {
   const { row, now } = props;
   const openTodoDetail = useUiStore((s) => s.openTodoDetail);
-  const glyph = GLYPH[row.glyph];
+  // PR 행은 PR 모양 아이콘으로 — 머지 가능이면 머지, 충돌이면 경고.
+  const glyph =
+    row.kind === 'pr' ? PR_ICON[row.glyph === 'dead' ? 'conflict' : 'ready'] : GLYPH[row.glyph];
   const age = row.since
     ? formatAge(row.since, now, {
         live: row.live,
@@ -117,13 +186,7 @@ function NowItem(props: { row: NowRow; now: number }) {
   const meta = [row.ref, row.who !== '—' ? row.who : '', age, row.state].filter(Boolean);
   const body = (
     <>
-      <span
-        className={`mt-px w-4 shrink-0 text-center font-mono text-chip ${glyph.className} ${row.glyph === 'dead' ? 'opacity-90' : ''}`}
-        role="img"
-        aria-label={glyph.label}
-      >
-        {glyph.char}
-      </span>
+      <StateIcon {...glyph} />
       <span className="min-w-0 flex-1">
         <span className="now-title block text-sm leading-[1.45] text-text">
           {row.title}
@@ -140,7 +203,7 @@ function NowItem(props: { row: NowRow; now: number }) {
     </>
   );
   const className =
-    'now-item flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-2 focus-visible:bg-surface-2';
+    'now-item flex w-full items-start gap-2 px-3 py-2 text-left no-underline hover:bg-surface-2 focus-visible:bg-surface-2';
   return (
     <li className="border-t border-line first:border-t-0">
       {row.todoId ? (
@@ -187,6 +250,35 @@ function MoreLine(props: { row: NowRow; onExpand?: () => void }) {
       ) : (
         <div className="px-3 py-2">{text}</div>
       )}
+    </li>
+  );
+}
+
+/**
+ * PR 한 줄 — 상태 아이콘 + 제목(두 줄까지), 둘째 줄: 번호 · CI·스레드 · 갱신. 누르면 GitHub 새 탭.
+ * 머지 가능·충돌은 "내 차례" 에도 있으니 여기선 따로 강조하지 않는다 — 열린 PR 전부의 상태판이다.
+ */
+function PrItem(props: { pr: PrRow; now: number; showRepo: boolean }) {
+  const { pr, now, showRepo } = props;
+  const ref = showRepo ? `${pr.repo.split('/')[1] ?? pr.repo} #${pr.number}` : `#${pr.number}`;
+  const meta = [ref, pr.detail, formatAge(pr.updatedAt, now)].filter(Boolean);
+  return (
+    <li className="border-t border-line first:border-t-0">
+      <a
+        className="now-item flex w-full items-start gap-2 px-3 py-2 text-left no-underline hover:bg-surface-2 focus-visible:bg-surface-2"
+        href={pr.url}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() => logUsage('web:now-row', { kind: 'pr-status' })}
+      >
+        <StateIcon {...PR_ICON[pr.status]} />
+        <span className="min-w-0 flex-1">
+          <span className="now-title block text-sm leading-[1.45] text-text">{pr.title}</span>
+          <span className="mt-0.5 block truncate font-mono text-chip tabular-nums text-muted">
+            {meta.join(' · ')}
+          </span>
+        </span>
+      </a>
     </li>
   );
 }

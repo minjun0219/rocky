@@ -850,3 +850,104 @@ export function advanceSeen(seenAt: string, notes: { updatedAt: string }[]): str
   }
   return best;
 }
+
+// ── PR 현황 — 이 보드(또는 전 보드)의 열린 PR 전부. 데몬 PR 감시의 스냅숏(`/api/prs?open=true`) ──
+
+/**
+ * PR 한 건의 상태 — 손댈 필요가 큰 순서. 충돌 → 머지 가능 → CI 실패 → 결정 필요(🚀) →
+ * 대기(CI 도는 중·처리 안 된 스레드) → 초안.
+ */
+export type PrStatus = 'conflict' | 'ready' | 'failing' | 'decide' | 'waiting' | 'draft';
+
+const PR_STATUS_ORDER: Record<PrStatus, number> = {
+  conflict: 0,
+  ready: 1,
+  failing: 2,
+  decide: 3,
+  waiting: 4,
+  draft: 5,
+};
+
+export function prStatus(p: PrSnapshot): PrStatus {
+  if (p.mergeState === 'DIRTY') {
+    return 'conflict';
+  }
+  if (p.ready) {
+    return 'ready';
+  }
+  if (p.isDraft) {
+    return 'draft';
+  }
+  if (p.ci === 'fail') {
+    return 'failing';
+  }
+  if (p.rocket > 0) {
+    return 'decide';
+  }
+  return 'waiting';
+}
+
+export interface PrRow {
+  key: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  status: PrStatus;
+  /** 상태 글자 — 행의 둘째 줄. CI 와 스레드를 짧게. */
+  detail: string;
+  updatedAt: string;
+}
+
+const CI_LABEL: Record<PrSnapshot['ci'], string> = {
+  pass: 'CI 통과',
+  fail: 'CI 실패',
+  pending: 'CI 도는 중',
+};
+
+function prDetail(p: PrSnapshot, status: PrStatus): string {
+  if (status === 'conflict') {
+    return '충돌';
+  }
+  if (status === 'ready') {
+    return '확인·머지';
+  }
+  if (status === 'draft') {
+    return '초안';
+  }
+  const parts = [CI_LABEL[p.ci]];
+  if (p.rocket > 0) {
+    parts.push(`결정 필요 ${p.rocket}`);
+  }
+  if (p.unhandled > 0) {
+    parts.push(`스레드 ${p.unhandled}`);
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * PR 묶음의 행 — 열린 것만, 손댈 필요가 큰 순서, 같은 상태 안에서는 최근 갱신 먼저. `repo` 를 주면
+ * 그 레포 것만(보고 있는 보드의 레포), `null` 이면 전 보드.
+ */
+export function prRows(prs: PrSnapshot[], repo: string | null): PrRow[] {
+  return prs
+    .filter((p) => p.state === 'OPEN' && (repo === null || p.repo === repo))
+    .map((p) => {
+      const status = prStatus(p);
+      return {
+        key: `${p.repo}#${p.number}`,
+        repo: p.repo,
+        number: p.number,
+        title: p.title,
+        url: p.url,
+        status,
+        detail: prDetail(p, status),
+        updatedAt: p.updatedAt,
+      };
+    })
+    .sort(
+      (a, b) =>
+        PR_STATUS_ORDER[a.status] - PR_STATUS_ORDER[b.status] ||
+        b.updatedAt.localeCompare(a.updatedAt),
+    );
+}
