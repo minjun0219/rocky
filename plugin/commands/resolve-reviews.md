@@ -75,6 +75,9 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" list $ARGUMENTS
   얹는다. **Codex 는 지적이 없으면 코멘트 대신 PR 본문에 👍 리액션만 단다** — 그게 `clean` 이고
   "리뷰할 게 없다" 는 뜻이다(리뷰 중에는 👀). `findings` 는 리뷰 코멘트가 제출된 것, `pending` 은
   timeout 까지 아무 신호도 없었던 것(사실을 보고에 적는다).
+  `none` 은 **이 레포에 리뷰 봇이 없다**는 뜻이다 — 최근 PR 20개 어디에도 봇 리뷰·리액션이 없으면
+  CI 만 기다리고 바로 돌아온다(봇이 없는 레포·계정에서 timeout 을 꽉 채워 기다리지 않는다). 그때는
+  사람 리뷰만 처리하고, 보고에 "봇 리뷰 없음(레포에 봇 미설치)" 으로 적는다.
 
   ```bash
   bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS --timeout 300

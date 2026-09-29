@@ -11,7 +11,7 @@
  * bun scripts/pr-threads.ts react PRRC_… EYES   # 내 다른 상태 리액션을 떼고 👀 하나만 남긴다
  * bun scripts/pr-threads.ts watch 154 --timeout 300
  *   # CI 가 끝날 때까지 → 현재 head 의 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
- *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(안 옴)
+ *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(안 옴) / none(이 레포엔 리뷰 봇이 없다 — 기다리지 않는다)
  * bun scripts/pr-threads.ts ready 154           # "확인·머지해도 되나" 한 번에 — CI 초록 + 👀 없는 스레드 없음 + 🚀 없음. exit 0/1
  * bun scripts/pr-threads.ts transitions --interval 60
  *   # 열린 PR 전체를 돌며 MERGED / CLOSED / DIRTY / CONFLICTING 전이만 한 줄씩 — Monitor 에 물린다
@@ -102,8 +102,41 @@ export type ReviewNode = {
 /** PR 본문에 달린 리액션 — Codex 는 지적이 없으면 코멘트 대신 여기에 👍 만 남긴다. */
 export type ReactionNode = { content: string; createdAt: string; user: { login: string } | null };
 
-/** 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만. */
-export type BotVerdict = 'pending' | 'findings' | 'clean';
+/**
+ * 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만,
+ * `none` = 이 레포에 리뷰 봇이 붙어 있지 않다(최근 PR 어디에도 봇 흔적이 없다 — 기다려도 안 온다).
+ */
+export type BotVerdict = 'pending' | 'findings' | 'clean' | 'none';
+
+/**
+ * 리뷰 봇 로그인인가. 리뷰 author 는 `chatgpt-codex-connector`, 본문 리액션의 user 는
+ * `chatgpt-codex-connector[bot]` 로 온다 — 같은 앱인데 GraphQL 이 자리마다 다르게 적는다.
+ */
+function isReviewBot(login: string | undefined): boolean {
+  return (
+    login !== undefined &&
+    (REVIEW_BOTS as readonly string[]).includes(login.replace(/\[bot\]$/, ''))
+  );
+}
+
+/** 최근 PR 하나의 봇 흔적 재료 — 리뷰 작성자와 본문 리액션 작성자만. */
+export type RecentPr = {
+  reviews: { nodes: Array<{ author: { login: string } | null }> };
+  reactions: { nodes: Array<{ user: { login: string } | null }> };
+};
+
+/**
+ * 이 레포에 리뷰 봇이 붙어 있는가 — 최근 PR 중 하나라도 봇이 리뷰했거나 본문에 리액션(👀·👍)을
+ * 달았으면. 봇 설치는 레포·계정마다 다르고(회사 레포엔 없다) 설정을 따로 두면 드리프트가 난다 —
+ * 흔적으로 판단한다. 새로 봇을 붙인 레포는 첫 PR 에서 봇이 👀 를 다는 순간부터 잡힌다.
+ */
+export function hasReviewBot(prs: RecentPr[]): boolean {
+  return prs.some(
+    (p) =>
+      p.reviews.nodes.some((r) => isReviewBot(r.author?.login)) ||
+      p.reactions.nodes.some((r) => isReviewBot(r.user?.login)),
+  );
+}
 
 /**
  * 현재 head 커밋 이후의 봇 신호를 읽는다 — 재리뷰 대기의 종료 조건.
@@ -120,11 +153,7 @@ export function botVerdict(
   head?: string,
 ): BotVerdict {
   const headAt = Date.parse(headCommittedAt);
-  // 리뷰 author 는 `chatgpt-codex-connector`, 본문 리액션의 user 는 `chatgpt-codex-connector[bot]` 로
-  // 온다 — 같은 앱인데 GraphQL 이 자리마다 다르게 적는다. 접미사를 떼고 비교한다.
-  const isBot = (login: string | undefined) =>
-    login !== undefined &&
-    (REVIEW_BOTS as readonly string[]).includes(login.replace(/\[bot\]$/, ''));
+  const isBot = isReviewBot;
   // "이 head 를 봤는가" — 리뷰에 커밋이 실려 있으면 그것으로(Codex 의 "Reviewed commit:"),
   // 없으면 제출 시각이 head 커밋 시각보다 뒤인지로. 서버 리베이스로 head 가 바뀌면 시각 비교는
   // 옛 리뷰를 새것으로 오인할 수 있어 커밋 대조가 정확하다.
@@ -459,7 +488,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** CI 종료 → 봇 재리뷰(현재 head 이후 제출) 또는 timeout 까지 대기. */
+/** 이 PR 을 포함한 최근 PR 20개의 봇 흔적 — 요청 노드가 작아 비용이 싸다. */
+const RECENT_BOT_QUERY = `query($owner:String!, $repo:String!){
+  repository(owner:$owner, name:$repo){
+    pullRequests(last:20, states:[OPEN, MERGED, CLOSED]){ nodes{
+      reviews(first:10){ nodes{ author{ login } } }
+      reactions(first:10){ nodes{ user{ login } } }
+    } }
+  }
+}`;
+
+function repoHasReviewBot(slug: Slug): boolean {
+  const data = graphql<{ repository: { pullRequests: { nodes: RecentPr[] } } }>(RECENT_BOT_QUERY, {
+    owner: slug.owner,
+    repo: slug.repo,
+  });
+  return hasReviewBot(data.repository.pullRequests.nodes);
+}
+
+/**
+ * CI 종료 → 봇 재리뷰(현재 head 이후 제출) 또는 timeout 까지 대기. 리뷰 봇이 없는 레포면
+ * 기다리지 않고 `none` — 안 올 신호를 timeout 까지 기다리지 않는다.
+ */
 async function watch(
   slug: Slug,
   pr: number,
@@ -473,6 +523,9 @@ async function watch(
   const deadline = Date.now() + timeoutSec * 1000;
   let snap = snapshot(slug, pr);
   let verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
+  if (verdict === 'pending' && !repoHasReviewBot(slug)) {
+    return { ...snap, ci, verdict: 'none' };
+  }
   while (verdict === 'pending' && Date.now() < deadline) {
     await sleep(10_000);
     snap = snapshot(slug, pr);

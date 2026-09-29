@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   botVerdict,
+  hasReviewBot,
   ciStateOf,
   parseArgs,
   reactionsToRemove,
@@ -245,5 +246,32 @@ describe('parseArgs — ready / transitions', () => {
     expect(parseArgs(['transitions', '--interval', '30']).intervalSec).toBe(30);
     expect(() => parseArgs(['transitions', '5'])).toThrow(/PR 번호를 받지 않는다/);
     expect(() => parseArgs(['transitions', '--interval', '0'])).toThrow(/양수/);
+  });
+});
+
+describe('hasReviewBot', () => {
+  const pr = (reviewers: string[], reactors: string[] = []) => ({
+    reviews: { nodes: reviewers.map((login) => ({ author: { login } })) },
+    reactions: { nodes: reactors.map((login) => ({ user: { login } })) },
+  });
+
+  it('최근 PR 어디에도 봇 흔적이 없으면 봇 없는 레포 — watch 가 기다리지 않는다', () => {
+    expect(hasReviewBot([])).toBe(false);
+    expect(hasReviewBot([pr(['minjun0219']), pr([], ['someone'])])).toBe(false);
+  });
+
+  it('봇이 한 번이라도 리뷰했거나 본문에 리액션을 달았으면 봇 있는 레포', () => {
+    expect(hasReviewBot([pr(['minjun0219']), pr(['chatgpt-codex-connector'])])).toBe(true);
+    // 본문 리액션의 user 는 `[bot]` 접미사로 온다 — 👀(리뷰 중)·👍(지적 없음) 어느 쪽이든.
+    expect(hasReviewBot([pr([], ['chatgpt-codex-connector[bot]'])])).toBe(true);
+    expect(hasReviewBot([pr(['copilot-pull-request-reviewer'])])).toBe(true);
+  });
+
+  it('author 가 지워진(null) 항목은 봇이 아니다', () => {
+    expect(
+      hasReviewBot([
+        { reviews: { nodes: [{ author: null }] }, reactions: { nodes: [{ user: null }] } },
+      ]),
+    ).toBe(false);
   });
 });
