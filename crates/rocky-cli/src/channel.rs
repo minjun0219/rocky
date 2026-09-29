@@ -33,7 +33,7 @@ pub const CHANNEL_CAPABILITY: &str = "claude/channel";
 pub const CHANNEL_METHOD: &str = "notifications/claude/channel";
 
 /// 서버가 붙을 때 Claude 에게 주는 안내 — 이벤트가 무엇이고 무엇을 하라는 것인지.
-pub const INSTRUCTIONS: &str = "rocky 채널: 데몬의 PR 감시 전이가 <channel source=\"…\" kind=\"ready|conflict\" repo=\"owner/name\" number=\"N\" url=\"…\"> 로 온다. 단방향이다(회신 도구 없음). ready 는 \"머지 후보\"(기계 판정) — `/rocky:resolve-reviews` 8단계대로 판단한 뒤 사람에게 알린다(PushNotification 이 있으면 그것으로, 한 줄). conflict 는 그 PR 이 이 세션의 것이면 충돌을 풀고, 아니면 알린다. 감시를 따로 돌리지 말고, 머지는 사람 몫이다.";
+pub const INSTRUCTIONS: &str = "rocky 채널: 데몬의 PR 감시 전이가 <channel source=\"…\" kind=\"ready|conflict\" repo=\"owner/name\" number=\"N\" url=\"…\"> 로 온다. 단방향이다(회신 도구 없음). ready 는 \"머지 후보\"(기계 판정) — `/rocky:review-fix` 8단계대로 판단한 뒤 사람에게 알린다(PushNotification 이 있으면 그것으로, 한 줄). conflict 는 그 PR 이 이 세션의 것이면 충돌을 풀고, 아니면 알린다. 감시를 따로 돌리지 말고, 머지는 사람 몫이다.";
 
 /// 백오프 단계(초). 마지막 값에서 머문다.
 const BACKOFF_SECS: [u64; 4] = [1, 2, 4, 8];

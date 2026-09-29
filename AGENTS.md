@@ -60,7 +60,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
 │   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), Stop(handoff-stop → log-turn)
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, reviewer 서브에이전트
-│   └── scripts/permalink.ts    /rocky:finish 가 쓴다 — 설치 후에도 있으려면 플러그인 안에 있어야 한다
+│   └── scripts/permalink.ts    /rocky:review-request 가 쓴다 — 설치 후에도 있으려면 플러그인 안에 있어야 한다
 ├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli · rocky-tui
 ├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
@@ -86,7 +86,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   보관. (2026-09-28 의 데몬 쪽 PR 감시 — `rockyd::prwatch`, `rocky.json` 의 `pr` 블록 — 는 오너의 명시적
   결정으로 만든 다른 것이다; 아래 *데몬·설치 모델* 참고. 둘을 헷갈리지 않는다.) 옛 에이전트(`rocky` /
   `grace` / `mindy`)는 opencode 형식의 **페르소나·라우팅** 에이전트였다; 지금의 `agents/reviewer.md` 는
-  `/rocky:finish` 가 쓰는 요구사항 점검 역할이지 그들의 부활이 아니다.
+  `/rocky:review-request` 가 쓰는 요구사항 점검 역할이지 그들의 부활이 아니다.
 - 옛 네이티브 `@opencode-ai/plugin` 표면 — 한때 `.archive/` 에 두었다가 제거(필요하면 git 히스토리에서).
   지금의 opencode 지원은 stdio MCP 등록이고 그 부활이 **아니다**.
 - `/rocky:opencode` 위임 런타임(`opencode-companion.ts`, `opencode-{jobs,cli,runner,render}.ts`,
@@ -256,8 +256,8 @@ typecheck or tests — pre-push and CI already cover it.*
   전이(actor `rocky`)를 보드 히스토리에 남긴다. GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
   받은편지함(`pr.sessionNotify` — 훅이 `CLAUDE_CODE_MESSAGING_SOCKET` 을 `POST /api/sessions/inbox` 로
   등록하고, 데몬이 그 보드의 가장 최근 세션에 JSON 한 줄을 쓴다), 브릿지(`pr.notifiers[]`, 코드는
-  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:resolve-reviews` 11단계). `ready` 는 **머지
-  후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:resolve-reviews` 8단계); 머지 뒤에 붙은 리뷰는
+  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `ready` 는 **머지
+  후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:review-fix` 8단계); 머지 뒤에 붙은 리뷰는
   다음 PR 로 간다(`after-merge`). **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 요청한 노드 수다 —
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`
   (1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). 주기를 바꾸기 전에 `rateLimit { cost }` 를 잰다. *EN: GraphQL cost is the nodes requested, not returned —

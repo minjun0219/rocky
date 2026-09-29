@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Use to review a change before it is declared done — the working-tree diff before commit/PR, one task's implementation against its brief, or a branch before merge. Runs in a fresh context that receives only the diff and the requirements, never the session history, so it cannot inherit the author's justifications. Dispatched by /rocky:finish for risky changes (requirements check — bug hunting is the built-in /code-review), and usable directly when the user asks 리뷰해줘 / 검토해줘 / 이거 맞게 됐는지 봐줘. Read-only — reports findings in Korean, never edits files, never merges.
+description: Use to review a change before it is declared done — the working-tree diff before commit/PR, one task's implementation against its brief, or a branch before merge. Runs in a fresh context that receives only the diff and the requirements, never the session history, so it cannot inherit the author's justifications. Dispatched by /rocky:review-request for risky changes (requirements check — bug hunting is the built-in /code-review), and usable directly when the user asks 리뷰해줘 / 검토해줘 / 이거 맞게 됐는지 봐줘. Read-only — reports findings in Korean, never edits files, never merges.
 tools: Read, Grep, Glob, Bash, WebFetch
 ---
 

@@ -1,5 +1,5 @@
 /**
- * PR 리뷰 스레드의 수집·리액션·대기를 한 곳에 — `/rocky:resolve-reviews` 가 쓴다.
+ * PR 리뷰 스레드의 수집·리액션·대기를 한 곳에 — `/rocky:review-fix` 가 쓴다.
  *
  * 매번 에이전트가 GraphQL 쿼리와 폴링 루프를 손으로 조립하면 페이지네이션을 빼먹거나
  * 리액션을 겹쳐 달거나(규약은 스레드당 하나) 변수 미사용 같은 사소한 실수로 한 번 더
@@ -146,7 +146,7 @@ function isReviewBot(login: string | undefined): boolean {
 
 /**
  * 이 PR 에 리뷰 봇 흔적이 있는가 — 봇이 리뷰했거나, 스레드를 열었거나, 본문에 리액션(👀·👍)을 달았다.
- * 시점은 따지지 않는다. `/rocky:resolve-reviews` 가 "이 레포는 앞으로 봇 리뷰를 기다릴까" 를 물을 근거다.
+ * 시점은 따지지 않는다. `/rocky:review-fix` 가 "이 레포는 앞으로 봇 리뷰를 기다릴까" 를 물을 근거다.
  */
 export function botSeen(
   reviews: Array<{ author: { login: string } | null }>,
@@ -205,12 +205,12 @@ export type ReadyVerdict = {
 };
 
 /**
- * "확인·머지해도 되나" — `/rocky:resolve-reviews` 9단계의 세 조건을 한 번에. 스레드 수는
+ * "확인·머지해도 되나" — `/rocky:review-fix` 9단계의 세 조건을 한 번에. 스레드 수는
  * 판정 조건이 아니다(닫는 건 사용자 몫) — 처리 안 된 것과 결정 필요한 것만 막는다.
  */
 /**
  * 기계 판정 — "머지 후보" 까지다. 리뷰는 머지 전까지 언제든 붙을 수 있으므로 알릴지는 세션이 한 번 더
- * 판단한다(`/rocky:resolve-reviews` 8단계). 응답하지 않은 리뷰 요청은 여기서 막는다 — 누군가 보기로 한
+ * 판단한다(`/rocky:review-fix` 8단계). 응답하지 않은 리뷰 요청은 여기서 막는다 — 누군가 보기로 한
  * 리뷰가 아직 안 왔는데 "머지해도 된다" 가 나가면 안 된다.
  */
 export function readyVerdict(
@@ -640,7 +640,7 @@ function sleep(ms: number): Promise<void> {
 /**
  * CI 종료까지 기다린 뒤 지금 상태를 낸다. 봇 신호는 **`waitBot` 일 때만** 기다린다(현재 head 이후
  * 제출 또는 timeout) — 봇이 없는 레포·계정이 많아 기본으로 기다리면 매번 timeout 을 채운다. 어느
- * 레포를 기다릴지는 세션 메모리가 정한다(`/rocky:resolve-reviews`).
+ * 레포를 기다릴지는 세션 메모리가 정한다(`/rocky:review-fix`).
  */
 async function watch(
   slug: Slug,

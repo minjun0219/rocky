@@ -696,7 +696,7 @@ pub fn cmd_board(
         }
         "auto-resolve" => {
             // 그 레포의 세션이 자기 보드를 켠다 — 리뷰가 붙으면 데몬이 이 레포의 세션에
-            // resolve-reviews 를 시킨다. 설정 파일이 아니라 보드에 두는 이유가 이것이다.
+            // review-fix 를 시킨다. 설정 파일이 아니라 보드에 두는 이유가 이것이다.
             let on = match arg {
                 Some("on") => true,
                 Some("off") => false,

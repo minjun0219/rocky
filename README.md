@@ -27,13 +27,13 @@ MCP 서버 둘 — 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 5 도�
 
 아래는 Claude Code plugin 으로 설치했을 때만 붙는다 (MCP tool 표면과 별개):
 
-- **슬래시 커맨드** (`commands/`) — `/rocky:next` (보드에서 다음 작업 고르기 → start 표시 → 착수), `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:finish` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:config` (설치·설정 점검 → 빠진 것을 하나씩 물어 채운다 — 새 기기 셋업·값 변경; 판정은 `rocky config show`), `/rocky:usage` (사용 로그를 읽고 뺄 것·손볼 것·더 쓸 것을 제안 — 판단은 사람이), `/rocky:resolve-reviews` (PR 에 붙은 리뷰를 해소 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션(🚀 수정 완료 / 👀 결정 필요 — "확인 중" 표시 없음)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고. 수집·리액션·재리뷰 대기는 `scripts/pr-threads.ts`. GitHub 코멘트와 resolve 는 사용자가 지시할 때만. 머지 가능 시 알림, 머지는 하지 않는다. 재리뷰를 기다리지 않는다), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
+- **슬래시 커맨드** (`commands/`) — `/rocky:next` (보드에서 다음 작업 고르기 → start 표시 → 착수), `/rocky:brainstorm` (아이디어를 설계로 — 맥락 파악 → 한 번에 하나씩 질문 → 접근안 2~3개 → 설계; **게이트가 아니라 도구**), `/rocky:review-request` (게이트 → 커밋 → 푸시 → PR 생성), `/rocky:config` (설치·설정 점검 → 빠진 것을 하나씩 물어 채운다 — 새 기기 셋업·값 변경; 판정은 `rocky config show`), `/rocky:usage` (사용 로그를 읽고 뺄 것·손볼 것·더 쓸 것을 제안 — 판단은 사람이), `/rocky:review-fix` (PR 에 붙은 리뷰를 해소 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션(🚀 수정 완료 / 👀 결정 필요 — "확인 중" 표시 없음)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고. 수집·리액션·재리뷰 대기는 `scripts/pr-threads.ts`. GitHub 코멘트와 resolve 는 사용자가 지시할 때만. 머지 가능 시 알림, 머지는 하지 않는다. 재리뷰를 기다리지 않는다), `/rocky:recall` (워크로그를 앵커 히스토리 다이제스트 `kind:"digest"` 로 증분 정리 — 기록의 짝인 **정리(整理)** 레이어). CI 실패 자동 수정은 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지.
 - **웹 UI** (`http://127.0.0.1:8636/`) — 보드·섹션·항목 상세(마크다운·댓글·타임라인)·핸드오프·새 세션·이슈 생성·메모. `web/` 의 React 앱을 릴리스 때 `dist/` 로 번들해 tarball 에 넣고 데몬이 서빙한다. 자세한 건 [`docs/board.md`](./docs/board.md) "웹 UI".
 - **TUI** (`rocky tui`) — 보드를 터미널 분할에 띄워 두고 본다: 섹션별 목록 + 상세(GitHub 이슈·PR 상태 포함), SSE 로 자동 갱신, `s`/`d`/`a` 상태 변경, `h` 핸드오프 · `n` 새 세션 · `i` 이슈 생성, `Tab` 으로 수집함 탭(외부 투두 앱 항목을 `p` 로 보드에 올린다). 별도 바이너리 `rocky-tui`(릴리스 tarball 동봉). 자세한 건 [`docs/board.md`](./docs/board.md) "TUI".
 - **훅** (`hooks/hooks.json`) — `SessionStart` 가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit` 이 사람이 보드에서 바꾼 것을 세션에 주입하고, `Stop` 이 핸드오프를 집어 온 뒤 `kind:"turn"` 워크로그를 자동 기록한다 (결정론적, LLM 미사용; `worklog.autoCapture` 로 토글). 전부 fail-open.
 - **스킬** (`skills/`) — `board`: 보드 에티켓(start→done, 링크 첨부, 아카이브만) + MCP/CLI 폴백; `writing-cc-plugin`: Claude Code 플러그인 작성 가이드 + 매니페스트·컴포넌트·배포 레퍼런스.
 
-- **서브에이전트** (`agents/`) — `reviewer`: 신선한 컨텍스트에서 **diff 와 요구사항만** 받아 검토하는 읽기 전용 리뷰어. `/rocky:finish` 가 위험한 변경일 때 요구사항 대비 점검으로 이 에이전트를 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘" 처럼 직접 부를 수도 있다. 돌려본 것만 통과라고 쓰고(검증 후 단언), 통과처럼 보이는 실패(false pass) 함정을 따로 챙기며, 파일을 고치거나 머지하지 않는다.
+- **서브에이전트** (`agents/`) — `reviewer`: 신선한 컨텍스트에서 **diff 와 요구사항만** 받아 검토하는 읽기 전용 리뷰어. `/rocky:review-request` 가 위험한 변경일 때 요구사항 대비 점검으로 이 에이전트를 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘" 처럼 직접 부를 수도 있다. 돌려본 것만 통과라고 쓰고(검증 후 단언), 통과처럼 보이는 실패(false pass) 함정을 따로 챙기며, 파일을 고치거나 머지하지 않는다.
 
 > **작업 목록은 보드 하나다.** rocky 는 외부 태스크 서비스와 연동하지 않는다 —
 > 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*` 다. 전에 번들로 있던 `todoist` 스킬은 제거했다.
@@ -82,7 +82,7 @@ PATH 에 있으면 터미널에서 `rocky` 가 바로 된다(없으면 셸 rc �
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
 | `usage` | 사용 로그(`dir` 기본 `~/.config/rocky/usage`, `enabled` 기본 true). 표면별 호출을 월별 JSONL 로 남기고 `rocky usage` 로 읽는다 — 내용은 싣지 않는다 |
-| `pr` | PR 감시(`enabled` 기본 true, `intervalMinutes` 기본 3, `notify` 기본 true, `sessionNotify` 기본 true — 그 레포에서 일하는 Claude Code 세션을 받은편지함 소켓으로 깨운다; 리뷰가 붙으면 그 세션에 `/rocky:resolve-reviews` 를 시키는 것은 보드마다 그 레포의 세션이 `rocky board auto-resolve on` 으로 켠다(기본 끔), `notifiers[]` 알림 브릿지 — 수집함과 같은 명령 규약, 텔레그램은 `bridges/telegram/`). `repo` 가 설정된 보드의 PR 을 데몬이 주기적으로 보고 "머지 후보"·충돌을 macOS 알림 · 알림 브릿지 · 보드 "지금" 표 · 세션 훅 주입으로 알린다. `rocky pr` 로 읽는다 — [`docs/board.md`](./docs/board.md) "PR 감시" |
+| `pr` | PR 감시(`enabled` 기본 true, `intervalMinutes` 기본 3, `notify` 기본 true, `sessionNotify` 기본 true — 그 레포에서 일하는 Claude Code 세션을 받은편지함 소켓으로 깨운다; 리뷰가 붙으면 그 세션에 `/rocky:review-fix` 를 시키는 것은 보드마다 그 레포의 세션이 `rocky board auto-resolve on` 으로 켠다(기본 끔), `notifiers[]` 알림 브릿지 — 수집함과 같은 명령 규약, 텔레그램은 `bridges/telegram/`). `repo` 가 설정된 보드의 PR 을 데몬이 주기적으로 보고 "머지 후보"·충돌을 macOS 알림 · 알림 브릿지 · 보드 "지금" 표 · 세션 훅 주입으로 알린다. `rocky pr` 로 읽는다 — [`docs/board.md`](./docs/board.md) "PR 감시" |
 | `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `sessionSummary`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수
