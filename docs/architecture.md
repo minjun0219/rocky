@@ -1,7 +1,8 @@
 # Architecture notes
 
 Design rationale that is **not** derivable from reading the code. Load this on demand — `AGENTS.md`
-stays short and points here. If you are touching worklog, read the matching section first.
+stays short and points here. If you are touching worklog, read the matching section first. The
+daemon & install model's reasons and incident history are in [`daemon.md`](./daemon.md).
 
 ## MCP tools are nearly free in context — do not "slim the surface" to save tokens
 

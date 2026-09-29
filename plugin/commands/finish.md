@@ -41,7 +41,7 @@ git log --oneline -5
 ```bash
 bun run check       # Biome verify
 bun run typecheck   # tsc --noEmit
-bun test            # 단위 + smoke
+bun run test        # 레포의 test 스크립트 — preload 같은 준비가 거기 있다
 ```
 
 - 하나라도 실패 → 실패 로그를 인용하고, 무엇을 고쳐야 하는지 한 줄 진단 후 **멈춘다.**
