@@ -1,120 +1,172 @@
-import { Moon, Sun, SunMoon } from 'lucide-react';
-import { useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { ThemePref } from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
-import { ThermalStrip } from './ThermalStrip';
-
-/** 토글 순환 — auto 에서 시작해 명시 선택을 거쳐 다시 auto 로 돌아온다. */
-const THEME_CYCLE: Record<ThemePref, ThemePref> = {
-  auto: 'dark',
-  dark: 'light',
-  light: 'auto',
-};
-
-const THEME_ICON: Record<ThemePref, typeof SunMoon> = {
-  auto: SunMoon,
-  dark: Moon,
-  light: Sun,
-};
+import { BoardSwitcher } from './BoardSwitcher';
 
 const THEME_LABEL: Record<ThemePref, string> = {
-  auto: '시스템 설정 따름',
-  dark: '어두운 테마',
-  light: '밝은 테마',
+  auto: '자동',
+  light: '라이트',
+  dark: '다크',
 };
-/** 상단 바 — 워드마크 + 링크(SSE) 상태 + 보관됨 표시 토글 + 호출자(actor) 설정. */
+
+/**
+ * 머리줄 — 한 줄(40px 이하). 보드 스위처 · (끊겼을 때만) 연결 표시 · `⋯` 메뉴.
+ * 예전엔 워드마크·`LINK ♪`·활동 띠·테마 아이콘·보관됨 체크박스·이름 버튼이 설명 없이 늘어서
+ * 360px 에서 두 줄로 접혔다(`web/DESIGN.md` "Layout", Known Gaps). 드물게 쓰는 것은 메뉴로.
+ */
 export function TopBar() {
   const connected = useUiStore((s) => s.connected);
+  return (
+    <header className="topbar relative flex min-h-10 items-center gap-2 border-b border-line bg-surface px-3 py-1">
+      <BoardSwitcher />
+      <div className="flex-1" />
+      {connected ? null : (
+        <span
+          className="link-status inline-flex items-center gap-1.5 font-mono text-chip text-dead"
+          title="데몬과의 실시간 연결이 끊겼다 — 다시 붙는 중. 보이는 내용은 마지막으로 받은 것이다."
+          role="status"
+        >
+          <span className="size-1.5 rounded-full bg-current" aria-hidden />
+          연결 끊김
+        </span>
+      )}
+      <HeaderMenu />
+    </header>
+  );
+}
+
+/**
+ * `⋯` 메뉴 — 자주 안 쓰는 것들: 테마, 보관된 항목 보기, 편집자 이름, 새로고침·전체 보기
+ * (cmux Dock 에 주소창 없이 띄우면 브라우저의 새로고침·홈이 없다 — DESIGN.md "Environment").
+ */
+function HeaderMenu() {
   const actor = useUiStore((s) => s.actor);
   const setActor = useUiStore((s) => s.setActor);
   const showArchived = useUiStore((s) => s.showArchived);
   const setShowArchived = useUiStore((s) => s.setShowArchived);
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
-  const [editing, setEditing] = useState(false);
+  const setSelected = useUiStore((s) => s.setSelected);
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(actor);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const saveActor = () => {
+    const next = draft.trim();
+    if (next !== '' && next !== actor) {
+      setActor(next);
+    }
+  };
 
   return (
-    <header className="topbar flex items-center gap-4 border-b border-line bg-surface px-5 py-[10px]">
-      <span className="wordmark font-mono text-sm font-bold tracking-[0.22em]">
-        ROCKY<span className="text-warm">·</span>BOARD
-      </span>
-      <span
-        className={`link-status inline-flex items-center gap-1.5 font-mono text-micro tracking-[0.18em] ${connected ? 'is-on text-warm' : 'text-faint'}`}
-        title="데몬 SSE 연결 상태"
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        className="header-menu-button inline-flex size-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
+        aria-label="메뉴"
+        aria-expanded={open}
+        onClick={() => {
+          setDraft(actor);
+          setOpen((v) => !v);
+        }}
       >
-        <span className="link-pulse size-1.5 rounded-full bg-current" />
-        {/* 초좁은 화면에선 텍스트를 접고 펄스 점만 — 상태는 점 색과 title 로 남는다.
-            한 줄에 전부 들어가는 게 그룹째 줄바꿈보다 낫다(실기기 제보). */}
-        <span className="max-[430px]:hidden">{connected ? 'LINK ♪' : 'NO LINK'}</span>
-      </span>
-      <div className="flex-1" />
-      <ThermalStrip />
-      <div className="flex-1" />
-      {/* 컨트롤 묶음 — 좁은 화면에서 폭이 모자라면 낱개가 아니라 **그룹째** 다음 줄로
-          떨어지고, ml-auto 가 그 줄에서도 우측 정렬을 유지한다. 낱개로 흩어지면 actor
-          칩이 혼자 왼쪽에 떠 깨져 보인다(실기기 제보). */}
-      <div className="ml-auto flex items-center gap-2.5">
-        <button
-          type="button"
-          className="theme-toggle inline-flex items-center justify-center font-mono text-sm text-muted hover:text-text"
-          title={`테마 — ${THEME_LABEL[themePref]} (눌러서 ${THEME_LABEL[THEME_CYCLE[themePref]]})`}
-          aria-label={`테마 — 현재 ${THEME_LABEL[themePref]}. 눌러서 ${THEME_LABEL[THEME_CYCLE[themePref]]}`}
-          onClick={() => {
-            // 사용 로그는 사람이 누른 것만 — OS 가 낮/밤을 바꿔 setThemePref('auto') 가 다시 돌 때는 아니다.
-            logUsage('web:theme');
-            setThemePref(THEME_CYCLE[themePref]);
-          }}
+        <MoreHorizontal size={18} aria-hidden />
+      </button>
+      {open ? (
+        <div
+          className="header-menu absolute right-0 top-full z-30 mt-1 flex w-64 flex-col gap-3 rounded-[10px] border border-line bg-surface p-3 text-sm"
+          role="menu"
         >
-          {(() => {
-            const Icon = THEME_ICON[themePref];
-            return <Icon size={15} aria-hidden />;
-          })()}
-        </button>
-        <label className="archived-toggle flex cursor-pointer items-center gap-1.5 text-meta text-muted">
-          <input
-            type="checkbox"
-            checked={showArchived}
-            onChange={(e) => setShowArchived(e.target.checked)}
-          />
-          보관됨 표시
-        </label>
-        {editing ? (
-          <form
-            className="actor-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const next = draft.trim();
-              if (next !== '') {
-                setActor(next);
-              }
-              setEditing(false);
-            }}
-          >
+          <fieldset className="m-0 flex items-center gap-1 border-0 p-0">
+            <legend className="mb-1 font-mono text-chip text-faint">테마</legend>
+            {(['auto', 'light', 'dark'] as const).map((pref) => (
+              <button
+                key={pref}
+                type="button"
+                role="menuitemradio"
+                aria-checked={themePref === pref}
+                className={`min-h-8 flex-1 rounded-md px-2 ${themePref === pref ? 'bg-surface-2 font-semibold text-text' : 'text-muted hover:text-text'}`}
+                onClick={() => {
+                  logUsage('web:theme');
+                  setThemePref(pref);
+                }}
+              >
+                {THEME_LABEL[pref]}
+              </button>
+            ))}
+          </fieldset>
+          <label className="flex min-h-8 cursor-pointer items-center gap-2 text-text">
             <input
-              className="actor-input w-[120px] rounded-full border border-cool bg-bg px-3 py-[3px] font-mono text-meta text-cool"
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            보관된 항목도 보기
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-chip text-faint">
+              편집자 이름 — 웹에서 고친 것은 이 이름으로 남는다
+            </span>
+            <input
+              aria-label="편집자 이름"
+              className="actor-input min-h-8 rounded-md border border-line bg-bg px-2 font-mono text-meta text-text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              // biome-ignore lint/a11y/noAutofocus: 호출자 이름 편집 진입 시 즉시 입력
-              autoFocus
-              onBlur={() => setEditing(false)}
+              onBlur={saveActor}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  saveActor();
+                }
+              }}
             />
-          </form>
-        ) : (
-          <button
-            type="button"
-            className="actor-button rounded-full border border-cool-dim px-3 py-[3px] font-mono text-meta text-cool"
-            title="호출자 이름 — 웹에서의 편집은 이 이름으로 기록된다"
-            onClick={() => {
-              setDraft(actor);
-              setEditing(true);
-            }}
-          >
-            {actor}
-          </button>
-        )}
-      </div>
-    </header>
+          </label>
+          <div className="flex gap-2 border-t border-line pt-2">
+            <button
+              type="button"
+              role="menuitem"
+              className="min-h-8 flex-1 rounded-md px-2 text-muted hover:bg-surface-2 hover:text-text"
+              onClick={() => {
+                setOpen(false);
+                setSelected('all');
+              }}
+            >
+              전체 보기
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="min-h-8 flex-1 rounded-md px-2 text-muted hover:bg-surface-2 hover:text-text"
+              onClick={() => window.location.reload()}
+            >
+              새로고침
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

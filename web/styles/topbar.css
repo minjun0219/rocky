@@ -1,11 +1,7 @@
 /*
- * 상단 바 — 정적 스타일은 TopBar.tsx 의 유틸리티로 옮겼다. 여기 남는 것은
- * 유틸리티로 표현할 수 없는 것뿐: keyframes 와 상태(.is-on) 종속 애니메이션.
+ * 머리줄 — 정적 스타일은 TopBar.tsx 의 유틸리티. 여기 남는 것은 유틸리티로 표현할 수 없는 것뿐:
+ * 다른 파일(handoff.css)도 쓰는 keyframes. 머리줄 자체는 움직이지 않는다(DESIGN.md "Interaction").
  */
-
-.is-on .link-pulse {
-  animation: rt-pulse 2.4s ease-in-out infinite;
-}
 
 @keyframes rt-pulse {
   0%,

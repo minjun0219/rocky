@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { DetailDrawer } from './components/DetailDrawer';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
-import { Sidebar } from './components/Sidebar';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { parseRoute } from './route';
@@ -112,9 +111,8 @@ function App() {
   return (
     <div className="app">
       <TopBar />
-      {/* 관제판 — 한 열. 맨 위 "지금"(전 보드) → 보드 탭 → 그 보드의 목록 → 메모(접힘). */}
+      {/* 관제판 — 한 열. 머리줄(보드 스위처) → "지금"(전 보드) → 그 보드의 목록 → 메모(접힘). */}
       <NowTable />
-      <Sidebar />
       <div className="layout flex min-h-0 flex-1 flex-col">
         <TodoPane />
         <NotesRail />

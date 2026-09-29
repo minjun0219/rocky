@@ -1,6 +1,6 @@
 /*
- * 보드 탭 행 — 정적 스타일은 Sidebar.tsx 의 유틸리티로 옮겼다. 남는 것: 애니메이션(.doing-dot)과
- * NotesRail 이 쓰는 .sidebar-label. 모든 폭에서 가로 한 줄이라 responsive 분기가 없다.
+ * 보드 탭 행은 머리줄의 보드 스위처(BoardSwitcher.tsx)로 바뀌었다. 남는 것: NotesRail 이 쓰는
+ * .sidebar-label.
  */
 
 .sidebar-label {
@@ -8,8 +8,4 @@
   font-size: 11px;
   letter-spacing: 0.22em;
   color: var(--muted);
-}
-
-.doing-dot {
-  animation: rt-pulse 2.4s ease-in-out infinite;
 }

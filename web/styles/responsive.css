@@ -20,18 +20,6 @@
     display: flex;
     flex-direction: column;
   }
-  .topbar {
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 10px 14px;
-  }
-  .board-item {
-    min-height: 44px;
-  }
-  .archived-toggle {
-    white-space: nowrap;
-    min-height: 44px;
-  }
   .todo-pane {
     padding: 14px 14px 6px;
     overflow-y: visible;
@@ -197,14 +185,6 @@
     min-height: 44px;
     padding-inline: 12px;
   }
-  /* 상단 바 — 아이콘 버튼(15px)·actor 버튼(24px)은 손가락 타깃이 아니다. 히트 영역만 키운다. */
-  .theme-toggle {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .actor-button {
-    min-height: 36px;
-  }
 
   /* 좁은 화면에선 옆이 아니라 **아래에서 올라오는 시트**다. 전폭 오버레이 + 우상단 ✕ 는
      엄지 도달 범위 밖이었다 (보드 항목: 모바일 드로어를 바텀시트로). 닫기는 스크림 띠
@@ -281,8 +261,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .is-on .link-pulse,
-  .doing-dot,
   .doing-pulse,
   .drawer {
     animation: none;
@@ -292,7 +270,6 @@
   button,
   input,
   .todo-row,
-  .board-item,
   .chip {
     transition: none;
   }
@@ -301,6 +278,12 @@
 /* 터치 기기에는 드래그 핸들을 두지 않는다 — HTML5 DnD 가 터치에서 안 돌아 잡을 수 없는
    핸들이 첫 열을 24px 씩 먹고 있었다. 순서 이동은 드로어의 보드/섹션 이동과 CLI `move` 가 맡는다. */
 @media (pointer: coarse) {
+  /* 머리줄 메뉴 — 터치에서만 손가락 타깃 44px. 마우스로 보는 좁은 패널(cmux)에서는 머리줄을
+     한 줄 40px 로 지킨다(DESIGN.md "Layout"). */
+  .header-menu-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
   .drag-handle {
     display: none;
   }

@@ -13,7 +13,7 @@ export function CommentComposer({ todoId }: { todoId: string }) {
   /**
    * 등록에 성공했을 때만 입력을 비운다 — 데몬이 내려갔거나 요청이 실패하면 방금 쓴
    * 본문이 화면에서 그대로 사라진다(되돌릴 방법 없음). 실패하면 초안을 남기고 이유를
-   * 보여준다 — 보드 추가(`Sidebar`)와 같은 방침.
+   * 보여준다 — 보드 추가(`BoardSwitcher`)와 같은 방침.
    */
   const submit = async () => {
     const next = body.trim();
