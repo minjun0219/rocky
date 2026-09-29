@@ -720,3 +720,19 @@ export function formatClock(iso: string, now = Date.now()): string {
   const ss = String(rest % 60).padStart(2, '0');
   return days > 0 ? `${days}일 ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
 }
+
+/**
+ * 가로 스크롤 컨테이너 안에서 한 요소를 가운데 오게 하는 `scrollLeft` — 양 끝에서는 넘치지 않게
+ * 자른다. 문서 스크롤은 건드리지 않는 대안이 필요해서 둔다(`scrollIntoView` 는 조상을 전부 움직인다).
+ * 좌표는 컨테이너 **내용** 기준(스크롤 0 일 때의 x)이다.
+ */
+export function centeredScrollLeft(box: {
+  elStart: number;
+  elWidth: number;
+  viewWidth: number;
+  contentWidth: number;
+}): number {
+  const max = Math.max(0, box.contentWidth - box.viewWidth);
+  const target = box.elStart - (box.viewWidth - box.elWidth) / 2;
+  return Math.round(Math.min(max, Math.max(0, target)));
+}
