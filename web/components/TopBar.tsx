@@ -52,6 +52,9 @@ function HeaderMenu() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(actor);
   const rootRef = useRef<HTMLDivElement>(null);
+  // 바깥 클릭으로 닫힐 때 입력칸이 blur 보다 먼저 사라진다 — 그 순간의 draft 를 저장하려고
+  // 최신 값을 ref 로 들고 있는다(effect 는 열릴 때 한 번만 건다).
+  const saveRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!open) {
@@ -59,6 +62,7 @@ function HeaderMenu() {
     }
     const onDown = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        saveRef.current();
         setOpen(false);
       }
     };
@@ -81,6 +85,7 @@ function HeaderMenu() {
       setActor(next);
     }
   };
+  saveRef.current = saveActor;
 
   return (
     <div className="relative" ref={rootRef}>

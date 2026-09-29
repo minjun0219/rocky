@@ -41,3 +41,25 @@ describe('TopBar', () => {
     expect(setActor).toHaveBeenCalledWith('minjun');
   });
 });
+
+// Codex 지적 회귀 — 이름을 고치고 메뉴 바깥을 누르면, 입력칸이 blur 되기 전에 메뉴가 닫혀
+// 고친 이름이 사라졌다. 바깥 클릭으로 닫혀도 저장돼야 한다.
+describe('TopBar ⋯ 메뉴 — 바깥 클릭으로 닫아도 이름을 잃지 않는다', () => {
+  test('고친 이름은 바깥 클릭에도 저장된다', async () => {
+    const setActor = mock(() => {});
+    renderWithStore(
+      <div>
+        <TopBar />
+        <p>바깥</p>
+      </div>,
+      { connected: true, boards: [], actor: 'logan', setActor },
+    );
+    await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
+    const name = screen.getByRole('textbox', { name: '편집자 이름' });
+    await userEvent.clear(name);
+    await userEvent.type(name, 'minjun');
+    await userEvent.click(screen.getByText('바깥'));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(setActor).toHaveBeenCalledWith('minjun');
+  });
+});
