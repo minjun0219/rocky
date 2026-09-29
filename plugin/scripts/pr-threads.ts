@@ -9,9 +9,10 @@
  * ```
  * bun scripts/pr-threads.ts list 154            # 미해결 스레드 JSON (첫 코멘트 id·내 리액션 포함)
  * bun scripts/pr-threads.ts react PRRC_… EYES   # 내 다른 상태 리액션을 떼고 👀 하나만 남긴다
- * bun scripts/pr-threads.ts watch 154 --timeout 300
+ * bun scripts/pr-threads.ts watch 154 [--wait-bot] [--timeout 300]
  *   # CI 가 끝날 때까지 → 현재 head 의 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
- *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(안 옴) / none(이 레포엔 리뷰 봇이 없다 — 기다리지 않는다)
+ *   # 기본은 봇을 기다리지 않는다 — CI 만 기다린 뒤 지금 상태를 낸다. `--wait-bot` 이면 봇 신호가 올 때까지(또는 timeout).
+ *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(아직·안 옴). botSeen: 이 PR 에 봇 흔적이 있는가
  * bun scripts/pr-threads.ts ready 154           # "확인·머지해도 되나" 한 번에 — CI 초록 + 👀 없는 스레드 없음 + 🚀 없음. exit 0/1
  * bun scripts/pr-threads.ts transitions --interval 60
  *   # 열린 PR 전체를 돌며 MERGED / CLOSED / DIRTY / CONFLICTING 전이만 한 줄씩 — Monitor 에 물린다
@@ -102,11 +103,8 @@ export type ReviewNode = {
 /** PR 본문에 달린 리액션 — Codex 는 지적이 없으면 코멘트 대신 여기에 👍 만 남긴다. */
 export type ReactionNode = { content: string; createdAt: string; user: { login: string } | null };
 
-/**
- * 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만,
- * `none` = 이 레포에 리뷰 봇이 붙어 있지 않다(최근 PR 어디에도 봇 흔적이 없다 — 기다려도 안 온다).
- */
-export type BotVerdict = 'pending' | 'findings' | 'clean' | 'none';
+/** 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만. */
+export type BotVerdict = 'pending' | 'findings' | 'clean';
 
 /**
  * 리뷰 봇 로그인인가. 리뷰 author 는 `chatgpt-codex-connector`, 본문 리액션의 user 는
@@ -119,22 +117,19 @@ function isReviewBot(login: string | undefined): boolean {
   );
 }
 
-/** 최근 PR 하나의 봇 흔적 재료 — 리뷰 작성자와 본문 리액션 작성자만. */
-export type RecentPr = {
-  reviews: { nodes: Array<{ author: { login: string } | null }> };
-  reactions: { nodes: Array<{ user: { login: string } | null }> };
-};
-
 /**
- * 이 레포에 리뷰 봇이 붙어 있는가 — 최근 PR 중 하나라도 봇이 리뷰했거나 본문에 리액션(👀·👍)을
- * 달았으면. 봇 설치는 레포·계정마다 다르고(회사 레포엔 없다) 설정을 따로 두면 드리프트가 난다 —
- * 흔적으로 판단한다. 새로 봇을 붙인 레포는 첫 PR 에서 봇이 👀 를 다는 순간부터 잡힌다.
+ * 이 PR 에 리뷰 봇 흔적이 있는가 — 봇이 리뷰했거나, 스레드를 열었거나, 본문에 리액션(👀·👍)을 달았다.
+ * 시점은 따지지 않는다. `/rocky:resolve-reviews` 가 "이 레포는 앞으로 봇 리뷰를 기다릴까" 를 물을 근거다.
  */
-export function hasReviewBot(prs: RecentPr[]): boolean {
-  return prs.some(
-    (p) =>
-      p.reviews.nodes.some((r) => isReviewBot(r.author?.login)) ||
-      p.reactions.nodes.some((r) => isReviewBot(r.user?.login)),
+export function botSeen(
+  reviews: Array<{ author: { login: string } | null }>,
+  reactions: Array<{ user: { login: string } | null }>,
+  threadAuthors: Array<string | null | undefined>,
+): boolean {
+  return (
+    reviews.some((r) => isReviewBot(r.author?.login)) ||
+    reactions.some((r) => isReviewBot(r.user?.login)) ||
+    threadAuthors.some((a) => isReviewBot(a ?? undefined))
   );
 }
 
@@ -256,6 +251,8 @@ export type Args = {
   reaction?: StateReaction;
   timeoutSec: number;
   intervalSec: number;
+  /** watch 가 봇 신호까지 기다리는가 — 기본 끔. */
+  waitBot?: boolean;
 };
 
 /** argv 해석. 잘못된 입력은 메시지와 함께 던진다 — 조용히 기본값으로 흘리지 않는다. */
@@ -276,6 +273,8 @@ export function parseArgs(argv: string[]): Args {
       } else {
         args.intervalSec = v;
       }
+    } else if (a === '--wait-bot') {
+      args.waitBot = true;
     } else if (a.startsWith('--')) {
       throw new Error(`모르는 옵션: ${a}`);
     } else {
@@ -416,6 +415,8 @@ export type PrSnapshot = {
   reviews: ReviewNode[];
   reactions: ReactionNode[];
   threads: ThreadSummary[];
+  /** 이 PR 에 봇 흔적이 있는가 — {@link botSeen}. */
+  botSeen: boolean;
 };
 
 /** 스레드 전 페이지를 모아 스냅샷 하나로. */
@@ -438,6 +439,7 @@ function snapshot(slug: Slug, pr: number): PrSnapshot {
     throw new Error(`PR #${pr} 조회 결과가 비었다`);
   }
   const p = first.repository.pullRequest;
+  const threads = summarizeThreads(nodes, first.viewer.login);
   return {
     pr,
     head: p.headRefOid.slice(0, 7),
@@ -447,7 +449,12 @@ function snapshot(slug: Slug, pr: number): PrSnapshot {
     me: first.viewer.login,
     reviews: p.reviews.nodes,
     reactions: p.reactions.nodes,
-    threads: summarizeThreads(nodes, first.viewer.login),
+    threads,
+    botSeen: botSeen(
+      p.reviews.nodes,
+      p.reactions.nodes,
+      threads.map((t) => t.author),
+    ),
   };
 }
 
@@ -488,32 +495,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 이 PR 을 포함한 최근 PR 20개의 봇 흔적 — 요청 노드가 작아 비용이 싸다. */
-const RECENT_BOT_QUERY = `query($owner:String!, $repo:String!){
-  repository(owner:$owner, name:$repo){
-    pullRequests(last:20, states:[OPEN, MERGED, CLOSED]){ nodes{
-      reviews(first:10){ nodes{ author{ login } } }
-      reactions(first:10){ nodes{ user{ login } } }
-    } }
-  }
-}`;
-
-function repoHasReviewBot(slug: Slug): boolean {
-  const data = graphql<{ repository: { pullRequests: { nodes: RecentPr[] } } }>(RECENT_BOT_QUERY, {
-    owner: slug.owner,
-    repo: slug.repo,
-  });
-  return hasReviewBot(data.repository.pullRequests.nodes);
-}
-
 /**
- * CI 종료 → 봇 재리뷰(현재 head 이후 제출) 또는 timeout 까지 대기. 리뷰 봇이 없는 레포면
- * 기다리지 않고 `none` — 안 올 신호를 timeout 까지 기다리지 않는다.
+ * CI 종료까지 기다린 뒤 지금 상태를 낸다. 봇 신호는 **`waitBot` 일 때만** 기다린다(현재 head 이후
+ * 제출 또는 timeout) — 봇이 없는 레포·계정이 많아 기본으로 기다리면 매번 timeout 을 채운다. 어느
+ * 레포를 기다릴지는 세션 메모리가 정한다(`/rocky:resolve-reviews`).
  */
 async function watch(
   slug: Slug,
   pr: number,
   timeoutSec: number,
+  waitBot: boolean,
 ): Promise<PrSnapshot & { ci: 'pass' | 'fail'; verdict: BotVerdict }> {
   const checks = Bun.spawnSync(['gh', 'pr', 'checks', String(pr), '--watch'], {
     stdout: 'ignore',
@@ -523,10 +514,7 @@ async function watch(
   const deadline = Date.now() + timeoutSec * 1000;
   let snap = snapshot(slug, pr);
   let verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
-  if (verdict === 'pending' && !repoHasReviewBot(slug)) {
-    return { ...snap, ci, verdict: 'none' };
-  }
-  while (verdict === 'pending' && Date.now() < deadline) {
+  while (waitBot && verdict === 'pending' && Date.now() < deadline) {
     await sleep(10_000);
     snap = snapshot(slug, pr);
     verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
@@ -616,7 +604,9 @@ async function main(argv: string[]): Promise<number> {
       return result.verdict.ready ? 0 : 1;
     }
     const result =
-      args.cmd === 'watch' ? await watch(slug, pr, args.timeoutSec) : snapshot(slug, pr);
+      args.cmd === 'watch'
+        ? await watch(slug, pr, args.timeoutSec, args.waitBot === true)
+        : snapshot(slug, pr);
     const { reviews: _reviews, reactions: _reactions, ...printable } = result;
     console.log(JSON.stringify(printable, null, 2));
     return 0;

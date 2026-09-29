@@ -70,18 +70,26 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" list $ARGUMENTS
 # → { pr, head, mergeState, isDraft, me, threads:[{ threadId, commentId, path, line, outdated, author, mine, body }] }
 ```
 
-- 봇 리뷰가 아직 안 붙었으면(`threads` 가 비었고 마지막 푸시 직후) `watch` 로 기다린다 — CI 가
-  끝난 뒤 현재 head 이후의 봇 신호가 올 때까지(기본 300초) 폴링하고 같은 JSON 에 `verdict` 를
-  얹는다. **Codex 는 지적이 없으면 코멘트 대신 PR 본문에 👍 리액션만 단다** — 그게 `clean` 이고
-  "리뷰할 게 없다" 는 뜻이다(리뷰 중에는 👀). `findings` 는 리뷰 코멘트가 제출된 것, `pending` 은
-  timeout 까지 아무 신호도 없었던 것(사실을 보고에 적는다).
-  `none` 은 **이 레포에 리뷰 봇이 없다**는 뜻이다 — 최근 PR 20개 어디에도 봇 리뷰·리액션이 없으면
-  CI 만 기다리고 바로 돌아온다(봇이 없는 레포·계정에서 timeout 을 꽉 채워 기다리지 않는다). 그때는
-  사람 리뷰만 처리하고, 보고에 "봇 리뷰 없음(레포에 봇 미설치)" 으로 적는다.
+- **봇 리뷰는 기본으로 기다리지 않는다** — 봇이 없는 레포·계정이 많아서, 기다리면 매번 timeout 을
+  채운다. 이 레포가 봇 리뷰를 기다리는 레포인지는 **이 세션의 메모리**가 정한다: 메모리에 "이 레포는
+  봇 리뷰 필수" 기록이 있을 때만 `--wait-bot` 을 붙인다. 없으면 CI 만 기다리고 지금 있는 리뷰로 간다.
 
   ```bash
-  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS --timeout 300
+  # 메모리에 "봇 리뷰 필수" 가 없으면(기본)
+  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS
+  # 있으면 — 현재 head 이후의 봇 신호가 올 때까지(최대 300초)
+  bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" watch $ARGUMENTS --wait-bot --timeout 300
   ```
+
+  결과의 `verdict`: **Codex 는 지적이 없으면 코멘트 대신 PR 본문에 👍 리액션만 단다** — 그게
+  `clean`("리뷰할 게 없다", 리뷰 중에는 👀). `findings` 는 리뷰 코멘트가 제출된 것, `pending` 은 아직
+  신호가 없는 것(`--wait-bot` 이면 timeout 까지 — 사실을 보고에 적는다).
+- **봇 흔적을 처음 봤을 때 묻는다.** 결과의 `botSeen` 이 true(이 PR 에 봇이 리뷰했거나 스레드를
+  열었거나 본문에 리액션을 달았다)인데 메모리에 이 레포의 봇 리뷰 기록이 없으면, 보고 끝에 한 번
+  묻는다 — "이 레포에 봇 리뷰가 붙는다. 다음부터 봇 리뷰를 기다릴까?". 그렇다고 하면 메모리에
+  "이 레포는 봇 리뷰 필수(`--wait-bot`)" 를 남기고(`feedback` — 왜: 사용자가 정함, 어떻게: watch 에
+  `--wait-bot`), 아니라고 하면 "봇 리뷰를 기다리지 않는다" 로 남겨 다시 묻지 않는다. 답이 없으면
+  아무것도 남기지 않는다(다음에 다시 묻는다).
 - `commentId` 가 5단계 리액션의 대상이다(**첫 코멘트의 id** — 스레드 id 와 다른 값). `mine` 은 내
   계정이 단 상태 리액션이라 "이미 처리한 스레드" 를 다시 보지 않게 해 준다.
 - 스크립트는 미해결(`isResolved: false`) 스레드만 낸다.
@@ -287,8 +295,9 @@ additionalContext 로 넣는다. 그러니 **이 세션에서 Monitor 를 걸거
 
 이 단계에서 할 일은 둘뿐이다:
 
-1. 첫 봇 판정까지만 `watch` 로 기다린다(Codex 는 PR 이 ready 로 열릴 때 한 번 본다 — 수정
-   푸시는 다시 보지 않고, 재리뷰는 `@codex review` 로만). `findings` 면 2~5단계, 푸시했으면
+1. 메모리에 "봇 리뷰 필수" 가 있는 레포면 첫 봇 판정까지만 `watch --wait-bot` 으로 기다린다(Codex 는
+   PR 이 ready 로 열릴 때 한 번 본다 — 수정 푸시는 다시 보지 않고, 재리뷰는 `@codex review` 로만).
+   기록이 없는 레포는 봇을 기다리지 않는다. `findings` 면 2~5단계, 푸시했으면
    CI 만 기다린다(`gh pr checks "$NUM" --watch`). 같은 head 에 `watch` 를 두 번 부르지 않는다.
 2. 훅 주입("#N 확인·머지해도 된다")을 받았거나 CI 가 초록이 됐으면 `ready` 로 한 번 확인하고
    알린다 — 알림 조건은 스크립트가 판정한다(exit 0 = 알려도 됨; 🚀 가 있으면 알림이 아니라
