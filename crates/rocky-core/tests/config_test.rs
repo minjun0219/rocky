@@ -328,7 +328,7 @@ fn pr_block_is_read_with_defaults() {
     assert_eq!(PrWatchConfig::default().interval_minutes(), 3);
     std::fs::write(
         &path,
-        r#"{ "pr": { "enabled": false, "intervalMinutes": 10, "notify": false } }"#,
+        r#"{ "pr": { "enabled": false, "intervalMinutes": 10, "notify": false, "sessionNotify": false } }"#,
     )
     .unwrap();
     let c = load_pr_block(&path);
@@ -339,6 +339,7 @@ fn pr_block_is_read_with_defaults() {
             interval_minutes: Some(10),
             notify: Some(false),
             notifiers: Vec::new(),
+            session_notify: Some(false),
         }
     );
     assert_eq!(c.interval_minutes(), 10);

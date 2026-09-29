@@ -234,20 +234,23 @@ ASCII) → 봇에게 아무 말이나 보낸 뒤 `curl -s "https://api.telegram.
 jq '.result[-1].message.chat.id'` 로 chat id → 위처럼 등록 → 데몬 재기동(`rocky daemon stop` 뒤 다음
 세션, 또는 `rocky daemon install`).
 
-**세션을 그 자리에서 깨우기 — rocky 채널.** 훅 주입은 사람이 타이핑해야 열리는 턴에 실린다. 세션이
-떠 있을 때 전이 직후에 움직이게 하려면(폰 알림, 리뷰 대응) Claude Code 의 channels(리서치 프리뷰)를
-쓴다 — 플러그인의 worklog stdio 서버가 채널이기도 해서, 데몬의 ready·충돌 전이가
-`<channel source="…" kind="ready|conflict" repo="…" number="N" url="…">` 로 세션에 도착해 턴을 연다.
+**세션을 그 자리에서 깨우기 — 받은편지함 소켓(`pr.sessionNotify`, 기본 켬).** 훅 주입은 사람이
+타이핑해야 열리는 턴에 실린다. 전이 직후에 세션이 움직이게(폰 알림, 충돌 풀기) 데몬이 Claude Code 세션의
+**받은편지함 소켓**에 직접 한 줄을 쓴다 — 다른 세션의 `SendMessage` 가 들어오는 그 소켓이라, 쉬던
+세션도 그 자리에서 턴이 열린다. 플래그도 경고 창도 필요 없다.
 
-```bash
-claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace
-```
+- 훅(SessionStart·UserPromptSubmit)이 턴마다 `session_id → 소켓(CLAUDE_CODE_MESSAGING_SOCKET) · cwd` 를
+  데몬에 등록한다(`POST /api/sessions/inbox`, 로컬 전용, Claude Code 받은편지함 경로 모양만 받는다).
+- ready·충돌이 되면 그 레포 보드(`repo`)에서 일하는 세션 — cwd 가 보드 경로 하위(워크트리 포함)거나
+  key 세그먼트인 것 — 중 **가장 최근에 쓰인 하나**에만 보낸다. 세션이 끝나 소켓이 없으면 등록을 걷는다.
+- 받는 쪽에선 "다른 세션이 보낸 메시지" 로 들어온다 — 사용자 승인으로 취급되지 않는다. 권한 우회 모드
+  세션은 Claude Code 가 승인 창을 띄우고 보류한다.
+- 형식은 JSON 한 줄 `{"type":"user","message":{"role":"user","content":"…"}}` (Claude Code 2.1.283 에서
+  실측). Claude Code 가 문서로 약속한 건 소켓과 인증 줄까지라, 본문 형식이 바뀌면 이 알림만 조용히
+  멈춘다.
 
-프리뷰 동안은 우리 마켓플레이스가 허용 목록에 없어 이 개발 플래그로만 켜지고, 시작할 때 경고
-대화상자를 한 번 넘긴다. 이 플래그 없이 띄운 세션에는 아무것도 오지 않는다(조용히 버림) — "알림
-담당" 세션 하나만 이렇게 띄우면 된다. 시작 이후의 전이만 보내고 과거는 재생하지 않는다. 채널이
-깨운 세션이 폰까지 알리려면 Remote Control 이 켜져 있어야 한다(`PushNotification`); 세션 없이
-폰에 받으려면 위의 알림 브릿지다.
+채널(`claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`)도 아직 남아 있다 —
+받은편지함이 실제로 자리 잡으면 걷는다.
 
 ## 요약 — `rocky today` · 세션 시작 요약 · statusline
 

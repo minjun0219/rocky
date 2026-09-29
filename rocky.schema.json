@@ -93,6 +93,10 @@
           "type": "boolean",
           "description": "macOS 알림(osascript) 여부. 기본 true. ready·충돌만 알린다."
         },
+        "sessionNotify": {
+          "type": "boolean",
+          "description": "세션 알림 — ready·충돌을 그 레포 보드에서 일하는 Claude Code 세션(가장 최근에 쓰인 하나)의 받은편지함 소켓에 밀어 넣는다. 쉬던 세션도 그 자리에서 턴이 열린다. 기본 true."
+        },
         "notifiers": {
           "type": "array",
           "description": "알림 브릿지 — ready·충돌마다 실행하는 명령들. 데몬이 argv 그대로 실행하고 stdin 에 전이 JSON 하나를 준다(exit 0 = 보냄). 환경마다 고른다(텔레그램·ntfy·…은 bridges/<name>/). notify(macOS)와 독립. 규약은 docs/board.md \"PR 감시\".",

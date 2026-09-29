@@ -90,6 +90,8 @@ const SKIPPED_ROUTES: &[&str] = &[
     "/api/statusline",
     "/api/events",
     "/api/usage",
+    // 훅이 턴마다 부르는 받은편지함 등록 — 남기면 로그가 그것뿐이 된다(사람·에이전트의 사용이 아니다).
+    "/api/sessions/inbox",
 ];
 
 /// 접은 모양으로 거르는 라우트 — 노트 문서 편집은 150ms 마다 POST 하고 프레즌스는 주기적이라

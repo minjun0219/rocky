@@ -51,6 +51,7 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         "/api/statusline",
         "/api/events",
         "/api/usage",
+        "/api/sessions/inbox",
     ] {
         assert_eq!(normalize_route("GET", skipped), None, "{skipped}");
     }
