@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.33.1
+
+### Patch Changes
+
+- [#225](https://github.com/minjun0219/rocky/pull/225) [`0de952b`](https://github.com/minjun0219/rocky/commit/0de952b0b2fdcaffdef2bfa2802929788e609ffd) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬이 종료 신호 뒤 열린 SSE 연결을 끝없이 기다리지 않는다 — 3초 유예 뒤 나간다. 전에는 교체된 옛 데몬이 옛 세션의 SSE 를 물고 포트만 놓은 채 남아, 그 안의 PR 감시가 새 데몬과 겹칠 수 있었다.
+
 ## 0.33.0
 
 ### Minor Changes
