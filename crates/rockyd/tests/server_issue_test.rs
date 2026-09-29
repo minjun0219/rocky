@@ -520,3 +520,33 @@ async fn patch_board_null_clears_path() {
     assert_eq!(status, 200);
     assert!(board.get("path").is_none() || board["path"].is_null());
 }
+
+/// 보드별 autoResolve — 켠 보드만 응답에 `autoResolve: true` 가 실리고, 끄면 다시 빠진다. 불리언이
+/// 아니면 400, 원격 요청은 403(켜면 데몬이 세션에 일을 시킨다).
+#[tokio::test]
+async fn patch_board_toggles_auto_resolve_locally_only() {
+    let f = fx();
+    post(&f.state, "/api/boards", json!({"key":"rocky"})).await;
+    let (status, board) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": true})).await;
+    assert_eq!(status, 200);
+    assert_eq!(board["autoResolve"], true);
+    let (_, board) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": false})).await;
+    assert!(
+        board.get("autoResolve").is_none(),
+        "끈 보드의 응답 모양은 그대로: {board}"
+    );
+    let (status, _) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": "yes"})).await;
+    assert_eq!(status, 400);
+    let (status, _) = call(
+        &f.state,
+        "PATCH",
+        "/api/boards/rocky",
+        Some(json!({"autoResolve": true})),
+        ReqOptions {
+            peer: Some("192.168.1.20"),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 403);
+}

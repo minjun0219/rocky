@@ -340,7 +340,6 @@ fn pr_block_is_read_with_defaults() {
             notify: Some(false),
             notifiers: Vec::new(),
             session_notify: Some(false),
-            auto_resolve: rocky_core::config::AutoResolve::Off,
         }
     );
     assert_eq!(c.interval_minutes(), 10);
@@ -383,29 +382,4 @@ fn pr_notifiers_are_command_bridges() {
     );
     std::fs::write(&path, r#"{ "pr": { "notify": false } }"#).unwrap();
     assert!(load_pr_block(&path).notifiers.is_empty());
-}
-
-/// `pr.autoResolve` — true(전 레포) · 레포 목록(그 레포만, 대소문자 무시) · 없음/false(끔).
-#[test]
-fn pr_auto_resolve_is_per_repo() {
-    use rocky_core::config::{load_pr_block, AutoResolve};
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("rocky.json");
-    std::fs::write(&path, r#"{ "pr": {} }"#).unwrap();
-    assert_eq!(load_pr_block(&path).auto_resolve, AutoResolve::Off);
-    std::fs::write(&path, r#"{ "pr": { "autoResolve": true } }"#).unwrap();
-    assert!(load_pr_block(&path).auto_resolve.enabled_for("o/anything"));
-    std::fs::write(
-        &path,
-        r#"{ "pr": { "autoResolve": ["minjun0219/rocky", "not-a-repo"] } }"#,
-    )
-    .unwrap();
-    let a = load_pr_block(&path).auto_resolve;
-    assert_eq!(a, AutoResolve::Repos(vec!["minjun0219/rocky".into()]));
-    assert!(a.enabled_for("Minjun0219/Rocky"));
-    assert!(!a.enabled_for("minjun0219/tally"));
-    std::fs::write(&path, r#"{ "pr": { "autoResolve": false } }"#).unwrap();
-    assert!(!load_pr_block(&path)
-        .auto_resolve
-        .enabled_for("minjun0219/rocky"));
 }

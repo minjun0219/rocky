@@ -705,8 +705,13 @@ async fn dispatch(
     if *method == Method::PATCH {
         if let Some(key) = seg_match(path, "/api/boards/", "") {
             let body = read_body(headers, body).await?;
-            // path/repo 는 소비 지점이 로컬 전용인 값 — 변경도 로컬 전용이다.
-            if (body.contains_key("path") || body.contains_key("repo")) && !local {
+            // path/repo 는 소비 지점이 로컬 전용인 값 — 변경도 로컬 전용이다. autoResolve 도 같다:
+            // 켜면 데몬이 세션에 일을 시키므로 보드 쓰기가 세션 조종으로 넓어지는 지점이다.
+            if (body.contains_key("path")
+                || body.contains_key("repo")
+                || body.contains_key("autoResolve"))
+                && !local
+            {
                 return Ok(error_response(
                     NON_LOCAL_BOARD_META_MESSAGE,
                     StatusCode::FORBIDDEN,
@@ -715,6 +720,16 @@ async fn dispatch(
             // 어느 필드를 고치려던 요청인지는 **키 존재 여부**로 가른다.
             let mut patch = BoardPatch::default();
             let mut any = false;
+            if let Some(value) = body.get("autoResolve") {
+                let Some(on) = value.as_bool() else {
+                    return Ok(error_response(
+                        "autoResolve must be true or false",
+                        StatusCode::BAD_REQUEST,
+                    ));
+                };
+                patch.auto_resolve = Some(on);
+                any = true;
+            }
             for name in ["key", "title", "description", "repo", "path"] {
                 let Some(value) = body.get(name) else {
                     continue;
@@ -754,7 +769,7 @@ async fn dispatch(
             }
             if !any {
                 return Ok(error_response(
-                    "key, title, description, repo or path is required",
+                    "key, title, description, repo, path or autoResolve is required",
                     StatusCode::BAD_REQUEST,
                 ));
             }

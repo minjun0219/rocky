@@ -214,6 +214,10 @@ pub struct Board {
     /// 옛 key 목록 — 별칭이 있을 때만 실린다(빈 배열을 내보내지 않는다).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_keys: Option<Vec<String>>,
+    /// 리뷰가 붙으면 그 레포에서 일하는 세션에 resolve-reviews 를 시킨다(기본 끔). 켠 보드만
+    /// `autoResolve: true` 로 실린다 — 끈 보드의 응답 모양은 그대로다.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_resolve: bool,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -228,6 +232,7 @@ pub struct BoardPatch {
     pub description: Option<Option<String>>,
     pub repo: Option<Option<String>>,
     pub path: Option<Option<String>>,
+    pub auto_resolve: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -536,6 +541,7 @@ mod tests {
             repo: None,
             path: None,
             previous_keys: None,
+            auto_resolve: false,
             created_at: "2026-01-01T00:00:00.000Z".into(),
             archived_at: None,
         };

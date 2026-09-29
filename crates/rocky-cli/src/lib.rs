@@ -43,7 +43,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky note show REF [--global] | edit REF --content MD [--global] |
                        append REF "텍스트" [--global] | archive REF [--global]
   rocky history REF [--limit N] [--global|--note] · section ls
-  rocky board ls|show|add|rename|title|desc|repo|path   보드 메타 (이름·slug·설명·GitHub)
+  rocky board ls|show|add|rename|title|desc|repo|path|auto-resolve   보드 메타 (이름·slug·설명·GitHub·리뷰 자동 처리)
   rocky tui [--board K]                   보드를 터미널 화면으로 (옆의 rocky-tui 실행)
   rocky open                              접속 주소 출력 (로컬/내부망/테일넷 — 링크 클릭으로 열기)
   rocky daemon run|start|stop|status|install|uninstall   status 는 launchd 로드 여부와 고치는 명령까지

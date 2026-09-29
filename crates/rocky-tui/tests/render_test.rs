@@ -85,6 +85,7 @@ fn board_screen_shows_tabs_rows_detail_and_help() {
             path: None,
             created_at: String::new(),
             previous_keys: None,
+            auto_resolve: false,
             archived_at: None,
         },
         Board {
@@ -96,6 +97,7 @@ fn board_screen_shows_tabs_rows_detail_and_help() {
             path: None,
             created_at: String::new(),
             previous_keys: None,
+            auto_resolve: false,
             archived_at: None,
         },
     ];

@@ -541,7 +541,7 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
         tokio::time::sleep(Duration::from_millis(1100)).await;
     }
 
-    let notify = session_notifier(f.state.clone(), rocky_core::config::AutoResolve::Off);
+    let notify = session_notifier(f.state.clone());
     let snap = PrSnapshot {
         repo: "o/r".into(),
         number: 7,
@@ -628,7 +628,7 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
         title: "PR 8".into(),
         url: "https://github.com/o/r/pull/8".into(),
     };
-    session_notifier(f.state.clone(), rocky_core::config::AutoResolve::Off)(&conflict);
+    session_notifier(f.state.clone())(&conflict);
     let received = tokio::task::spawn_blocking(move || {
         let (mut conn, _) = listener.accept().unwrap();
         let mut text = String::new();
@@ -653,11 +653,10 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 리뷰 도착 — `pr.autoResolve` 가 켜진 레포에서만 세션에 resolve-reviews 를 시킨다. 꺼진 레포는 조용하다.
+/// 리뷰 도착 — 그 레포 보드의 autoResolve 가 켜졌을 때만 세션에 resolve-reviews 를 시킨다. 꺼진 보드는 조용하다.
 #[cfg(unix)]
 #[tokio::test]
 async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
-    use rocky_core::config::AutoResolve;
     use rockyd::prwatch::session_notifier;
     use std::io::Read;
     use std::os::unix::net::UnixListener;
@@ -685,13 +684,20 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
         title: "PR 9".into(),
         url: "https://github.com/o/r/pull/9".into(),
     };
-    // 꺼진 레포 — 아무것도 안 간다.
-    session_notifier(f.state.clone(), AutoResolve::Repos(vec!["o/other".into()]))(&review);
+    // 꺼진 보드(기본) — 아무것도 안 간다.
+    session_notifier(f.state.clone())(&review);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(listener.accept().is_err(), "autoResolve 가 꺼진 레포");
-    // 켜진 레포 — resolve-reviews 를 시킨다.
+    // 그 레포의 세션이 자기 보드를 켰다 — resolve-reviews 를 시킨다.
+    let (status, _) = patch(
+        &f.state,
+        "/api/boards/rocky",
+        json!({ "autoResolve": true }),
+    )
+    .await;
+    assert_eq!(status, 200);
     listener.set_nonblocking(false).unwrap();
-    session_notifier(f.state.clone(), AutoResolve::Repos(vec!["o/r".into()]))(&review);
+    session_notifier(f.state.clone())(&review);
     let received = tokio::task::spawn_blocking(move || {
         let (mut conn, _) = listener.accept().unwrap();
         let mut text = String::new();

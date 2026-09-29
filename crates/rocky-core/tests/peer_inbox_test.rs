@@ -140,6 +140,9 @@ fn review_message_asks_the_pr_session_to_run_resolve_reviews() {
     assert!(msg.starts_with("rocky: o/rocky #7 에 리뷰가 붙었다"));
     assert!(msg.contains("/rocky:resolve-reviews 7"));
     assert!(msg.contains("코멘트·resolve·머지는 하지 않는다"));
+    // 켜고 끄는 곳은 보드다 — 걷어낸 설정 키(`pr.autoResolve`)를 가리키면 세션이 없는 설정을 찾는다.
+    assert!(msg.contains("rocky board auto-resolve off"), "{msg}");
+    assert!(!msg.contains("pr.autoResolve"), "{msg}");
     assert!(review_session_message(&event(PrEventKind::Ready)).is_none());
     // ready·conflict 본문은 리뷰 도착을 다루지 않는다.
     assert!(pr_session_message(&event(PrEventKind::Review)).is_none());

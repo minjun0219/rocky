@@ -166,10 +166,7 @@ pub async fn run_daemon(
             notifiers.push(crate::prwatch::osascript_notifier(runner.clone()));
         }
         if pr_watch.session_notify.unwrap_or(true) {
-            notifiers.push(crate::prwatch::session_notifier(
-                state.clone(),
-                pr_watch.auto_resolve.clone(),
-            ));
+            notifiers.push(crate::prwatch::session_notifier(state.clone()));
         }
         for bridge in pr_watch.notifiers.clone() {
             notifiers.push(crate::prwatch::bridge_notifier(runner.clone(), bridge));

@@ -111,8 +111,9 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 - 지우기는 `null` 로만(description/repo/path). 빈 문자열은 400 — 폼이 실수로 비워 보낸
   값이 설정을 날리지 않게. key/title 은 null 도 400.
 - `repo` 는 `isRepoSlug`(OWNER/NAME) 검증. 값은 `trim()` 후 저장.
-- patch 가 비면 400 `key, title, description, repo or path is required`.
-- `repo`/`path` 변경은 로컬 전용(403), title/description/key 는 원격 허용.
+- `autoResolve` 는 불리언만(아니면 400). 응답의 `Board` 에는 켰을 때만 `autoResolve: true` 가 실린다.
+- patch 가 비면 400 `key, title, description, repo, path or autoResolve is required`.
+- `repo`/`path`/`autoResolve` 변경은 로컬 전용(403), title/description/key 는 원격 허용.
 
 ### 핸드오프 (POST /api/todos/:ref/handoff)
 
