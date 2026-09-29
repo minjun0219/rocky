@@ -524,9 +524,20 @@ export function resolveDropBefore(
 
 export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect' | 'pr';
 
+/**
+ * 행이 어느 묶음에 가나 — `mine` = 내 차례(사람이 손대야 끝난다), `run` = 돌고 있음(보기만),
+ * `more` = 접힌 나머지의 요약 한 줄. `web/DESIGN.md` "Information Priority".
+ */
+export type NowGroup = 'mine' | 'run' | 'more';
+
+/** 행 앞 글리프 — 색만으로 말하지 않도록 상태마다 모양이 다르다(DESIGN.md "State Vocabulary"). */
+export type NowGlyph = 'run' | 'mine' | 'dead' | 'unknown';
+
 export interface NowRow {
   key: string;
   kind: NowKind;
+  group: NowGroup;
+  glyph: NowGlyph;
   /** 표시 참조 — todo 는 `acorn-server-28`, 수집함은 `수집함`. */
   ref: string;
   title: string;
@@ -536,27 +547,39 @@ export interface NowRow {
   url?: string;
   /** 누가 들고 있나 — 색이 아니라 글자로. */
   who: 'AGENT' | 'YOU' | '—';
-  /** 경과의 기준 시각(ISO). 없으면 경과 칸이 빈다. */
+  /** 경과의 기준 시각(ISO). 없으면 시각이 빈다. */
   since?: string;
+  /** 진행중 — 1시간 미만이면 초가 흐른다(`formatAge` 의 `live`). */
+  live: boolean;
   /** 읽지 않은 댓글 수 — 0 이면 표시하지 않는다. */
   unread: number;
-  stamp: { label: string; tone: 'run' | 'mine' | 'dead' };
+  /** 상태 글자 — 행의 둘째 줄에 작게. 색은 글리프가 말한다. */
+  state: string;
+  /** 요약 한 줄(`group: 'more'`)이 접어 둔 행 수 — 묶음 머리의 개수가 접힘과 무관하게 남도록. */
+  hidden?: number;
 }
 
-const NOW_ORDER: Record<NowKind, number> = {
-  dead: 0,
-  handoff: 1,
-  pr: 2,
-  doing: 3,
+/**
+ * 내 차례의 순서 = 우선순위. PR 충돌 → 머지 가능 → 세션 없음·멈춤 → 안 집힌 넘김 →
+ * 읽지 않은 댓글 → 수집함. 같은 순위 안에서는 오래 방치된 것이 위다.
+ */
+const MINE_RANK = {
+  prConflict: 0,
+  prReady: 1,
+  stuck: 2,
+  handoff: 3,
   unread: 4,
   collect: 5,
-};
-/** "지금" 표에 싣는 읽지 않은 댓글 행의 상한. */
-export const UNREAD_ROW_MAX = 5;
+} as const;
+/** 내 차례에 펼쳐 싣는 행의 상한 — 넘치면 "N 더" 한 줄로 접는다. */
+export const MINE_ROW_MAX = 5;
+/** 읽지 않은 댓글은 이 기간 안에 달린 것만, 이 수까지만 행이 된다. 나머지는 요약 한 줄. */
+export const UNREAD_ROW_MAX = 3;
+export const UNREAD_WINDOW_MS = 3 * 86_400_000;
 
 /**
- * 표의 행을 만든다. 순서는 사람이 손댈 것부터 — 세션 없음 → 핸드오프 → 진행중(멈춤 먼저)
- * → 읽지 않은 댓글 → 수집함. 같은 todo 가 진행중이면서 댓글이 있으면 행 하나에 합친다.
+ * "지금" 의 행을 만든다 — 내 차례(우선순위순, 최대 `MINE_ROW_MAX`) + 돌고 있음. 같은 todo 가
+ * 진행중이면서 댓글이 있으면 행 하나에 합친다. `expanded` 면 내 차례를 자르지 않는다.
  */
 export function nowRows(
   input: {
@@ -566,157 +589,237 @@ export function nowRows(
     collect?: number | null;
     /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
     prs?: PrSnapshot[];
+    expanded?: boolean;
   },
   now = Date.now(),
 ): NowRow[] {
-  const rows: NowRow[] = [];
-  const byTodo = new Map<string, NowRow>();
+  const mine: { row: NowRow; rank: number; order: number }[] = [];
+  const run: NowRow[] = [];
+  const handled = new Set<string>();
   const todoById = new Map(input.todos.map((t) => [t.id, t]));
+  let order = 0;
+  const pushMine = (rank: number, row: NowRow) => mine.push({ row, rank, order: order++ });
 
   for (const t of input.todos) {
     if (t.status !== 'doing' || t.archivedAt) {
       continue;
     }
+    handled.add(t.id);
     const warning = doingWarning(t, now);
-    const row: NowRow = {
+    const base = {
       key: `doing:${t.id}`,
-      kind: warning?.tone === 'dead' ? 'dead' : 'doing',
+      kind: (warning?.tone === 'dead' ? 'dead' : 'doing') as NowKind,
       ref: t.ref,
       title: t.title,
       todoId: t.id,
-      who: t.doingBy ? (isAgentActor(t.doingBy) ? 'AGENT' : 'YOU') : '—',
+      who: (t.doingBy ? (isAgentActor(t.doingBy) ? 'AGENT' : 'YOU') : '—') as NowRow['who'],
       since: t.doingSince,
       unread: hasUnreadComments(t, input.seen) ? t.commentCount : 0,
-      stamp:
-        warning?.tone === 'dead'
-          ? { label: '세션 없음', tone: 'dead' }
-          : warning?.tone === 'idle'
-            ? { label: '멈춤', tone: 'mine' }
-            : { label: '진행중', tone: 'run' },
     };
-    rows.push(row);
-    byTodo.set(t.id, row);
+    if (warning?.tone === 'dead' || warning?.tone === 'idle') {
+      pushMine(MINE_RANK.stuck, {
+        ...base,
+        group: 'mine',
+        glyph: warning.tone === 'dead' ? 'dead' : 'mine',
+        live: false,
+        state: warning.label,
+      });
+      continue;
+    }
+    // 세션 판정이 없으면(unknown) 모른다 — 경고색이 아니라 무채색 글리프로.
+    const known = t.doingState === 'live';
+    run.push({
+      ...base,
+      group: 'run',
+      glyph: known ? 'run' : 'unknown',
+      live: known,
+      state: known ? '진행중' : '세션 모름',
+    });
   }
 
   for (const h of input.handoffs) {
     // 이미 착수한 배달은 위 진행중 행이 말한다.
-    if (h.status === 'delivered' && h.acceptedAt) {
-      continue;
-    }
-    if (h.status === 'cancelled') {
+    if ((h.status === 'delivered' && h.acceptedAt) || h.status === 'cancelled') {
       continue;
     }
     const todo = todoById.get(h.todoId);
-    const row: NowRow = {
+    if (todo) {
+      handled.add(todo.id);
+    }
+    pushMine(MINE_RANK.handoff, {
       key: `handoff:${h.id}`,
       kind: 'handoff',
+      group: 'mine',
+      glyph: h.status === 'pending' && h.stale ? 'dead' : 'mine',
       ref: todo?.ref ?? h.todoId,
       title: todo?.title ?? '(항목)',
       todoId: h.todoId,
       who: isAgentActor(h.actor) ? 'AGENT' : 'YOU',
       since: h.createdAt,
+      live: false,
       unread: todo && hasUnreadComments(todo, input.seen) ? todo.commentCount : 0,
-      stamp:
+      state:
         h.status === 'pending'
           ? h.stale
-            ? { label: '핸드오프 · 세션 없음', tone: 'dead' }
-            : { label: '핸드오프 대기', tone: 'mine' }
-          : { label: '집어갔는데 미착수', tone: 'mine' },
-    };
-    rows.push(row);
-    if (todo && !byTodo.has(todo.id)) {
-      byTodo.set(todo.id, row);
-    }
-  }
-
-  // 읽지 않은 댓글 — 끝난 일의 댓글은 내 차례가 아니다. 새 브라우저는 전부 "안 읽음" 이라
-  // 수십 행이 쏟아질 수 있어 최근 것 몇 개만 싣고 나머지는 한 줄로 접는다(목록의 💬 가 남는다).
-  const unread = input.todos
-    .filter((t) => !t.archivedAt && t.status !== 'done' && !byTodo.has(t.id))
-    .filter((t) => hasUnreadComments(t, input.seen))
-    .sort((a, b) => (b.lastCommentAt ?? '').localeCompare(a.lastCommentAt ?? ''));
-  for (const t of unread.slice(0, UNREAD_ROW_MAX)) {
-    rows.push({
-      key: `unread:${t.id}`,
-      kind: 'unread',
-      ref: t.ref,
-      title: t.title,
-      todoId: t.id,
-      who: '—',
-      since: t.lastCommentAt,
-      unread: t.commentCount,
-      stamp: { label: `읽지 않은 댓글 ${t.commentCount}`, tone: 'mine' },
-    });
-  }
-  if (unread.length > UNREAD_ROW_MAX) {
-    rows.push({
-      key: 'unread:more',
-      kind: 'unread',
-      ref: '…',
-      title: `읽지 않은 댓글이 있는 항목 ${unread.length - UNREAD_ROW_MAX}개 더 — 목록의 💬 로`,
-      who: '—',
-      unread: 0,
-      stamp: { label: '더 있음', tone: 'mine' },
+            ? '넘김 · 세션 없음'
+            : '넘김 · 아직 안 집음'
+          : '넘김 · 집었는데 미착수',
     });
   }
 
-  // PR — 데몬이 판정한 "내 차례": 확인·머지해도 되는 것, 충돌난 것. 대기 중인 것은 잡음이라 뺀다.
+  // PR — 데몬이 판정한 "내 차례": 충돌난 것, 확인·머지해도 되는 것. 대기 중인 것은 잡음이라 뺀다.
   for (const p of input.prs ?? []) {
     if (p.state !== 'OPEN' || (!p.ready && p.mergeState !== 'DIRTY')) {
       continue;
     }
-    rows.push({
+    const conflict = p.mergeState === 'DIRTY';
+    pushMine(conflict ? MINE_RANK.prConflict : MINE_RANK.prReady, {
       key: `pr:${p.repo}#${p.number}`,
       kind: 'pr',
+      group: 'mine',
+      glyph: conflict ? 'dead' : 'mine',
       ref: `${p.repo.split('/')[1] ?? p.repo} #${p.number}`,
       title: p.title,
       url: p.url,
       who: 'YOU',
       since: p.updatedAt,
+      live: false,
       unread: 0,
-      stamp: p.ready ? { label: '확인·머지', tone: 'mine' } : { label: 'PR 충돌', tone: 'dead' },
+      state: conflict ? 'PR 충돌' : 'PR 확인·머지',
     });
   }
 
+  // 읽지 않은 댓글 — 끝난 일의 댓글은 내 차례가 아니다. 최근 것만 몇 행, 나머지(오래된 것 포함)는
+  // 요약 한 줄로 — 새 브라우저는 전부 "안 읽음" 이라 수십 행이 쏟아질 수 있다.
+  const unread = input.todos
+    .filter((t) => !t.archivedAt && t.status !== 'done' && !handled.has(t.id))
+    .filter((t) => hasUnreadComments(t, input.seen))
+    .sort((a, b) => (b.lastCommentAt ?? '').localeCompare(a.lastCommentAt ?? ''));
+  const recent = unread
+    .filter((t) => t.lastCommentAt && now - Date.parse(t.lastCommentAt) <= UNREAD_WINDOW_MS)
+    .slice(0, UNREAD_ROW_MAX);
+  for (const t of recent) {
+    pushMine(MINE_RANK.unread, {
+      key: `unread:${t.id}`,
+      kind: 'unread',
+      group: 'mine',
+      glyph: 'mine',
+      ref: t.ref,
+      title: t.title,
+      todoId: t.id,
+      who: '—',
+      since: t.lastCommentAt,
+      live: false,
+      unread: t.commentCount,
+      state: '읽지 않은 댓글',
+    });
+  }
+  const restUnread = unread.length - recent.length;
+
   if (input.collect && input.collect > 0) {
-    rows.push({
+    pushMine(MINE_RANK.collect, {
       key: 'collect',
       kind: 'collect',
+      group: 'mine',
+      glyph: 'mine',
       ref: '수집함',
       title: `아직 안 올린 항목 ${input.collect}건`,
       who: 'YOU',
+      live: false,
       unread: 0,
-      stamp: { label: '올릴까', tone: 'mine' },
+      state: '보드로 올릴까',
     });
   }
 
-  // 종류 순서 → 같은 종류 안에서는 오래된 것부터(가장 오래 방치된 것이 위). 읽지 않은
-  // 댓글만은 위에서 이미 최신순으로 잘라 넣었으므로 그 순서를 지킨다.
-  return rows
-    .map((row, i) => ({ row, i }))
-    .sort((a, b) => {
-      const k = NOW_ORDER[a.row.kind] - NOW_ORDER[b.row.kind];
-      if (k !== 0) {
-        return k;
-      }
-      if (a.row.kind === 'unread') {
-        return a.i - b.i;
-      }
-      return (a.row.since ?? '').localeCompare(b.row.since ?? '');
-    })
-    .map(({ row }) => row);
+  // 순위 → 같은 순위 안에서는 오래된 것부터(가장 오래 방치된 것이 위). 읽지 않은 댓글만은 위에서
+  // 이미 최신순으로 잘라 넣었으므로 넣은 순서를 지킨다.
+  mine.sort((a, b) => {
+    if (a.rank !== b.rank) {
+      return a.rank - b.rank;
+    }
+    if (a.rank === MINE_RANK.unread) {
+      return a.order - b.order;
+    }
+    return (a.row.since ?? '').localeCompare(b.row.since ?? '');
+  });
+  const shown = input.expanded ? mine : mine.slice(0, MINE_ROW_MAX);
+  const rows = shown.map((m) => m.row);
+  const hidden = mine.length - shown.length;
+  if (hidden > 0) {
+    rows.push(moreRow('mine:more', `내 차례 ${hidden}개 더`, hidden));
+  }
+  if (restUnread > 0) {
+    rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 — 목록의 💬`, restUnread));
+  }
+  run.sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''));
+  return [...rows, ...run];
 }
 
-/** 초 단위로 흐르는 경과 — "41일 03:12:44" / "03:12:44". 관제판의 시그니처. */
-export function formatClock(iso: string, now = Date.now()): string {
-  const total = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
-  if (Number.isNaN(total)) {
+function moreRow(key: string, title: string, hidden: number): NowRow {
+  return {
+    key,
+    hidden,
+    kind: 'unread',
+    group: 'more',
+    glyph: 'mine',
+    ref: '',
+    title,
+    who: '—',
+    live: false,
+    unread: 0,
+    state: '',
+  };
+}
+
+/**
+ * "지금" 의 시각 — `web/DESIGN.md` "Time Display". 초가 흐르는 표기는 **1시간 미만의 진행중**
+ * (`live`)에만 쓴다. 30일이 넘으면 날짜로(`since` 면 "…부터").
+ */
+export function formatAge(
+  iso: string,
+  now = Date.now(),
+  options: { live?: boolean; since?: boolean } = {},
+): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) {
     return '';
   }
-  const days = Math.floor(total / 86_400);
-  const rest = total % 86_400;
-  const hh = String(Math.floor(rest / 3600)).padStart(2, '0');
-  const mm = String(Math.floor((rest % 3600) / 60)).padStart(2, '0');
-  const ss = String(rest % 60).padStart(2, '0');
-  return days > 0 ? `${days}일 ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
+  const sec = Math.max(0, Math.floor((now - at) / 1000));
+  if (options.live && sec < 3600) {
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  }
+  if (sec < 60) {
+    return '방금';
+  }
+  if (sec < 3600) {
+    return `${Math.floor(sec / 60)}분`;
+  }
+  if (sec < 86_400) {
+    return `${Math.floor(sec / 3600)}시간`;
+  }
+  const days = Math.floor(sec / 86_400);
+  if (days < 30) {
+    return `${days}일`;
+  }
+  const d = new Date(at);
+  const date = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return options.since ? `${date}부터` : date;
+}
+
+/** 1초 틱이 필요한가 — 초가 흐르는 행(1시간 미만의 진행중)이 있을 때만. 나머지는 1분 틱이면 된다. */
+export function needsSecondTick(rows: NowRow[], now = Date.now()): boolean {
+  return rows.some((r) => r.live && r.since !== undefined && now - Date.parse(r.since) < 3_600_000);
+}
+
+/**
+ * 묶음 머리 "내 차례 N" 의 N — 펼쳤든 접었든 같은 수여야 한다(접힘은 보여 주는 방식일 뿐 일의 수가
+ * 아니다). 펼친 행 + "N개 더" 가 접어 둔 행.
+ */
+export function mineCount(rows: NowRow[]): number {
+  return rows.reduce(
+    (n, r) => (r.group === 'mine' ? n + 1 : r.key === 'mine:more' ? n + (r.hidden ?? 0) : n),
+    0,
+  );
 }
