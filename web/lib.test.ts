@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { DETAIL_HISTORY_EXCLUDED as STORE_DETAIL_HISTORY_EXCLUDED } from './types';
 import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
+import type { NowRow } from './lib';
 import {
   advanceSeen,
+  centeredScrollLeft,
   hasNoteNews,
   boardCommand,
   COPY_FEEDBACK_MS,
@@ -23,7 +25,8 @@ import {
   copyRefWithFeedback,
   type ReorderSibling,
   resolveDropBefore,
-  formatClock,
+  formatAge,
+  needsSecondTick,
   nowRows,
 } from './lib';
 
@@ -567,20 +570,23 @@ describe('nowRows', () => {
       { todos, handoffs, seen: { seen: '2026-09-28T00:00:00.000Z' }, collect: 2 },
       NOW,
     );
-    expect(rows.map((r) => `${r.kind}:${r.ref}`)).toEqual([
-      'dead:a-2',
-      'handoff:a-4',
-      'doing:a-3',
-      'doing:a-1',
-      'collect:수집함',
+    // 내 차례(우선순위순: 세션 없음 → 넘김 → 수집함) 다음에 돌고 있음(오래된 것부터).
+    expect(rows.map((r) => `${r.group}:${r.kind}:${r.ref}`)).toEqual([
+      'mine:dead:a-2',
+      'mine:handoff:a-4',
+      'mine:collect:수집함',
+      'run:doing:a-3',
+      'run:doing:a-1',
     ]);
     // 진행중이면서 댓글이 안 읽힌 것은 행 하나에 합쳐진다.
     const live = rows.find((r) => r.ref === 'a-1');
     expect(live?.unread).toBe(2);
     expect(live?.who).toBe('AGENT');
-    expect(live?.stamp).toEqual({ label: '진행중', tone: 'run' });
-    expect(rows.find((r) => r.ref === 'a-3')?.who).toBe('YOU');
-    expect(rows.find((r) => r.ref === 'a-2')?.stamp.tone).toBe('dead');
+    expect([live?.glyph, live?.state, live?.live]).toEqual(['run', '진행중', true]);
+    // 세션 판정이 없는(unknown) 진행중은 경고가 아니라 무채색 — 모름은 없음이 아니다.
+    const human = rows.find((r) => r.ref === 'a-3');
+    expect([human?.who, human?.glyph, human?.live]).toEqual(['YOU', 'unknown', false]);
+    expect(rows.find((r) => r.ref === 'a-2')?.glyph).toBe('dead');
     // 핸드오프가 걸린 todo 의 읽지 않은 댓글은 핸드오프 행에 실린다 — 따로 행을 만들지 않는다.
     expect(rows.filter((r) => r.ref === 'a-4')).toHaveLength(1);
     expect(rows.find((r) => r.ref === 'a-4')?.unread).toBe(1);
@@ -626,19 +632,20 @@ describe('nowRows', () => {
       },
     ] as unknown as import('./types').HandoffView[];
     const rows = nowRows({ todos, handoffs, seen: {} }, NOW);
-    expect(rows.map((r) => r.kind)).toEqual(['handoff', 'doing']);
-    expect(rows[0]?.stamp.label).toBe('집어갔는데 미착수');
+    expect(rows.map((r) => `${r.group}:${r.kind}`)).toEqual(['mine:handoff', 'run:doing']);
+    expect(rows[0]?.state).toBe('넘김 · 집었는데 미착수');
     expect(rows[0]?.title).toBe('(항목)');
   });
 
-  test('읽지 않은 댓글은 끝난 일을 빼고 최신순 5개까지, 나머지는 한 줄로 접는다', () => {
+  test('읽지 않은 댓글은 끝난 일을 빼고 최근 3일 안의 것만 최신순 3개, 나머지는 요약 한 줄', () => {
+    // NOW = 09-28T03:00 — 09-25T03:00 이후가 3일 안이다.
     const todos = Array.from({ length: 8 }, (_, i) =>
       base({
         id: `c${i}`,
         ref: `c-${i}`,
         title: `댓글 ${i}`,
         commentCount: 1,
-        lastCommentAt: `2026-09-2${i}T00:00:00.000Z`,
+        lastCommentAt: `2026-09-2${i}T12:00:00.000Z`,
       }),
     ).concat([
       base({
@@ -647,13 +654,36 @@ describe('nowRows', () => {
         title: '끝난 일',
         status: 'done',
         commentCount: 3,
-        lastCommentAt: '2026-09-29T00:00:00.000Z',
+        lastCommentAt: '2026-09-28T00:00:00.000Z',
       }),
     ]);
     const rows = nowRows({ todos, handoffs: [], seen: {} }, NOW);
-    expect(rows.map((r) => r.ref)).toEqual(['c-7', 'c-6', 'c-5', 'c-4', 'c-3', '…']);
-    expect(rows[5]?.title).toContain('3개 더');
-    expect(rows[5]?.todoId).toBeUndefined();
+    // 3일 안: c-7(27일)·c-6·c-5 — c-8 은 없다. 행은 3개, 나머지 5건(오래된 것 포함)은 요약.
+    expect(rows.map((r) => r.ref)).toEqual(['c-7', 'c-6', 'c-5', '']);
+    expect(rows[3]?.group).toBe('more');
+    expect(rows[3]?.title).toContain('5건 더');
+    expect(rows[3]?.todoId).toBeUndefined();
+  });
+
+  test('내 차례는 5행까지, 넘치면 "N개 더" — expanded 면 다 싣는다', () => {
+    const todos = Array.from({ length: 7 }, (_, i) =>
+      base({
+        id: `g${i}`,
+        ref: `g-${i}`,
+        status: 'doing',
+        doingBy: 'claude-code',
+        doingSince: `2026-09-2${i}T00:00:00.000Z`,
+        doingState: 'gone',
+      }),
+    );
+    const rows = nowRows({ todos, handoffs: [], seen: {} }, NOW);
+    expect(rows.filter((r) => r.group === 'mine')).toHaveLength(5);
+    expect(rows.at(-1)?.title).toBe('내 차례 2개 더');
+    // 같은 순위 안에서는 오래 방치된 것이 위.
+    expect(rows[0]?.ref).toBe('g-0');
+    const all = nowRows({ todos, handoffs: [], seen: {}, expanded: true }, NOW);
+    expect(all.filter((r) => r.group === 'mine')).toHaveLength(7);
+    expect(all.some((r) => r.group === 'more')).toBe(false);
   });
 
   test('아무것도 없으면 빈 배열, 수집함은 0 이면 안 나온다', () => {
@@ -662,15 +692,44 @@ describe('nowRows', () => {
   });
 });
 
-describe('formatClock', () => {
+describe('formatAge — DESIGN.md Time Display', () => {
   const NOW = Date.parse('2026-09-28T03:12:44.000Z');
-  test('하루 미만은 hh:mm:ss, 이상은 일수를 앞에', () => {
-    expect(formatClock('2026-09-28T00:00:00.000Z', NOW)).toBe('03:12:44');
-    expect(formatClock('2026-08-18T00:00:00.000Z', NOW)).toBe('41일 03:12:44');
-    expect(formatClock('2026-09-28T03:12:44.000Z', NOW)).toBe('00:00:00');
-    // 미래 시각은 0 으로 눌러 둔다 — 시계 어긋남으로 음수가 보이면 안 된다.
-    expect(formatClock('2026-09-29T00:00:00.000Z', NOW)).toBe('00:00:00');
-    expect(formatClock('bad', NOW)).toBe('');
+  test('초가 흐르는 건 1시간 미만의 진행중뿐, 나머지는 분·시간·일, 30일부터 날짜', () => {
+    expect(formatAge('2026-09-28T03:00:00.000Z', NOW, { live: true })).toBe('12:44');
+    expect(formatAge('2026-09-28T03:00:00.000Z', NOW)).toBe('12분');
+    expect(formatAge('2026-09-28T03:12:30.000Z', NOW)).toBe('방금');
+    // 진행중이어도 1시간이 넘으면 초를 굴리지 않는다.
+    expect(formatAge('2026-09-28T00:00:00.000Z', NOW, { live: true })).toBe('3시간');
+    expect(formatAge('2026-09-25T00:00:00.000Z', NOW)).toBe('3일');
+    // "56일 16:34:25" 대신 날짜 — 진행 기준 시각이면 "…부터".
+    const old = new Date(2026, 7, 4, 12).toISOString();
+    expect(formatAge(old, NOW)).toBe('8월 4일');
+    expect(formatAge(old, NOW, { since: true })).toBe('8월 4일부터');
+    // 미래 시각은 0 으로 — 시계가 어긋나도 음수를 보이지 않는다.
+    expect(formatAge('2026-09-29T00:00:00.000Z', NOW)).toBe('방금');
+    expect(formatAge('bad', NOW)).toBe('');
+  });
+
+  test('1초 틱은 초가 흐르는 행이 있을 때만', () => {
+    const row = (over: Partial<NowRow>): NowRow => ({
+      key: 'k',
+      kind: 'doing',
+      group: 'run',
+      glyph: 'run',
+      ref: 'r',
+      title: 't',
+      who: 'AGENT',
+      live: true,
+      unread: 0,
+      state: '진행중',
+      ...over,
+    });
+    expect(needsSecondTick([row({ since: '2026-09-28T03:00:00.000Z' })], NOW)).toBe(true);
+    expect(needsSecondTick([row({ since: '2026-09-28T01:00:00.000Z' })], NOW)).toBe(false);
+    expect(needsSecondTick([row({ since: '2026-09-28T03:00:00.000Z', live: false })], NOW)).toBe(
+      false,
+    );
+    expect(needsSecondTick([], NOW)).toBe(false);
   });
 });
 
@@ -704,13 +763,35 @@ describe('nowRows — PR 감시', () => {
         pr({ number: 4, state: 'MERGED', ready: true }),
       ],
     });
-    expect(rows.map((r) => [r.ref, r.stamp.label, r.stamp.tone])).toEqual([
-      ['rocky #1', '확인·머지', 'mine'],
+    // 충돌이 머지 가능보다 위다 — 손을 더 급하게 대야 한다.
+    expect(rows.map((r) => [r.ref, r.state, r.glyph])).toEqual([
       ['rocky #2', 'PR 충돌', 'dead'],
+      ['rocky #1', 'PR 확인·머지', 'mine'],
     ]);
-    expect(rows[0]?.url).toBe('https://github.com/o/rocky/pull/1');
-    expect(rows[0]?.todoId).toBeUndefined();
-    expect(rows[0]?.kind).toBe('pr');
+    expect(rows[1]?.url).toBe('https://github.com/o/rocky/pull/1');
+    expect(rows[1]?.todoId).toBeUndefined();
+    expect(rows[1]?.kind).toBe('pr');
+  });
+});
+
+describe('centeredScrollLeft — 탭 행 안에서만 가운데로', () => {
+  test('가운데로 당기고, 양 끝에서는 자른다', () => {
+    // 폭 300 컨테이너, 내용 1000, 요소 x=600 폭 100 → 600 - (300-100)/2 = 500
+    expect(
+      centeredScrollLeft({ elStart: 600, elWidth: 100, viewWidth: 300, contentWidth: 1000 }),
+    ).toBe(500);
+    // 왼쪽 끝 요소는 0 아래로 가지 않는다
+    expect(
+      centeredScrollLeft({ elStart: 10, elWidth: 80, viewWidth: 300, contentWidth: 1000 }),
+    ).toBe(0);
+    // 오른쪽 끝 요소는 최대(내용-폭)를 넘지 않는다
+    expect(
+      centeredScrollLeft({ elStart: 950, elWidth: 50, viewWidth: 300, contentWidth: 1000 }),
+    ).toBe(700);
+    // 넘치지 않는 행은 늘 0
+    expect(
+      centeredScrollLeft({ elStart: 100, elWidth: 50, viewWidth: 300, contentWidth: 250 }),
+    ).toBe(0);
   });
 });
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { centeredScrollLeft } from '../lib';
 import { useUiStore } from '../store';
 
 /** 보드 탭 행 — 전체 뷰 + 보드별 뷰 전환, 보드 생성. 모든 폭에서 가로 한 줄(넘치면 스크롤). */
@@ -40,18 +41,35 @@ export function Sidebar() {
   };
 
   // 탭 행은 가로 스크롤이라, 현재 보드가 화면 밖(오른쪽)에 있으면 어느 보드를 보고 있는지
-  // 알 길이 없다(390px 실측: 13번째 칩이 x=931). 선택이 바뀔 때마다 활성 탭을 보이는 곳으로 당긴다.
+  // 알 길이 없다(390px 실측: 13번째 칩이 x=931). 그래서 활성 탭을 탭 행 **안에서** 가운데로
+  // 당긴다 — `scrollIntoView` 는 쓰지 않는다: 조상 스크롤을 전부 움직여서, 탭 행이 화면 밖에
+  // 있으면 문서 전체를 탭 행까지 세로로 끌어올린다. refetch(SSE·1분 틱·에이전트의 노트 편집)
+  // 마다 `boards` 가 새 배열로 오니, 목록 아래를 보던 사람이 탭 행으로 튕겨 올라갔다.
+  // 같은 이유로 **선택이 바뀔 때만** 당긴다 — 사람이 옆으로 넘겨 둔 탭 행도 refetch 가 되돌리지 않는다.
+  const navRef = useRef<HTMLElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selected 가 바뀌거나 boards 가 도착해야 ref 가 실제 칩에 붙는다 — 둘 다 재실행 조건이다
+  const centeredFor = useRef<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: boards 가 도착해야 ref 가 실제 칩에 붙는다 — 첫 도착 한 번을 위해 재실행 조건에 둔다(이미 당긴 선택이면 아래에서 건너뛴다)
   useEffect(() => {
+    const nav = navRef.current;
     const el = activeRef.current;
-    if (el && typeof el.scrollIntoView === 'function') {
-      el.scrollIntoView({ block: 'nearest', inline: 'center' });
+    if (!nav || !el || centeredFor.current === selected) {
+      return;
     }
+    centeredFor.current = selected;
+    const navBox = nav.getBoundingClientRect();
+    const elBox = el.getBoundingClientRect();
+    nav.scrollLeft = centeredScrollLeft({
+      elStart: elBox.left - navBox.left + nav.scrollLeft,
+      elWidth: elBox.width,
+      viewWidth: nav.clientWidth,
+      contentWidth: nav.scrollWidth,
+    });
   }, [selected, boards]);
 
   return (
     <nav
+      ref={navRef}
       className="sidebar flex flex-row items-center gap-1 overflow-x-auto border-b border-line px-[22px] py-2"
       aria-label="보드"
     >
