@@ -1,5 +1,15 @@
 # @minjun0219/rocky
 
+## 0.31.1
+
+### Patch Changes
+
+- [#203](https://github.com/minjun0219/rocky/pull/203) [`8e9e7b5`](https://github.com/minjun0219/rocky/commit/8e9e7b5c6adae74db88e750a310f9d2792b47c5c) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 노트를 목록 아래 접힌 레일에서 꺼낸다 — 화면 맨 위 "할 일 | 노트" 전환으로 노트가 화면 전체를 쓴다. 할 일 보기에 있을 때 누가(에이전트 포함) 노트를 고치면 "노트" 옆에 점이 찍힌다. 보던 쪽은 새로고침 뒤에도 유지된다.
+
+- [#202](https://github.com/minjun0219/rocky/pull/202) [`8b245d6`](https://github.com/minjun0219/rocky/commit/8b245d6b3ddbd3d37030ac876be04768f6cbf4e4) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 "지금" 을 좁은 패널에서 읽히게 바꾼다 — 4열 표 대신 "내 차례"(우선순위순 최대 5행: PR 충돌 → 머지 가능 → 세션 없음·멈춤 → 넘김 → 최근 3일의 읽지 않은 댓글 → 수집함)와 "돌고 있음" 두 묶음의 행 목록. 상태는 행마다 배지를 반복하지 않고 글리프(●◆◌○)와 묶음 머리의 개수로 말한다. 경과는 초가 흐르는 표기를 1시간 미만의 진행중에만 쓰고, 나머지는 "12분"·"3시간"·"5일", 30일부터는 "8월 4일부터".
+
+- [#201](https://github.com/minjun0219/rocky/pull/201) [`fcc6baa`](https://github.com/minjun0219/rocky/commit/fcc6baa3622dc28735203d9f95b8eeabd254656c) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드가 데이터 갱신(에이전트의 노트 편집·보드 변경·1분 틱)마다 페이지를 보드 탭 줄까지 끌어올리던 버그를 고친다. 활성 탭은 탭 줄 안에서만 가운데로 당기고, 선택이 바뀔 때만 당긴다.
+
 ## 0.31.0
 
 ### Minor Changes
