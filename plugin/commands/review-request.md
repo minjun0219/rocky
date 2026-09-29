@@ -1,10 +1,10 @@
 ---
-description: 현재 변경을 마무리한다 — 게이트(check/typecheck/test) 통과 확인 → 변경 요약 → 브랜치 → 커밋 → 푸시 → PR 생성까지. 게이트가 실패하면 커밋하지 않고 멈춘다.
+description: 리뷰를 요청한다 — 게이트(check/typecheck/test) 통과 확인 → (위험한 변경이면) 프리리뷰 → 변경 요약 → 브랜치 → 커밋 → 푸시 → PR 생성까지. 게이트가 실패하면 커밋하지 않고 멈춘다.
 argument-hint: "[PR/커밋 요약 힌트] (생략 가능)"
 allowed-tools: Bash(bun:*), Bash(git:*), Bash(gh:*), Read, Grep, Glob
 ---
 
-# finish — 변경 마무리 (게이트 → 커밋 → PR)
+# review-request — 리뷰 요청 (게이트 → 프리리뷰 → 커밋 → PR)
 
 지금까지의 작업을 저장소 규칙에 맞게 마무리한다. `$ARGUMENTS` 는 커밋/PR 요약에 참고할
 힌트(있으면). 출력·커밋·PR 은 **한국어** (코드 identifier / 경로 / 명령어는 영어 그대로).
@@ -50,7 +50,7 @@ bun run test        # 레포의 test 스크립트 — preload 같은 준비가 �
   (`README.md` 한국어 · `AGENTS.md` 영문) 가 갱신됐는지
   `git diff --stat` 로 점검하고, 빠졌으면 한 줄로 지적한다.
 
-### 2.5 위험한 변경이면 커밋 전에 한 번 더 본다
+### 2.5 프리리뷰 — 위험한 변경이면 커밋 전에 한 번 더 본다
 
 사소한 변경(문서·주석·설정 한 줄)은 건너뛴다. 아래에 닿는 변경이면 커밋 전에 두 가지를 본다 — 데몬·훅의
 동작, 설정(`rocky.json`)·스키마 모양, 도구·REST 계약, 저장 데이터·마이그레이션, 되돌리기 어려운 외부 동작.
@@ -90,7 +90,7 @@ git push -u origin <현재 브랜치>
 
 **머지 뒤에 붙은 리뷰가 있으면 이 PR 에 싣는다.** 만들기 전에 한 번 본다 —
 `bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" after-merge`. 결과가 있으면
-`/rocky:resolve-reviews` 10단계대로 고쳐 이 브랜치에 커밋하고, 본문에 "머지 뒤 리뷰 반영" 섹션과 리뷰 링크를
+`/rocky:review-fix` 10단계대로 고쳐 이 브랜치에 커밋하고, 본문에 "머지 뒤 리뷰 반영" 섹션과 리뷰 링크를
 넣는다. 판단이 필요한 건은 고치지 않고 묻는다.
 
 **PR 을 만든 뒤에 본문을 완성한다.** Files changed 링크에는 PR 번호가 필요해서, 생성 시점에는
@@ -141,7 +141,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
      ### 스레드를 닫는 주체를 사용자로 되돌림
      gh 가 오너 토큰을 쓰므로 에이전트가 닫든 오너가 닫든 밖에서는 구분되지 않는다.
      나누는 방법이 "안 하기로 정해 두는 것"뿐이라 resolve 를 사용자 행위로 돌렸다.
-     [commands/resolve-reviews.md:25-32](https://github.com/<owner>/<repo>/blob/<sha>/commands/resolve-reviews.md#L25-L32)
+     [commands/review-fix.md:25-32](https://github.com/<owner>/<repo>/blob/<sha>/commands/review-fix.md#L25-L32)
 
      ### 리액션 대상이 스레드가 아니라 첫 코멘트
      여기가 틀리면 🚀 가 통째로 실패해서, 1단계 GraphQL 에 comments.id 를 추가했다.
@@ -150,7 +150,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
      addReaction(input:{subjectId:$commentId, content:ROCKET}){ reaction{ content } }
      ```
 
-     [commands/resolve-reviews.md:146-160](https://github.com/<owner>/<repo>/blob/<sha>/commands/resolve-reviews.md#L146-L160)
+     [commands/review-fix.md:146-160](https://github.com/<owner>/<repo>/blob/<sha>/commands/review-fix.md#L146-L160)
      ````
 
      - **제목**: 그 자리에서 무엇이 바뀌었는지 한 줄. 목록만 훑어도 변경의 지형이 잡혀야 한다.
@@ -175,7 +175,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
      ```bash
      # PR 번호를 주면 Files changed 위치로, 안 주면 blob permalink 로 건다
      bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr 127 \
-       src/core/handlers.ts:handleOpenapiSearch commands/finish.md:12-18
+       src/core/handlers.ts:handleOpenapiSearch commands/review-request.md:12-18
      ```
 
      현재 `HEAD` 의 SHA 로 고정해 준다 (브랜치명으로 걸면 머지 후 브랜치가 지워질 때 깨지고,
@@ -204,7 +204,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ### 7. 마무리 & 다음 단계
 
 - 생성된 PR URL 을 출력한다.
-- 이어서 리뷰 대응까지 맡기려면 `/rocky:resolve-reviews` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람) 중 판단이 필요 없는 건을 고치고, 스레드에는 리액션(🚀 수정 완료 / 👀 결정 필요)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고한다(resolve 는 사용자 몫). 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
+- 이어서 리뷰 대응까지 맡기려면 `/rocky:review-fix` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람) 중 판단이 필요 없는 건을 고치고, 스레드에는 리액션(🚀 수정 완료 / 👀 결정 필요)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고한다(resolve 는 사용자 몫). 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
 
 ## 실패 / 예외 처리
 

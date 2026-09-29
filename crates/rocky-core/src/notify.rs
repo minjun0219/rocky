@@ -234,7 +234,7 @@ pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
     out.extend(lines);
     out.push(String::new());
     out.push(
-        "(자동 주입 — 데몬이 CI·리뷰 스레드로 기계적으로 고른 것이다. 감시를 따로 돌리지 말고, 머지 후보는 `/rocky:resolve-reviews` 8단계대로 판단해 알린다 — 머지는 사용자 몫)"
+        "(자동 주입 — 데몬이 CI·리뷰 스레드로 기계적으로 고른 것이다. 감시를 따로 돌리지 말고, 머지 후보는 `/rocky:review-fix` 8단계대로 판단해 알린다 — 머지는 사용자 몫)"
             .to_string(),
     );
     Some(out.join("\n"))

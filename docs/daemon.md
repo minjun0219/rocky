@@ -219,7 +219,7 @@
   등록부는 데몬 수명 상태; 그 레포 보드의 `autoResolve`(보드 속성 · user_version 9 · 기본 끔 — 설정 파일이
   아니라 보드에 두는 이유는 그 레포의 세션이 `rocky board auto-resolve on` 으로 자기 보드를 켜게 하려는 것,
   변경은 로컬 전용)가 켜졌으면 처음 보는 처리 안 된 리뷰 스레드가 생긴 전이
-  `pr-review` 때 그 세션에 `/rocky:resolve-reviews N` 처리를 시킨다 — 배너·브릿지는 `pr-review` 를 안 쓴다)과
+  `pr-review` 때 그 세션에 `/rocky:review-fix N` 처리를 시킨다 — 배너·브릿지는 `pr-review` 를 안 쓴다)과
   **알림 브릿지**(`pr.notifiers[]` — `todo.inbox[]` 와 같은
   `CommandBridge` 모양; 데몬이 argv 그대로 실행하고 stdin 에 `bridge_payload` JSON 을 준다, exit ≠ 0 은
   이름과 stderr 첫 줄을 로그에; 서비스 코드는 `bridges/<name>/` 에만 — `bridges/telegram/notify.ts` 가
@@ -228,11 +228,11 @@
   `gh` 로 tick 을 돈다. `/api/health` 의 `prWatch { available, reason, lastTick, repos }`,
   `GET /api/prs[?board=&open=true]`, `rocky pr`. 세션 스크립트 `pr-threads.ts` 의 `ready`/
   `transitions` 는 데몬이 없는 곳의 폴백이다. **`ready` 는 "머지 후보" 일 뿐이다** — 리뷰는 머지 전까지
-  언제든 붙으므로 세션이 알리기 전에 판단한다(`/rocky:resolve-reviews` 8단계): 응답 안 한 리뷰 요청
+  언제든 붙으므로 세션이 알리기 전에 판단한다(`/rocky:review-fix` 8단계): 응답 안 한 리뷰 요청
   (`pr-threads.ts ready` 의 `pendingReviewers`, 기계적으로 이유가 된다)·메모리가 "봇 리뷰 필수" 라 한
   레포의 현재 head 봇 신호(`watch --wait-bot`; 기본은 봇을 기다리지 않고, `botSeen` 이면 한 번 묻는다)·
   방금 한 푸시·작업 중 표시. 머지 **뒤에** 열린 미처리 스레드는 `pr-threads.ts after-merge` 로 찾아
-  다음 PR 에 고치고 링크를 건다(`/rocky:resolve-reviews` 10단계, `/rocky:finish` 6단계). **예산을 지킨다** — GraphQL 한도(시간당 5,000 포인트)는
+  다음 PR 에 고치고 링크를 건다(`/rocky:review-fix` 10단계, `/rocky:review-request` 6단계). **예산을 지킨다** — GraphQL 한도(시간당 5,000 포인트)는
   사용자 계정 하나에 걸리므로 데몬이 다 쓰면 세션·터미널의 `gh` 까지 막힌다(2026-09-28 실측: 스레드
   100 × 리액션 30 노드를 요청하던 첫 쿼리가 레포당 263 포인트 — **비용은 실제가 아니라 `first:`
   로 요청한 노드 수**라 열린 PR 이 0개여도 그렇다 — 3분 × 레포 10개에 두 tick 만에 바닥). 그래서

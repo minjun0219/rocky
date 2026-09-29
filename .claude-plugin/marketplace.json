@@ -12,7 +12,7 @@
       "author": {
         "name": "Minjun Kim"
       },
-      "description": "Rust board daemon (todo_* / note_* via streamable HTTP MCP) + worklog_* (append-only JSONL, auto turn capture via Stop hook). Slash commands: /rocky:next, /rocky:brainstorm, /rocky:finish, /rocky:resolve-reviews, /rocky:recall. Skills: board, writing-cc-plugin. Subagent: reviewer."
+      "description": "Rust board daemon (todo_* / note_* via streamable HTTP MCP) + worklog_* (append-only JSONL, auto turn capture via Stop hook). Slash commands: /rocky:next, /rocky:brainstorm, /rocky:review-request, /rocky:review-fix, /rocky:recall. Skills: board, writing-cc-plugin. Subagent: reviewer."
     }
   ]
 }

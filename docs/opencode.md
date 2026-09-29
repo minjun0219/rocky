@@ -59,4 +59,4 @@ opencode 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도�
 }
 ```
 
-- `/rocky:finish` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. opencode 에서는 rocky 가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky 의 현재 배선 선택이지 opencode 의 한계가 아니다 — opencode 자체는 `.opencode/command` · `.opencode/agent` · `.opencode/plugin` + `.claude/skills/` 자동 발견을 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.
+- `/rocky:review-request` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. opencode 에서는 rocky 가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky 의 현재 배선 선택이지 opencode 의 한계가 아니다 — opencode 자체는 `.opencode/command` · `.opencode/agent` · `.opencode/plugin` + `.claude/skills/` 자동 발견을 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.
