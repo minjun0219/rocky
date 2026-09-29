@@ -3211,6 +3211,7 @@ fn pr_snap(
         merge_state: merge_state.into(),
         ci: rocky_core::prwatch::CiState::Pass,
         unhandled: 0,
+        unhandled_ids: vec![],
         rocket: 0,
         ready,
         updated_at: "2026-09-28T10:00:00Z".into(),
