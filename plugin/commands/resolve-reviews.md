@@ -1,5 +1,5 @@
 ---
-description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(🚀 수정 완료 / 👀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 🚀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 검토받는 건 /rocky:review). 재리뷰를 기다리지 않는다.
+description: PR 에 이미 붙어 있는 리뷰(Copilot / Codex / 사람)를 해소한다 — 판단이 필요 없는 명백한 오류는 즉시 고치고, 스레드에는 리액션으로 상태만 남긴다(🚀 수정 완료 / 👀 호출자 결정 필요) — 코멘트·resolve 없이 전부 열어 둔다. 결정이 필요한 건은 채팅으로 묻고, 전부 🚀 가 되면 보고. GitHub 코멘트와 스레드 resolve 는 호출자가 지시할 때만 한다. 머지 가능해지면 알리고 머지는 하지 않는다. 새로 리뷰하는 게 아니라 받은 리뷰에 대응하는 쪽(내 diff 를 PR 전에 검토하는 건 기본 /code-review 와 /rocky:finish). 재리뷰를 기다리지 않는다.
 argument-hint: "[PR 번호] (생략 시 현재 브랜치의 PR)"
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(bun:*), Read, Edit, Write, Grep, Glob, PushNotification, Monitor
 ---
@@ -10,7 +10,7 @@ PR 에 지금 붙어 있는 리뷰를 처리한다. `$ARGUMENTS` 는 PR 번호(�
 **한국어** (코드 identifier / 경로 / 명령어는 영어 그대로).
 
 **PR 을 리뷰하는 커맨드가 아니다** — 이미 받은 리뷰 스레드를 해소하는 쪽이다. 내 작업
-diff 를 검토받는 것은 `/rocky:review`, GitHub PR 을 리뷰하는 것은 빌트인 `/review`.
+diff 를 PR 전에 검토하는 것은 기본 `/code-review`(버그)와 `/rocky:finish` 의 요구사항 점검이다.
 
 **한 번 돌고 끝난다.** 재리뷰를 폴링하지 않는다 — 리뷰를 한 번 더 받고 싶으면 사용자가
 `@copilot review` / `@codex review` 를 직접 달고 이 커맨드를 다시 부른다. 봇 자동 재리뷰를 켜 두고

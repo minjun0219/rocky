@@ -86,7 +86,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   보관. (2026-09-28 의 데몬 쪽 PR 감시 — `rockyd::prwatch`, `rocky.json` 의 `pr` 블록 — 는 오너의 명시적
   결정으로 만든 다른 것이다; 아래 *데몬·설치 모델* 참고. 둘을 헷갈리지 않는다.) 옛 에이전트(`rocky` /
   `grace` / `mindy`)는 opencode 형식의 **페르소나·라우팅** 에이전트였다; 지금의 `agents/reviewer.md` 는
-  `/rocky:review` 에서 떼어 낸 역할이지 그들의 부활이 아니다.
+  `/rocky:finish` 가 쓰는 요구사항 점검 역할이지 그들의 부활이 아니다.
 - 옛 네이티브 `@opencode-ai/plugin` 표면 — 한때 `.archive/` 에 두었다가 제거(필요하면 git 히스토리에서).
   지금의 opencode 지원은 stdio MCP 등록이고 그 부활이 **아니다**.
 - `/rocky:opencode` 위임 런타임(`opencode-companion.ts`, `opencode-{jobs,cli,runner,render}.ts`,
