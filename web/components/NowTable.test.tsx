@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { cleanup, screen } from '@testing-library/react';
+import { act, cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore, todoFixture } from '../test-support';
 import { NowTable } from './NowTable';
@@ -48,14 +48,14 @@ describe('NowTable', () => {
     expect(mineRows[0]?.textContent).toContain('AGENT');
     expect(mineRows[0]?.textContent).toContain('세션 없음');
     // 세션 없음은 색만이 아니라 모양(점선 원)으로도 말한다.
-    expect(mineRows[0]?.querySelector('[aria-label="세션 없음"]')?.textContent).toBe('◌');
+    expect(mineRows[0]?.querySelector('[aria-label="세션 없음"] svg')).toBeTruthy();
     // 오래된 진행중은 초를 굴리지 않고 날짜로 — "41일 03:12:44" 가 아니다.
     expect(mineRows[0]?.textContent).toContain('8월 18일부터');
     expect(mineRows[1]?.textContent).toContain('수집함');
     const runRows = [...(run?.querySelectorAll('li') ?? [])];
     expect(runRows).toHaveLength(1);
     expect(runRows[0]?.textContent).toContain('YOU');
-    expect(runRows[0]?.querySelector('[aria-label="돌고 있음"]')?.textContent).toBe('●');
+    expect(runRows[0]?.querySelector('[aria-label="돌고 있음"] svg')).toBeTruthy();
     // 같은 상태를 행마다 배지로 반복하지 않고, 묶음 머리에 개수로 한 번.
     expect(screen.getByRole('heading', { name: /내 차례\s*2/ })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /돌고 있음\s*1/ })).toBeTruthy();
@@ -82,5 +82,108 @@ describe('NowTable', () => {
     await userEvent.click(screen.getByRole('button', { name: '내 차례 2개 더' }));
     expect(screen.getByText('멈춘 일 6')).toBeTruthy();
     expect(screen.getByRole('heading', { name: /내 차례\s*7/ })).toBeTruthy();
+  });
+});
+
+describe('NowTable — PR 현황', () => {
+  const pr = (over: Record<string, unknown>) => ({
+    repo: 'o/rocky',
+    number: 1,
+    title: 'PR',
+    url: 'https://github.com/o/rocky/pull/1',
+    state: 'OPEN',
+    isDraft: false,
+    base: 'main',
+    head: 'abc',
+    mergeState: 'BLOCKED',
+    ci: 'pending',
+    unhandled: 0,
+    rocket: 0,
+    ready: false,
+    updatedAt: '2026-09-28T10:00:00Z',
+    ...over,
+  });
+
+  test('보고 있는 보드 레포의 열린 PR 전부 — 아이콘으로 상태, 누르면 GitHub', () => {
+    renderWithStore(<NowTable />, {
+      nowTodos: [],
+      nowHandoffs: [],
+      collect: null,
+      selected: 'rocky',
+      boards: [
+        {
+          id: 'b1',
+          key: 'rocky',
+          title: 'rocky',
+          repo: 'o/rocky',
+          createdAt: '2026-09-01T00:00:00Z',
+          updatedAt: '2026-09-01T00:00:00Z',
+        } as never,
+      ],
+      prs: [
+        pr({ number: 7, title: '대기 중인 PR', unhandled: 1 }),
+        pr({ number: 8, title: '머지 가능 PR', ready: true, ci: 'pass' }),
+        pr({ number: 9, title: '다른 레포', repo: 'o/tally' }),
+      ] as never,
+    });
+    expect(screen.getByRole('heading', { name: /PR\s*2/ })).toBeTruthy();
+    const link = screen.getByRole('link', { name: /대기 중인 PR/ });
+    expect(link.getAttribute('href')).toBe('https://github.com/o/rocky/pull/1');
+    expect(link.textContent).toContain('#7');
+    expect(link.textContent).toContain('CI 도는 중 · 스레드 1');
+    expect(link.querySelector('[aria-label="대기"] svg')).toBeTruthy();
+    expect(screen.queryByText('다른 레포')).toBeNull();
+  });
+});
+
+// Codex 지적 회귀 — PR 행만 있는 보드에서도 시각이 멈추지 않는다(1분 틱이 돈다).
+describe('NowTable — PR 만 있을 때도 시각이 흐른다', () => {
+  test('1분 뒤 "방금" 이 "1분" 으로', async () => {
+    const realNow = Date.now;
+    const realSetInterval = globalThis.setInterval;
+    let tick: (() => void) | null = null;
+    let clock = Date.parse('2026-09-28T10:00:30Z');
+    Date.now = () => clock;
+    globalThis.setInterval = ((fn: () => void) => {
+      tick = fn;
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval;
+    try {
+      renderWithStore(<NowTable />, {
+        nowTodos: [],
+        nowHandoffs: [],
+        collect: null,
+        selected: 'all',
+        boards: [],
+        prs: [
+          {
+            repo: 'o/rocky',
+            number: 7,
+            title: '대기 중인 PR',
+            url: 'https://github.com/o/rocky/pull/7',
+            state: 'OPEN',
+            isDraft: false,
+            base: 'main',
+            head: 'abc',
+            mergeState: 'BLOCKED',
+            ci: 'pending',
+            unhandled: 0,
+            rocket: 0,
+            ready: false,
+            updatedAt: '2026-09-28T10:00:00Z',
+          },
+        ] as never,
+      });
+      expect(screen.getByRole('link', { name: /대기 중인 PR/ }).textContent).toContain('방금');
+      expect(tick).not.toBeNull();
+      clock += 60_000;
+      await act(async () => {
+        tick?.();
+      });
+      expect(screen.getByRole('link', { name: /대기 중인 PR/ }).textContent).toContain('1분');
+    } finally {
+      Date.now = realNow;
+      globalThis.setInterval = realSetInterval;
+    }
   });
 });
