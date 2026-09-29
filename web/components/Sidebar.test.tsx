@@ -87,3 +87,32 @@ describe('Sidebar 보드 생성 폼', () => {
     expect(await findOpenButton()).toBeDefined();
   });
 });
+
+// 튕김 버그 회귀 — refetch 마다 새 boards 배열이 와도 문서 스크롤을 건드리지 않고,
+// 탭 행도 선택이 바뀌지 않았으면 그대로 둔다(사람이 옆으로 넘겨 둔 위치를 되돌리지 않는다).
+describe('Sidebar 탭 행 스크롤', () => {
+  test('scrollIntoView 를 부르지 않고, 같은 선택의 refetch 는 탭 행을 움직이지 않는다', async () => {
+    const intoView = mock(() => {});
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = intoView;
+    try {
+      const { useUiStore } = await import('../store');
+      renderWithStore(<Sidebar />, {
+        boards: [boardFixture()],
+        todos: [],
+        selected: 'all',
+        setSelected: mock(() => {}),
+        createBoard: mock(async () => {}),
+      });
+      const nav = screen.getByRole('navigation', { name: '보드' });
+      nav.scrollLeft = 42; // 사람이 옆으로 넘겨 둔 상태
+      // refetch — 내용은 같지만 새 배열
+      useUiStore.setState({ boards: [boardFixture()] });
+      await Promise.resolve();
+      expect(nav.scrollLeft).toBe(42);
+      expect(intoView).not.toHaveBeenCalled();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+});

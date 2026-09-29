@@ -3,6 +3,7 @@ import { DETAIL_HISTORY_EXCLUDED as STORE_DETAIL_HISTORY_EXCLUDED } from './type
 import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
 import {
+  centeredScrollLeft,
   boardCommand,
   COPY_FEEDBACK_MS,
   DETAIL_HISTORY_EXCLUDED,
@@ -709,5 +710,26 @@ describe('nowRows — PR 감시', () => {
     expect(rows[0]?.url).toBe('https://github.com/o/rocky/pull/1');
     expect(rows[0]?.todoId).toBeUndefined();
     expect(rows[0]?.kind).toBe('pr');
+  });
+});
+
+describe('centeredScrollLeft — 탭 행 안에서만 가운데로', () => {
+  test('가운데로 당기고, 양 끝에서는 자른다', () => {
+    // 폭 300 컨테이너, 내용 1000, 요소 x=600 폭 100 → 600 - (300-100)/2 = 500
+    expect(
+      centeredScrollLeft({ elStart: 600, elWidth: 100, viewWidth: 300, contentWidth: 1000 }),
+    ).toBe(500);
+    // 왼쪽 끝 요소는 0 아래로 가지 않는다
+    expect(
+      centeredScrollLeft({ elStart: 10, elWidth: 80, viewWidth: 300, contentWidth: 1000 }),
+    ).toBe(0);
+    // 오른쪽 끝 요소는 최대(내용-폭)를 넘지 않는다
+    expect(
+      centeredScrollLeft({ elStart: 950, elWidth: 50, viewWidth: 300, contentWidth: 1000 }),
+    ).toBe(700);
+    // 넘치지 않는 행은 늘 0
+    expect(
+      centeredScrollLeft({ elStart: 100, elWidth: 50, viewWidth: 300, contentWidth: 250 }),
+    ).toBe(0);
   });
 });
