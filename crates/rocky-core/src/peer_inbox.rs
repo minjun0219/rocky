@@ -76,7 +76,7 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
              있으면 그것으로), 있으면 무엇을 기다리는지만 적고 알리지 않는다. 머지는 사용자 몫이다."
         }
         PrEventKind::Merged => {
-            "사용자가 머지했다 — 다시 알릴 필요는 없다. 이 세션이 그 PR 을 만든 곳이면 머지 뒤 정리를 \
+            "사용자가 머지했다 — 다시 알리지 않는다(PushNotification 도 보내지 않는다). 이 세션이 그 PR 을 만든 곳이면 머지 뒤 정리를 \
              한 번 한다(`/rocky:resolve-reviews` 11단계): 로컬을 최신 main 으로 맞추고 끝난 브랜치를 \
              정리하고, 새 릴리스 PR·스택의 다음 PR·머지 뒤 리뷰(`after-merge`)가 있는지 본다. 다른 \
              작업 중이면 끝낸 뒤에, 무관한 세션이면 아무것도 하지 않는다."

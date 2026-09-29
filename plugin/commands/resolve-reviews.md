@@ -384,7 +384,8 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" after-merge
 3. 스택이었으면 다음 PR 로 — 9단계의 스택 규칙대로 로컬 브랜치를 원격에 맞추고 같은 기준으로 본다.
 4. 머지 직후에 붙은 리뷰가 있으면 10단계(`after-merge`)대로 다음 PR 에 싣는다.
 
-정리한 결과는 채팅에 한 줄로 남긴다("#N 머지 뒤 정리 — main 최신화, 브랜치 삭제, 릴리스 PR #M 열림").
+정리한 결과는 채팅에 한 줄로만 남긴다("#N 머지 뒤 정리 — main 최신화, 브랜치 삭제, 릴리스 PR #M 열림") — 머지는 사용자가
+한 일이라 `PushNotification` 은 보내지 않는다.
 
 ## 실패 / 예외 처리
 
