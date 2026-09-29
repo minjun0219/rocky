@@ -377,3 +377,25 @@ fn bridge_payload_carries_the_transition_and_the_banner_text() {
     assert_eq!(v["heading"], "rocky · o/r");
     assert_eq!(v["text"], "#7 확인·머지해도 된다 — PR 7");
 }
+
+/// 리뷰 도착 — 처리 안 된 스레드가 늘면(봇·사람 리뷰가 새로 붙으면) Review. 👀 로 줄어드는 건 아니다.
+#[test]
+fn unresolved_threads_growing_is_a_review_transition() {
+    let mut before = snap(1, "OPEN", false, "CLEAN");
+    before.unhandled = 0;
+    let mut after = before.clone();
+    after.unhandled = 2;
+    let kinds: Vec<PrEventKind> = diff(&[before.clone()], &[after.clone()])
+        .iter()
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(kinds, vec![PrEventKind::Review]);
+    // 처리해서 줄면 전이 없음.
+    assert!(diff(&[after.clone()], &[before.clone()]).is_empty());
+    // 처음 볼 때 이미 스레드가 있으면 열림과 함께 리뷰 도착.
+    let kinds: Vec<PrEventKind> = diff(&[], &[after]).iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, vec![PrEventKind::Opened, PrEventKind::Review]);
+    // 사람에게 배너로 알리지는 않는다.
+    assert!(!PrEventKind::Review.notifies());
+    assert_eq!(PrEventKind::Review.action(), "pr-review");
+}

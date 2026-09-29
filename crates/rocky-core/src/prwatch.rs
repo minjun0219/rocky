@@ -396,6 +396,9 @@ pub enum PrEventKind {
     Conflict,
     Merged,
     Closed,
+    /// 처리 안 된 리뷰 스레드가 늘었다 — 봇·사람 리뷰가 새로 붙었다. 사람에게는 알리지 않고(배너
+    /// 없음), 켜 둔 레포면 세션에 리뷰 처리를 시킨다(`pr.autoResolve`).
+    Review,
 }
 
 impl PrEventKind {
@@ -408,6 +411,7 @@ impl PrEventKind {
             PrEventKind::Conflict => "pr-conflict",
             PrEventKind::Merged => "pr-merged",
             PrEventKind::Closed => "pr-closed",
+            PrEventKind::Review => "pr-review",
         }
     }
 
@@ -449,6 +453,10 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
                 if p.ready {
                     out.push(ev(PrEventKind::Ready));
                 }
+                // 처음 볼 때 이미 처리 안 된 스레드가 있으면 그것도 도착한 리뷰다.
+                if p.unhandled > 0 {
+                    out.push(ev(PrEventKind::Review));
+                }
             }
             continue;
         };
@@ -481,6 +489,10 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
         if p.merge_state == "DIRTY" && was.merge_state != "DIRTY" {
             out.push(ev(PrEventKind::Conflict));
         }
+        // 처리 안 된 스레드가 늘었다 = 리뷰가 새로 붙었다(👀 를 달면 줄어드니 처리 중엔 안 난다).
+        if p.unhandled > was.unhandled {
+            out.push(ev(PrEventKind::Review));
+        }
     }
     out
 }
@@ -495,6 +507,7 @@ pub fn notification_text(event: &PrEvent) -> (String, String) {
         PrEventKind::Closed => format!("#{} 닫힘 — {}", event.number, event.title),
         PrEventKind::Opened => format!("#{} 열림 — {}", event.number, event.title),
         PrEventKind::Unready => format!("#{} 다시 대기 — {}", event.number, event.title),
+        PrEventKind::Review => format!("#{} 리뷰 도착 — {}", event.number, event.title),
     };
     (title, body)
 }

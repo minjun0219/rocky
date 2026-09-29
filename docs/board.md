@@ -249,6 +249,18 @@ jq '.result[-1].message.chat.id'` 로 chat id → 위처럼 등록 → 데몬 �
   실측). Claude Code 가 문서로 약속한 건 소켓과 인증 줄까지라, 본문 형식이 바뀌면 이 알림만 조용히
   멈춘다.
 
+**리뷰가 붙으면 세션이 처리한다(`pr.autoResolve`, 레포마다 · 기본 끔).** 처리 안 된 리뷰 스레드가 늘면(봇·사람
+리뷰가 새로 붙으면) 데몬이 "리뷰 도착" 전이(`pr-review`)를 남기고, 켜 둔 레포면 그 레포에서 일하는 세션에
+"`/rocky:resolve-reviews N` 절차대로 처리하라" 는 메시지를 받은편지함으로 보낸다. 배너는 띄우지 않는다.
+
+```json
+{ "pr": { "autoResolve": ["minjun0219/rocky"] } }   // true = 전 레포, 목록 = 그 레포만
+```
+
+받는 세션은 그 PR 을 만든 곳이면 절차를 한 번 돈다(분류 → 명백한 오류만 고쳐 푸시 → 👀/🚀 → 채팅 보고).
+코멘트·resolve·머지는 여전히 하지 않는다 — 메시지는 "다른 세션이 보낸 것" 이라 사용자 승인도 아니다.
+`sessionNotify` 가 꺼져 있으면 보내지 않는다.
+
 채널(`claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`)도 아직 남아 있다 —
 받은편지함이 실제로 자리 잡으면 걷는다.
 

@@ -540,7 +540,7 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
         tokio::time::sleep(Duration::from_millis(1100)).await;
     }
 
-    let notify = session_notifier(f.state.clone());
+    let notify = session_notifier(f.state.clone(), rocky_core::config::AutoResolve::Off);
     let snap = PrSnapshot {
         repo: "o/r".into(),
         number: 7,
@@ -626,7 +626,7 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
         title: "PR 8".into(),
         url: "https://github.com/o/r/pull/8".into(),
     };
-    session_notifier(f.state.clone())(&conflict);
+    session_notifier(f.state.clone(), rocky_core::config::AutoResolve::Off)(&conflict);
     let received = tokio::task::spawn_blocking(move || {
         let (mut conn, _) = listener.accept().unwrap();
         let mut text = String::new();
@@ -648,5 +648,56 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
         "끝난 세션의 등록은 걷는다"
     );
     assert!(ids.contains(&"live".to_string()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 리뷰 도착 — `pr.autoResolve` 가 켜진 레포에서만 세션에 resolve-reviews 를 시킨다. 꺼진 레포는 조용하다.
+#[cfg(unix)]
+#[tokio::test]
+async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
+    use rocky_core::config::AutoResolve;
+    use rockyd::prwatch::session_notifier;
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockyar-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("500.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (status, _) = post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s", "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+    )
+    .await;
+    assert_eq!(status, 204);
+    let review = rocky_core::prwatch::PrEvent {
+        kind: PrEventKind::Review,
+        repo: "o/r".into(),
+        number: 9,
+        title: "PR 9".into(),
+        url: "https://github.com/o/r/pull/9".into(),
+    };
+    // 꺼진 레포 — 아무것도 안 간다.
+    session_notifier(f.state.clone(), AutoResolve::Repos(vec!["o/other".into()]))(&review);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(listener.accept().is_err(), "autoResolve 가 꺼진 레포");
+    // 켜진 레포 — resolve-reviews 를 시킨다.
+    listener.set_nonblocking(false).unwrap();
+    session_notifier(f.state.clone(), AutoResolve::Repos(vec!["o/r".into()]))(&review);
+    let received = tokio::task::spawn_blocking(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut text = String::new();
+        conn.read_to_string(&mut text).unwrap();
+        text
+    })
+    .await
+    .unwrap();
+    assert!(received.contains("/rocky:resolve-reviews 9"));
     let _ = std::fs::remove_dir_all(&dir);
 }

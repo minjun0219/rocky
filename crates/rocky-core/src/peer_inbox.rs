@@ -82,6 +82,18 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     ))
 }
 
+/// 리뷰가 붙은 PR 을 세션에 처리시키는 본문 — `pr.autoResolve` 가 켜진 레포에서만 보낸다. 받는
+/// Claude 가 할 일을 명시한다: 그 PR 의 세션이면 resolve-reviews 절차를 한 번 돈다.
+pub fn review_session_message(event: &PrEvent) -> Option<String> {
+    if event.kind != PrEventKind::Review {
+        return None;
+    }
+    Some(format!(
+        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:resolve-reviews {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 👀/🚀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 PR 을 작업 중이면 끝낸 뒤에, 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포는 `pr.autoResolve` 로 자동 처리가 켜져 있다.)",
+        event.repo, event.number, event.title, event.url, event.number
+    ))
+}
+
 /// 이 보드에서 일하는 세션들 — 보낼 순서대로(가장 최근 등록이 먼저). cwd 가 그 보드로 풀리는
 /// (`board_key_for_cwd`, 경로 하위 → key 세그먼트) 살아 있는(TTL 안) 등록만. 데몬은 앞에서부터
 /// 보내다 **처음 성공한 한 곳**에서 멈춘다 — 가장 최근 세션이 이미 끝났으면 그다음 세션이 받는다
