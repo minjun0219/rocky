@@ -1,8 +1,8 @@
 //! 세션 받은편지함으로 밀어 넣기 — 경로 검증·한 줄 형식·본문·보낼 세션 고르기(순수).
 
 use rocky_core::peer_inbox::{
-    inbox_line, is_inbox_socket_path, pick_session, pr_session_message, session_candidates,
-    InboxRegistration, REGISTRATION_TTL_SECS,
+    inbox_line, is_inbox_socket_path, pick_session, pr_session_message, review_session_message,
+    session_candidates, InboxRegistration, REGISTRATION_TTL_SECS,
 };
 use rocky_core::prwatch::{PrEvent, PrEventKind};
 use rocky_core::statusline::BoardLocation;
@@ -132,4 +132,15 @@ fn candidates_come_newest_first_for_fallback() {
         .map(|r| r.session_id.as_str())
         .collect();
     assert_eq!(ids, vec!["b", "c", "a"]);
+}
+
+#[test]
+fn review_message_asks_the_pr_session_to_run_resolve_reviews() {
+    let msg = review_session_message(&event(PrEventKind::Review)).unwrap();
+    assert!(msg.starts_with("rocky: o/rocky #7 에 리뷰가 붙었다"));
+    assert!(msg.contains("/rocky:resolve-reviews 7"));
+    assert!(msg.contains("코멘트·resolve·머지는 하지 않는다"));
+    assert!(review_session_message(&event(PrEventKind::Ready)).is_none());
+    // ready·conflict 본문은 리뷰 도착을 다루지 않는다.
+    assert!(pr_session_message(&event(PrEventKind::Review)).is_none());
 }

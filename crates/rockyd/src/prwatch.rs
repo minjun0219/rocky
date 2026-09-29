@@ -17,7 +17,7 @@ use std::time::Duration;
 use rocky_core::prwatch::{
     bridge_payload, default_branch_of, detail_query, is_rate_limit_error, list_query,
     notification_text, osascript_args, parse_pr_details, parse_pr_list, pause_for, PrEvent,
-    PrSnapshot, RateLimit,
+    PrEventKind, PrSnapshot, RateLimit,
 };
 use serde::Serialize;
 
@@ -36,7 +36,7 @@ pub type Notifier = Arc<dyn Fn(&PrEvent) + Send + Sync>;
 /// osascript 로 macOS 알림. 다른 OS 면 조용히 아무것도 안 한다.
 pub fn osascript_notifier(runner: Runner) -> Notifier {
     Arc::new(move |event| {
-        if !cfg!(target_os = "macos") {
+        if !cfg!(target_os = "macos") || !event.kind.notifies() {
             return;
         }
         let (title, body) = notification_text(event);
@@ -64,6 +64,9 @@ pub const DEFAULT_BRIDGE_TIMEOUT_MS: u64 = 10_000;
 /// 스스로 읽는다 — 데몬은 어떤 서비스인지 모른다.
 pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge) -> Notifier {
     Arc::new(move |event| {
+        if !event.kind.notifies() {
+            return;
+        }
         let runner = runner.clone();
         let bridge = bridge.clone();
         let stdin = bridge_payload(event).to_string();
@@ -85,9 +88,21 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
 /// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에 한 줄로
 /// 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 가장 최근 세션부터 시도해
 /// **처음 성공한 한 곳**에서 멈추고, 실패한 등록(끝난 세션)은 걷는다. 등록된 세션이 없으면 조용하다.
-pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
+pub fn session_notifier(
+    state: Arc<ServerState>,
+    auto_resolve: rocky_core::config::AutoResolve,
+) -> Notifier {
     Arc::new(move |event| {
-        let Some(text) = rocky_core::peer_inbox::pr_session_message(event) else {
+        // 리뷰 도착은 켜 둔 레포에서만 세션에 처리를 시킨다(`pr.autoResolve`).
+        let text = if event.kind == PrEventKind::Review {
+            if !auto_resolve.enabled_for(&event.repo) {
+                return;
+            }
+            rocky_core::peer_inbox::review_session_message(event)
+        } else {
+            rocky_core::peer_inbox::pr_session_message(event)
+        };
+        let Some(text) = text else {
             return;
         };
         let boards = state.store.list_boards(false).unwrap_or_default();
@@ -317,7 +332,11 @@ async fn tick_repo(
         .apply_pr_snapshot(repo, &snapshots, PR_WATCH_ACTOR)
         .map_err(|e| QueryError::Other(e.to_string()))?;
     if notify {
-        for event in events.iter().filter(|e| e.kind.notifies()) {
+        // 사람에게 알릴 것(ready·conflict)과 세션이 처리할 것(review). 배너·브릿지는 앞의 둘만 쓴다.
+        for event in events
+            .iter()
+            .filter(|e| e.kind.notifies() || e.kind == PrEventKind::Review)
+        {
             notifier(event);
         }
     }

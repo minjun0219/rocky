@@ -21,7 +21,7 @@ use serde_json::Value;
 const PR_FIELDS: &str = r#"fragment prFields on PullRequest {
   ...prState
   commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
-  reviewThreads(first:50) { pageInfo { hasNextPage } nodes { isResolved
+  reviewThreads(first:50) { pageInfo { hasNextPage } nodes { id isResolved
     comments(first:1) { nodes {
       eyes: reactions(first:1, content:EYES) { viewerHasReacted }
       rocket: reactions(first:1, content:ROCKET) { viewerHasReacted } } } } }
@@ -191,6 +191,11 @@ pub struct PrSnapshot {
     pub ci: CiState,
     /// 미해결 스레드 중 👀 도 🚀 도 없는 것.
     pub unhandled: i64,
+    /// 그 스레드들의 id — 새 리뷰는 "수가 늘었다" 가 아니라 "처음 보는 id 가 있다" 로 가린다
+    /// (하나를 👀 로 처리하는 사이 새 스레드가 붙으면 수는 그대로다). 이 필드가 생기기 전의
+    /// 스냅숏은 비어 있다(`serde(default)`).
+    #[serde(default)]
+    pub unhandled_ids: Vec<String>,
     /// 🚀(호출자 결정 필요).
     pub rocket: i64,
     pub ready: bool,
@@ -330,6 +335,7 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
             .and_then(Value::as_str),
     );
     let mut unhandled = 0;
+    let mut unhandled_ids = Vec::new();
     let mut rocket = 0;
     // 스레드가 첫 페이지(50)를 넘치면 못 본 것이 있다 — 보수적으로 "처리 안 됨" 하나로 친다.
     // (이 레포에서 50개를 넘는 PR 은 없다; 넘치면 ready 알림이 안 나가는 쪽이 안전하다.)
@@ -352,6 +358,9 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
                 rocket += 1;
             } else if !viewer_reacted(thread, "eyes") {
                 unhandled += 1;
+                if let Some(id) = thread.get("id").and_then(Value::as_str) {
+                    unhandled_ids.push(id.to_string());
+                }
             }
         }
     }
@@ -380,6 +389,7 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
         merge_state,
         ci,
         unhandled,
+        unhandled_ids,
         rocket,
         ready,
         updated_at: str_of("updatedAt"),
@@ -396,6 +406,9 @@ pub enum PrEventKind {
     Conflict,
     Merged,
     Closed,
+    /// 처리 안 된 리뷰 스레드가 늘었다 — 봇·사람 리뷰가 새로 붙었다. 사람에게는 알리지 않고(배너
+    /// 없음), 켜 둔 레포면 세션에 리뷰 처리를 시킨다(`pr.autoResolve`).
+    Review,
 }
 
 impl PrEventKind {
@@ -408,6 +421,7 @@ impl PrEventKind {
             PrEventKind::Conflict => "pr-conflict",
             PrEventKind::Merged => "pr-merged",
             PrEventKind::Closed => "pr-closed",
+            PrEventKind::Review => "pr-review",
         }
     }
 
@@ -449,6 +463,10 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
                 if p.ready {
                     out.push(ev(PrEventKind::Ready));
                 }
+                // 처음 볼 때 이미 처리 안 된 스레드가 있으면 그것도 도착한 리뷰다.
+                if p.unhandled > 0 {
+                    out.push(ev(PrEventKind::Review));
+                }
             }
             continue;
         };
@@ -464,6 +482,9 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
                     }
                     if p.merge_state == "DIRTY" {
                         out.push(ev(PrEventKind::Conflict));
+                    }
+                    if p.unhandled > 0 {
+                        out.push(ev(PrEventKind::Review));
                     }
                 }
                 _ => {}
@@ -481,8 +502,26 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
         if p.merge_state == "DIRTY" && was.merge_state != "DIRTY" {
             out.push(ev(PrEventKind::Conflict));
         }
+        if has_new_review(was, p) {
+            out.push(ev(PrEventKind::Review));
+        }
     }
     out
+}
+
+/// 리뷰가 새로 붙었나 — 처리 안 된 스레드 중 **직전에 없던 id** 가 있으면. 👀 를 달면 목록에서
+/// 빠지므로 처리 중인 스레드로는 안 난다. 직전 스냅숏에 id 가 없으면(필드 도입 전 저장분) 수로
+/// 비교한다 — 업그레이드 첫 tick 에 이미 알던 스레드를 전부 "새 리뷰" 로 보지 않게.
+fn has_new_review(was: &PrSnapshot, cur: &PrSnapshot) -> bool {
+    if was.unhandled_ids.is_empty() && was.unhandled > 0 {
+        return cur.unhandled > was.unhandled;
+    }
+    // 페이지를 넘친 몫(`hasNextPage`)은 id 없이 수에만 잡힌다 — 그 몫이 새로 생긴 것도 새 리뷰다.
+    let overflow = |s: &PrSnapshot| s.unhandled - s.unhandled_ids.len() as i64;
+    cur.unhandled_ids
+        .iter()
+        .any(|id| !was.unhandled_ids.contains(id))
+        || overflow(cur) > overflow(was)
 }
 
 /// macOS 알림의 (제목, 본문).
@@ -495,6 +534,7 @@ pub fn notification_text(event: &PrEvent) -> (String, String) {
         PrEventKind::Closed => format!("#{} 닫힘 — {}", event.number, event.title),
         PrEventKind::Opened => format!("#{} 열림 — {}", event.number, event.title),
         PrEventKind::Unready => format!("#{} 다시 대기 — {}", event.number, event.title),
+        PrEventKind::Review => format!("#{} 리뷰 도착 — {}", event.number, event.title),
     };
     (title, body)
 }

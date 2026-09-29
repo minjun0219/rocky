@@ -71,7 +71,11 @@ fn parses_ci_threads_and_ready_from_the_query_shape() {
             Some("SUCCESS"),
             vec![thread(false, &["EYES"]), thread(true, &[])],
         ),
-        pr(2, "OPEN", Some("FAILURE"), vec![thread(false, &[])]),
+        pr(2, "OPEN", Some("FAILURE"), {
+            let mut t = thread(false, &[]);
+            t["id"] = json!("T_new");
+            vec![t]
+        }),
         pr(3, "OPEN", None, vec![thread(false, &["ROCKET"])]),
     ]);
     let mut snaps = parse_pr_details(&d, "o/r", "main").unwrap();
@@ -85,6 +89,12 @@ fn parses_ci_threads_and_ready_from_the_query_shape() {
     assert_eq!(s1.head, "abcdef0");
     let s2 = &snaps[1];
     assert_eq!((s2.ci, s2.unhandled, s2.ready), (CiState::Fail, 1, false));
+    assert_eq!(
+        s2.unhandled_ids,
+        vec!["T_new".to_string()],
+        "처리 안 된 스레드의 id 를 기억한다"
+    );
+    assert!(s1.unhandled_ids.is_empty(), "👀 단 스레드는 목록에 없다");
     let s3 = &snaps[2];
     assert_eq!(
         (s3.ci, s3.rocket, s3.ready),
@@ -234,6 +244,7 @@ fn snap(number: i64, state: &str, ready: bool, merge_state: &str) -> PrSnapshot 
         merge_state: merge_state.into(),
         ci: CiState::Pass,
         unhandled: 0,
+        unhandled_ids: vec![],
         rocket: 0,
         ready,
         updated_at: "2026-09-28T10:00:00Z".into(),
@@ -376,4 +387,63 @@ fn bridge_payload_carries_the_transition_and_the_banner_text() {
     assert_eq!(v["url"], "https://x/pull/7");
     assert_eq!(v["heading"], "rocky · o/r");
     assert_eq!(v["text"], "#7 확인·머지해도 된다 — PR 7");
+}
+
+/// 리뷰 도착 — 처리 안 된 스레드가 늘면(봇·사람 리뷰가 새로 붙으면) Review. 👀 로 줄어드는 건 아니다.
+#[test]
+fn unresolved_threads_growing_is_a_review_transition() {
+    let mut before = snap(1, "OPEN", false, "CLEAN");
+    before.unhandled = 0;
+    let mut after = before.clone();
+    after.unhandled = 2;
+    let kinds: Vec<PrEventKind> = diff(&[before.clone()], &[after.clone()])
+        .iter()
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(kinds, vec![PrEventKind::Review]);
+    // 처리해서 줄면 전이 없음.
+    assert!(diff(&[after.clone()], &[before.clone()]).is_empty());
+    // 처음 볼 때 이미 스레드가 있으면 열림과 함께 리뷰 도착.
+    let kinds: Vec<PrEventKind> = diff(&[], &[after]).iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, vec![PrEventKind::Opened, PrEventKind::Review]);
+    // 사람에게 배너로 알리지는 않는다.
+    assert!(!PrEventKind::Review.notifies());
+    assert_eq!(PrEventKind::Review.action(), "pr-review");
+}
+
+/// Codex 지적(#210) — 스레드 하나를 👀 로 처리하는 사이 새 스레드가 붙으면 수는 그대로다. 수가 아니라
+/// 처음 보는 스레드 id 로 새 리뷰를 가린다.
+#[test]
+fn a_new_thread_replacing_a_handled_one_is_still_a_review() {
+    let mut before = snap(1, "OPEN", false, "CLEAN");
+    before.unhandled = 1;
+    before.unhandled_ids = vec!["T_a".into()];
+    let mut after = before.clone();
+    after.unhandled_ids = vec!["T_b".into()];
+    let kinds: Vec<PrEventKind> = diff(&[before.clone()], &[after.clone()])
+        .iter()
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(kinds, vec![PrEventKind::Review]);
+    // 같은 스레드가 그대로면 전이 없음.
+    assert!(diff(&[after.clone()], &[after.clone()]).is_empty());
+    // id 가 없던 옛 스냅숏(필드 도입 전 저장분)은 수로 비교한다 — 업그레이드 첫 tick 에 이미
+    // 알던 스레드를 새 리뷰로 보지 않는다.
+    let mut legacy = before.clone();
+    legacy.unhandled_ids.clear();
+    assert!(diff(&[legacy], &[after]).is_empty());
+}
+
+/// Codex 지적(#210) — 닫혔다 다시 열린 PR 에 처리 안 된 스레드가 있으면 그것도 리뷰 도착이다.
+#[test]
+fn a_reopened_pr_with_unhandled_threads_is_a_review() {
+    let closed = snap(1, "CLOSED", false, "CLEAN");
+    let mut reopened = snap(1, "OPEN", false, "CLEAN");
+    reopened.unhandled = 1;
+    reopened.unhandled_ids = vec!["T_a".into()];
+    let kinds: Vec<PrEventKind> = diff(&[closed], &[reopened])
+        .iter()
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(kinds, vec![PrEventKind::Opened, PrEventKind::Review]);
 }

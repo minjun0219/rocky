@@ -432,7 +432,9 @@ deterministically, and a per-turn gate would just make every turn slow.
   `session_id → CLAUDE_CODE_MESSAGING_SOCKET · cwd` 를 `POST /api/sessions/inbox`(로컬 전용, 경로 모양 검증)로
   등록하고, 데몬이 그 레포 보드에서 일하는 가장 최근 세션 하나의 소켓에 JSON 한 줄
   `{"type":"user","message":{…}}` 을 쓴다 — 쉬던 세션도 턴이 열린다; 순수 판정은 `rocky_core::peer_inbox`,
-  등록부는 데몬 수명 상태)과 **알림 브릿지**(`pr.notifiers[]` — `todo.inbox[]` 와 같은
+  등록부는 데몬 수명 상태; `pr.autoResolve`(레포마다, 기본 끔)면 처리 안 된 리뷰 스레드가 는 전이
+  `pr-review` 때 그 세션에 `/rocky:resolve-reviews N` 처리를 시킨다 — 배너·브릿지는 `pr-review` 를 안 쓴다)과
+  **알림 브릿지**(`pr.notifiers[]` — `todo.inbox[]` 와 같은
   `CommandBridge` 모양; 데몬이 argv 그대로 실행하고 stdin 에 `bridge_payload` JSON 을 준다, exit ≠ 0 은
   이름과 stderr 첫 줄을 로그에; 서비스 코드는 `bridges/<name>/` 에만 — `bridges/telegram/notify.ts` 가
   참조 구현이고 토큰은 `op read`), `merged` 는 기록만. **읽기만 한다** — GitHub 에 쓰는 것은

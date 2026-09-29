@@ -337,6 +337,27 @@ pub struct PrWatchConfig {
     /// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에
     /// 밀어 넣는다(`rocky_core::peer_inbox`). 기본 켬.
     pub session_notify: Option<bool>,
+    /// 리뷰가 붙으면 세션에 `/rocky:resolve-reviews` 를 시킬 레포 — 레포마다 켜고 끈다. 기본 끔.
+    pub auto_resolve: AutoResolve,
+}
+
+/// `pr.autoResolve` — `true`(전 레포) · `false`/없음(끔) · `["owner/name", …]`(그 레포만).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum AutoResolve {
+    #[default]
+    Off,
+    All,
+    Repos(Vec<String>),
+}
+
+impl AutoResolve {
+    pub fn enabled_for(&self, repo: &str) -> bool {
+        match self {
+            AutoResolve::Off => false,
+            AutoResolve::All => true,
+            AutoResolve::Repos(repos) => repos.iter().any(|r| r.eq_ignore_ascii_case(repo)),
+        }
+    }
 }
 
 /// 명령 하나로 된 브릿지 — `todo.inbox[]`(읽기)와 `pr.notifiers[]`(알림)가 같은 모양이다.
@@ -374,6 +395,18 @@ pub fn load_pr_block(config_path: &Path) -> PrWatchConfig {
             .map(|arr| arr.iter().filter_map(parse_inbox_source).collect())
             .unwrap_or_default(),
         session_notify: block.get("sessionNotify").and_then(|v| v.as_bool()),
+        auto_resolve: match block.get("autoResolve") {
+            Some(serde_json::Value::Bool(true)) => AutoResolve::All,
+            Some(serde_json::Value::Array(repos)) => AutoResolve::Repos(
+                repos
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .filter(|r| r.contains('/'))
+                    .map(str::to_string)
+                    .collect(),
+            ),
+            _ => AutoResolve::Off,
+        },
     }
 }
 
