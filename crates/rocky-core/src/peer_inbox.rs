@@ -69,7 +69,7 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     };
     let todo = match event.kind {
         PrEventKind::Ready => {
-            "데몬이 기계적으로 본 결과다 — CI 녹색, 리뷰 스레드 전부 처리(👀, 🚀 없음). 리뷰는 머지 \
+            "데몬이 기계적으로 본 결과다 — CI 녹색, 리뷰 스레드 전부 처리(🚀, 결정 필요 👀 없음). 리뷰는 머지 \
              전까지 언제든 붙을 수 있으니 알리기 전에 이 세션이 판단한다: `/rocky:resolve-reviews` 의 \
              8단계(머지 후보 판단)대로 요청된 리뷰어 응답·봇 리뷰(메모리가 필수라 한 레포만)·방금 한 \
              푸시·작업 중 표시를 본다. 걸리는 게 없으면 사용자에게 한 줄로 알리고(PushNotification 이 \
@@ -99,7 +99,7 @@ pub fn review_session_message(event: &PrEvent) -> Option<String> {
         return None;
     }
     Some(format!(
-        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:resolve-reviews {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 👀/🚀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 PR 을 작업 중이면 끝낸 뒤에, 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포의 보드는 자동 처리가 켜져 있다 — 끄려면 `rocky board auto-resolve off`.)",
+        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:resolve-reviews {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 🚀/👀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 PR 을 작업 중이면 끝낸 뒤에, 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포의 보드는 자동 처리가 켜져 있다 — 끄려면 `rocky board auto-resolve off`.)",
         event.repo, event.number, event.title, event.url, event.number
     ))
 }

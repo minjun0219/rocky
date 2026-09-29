@@ -223,7 +223,7 @@ export interface PrSnapshot {
   unhandled: number;
   /** 처리 안 된 스레드 id — 데몬의 새 리뷰 판정용(웹은 쓰지 않는다). 옛 스냅숏엔 없다. */
   unhandledIds?: string[];
-  rocket: number;
+  decision: number;
   ready: boolean;
   updatedAt: string;
 }

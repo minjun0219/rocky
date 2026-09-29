@@ -348,8 +348,8 @@ fn format_prs(prs: &[rocky_core::prwatch::PrSnapshot]) -> String {
                 } else {
                     String::new()
                 },
-                if p.rocket > 0 {
-                    format!(" · 결정 필요 {}", p.rocket)
+                if p.decision > 0 {
+                    format!(" · 결정 필요 {}", p.decision)
                 } else {
                     String::new()
                 },

@@ -462,7 +462,7 @@ async fn bridge_notifier_runs_the_command_with_the_transition_on_stdin() {
         ci: rocky_core::prwatch::CiState::Pass,
         unhandled: 0,
         unhandled_ids: vec![],
-        rocket: 0,
+        decision: 0,
         ready: true,
         updated_at: "2026-09-28T10:00:00Z".into(),
     };
@@ -560,7 +560,7 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
         ci: rocky_core::prwatch::CiState::Pass,
         unhandled: 0,
         unhandled_ids: vec![],
-        rocket: 0,
+        decision: 0,
         ready: true,
         updated_at: "2026-09-28T10:00:00Z".into(),
     };

@@ -69,21 +69,21 @@ fn parses_ci_threads_and_ready_from_the_query_shape() {
             1,
             "OPEN",
             Some("SUCCESS"),
-            vec![thread(false, &["EYES"]), thread(true, &[])],
+            vec![thread(false, &["ROCKET"]), thread(true, &[])],
         ),
         pr(2, "OPEN", Some("FAILURE"), {
             let mut t = thread(false, &[]);
             t["id"] = json!("T_new");
             vec![t]
         }),
-        pr(3, "OPEN", None, vec![thread(false, &["ROCKET"])]),
+        pr(3, "OPEN", None, vec![thread(false, &["EYES"])]),
     ]);
     let mut snaps = parse_pr_details(&d, "o/r", "main").unwrap();
     snaps.sort_by_key(|s| s.number);
     assert_eq!(snaps.len(), 3);
     let s1 = &snaps[0];
     assert_eq!(
-        (s1.ci, s1.unhandled, s1.rocket, s1.ready),
+        (s1.ci, s1.unhandled, s1.decision, s1.ready),
         (CiState::Pass, 0, 0, true)
     );
     assert_eq!(s1.head, "abcdef0");
@@ -94,12 +94,12 @@ fn parses_ci_threads_and_ready_from_the_query_shape() {
         vec!["T_new".to_string()],
         "처리 안 된 스레드의 id 를 기억한다"
     );
-    assert!(s1.unhandled_ids.is_empty(), "👀 단 스레드는 목록에 없다");
+    assert!(s1.unhandled_ids.is_empty(), "🚀 단 스레드는 목록에 없다");
     let s3 = &snaps[2];
     assert_eq!(
-        (s3.ci, s3.rocket, s3.ready),
+        (s3.ci, s3.decision, s3.ready),
         (CiState::Pass, 1, false),
-        "check 없음 = pass, 🚀 는 막는다"
+        "check 없음 = pass, 👀(결정 필요) 는 막는다"
     );
 
     let list = parse_pr_list(
@@ -245,7 +245,7 @@ fn snap(number: i64, state: &str, ready: bool, merge_state: &str) -> PrSnapshot 
         ci: CiState::Pass,
         unhandled: 0,
         unhandled_ids: vec![],
-        rocket: 0,
+        decision: 0,
         ready,
         updated_at: "2026-09-28T10:00:00Z".into(),
     }
@@ -357,7 +357,7 @@ fn a_reopened_pr_emits_opened_and_ready() {
 /// 스레드가 첫 페이지를 넘치면 못 본 것이 있다 — ready 로 판정하지 않는다.
 #[test]
 fn truncated_review_threads_block_ready() {
-    let mut node = pr(1, "OPEN", Some("SUCCESS"), vec![thread(false, &["EYES"])]);
+    let mut node = pr(1, "OPEN", Some("SUCCESS"), vec![thread(false, &["ROCKET"])]);
     node["reviewThreads"]["pageInfo"] = json!({ "hasNextPage": true });
     let snaps = parse_pr_details(&detail_data(vec![node]), "o/r", "main").unwrap();
     assert_eq!((snaps[0].unhandled, snaps[0].ready), (1, false));
@@ -389,7 +389,7 @@ fn bridge_payload_carries_the_transition_and_the_banner_text() {
     assert_eq!(v["text"], "#7 머지 후보 — PR 7");
 }
 
-/// 리뷰 도착 — 처리 안 된 스레드가 늘면(봇·사람 리뷰가 새로 붙으면) Review. 👀 로 줄어드는 건 아니다.
+/// 리뷰 도착 — 처리 안 된 스레드가 늘면(봇·사람 리뷰가 새로 붙으면) Review. 🚀 로 줄어드는 건 아니다.
 #[test]
 fn unresolved_threads_growing_is_a_review_transition() {
     let mut before = snap(1, "OPEN", false, "CLEAN");
@@ -411,7 +411,7 @@ fn unresolved_threads_growing_is_a_review_transition() {
     assert_eq!(PrEventKind::Review.action(), "pr-review");
 }
 
-/// Codex 지적(#210) — 스레드 하나를 👀 로 처리하는 사이 새 스레드가 붙으면 수는 그대로다. 수가 아니라
+/// Codex 지적(#210) — 스레드 하나를 🚀 로 처리하는 사이 새 스레드가 붙으면 수는 그대로다. 수가 아니라
 /// 처음 보는 스레드 id 로 새 리뷰를 가린다.
 #[test]
 fn a_new_thread_replacing_a_handled_one_is_still_a_review() {

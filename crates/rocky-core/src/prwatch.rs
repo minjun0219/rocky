@@ -189,15 +189,16 @@ pub struct PrSnapshot {
     /// GitHub 의 `mergeStateStatus` — DIRTY 가 충돌.
     pub merge_state: String,
     pub ci: CiState,
-    /// 미해결 스레드 중 👀 도 🚀 도 없는 것.
+    /// 미해결 스레드 중 🚀 도 👀 도 없는 것.
     pub unhandled: i64,
     /// 그 스레드들의 id — 새 리뷰는 "수가 늘었다" 가 아니라 "처음 보는 id 가 있다" 로 가린다
-    /// (하나를 👀 로 처리하는 사이 새 스레드가 붙으면 수는 그대로다). 이 필드가 생기기 전의
+    /// (하나를 🚀 로 처리하는 사이 새 스레드가 붙으면 수는 그대로다). 이 필드가 생기기 전의
     /// 스냅숏은 비어 있다(`serde(default)`).
     #[serde(default)]
     pub unhandled_ids: Vec<String>,
-    /// 🚀(호출자 결정 필요).
-    pub rocket: i64,
+    /// 👀(오너 결정 필요) 가 달린 스레드 수. 옛 스냅숏의 이름은 `rocket` 이었다(의미가 뒤집히기 전).
+    #[serde(alias = "rocket")]
+    pub decision: i64,
     pub ready: bool,
     pub updated_at: String,
 }
@@ -214,7 +215,7 @@ pub fn is_ready(
     merge_state: &str,
     ci: CiState,
     unhandled: i64,
-    rocket: i64,
+    decision: i64,
 ) -> bool {
     state == "OPEN"
         && !is_draft
@@ -222,7 +223,7 @@ pub fn is_ready(
         && merge_state != "DIRTY"
         && ci == CiState::Pass
         && unhandled == 0
-        && rocket == 0
+        && decision == 0
 }
 
 /// `statusCheckRollup.state` → CI 상태. check 가 없으면(null) 통과로 본다 — 막을 근거가 없다.
@@ -336,7 +337,7 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
     );
     let mut unhandled = 0;
     let mut unhandled_ids = Vec::new();
-    let mut rocket = 0;
+    let mut decision = 0;
     // 스레드가 첫 페이지(50)를 넘치면 못 본 것이 있다 — 보수적으로 "처리 안 됨" 하나로 친다.
     // (이 레포에서 50개를 넘는 PR 은 없다; 넘치면 ready 알림이 안 나가는 쪽이 안전하다.)
     if node
@@ -354,9 +355,11 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
             if thread.get("isResolved").and_then(Value::as_bool) == Some(true) {
                 continue;
             }
-            if viewer_reacted(thread, "rocket") {
-                rocket += 1;
-            } else if !viewer_reacted(thread, "eyes") {
+            // 규약: 🚀 = 처리 완료(오너가 resolve 해도 된다), 👀 = 오너 결정 필요. 👍/👎 는 Codex 에
+            // 주는 피드백이라 상태가 아니다.
+            if viewer_reacted(thread, "eyes") {
+                decision += 1;
+            } else if !viewer_reacted(thread, "rocket") {
                 unhandled += 1;
                 if let Some(id) = thread.get("id").and_then(Value::as_str) {
                     unhandled_ids.push(id.to_string());
@@ -375,7 +378,7 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
         &merge_state,
         ci,
         unhandled,
-        rocket,
+        decision,
     );
     Ok(PrSnapshot {
         repo: repo.to_string(),
@@ -390,7 +393,7 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
         ci,
         unhandled,
         unhandled_ids,
-        rocket,
+        decision,
         ready,
         updated_at: str_of("updatedAt"),
     })
@@ -515,7 +518,7 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
     out
 }
 
-/// 리뷰가 새로 붙었나 — 처리 안 된 스레드 중 **직전에 없던 id** 가 있으면. 👀 를 달면 목록에서
+/// 리뷰가 새로 붙었나 — 처리 안 된 스레드 중 **직전에 없던 id** 가 있으면. 🚀 를 달면 목록에서
 /// 빠지므로 처리 중인 스레드로는 안 난다. 직전 스냅숏에 id 가 없으면(필드 도입 전 저장분) 수로
 /// 비교한다 — 업그레이드 첫 tick 에 이미 알던 스레드를 전부 "새 리뷰" 로 보지 않게.
 fn has_new_review(was: &PrSnapshot, cur: &PrSnapshot) -> bool {
