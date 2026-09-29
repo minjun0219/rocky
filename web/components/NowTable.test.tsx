@@ -7,13 +7,14 @@ import { NowTable } from './NowTable';
 afterEach(cleanup);
 
 describe('NowTable', () => {
-  test('행이 없으면 한 줄 문장만', () => {
+  test('아무것도 없으면 "내 차례 없음" 한 줄, 돌고 있음 묶음은 숨긴다', () => {
     renderWithStore(<NowTable />, { nowTodos: [], nowHandoffs: [], collect: null });
-    expect(screen.getByText('도는 일도, 내 차례도 없다.')).toBeTruthy();
+    expect(screen.getByText('내 차례 없음')).toBeTruthy();
+    expect(screen.queryByText('돌고 있음')).toBeNull();
     expect(document.querySelector('table')).toBeNull();
   });
 
-  test('전 보드의 진행중을 표로 — 누가는 글자, 세션 없음은 점선, 눌러서 상세', async () => {
+  test('내 차례와 돌고 있음을 나눠 싣는다 — 글리프로 상태, 누가는 글자, 눌러서 상세', async () => {
     const openTodoDetail = mock(async () => {});
     renderWithStore(<NowTable />, {
       nowTodos: [
@@ -40,16 +41,46 @@ describe('NowTable', () => {
       collect: 2,
       openTodoDetail,
     });
-    const rows = [...document.querySelectorAll('tbody tr')];
-    expect(rows).toHaveLength(3);
-    expect(rows[0]?.textContent).toContain('acorn-server-28');
-    expect(rows[0]?.textContent).toContain('AGENT');
-    expect(rows[0]?.querySelector('.border-dashed')?.textContent).toBe('세션 없음');
-    expect(rows[1]?.textContent).toContain('YOU');
-    expect(rows[2]?.textContent).toContain('수집함');
-    // 헤더의 "내 차례" 는 run 이 아닌 행 수.
-    expect(screen.getByText('내 차례 2')).toBeTruthy();
+    const [mine, run] = [...document.querySelectorAll('ul')];
+    const mineRows = [...(mine?.querySelectorAll('li') ?? [])];
+    expect(mineRows).toHaveLength(2);
+    expect(mineRows[0]?.textContent).toContain('acorn-server-28');
+    expect(mineRows[0]?.textContent).toContain('AGENT');
+    expect(mineRows[0]?.textContent).toContain('세션 없음');
+    // 세션 없음은 색만이 아니라 모양(점선 원)으로도 말한다.
+    expect(mineRows[0]?.querySelector('[aria-label="세션 없음"]')?.textContent).toBe('◌');
+    // 오래된 진행중은 초를 굴리지 않고 날짜로 — "41일 03:12:44" 가 아니다.
+    expect(mineRows[0]?.textContent).toContain('8월 18일부터');
+    expect(mineRows[1]?.textContent).toContain('수집함');
+    const runRows = [...(run?.querySelectorAll('li') ?? [])];
+    expect(runRows).toHaveLength(1);
+    expect(runRows[0]?.textContent).toContain('YOU');
+    expect(runRows[0]?.querySelector('[aria-label="돌고 있음"]')?.textContent).toBe('●');
+    // 같은 상태를 행마다 배지로 반복하지 않고, 묶음 머리에 개수로 한 번.
+    expect(screen.getByRole('heading', { name: /내 차례\s*2/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /돌고 있음\s*1/ })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: /검증 실패 응답 통일/ }));
     expect(openTodoDetail).toHaveBeenCalledWith('gone');
+  });
+
+  test('내 차례가 5행을 넘으면 "N개 더" — 누르면 펼친다', async () => {
+    const nowTodos = Array.from({ length: 7 }, (_, i) =>
+      todoFixture({
+        id: `g${i}`,
+        ref: `g-${i}`,
+        title: `멈춘 일 ${i}`,
+        status: 'doing',
+        doingBy: 'claude-code',
+        doingSince: `2026-09-2${i}T00:00:00.000Z`,
+        doingState: 'gone',
+      }),
+    );
+    renderWithStore(<NowTable />, { nowTodos, nowHandoffs: [], collect: null });
+    expect(screen.queryByText('멈춘 일 6')).toBeNull();
+    // 머리의 개수는 접힘과 무관하게 전체 — 펼치기 전에도 7.
+    expect(screen.getByRole('heading', { name: /내 차례\s*7/ })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: '내 차례 2개 더' }));
+    expect(screen.getByText('멈춘 일 6')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /내 차례\s*7/ })).toBeTruthy();
   });
 });
