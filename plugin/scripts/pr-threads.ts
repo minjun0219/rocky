@@ -9,6 +9,9 @@
  * ```
  * bun scripts/pr-threads.ts list 154            # 미해결 스레드 JSON (첫 코멘트 id·내 리액션 포함)
  * bun scripts/pr-threads.ts react PRRC_… EYES   # 내 다른 상태 리액션을 떼고 👀 하나만 남긴다
+ * bun scripts/pr-threads.ts after-merge
+ *   # 최근 머지된 PR 10개에서 머지 **뒤에** 열린 미처리 리뷰 스레드 — 다음 PR 에 고치고 링크를 건다
+ *
  * bun scripts/pr-threads.ts watch 154 [--wait-bot] [--timeout 300]
  *   # CI 가 끝날 때까지 → 현재 head 의 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
  *   # 기본은 봇을 기다리지 않는다 — CI 만 기다린 뒤 지금 상태를 낸다. `--wait-bot` 이면 봇 신호가 올 때까지(또는 timeout).
@@ -42,6 +45,8 @@ export type ThreadNode = {
       author: { login: string } | null;
       body: string;
       createdAt: string;
+      /** 코멘트 링크 — `after-merge` 만 묻는다(다음 PR 본문에 거는 링크). */
+      url?: string;
       reactions: { nodes: Array<{ content: string; user: { login: string } | null }> };
     }>;
   };
@@ -181,7 +186,16 @@ export type ReadyVerdict = {
  * "확인·머지해도 되나" — `/rocky:resolve-reviews` 9단계의 세 조건을 한 번에. 스레드 수는
  * 판정 조건이 아니다(닫는 건 사용자 몫) — 처리 안 된 것과 결정 필요한 것만 막는다.
  */
-export function readyVerdict(threads: ThreadSummary[], ci: CiState): ReadyVerdict {
+/**
+ * 기계 판정 — "머지 후보" 까지다. 리뷰는 머지 전까지 언제든 붙을 수 있으므로 알릴지는 세션이 한 번 더
+ * 판단한다(`/rocky:resolve-reviews` 8단계). 응답하지 않은 리뷰 요청은 여기서 막는다 — 누군가 보기로 한
+ * 리뷰가 아직 안 왔는데 "머지해도 된다" 가 나가면 안 된다.
+ */
+export function readyVerdict(
+  threads: ThreadSummary[],
+  ci: CiState,
+  pendingReviewers: string[] = [],
+): ReadyVerdict {
   const rocket = threads.filter((t) => t.mine.includes('ROCKET')).length;
   const unhandled = threads.filter(
     (t) => !t.mine.includes('EYES') && !t.mine.includes('ROCKET'),
@@ -197,6 +211,9 @@ export function readyVerdict(threads: ThreadSummary[], ci: CiState): ReadyVerdic
   }
   if (rocket > 0) {
     reasons.push(`호출자 결정 필요 🚀 ${rocket}건 — 알림이 아니라 질문이 먼저`);
+  }
+  if (pendingReviewers.length > 0) {
+    reasons.push(`리뷰 요청 응답 대기: ${pendingReviewers.join(', ')}`);
   }
   return {
     ready: reasons.length === 0,
@@ -216,6 +233,65 @@ export function ciStateOf(rows: string[]): CiState {
     return 'pending';
   }
   return 'pass';
+}
+
+/** 머지된 PR 하나 — `after-merge` 의 재료. */
+export type MergedPr = {
+  number: number;
+  title: string;
+  url: string;
+  mergedAt: string;
+  reviewThreads: { nodes: ThreadNode[] };
+};
+
+/** 머지 뒤에 열린, 아직 아무도 처리하지 않은 리뷰 스레드 — 다음 PR 에 고치고 링크를 건다. */
+export type AfterMergeFinding = {
+  pr: number;
+  prTitle: string;
+  prUrl: string;
+  threadId: string;
+  commentId: string;
+  commentUrl: string;
+  path: string;
+  line: number | null;
+  author: string;
+  createdAt: string;
+  body: string;
+};
+
+/**
+ * 머지 뒤의 리뷰 — 머지된 PR 에 머지 **이후** 첫 코멘트가 달린 미해결 스레드 중 내 👀·🚀 가 없는 것.
+ * 머지 전에 열린 스레드는 그 PR 에서 이미 다뤘다고 본다(resolve 는 사람 몫이라 열려 있을 수 있다).
+ */
+export function afterMergeFindings(prs: MergedPr[], me: string): AfterMergeFinding[] {
+  const out: AfterMergeFinding[] = [];
+  for (const pr of prs) {
+    const mergedAt = Date.parse(pr.mergedAt);
+    for (const t of pr.reviewThreads.nodes) {
+      const first = t.comments.nodes[0];
+      if (t.isResolved || !first || Date.parse(first.createdAt) <= mergedAt) {
+        continue;
+      }
+      const mine = first.reactions.nodes.filter((r) => r.user?.login === me).map((r) => r.content);
+      if (mine.includes('EYES') || mine.includes('ROCKET')) {
+        continue;
+      }
+      out.push({
+        pr: pr.number,
+        prTitle: pr.title,
+        prUrl: pr.url,
+        threadId: t.id,
+        commentId: first.id,
+        commentUrl: first.url ?? pr.url,
+        path: t.path,
+        line: t.line,
+        author: first.author?.login ?? '(삭제됨)',
+        createdAt: first.createdAt,
+        body: first.body.slice(0, 500),
+      });
+    }
+  }
+  return out;
 }
 
 export type PrState = { number: number; state: string; mergeState: string };
@@ -245,7 +321,7 @@ export function transitionsBetween(prev: PrState[], cur: PrState[]): string[] {
 }
 
 export type Args = {
-  cmd: 'list' | 'react' | 'watch' | 'ready' | 'transitions';
+  cmd: 'list' | 'react' | 'watch' | 'ready' | 'transitions' | 'after-merge';
   pr?: number;
   commentId?: string;
   reaction?: StateReaction;
@@ -282,6 +358,13 @@ export function parseArgs(argv: string[]): Args {
     }
   }
   switch (cmd) {
+    case 'after-merge': {
+      args.cmd = cmd;
+      if (positional.length > 0) {
+        throw new Error('after-merge 는 PR 번호를 받지 않는다 — 최근 머지된 PR 전체를 본다');
+      }
+      return args;
+    }
     case 'transitions': {
       args.cmd = cmd;
       if (positional.length > 0) {
@@ -313,7 +396,7 @@ export function parseArgs(argv: string[]): Args {
     }
     default:
       throw new Error(
-        `사용법: pr-threads.ts <list|react|watch|ready|transitions> … (받은 명령: ${cmd ?? '(없음)'})`,
+        `사용법: pr-threads.ts <list|react|watch|ready|transitions|after-merge> … (받은 명령: ${cmd ?? '(없음)'})`,
       );
   }
 }
@@ -376,6 +459,8 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
     commits(last:1){ nodes{ commit{ committedDate } } }
     reviews(last:30){ nodes{ author{ login } submittedAt commit{ oid } } }
     reactions(first:30){ nodes{ content createdAt user{ login } } }
+    reviewRequests(first:20){ nodes{ requestedReviewer{
+      ... on User{ login } ... on Bot{ login } ... on Mannequin{ login } ... on Team{ name } } } }
     reviewThreads(first:100, after:$after){
       pageInfo{ hasNextPage endCursor }
       nodes{
@@ -397,6 +482,9 @@ type PrData = {
       commits: { nodes: Array<{ commit: { committedDate: string } }> };
       reviews: { nodes: ReviewNode[] };
       reactions: { nodes: ReactionNode[] };
+      reviewRequests: {
+        nodes: Array<{ requestedReviewer: { login?: string; name?: string } | null }>;
+      };
       reviewThreads: {
         pageInfo: { hasNextPage: boolean; endCursor: string | null };
         nodes: ThreadNode[];
@@ -415,6 +503,8 @@ export type PrSnapshot = {
   reviews: ReviewNode[];
   reactions: ReactionNode[];
   threads: ThreadSummary[];
+  /** 리뷰를 요청받고 아직 응답하지 않은 리뷰어(사람·봇·팀) — GitHub 이 응답하면 목록에서 뺀다. */
+  pendingReviewers: string[];
   /** 이 PR 에 봇 흔적이 있는가 — {@link botSeen}. */
   botSeen: boolean;
 };
@@ -450,6 +540,9 @@ function snapshot(slug: Slug, pr: number): PrSnapshot {
     reviews: p.reviews.nodes,
     reactions: p.reactions.nodes,
     threads,
+    pendingReviewers: p.reviewRequests.nodes
+      .map((n) => n.requestedReviewer?.login ?? n.requestedReviewer?.name)
+      .filter((n): n is string => Boolean(n)),
     botSeen: botSeen(
       p.reviews.nodes,
       p.reactions.nodes,
@@ -489,6 +582,32 @@ function react(commentId: string, target: StateReaction): { removed: string[]; a
     );
   }
   return { removed, added: target };
+}
+
+/** 최근 머지된 PR 10개와 그 스레드 — 머지 뒤 리뷰는 대개 머지 직후라 창이 작아도 된다. */
+const AFTER_MERGE_QUERY = `query($owner:String!, $repo:String!){
+  viewer{ login }
+  repository(owner:$owner, name:$repo){
+    pullRequests(states:MERGED, first:10, orderBy:{field:UPDATED_AT, direction:DESC}){ nodes{
+      number title url mergedAt
+      reviewThreads(first:50){ nodes{
+        id isResolved isOutdated path line
+        comments(first:1){ nodes{ id url author{ login } body createdAt
+          reactions(first:30){ nodes{ content user{ login } } } } }
+      } }
+    } }
+  }
+}`;
+
+function afterMerge(slug: Slug): { me: string; findings: AfterMergeFinding[] } {
+  const data = graphql<{
+    viewer: { login: string };
+    repository: { pullRequests: { nodes: MergedPr[] } };
+  }>(AFTER_MERGE_QUERY, { owner: slug.owner, repo: slug.repo });
+  return {
+    me: data.viewer.login,
+    findings: afterMergeFindings(data.repository.pullRequests.nodes, data.viewer.login),
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -537,7 +656,7 @@ function ciNow(pr: number): CiState {
 
 function ready(slug: Slug, pr: number): PrSnapshot & { verdict: ReadyVerdict } {
   const snap = snapshot(slug, pr);
-  return { ...snap, verdict: readyVerdict(snap.threads, ciNow(pr)) };
+  return { ...snap, verdict: readyVerdict(snap.threads, ciNow(pr), snap.pendingReviewers) };
 }
 
 function openPrStates(): PrState[] {
@@ -590,6 +709,10 @@ async function main(argv: string[]): Promise<number> {
     if (args.cmd === 'react') {
       const result = react(args.commentId as string, args.reaction as StateReaction);
       console.log(JSON.stringify(result));
+      return 0;
+    }
+    if (args.cmd === 'after-merge') {
+      console.log(JSON.stringify(afterMerge(repoSlug()), null, 2));
       return 0;
     }
     if (args.cmd === 'transitions') {

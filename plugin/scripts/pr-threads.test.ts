@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  afterMergeFindings,
   botVerdict,
   botSeen,
   ciStateOf,
@@ -252,6 +253,15 @@ describe('parseArgs — ready / transitions', () => {
   });
 });
 
+describe('readyVerdict — 리뷰 요청', () => {
+  it('응답하지 않은 리뷰 요청이 있으면 머지 후보가 아니다', () => {
+    const v = readyVerdict([], 'pass', ['alice', 'copilot-pull-request-reviewer']);
+    expect(v.ready).toBe(false);
+    expect(v.reasons).toContain('리뷰 요청 응답 대기: alice, copilot-pull-request-reviewer');
+    expect(readyVerdict([], 'pass', []).ready).toBe(true);
+  });
+});
+
 describe('botSeen', () => {
   const none: Array<{ author: { login: string } | null }> = [];
   it('봇이 리뷰했거나 스레드를 열었거나 본문에 리액션을 달았으면 흔적이 있다', () => {
@@ -269,5 +279,69 @@ describe('botSeen', () => {
         ['someone', null],
       ),
     ).toBe(false);
+  });
+});
+
+describe('afterMergeFindings', () => {
+  const thread = (
+    id: string,
+    createdAt: string,
+    opts: { resolved?: boolean; mine?: string[] } = {},
+  ) => ({
+    id,
+    isResolved: opts.resolved ?? false,
+    isOutdated: false,
+    path: 'a.ts',
+    line: 3,
+    comments: {
+      nodes: [
+        {
+          id: `c-${id}`,
+          url: `https://x/pull/9#discussion_${id}`,
+          author: { login: 'chatgpt-codex-connector' },
+          body: '지적',
+          createdAt,
+          reactions: {
+            nodes: (opts.mine ?? []).map((content) => ({ content, user: { login: 'me' } })),
+          },
+        },
+      ],
+    },
+  });
+  const merged = {
+    number: 9,
+    title: 'PR 9',
+    url: 'https://x/pull/9',
+    mergedAt: '2026-09-29T10:00:00Z',
+    reviewThreads: {
+      nodes: [
+        thread('before', '2026-09-29T09:00:00Z'), // 머지 전 — 그 PR 에서 다뤘다
+        thread('after', '2026-09-29T10:05:00Z'), // 머지 뒤 · 미처리 → 다음 PR 에
+        thread('done', '2026-09-29T10:06:00Z', { mine: ['EYES'] }), // 이미 👀
+        thread('ask', '2026-09-29T10:07:00Z', { mine: ['ROCKET'] }), // 이미 🚀
+        thread('closed', '2026-09-29T10:08:00Z', { resolved: true }),
+      ],
+    },
+  };
+
+  it('머지 뒤에 열린 미처리 스레드만 — 링크와 원래 PR 을 함께 낸다', () => {
+    const found = afterMergeFindings([merged], 'me');
+    expect(found.map((f) => f.threadId)).toEqual(['after']);
+    expect(found[0]).toMatchObject({
+      pr: 9,
+      prUrl: 'https://x/pull/9',
+      commentId: 'c-after',
+      commentUrl: 'https://x/pull/9#discussion_after',
+      author: 'chatgpt-codex-connector',
+    });
+  });
+
+  it('다른 사람이 단 👀 는 처리로 치지 않는다', () => {
+    const t = thread('x', '2026-09-29T10:05:00Z');
+    for (const c of t.comments.nodes) {
+      c.reactions.nodes = [{ content: 'EYES', user: { login: 'someone' } }];
+    }
+    const other = { ...merged, reviewThreads: { nodes: [t] } };
+    expect(afterMergeFindings([other], 'me')).toHaveLength(1);
   });
 });

@@ -186,7 +186,7 @@ struct PrTransition<'a> {
 /// 세션에 넣으면 지시로 오독된다).
 fn pr_transition(e: &ChangeFeedEntry) -> Option<PrTransition<'_>> {
     let (kind, label) = match e.history.action.as_str() {
-        "pr-ready" => ("ready", "확인·머지해도 된다"),
+        "pr-ready" => ("ready", "머지 후보"),
         "pr-conflict" => ("conflict", "충돌 — 풀어야 한다"),
         _ => return None,
     };
@@ -234,7 +234,7 @@ pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
     out.extend(lines);
     out.push(String::new());
     out.push(
-        "(자동 주입 — 데몬이 CI·리뷰 스레드를 보고 판정한 것이다. 감시를 따로 돌리지 말고, 확인·머지는 사용자 몫이니 알려만 준다)"
+        "(자동 주입 — 데몬이 CI·리뷰 스레드로 기계적으로 고른 것이다. 감시를 따로 돌리지 말고, 머지 후보는 `/rocky:resolve-reviews` 8단계대로 판단해 알린다 — 머지는 사용자 몫)"
             .to_string(),
     );
     Some(out.join("\n"))

@@ -168,7 +168,7 @@ async fn a_tick_queries_each_watched_repo_and_notifies_only_ready_and_conflict()
         ]
     );
     assert_eq!(seen.lock().unwrap().len(), 1, "ready 만 알린다");
-    assert_eq!(seen.lock().unwrap()[0].1, "#1 확인·머지해도 된다 — PR 1");
+    assert_eq!(seen.lock().unwrap()[0].1, "#1 머지 후보 — PR 1");
     let status = f.state.pr_watch();
     assert!(status.available && status.repos == vec!["o/r".to_string()]);
 
@@ -484,7 +484,7 @@ async fn bridge_notifier_runs_the_command_with_the_transition_on_stdin() {
     assert_eq!(payload["kind"], "ready");
     assert_eq!(payload["number"], 7);
     assert_eq!(payload["url"], "https://github.com/o/r/pull/7");
-    assert_eq!(payload["text"], "#7 확인·머지해도 된다 — PR 7");
+    assert_eq!(payload["text"], "#7 머지 후보 — PR 7");
     assert_eq!(seen.lock().unwrap().len(), 1, "다른 알림기도 받는다");
 }
 
@@ -579,7 +579,7 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
     assert!(v["message"]["content"]
         .as_str()
         .unwrap()
-        .starts_with("rocky: o/r #7 확인·머지해도 된다"));
+        .starts_with("rocky: o/r #7 머지 후보"));
     // 옛 세션에는 보내지 않는다 — 한 곳에만.
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(old_listener.accept().is_err(), "가장 최근 세션 하나에만");
