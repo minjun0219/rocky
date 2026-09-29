@@ -573,7 +573,9 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
   (JSON 파일을 그대로 낸다 — 테스트·수동 확인용). 실제 앱: [`bridges/todoist/inbox.py`](../bridges/todoist/inbox.py)
   — Todoist API v1 활성 작업(`--filter` 로 Todoist 필터 문법), 토큰은 1Password Agent Vault 에서 `op read`
   (참조는 항목 **UUID** 로 — 제목에 한글·`:` 이 있으면 `op://` 문법이 깨진다). `--from FILE` 이면 토큰 없이
-  저장된 응답을 변환한다(테스트).
+  저장된 응답을 변환한다(테스트). [`bridges/github-project/inbox.ts`](../bridges/github-project/inbox.ts) — GitHub 프로젝트 보드의
+  열린 이슈를 보드 필터와 같은 조건(담당자·이슈 타입·사용자 정의 필드, AND)으로 거른다. 인증은 로그인된
+  `gh`(`read:project`), 예산은 PR 감시와 같은 GraphQL 한도라 `--limit`(기본 100)만큼만 묻는다.
 
 **`GET /api/inbox?refresh=true`** — 소스를 **동시에** 실행하고 소스별 60초 캐시(실패도 캐시된다 —
 죽은 어댑터를 매 요청마다 때리지 않는다). `refresh=true` 는 캐시를 우회한다. 설정된 소스가 없으면
