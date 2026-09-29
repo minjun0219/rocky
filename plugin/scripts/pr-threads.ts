@@ -8,7 +8,8 @@
  *
  * ```
  * bun scripts/pr-threads.ts list 154            # 미해결 스레드 JSON (첫 코멘트 id·내 리액션 포함)
- * bun scripts/pr-threads.ts react PRRC_… EYES   # 내 다른 상태 리액션을 떼고 👀 하나만 남긴다
+ * bun scripts/pr-threads.ts react PRRC_… ROCKET # 상태 — 🚀 처리 완료 / 👀 오너 결정 필요, 내 다른 상태 리액션을 떼고 하나만
+ * bun scripts/pr-threads.ts react PRRC_… THUMBS_UP # 피드백 — 👍 / 👎 (Codex 가 요청). 상태 리액션과 따로 산다
  * bun scripts/pr-threads.ts after-merge
  *   # 최근 머지된 PR 10개에서 머지 **뒤에** 열린 미처리 리뷰 스레드 — 다음 PR 에 고치고 링크를 건다
  *
@@ -16,7 +17,7 @@
  *   # CI 가 끝날 때까지 → 현재 head 의 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
  *   # 기본은 봇을 기다리지 않는다 — CI 만 기다린 뒤 지금 상태를 낸다. `--wait-bot` 이면 봇 신호가 올 때까지(또는 timeout).
  *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(아직·안 옴). botSeen: 이 PR 에 봇 흔적이 있는가
- * bun scripts/pr-threads.ts ready 154           # "확인·머지해도 되나" 한 번에 — CI 초록 + 👀 없는 스레드 없음 + 🚀 없음. exit 0/1
+ * bun scripts/pr-threads.ts ready 154           # "머지 후보인가" 한 번에 — CI 초록 + 상태 없는 스레드 없음 + 👀(결정 필요) 없음. exit 0/1
  * bun scripts/pr-threads.ts transitions --interval 60
  *   # 열린 PR 전체를 돌며 MERGED / CLOSED / DIRTY / CONFLICTING 전이만 한 줄씩 — Monitor 에 물린다
  *   # (폴백 — repo 가 설정된 보드의 PR 은 데몬 `rockyd::prwatch` 가 보고 알린다)
@@ -25,10 +26,18 @@
  * PR 번호를 생략하면 현재 브랜치의 PR 이다.
  */
 
-/** 상태 리액션 — 규약상 이 둘뿐. `THUMBS_UP` 은 옛 규약(수정 완료)의 잔재를 떼기 위해 제거 목록에만 있다. */
-export const STATE_REACTIONS = ['EYES', 'ROCKET'] as const;
+/**
+ * 상태 리액션 — 스레드 첫 코멘트에 하나만. 🚀(`ROCKET`) = 고쳐서 내보냈다(또는 무효 확인) — 오너가
+ * resolve 해도 된다. 👀(`EYES`) = 오너가 봐야 한다(결정 필요).
+ */
+export const DONE = 'ROCKET';
+export const DECIDE = 'EYES';
+export const STATE_REACTIONS = [DONE, DECIDE] as const;
+/** 피드백 리액션 — Codex 가 코멘트마다 "Useful? React with 👍 / 👎" 로 요청한다. 상태와 따로 산다. */
+export const FEEDBACK_REACTIONS = ['THUMBS_UP', 'THUMBS_DOWN'] as const;
 export type StateReaction = (typeof STATE_REACTIONS)[number];
-const REMOVABLE = ['EYES', 'ROCKET', 'THUMBS_UP'] as const;
+export type FeedbackReaction = (typeof FEEDBACK_REACTIONS)[number];
+export type Reaction = StateReaction | FeedbackReaction;
 
 /** 재리뷰를 "왔다" 고 판정하는 봇 로그인. 사람 리뷰는 대기 종료 조건이 아니라 결과에만 실린다. */
 export const REVIEW_BOTS = ['chatgpt-codex-connector', 'copilot-pull-request-reviewer'] as const;
@@ -45,7 +54,7 @@ export type ThreadNode = {
       author: { login: string } | null;
       body: string;
       createdAt: string;
-      /** 코멘트 링크 — `after-merge` 만 묻는다(다음 PR 본문에 거는 링크). */
+      /** 코멘트 링크 — 채팅 보고와 다음 PR 본문에서 그 스레드로 바로 가게 한다. */
       url?: string;
       reactions: { nodes: Array<{ content: string; user: { login: string } | null }> };
     }>;
@@ -56,6 +65,8 @@ export type ThreadSummary = {
   threadId: string;
   /** 첫 코멘트 id — 리액션은 여기에 단다(스레드 id 가 아니다). */
   commentId: string;
+  /** 첫 코멘트로 바로 가는 링크 — 채팅 보고의 줄마다 건다(코멘트와 보고를 짝짓는 열쇠). */
+  url: string;
   path: string;
   line: number | null;
   outdated: boolean;
@@ -80,13 +91,18 @@ export function summarizeThreads(nodes: ThreadNode[], me: string): ThreadSummary
     out.push({
       threadId: node.id,
       commentId: first.id,
+      url: first.url ?? '',
       path: node.path,
       line: node.line,
       outdated: node.isOutdated,
       author: first.author?.login ?? '(unknown)',
       createdAt: first.createdAt,
       mine: first.reactions.nodes
-        .filter((r) => r.user?.login === me && (REMOVABLE as readonly string[]).includes(r.content))
+        .filter(
+          (r) =>
+            r.user?.login === me &&
+            ([...STATE_REACTIONS, ...FEEDBACK_REACTIONS] as readonly string[]).includes(r.content),
+        )
         .map((r) => r.content),
       body: first.body,
     });
@@ -94,9 +110,15 @@ export function summarizeThreads(nodes: ThreadNode[], me: string): ThreadSummary
   return out;
 }
 
-/** `target` 을 달기 전에 떼야 할 내 리액션 — 스레드당 하나 규약. */
-export function reactionsToRemove(current: string[], target: StateReaction): string[] {
-  return REMOVABLE.filter((c) => c !== target && current.includes(c));
+/**
+ * `target` 을 달기 전에 떼야 할 내 리액션 — 같은 종류(상태끼리 · 피드백끼리)에서 하나만 남긴다.
+ * 상태를 바꿔도 피드백은 그대로고, 피드백을 바꿔도 상태는 그대로다.
+ */
+export function reactionsToRemove(current: string[], target: Reaction): string[] {
+  const group: readonly string[] = (STATE_REACTIONS as readonly string[]).includes(target)
+    ? STATE_REACTIONS
+    : FEEDBACK_REACTIONS;
+  return group.filter((c) => c !== target && current.includes(c));
 }
 
 export type ReviewNode = {
@@ -176,8 +198,8 @@ export type CiState = 'pass' | 'fail' | 'pending';
 export type ReadyVerdict = {
   ready: boolean;
   ci: CiState;
-  /** 미해결 스레드 수 / 그중 👀 도 🚀 도 없는 것 / 🚀(호출자 결정 필요). */
-  threads: { total: number; unhandled: number; rocket: number };
+  /** 미해결 스레드 수 / 그중 🚀 도 👀 도 없는 것 / 👀(오너 결정 필요). */
+  threads: { total: number; unhandled: number; decision: number };
   /** 안 되는 이유들 — 비어 있으면 ready. 사람이 읽을 문장. */
   reasons: string[];
 };
@@ -196,9 +218,9 @@ export function readyVerdict(
   ci: CiState,
   pendingReviewers: string[] = [],
 ): ReadyVerdict {
-  const rocket = threads.filter((t) => t.mine.includes('ROCKET')).length;
+  const decision = threads.filter((t) => t.mine.includes(DECIDE)).length;
   const unhandled = threads.filter(
-    (t) => !t.mine.includes('EYES') && !t.mine.includes('ROCKET'),
+    (t) => !t.mine.includes(DONE) && !t.mine.includes(DECIDE),
   ).length;
   const reasons: string[] = [];
   if (ci === 'fail') {
@@ -207,10 +229,10 @@ export function readyVerdict(
     reasons.push('CI 진행 중');
   }
   if (unhandled > 0) {
-    reasons.push(`처리 안 된 스레드 ${unhandled}건(👀 도 🚀 도 없음)`);
+    reasons.push(`처리 안 된 스레드 ${unhandled}건(🚀 도 👀 도 없음)`);
   }
-  if (rocket > 0) {
-    reasons.push(`호출자 결정 필요 🚀 ${rocket}건 — 알림이 아니라 질문이 먼저`);
+  if (decision > 0) {
+    reasons.push(`오너 결정 필요 👀 ${decision}건 — 알림이 아니라 질문이 먼저`);
   }
   if (pendingReviewers.length > 0) {
     reasons.push(`리뷰 요청 응답 대기: ${pendingReviewers.join(', ')}`);
@@ -218,7 +240,7 @@ export function readyVerdict(
   return {
     ready: reasons.length === 0,
     ci,
-    threads: { total: threads.length, unhandled, rocket },
+    threads: { total: threads.length, unhandled, decision },
     reasons,
   };
 }
@@ -273,7 +295,7 @@ export function afterMergeFindings(prs: MergedPr[], me: string): AfterMergeFindi
         continue;
       }
       const mine = first.reactions.nodes.filter((r) => r.user?.login === me).map((r) => r.content);
-      if (mine.includes('EYES') || mine.includes('ROCKET')) {
+      if (mine.includes(DONE) || mine.includes(DECIDE)) {
         continue;
       }
       out.push({
@@ -324,7 +346,7 @@ export type Args = {
   cmd: 'list' | 'react' | 'watch' | 'ready' | 'transitions' | 'after-merge';
   pr?: number;
   commentId?: string;
-  reaction?: StateReaction;
+  reaction?: Reaction;
   timeoutSec: number;
   intervalSec: number;
   /** watch 가 봇 신호까지 기다리는가 — 기본 끔. */
@@ -385,13 +407,14 @@ export function parseArgs(argv: string[]): Args {
       args.cmd = cmd;
       const [commentId, reaction] = positional;
       if (!commentId || !reaction) {
-        throw new Error('react <COMMENT_ID> <EYES|ROCKET> — 둘 다 필요하다');
+        throw new Error('react <COMMENT_ID> <ROCKET|EYES|THUMBS_UP|THUMBS_DOWN> — 둘 다 필요하다');
       }
-      if (!(STATE_REACTIONS as readonly string[]).includes(reaction)) {
-        throw new Error(`상태 리액션은 ${STATE_REACTIONS.join('|')} 뿐이다 — 받은 값: ${reaction}`);
+      const allowed: readonly string[] = [...STATE_REACTIONS, ...FEEDBACK_REACTIONS];
+      if (!allowed.includes(reaction)) {
+        throw new Error(`리액션은 ${allowed.join('|')} 뿐이다 — 받은 값: ${reaction}`);
       }
       args.commentId = commentId;
-      args.reaction = reaction as StateReaction;
+      args.reaction = reaction as Reaction;
       return args;
     }
     default:
@@ -465,7 +488,7 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
       pageInfo{ hasNextPage endCursor }
       nodes{
         id isResolved isOutdated path line
-        comments(first:1){ nodes{ id author{ login } body createdAt
+        comments(first:1){ nodes{ id url author{ login } body createdAt
           reactions(first:30){ nodes{ content user{ login } } } } }
       }
     }
@@ -551,7 +574,7 @@ function snapshot(slug: Slug, pr: number): PrSnapshot {
   };
 }
 
-function react(commentId: string, target: StateReaction): { removed: string[]; added: string } {
+function react(commentId: string, target: Reaction): { removed: string[]; added: string } {
   // 내 리액션 목록을 먼저 본다 — 없는 리액션을 removeReaction 하면 에러라 맹목 제거는 시끄럽다.
   const data = graphql<{
     viewer: { login: string };
@@ -707,7 +730,7 @@ async function main(argv: string[]): Promise<number> {
   }
   try {
     if (args.cmd === 'react') {
-      const result = react(args.commentId as string, args.reaction as StateReaction);
+      const result = react(args.commentId as string, args.reaction as Reaction);
       console.log(JSON.stringify(result));
       return 0;
     }

@@ -211,7 +211,7 @@
   (user_version 8)에 기억하고, 직전과의 전이를 그 레포를 둔 보드의 히스토리에 actor `rocky`·
   action `pr-*` 로 남긴다 — 그래서 SSE·`/api/changes`·`notify-todo` 훅 주입(`build_pr_context` — ready·conflict 만, merged/closed 는 히스토리에만)
   이 그대로 탄다. 판정은 전부 순수(`is_ready`: OPEN·draft 아님·base 가 기본 브랜치·DIRTY 아님·
-  CI 통과·viewer 의 👀/🚀 가 없는 미해결 스레드 0·🚀 0). 사람에게는 `ready`·`conflict` 만
+  CI 통과·viewer 의 🚀/👀 가 없는 미해결 스레드 0·👀 0). 사람에게는 `ready`·`conflict` 만
   macOS 알림(osascript, `pr.notify`)·**세션 받은편지함**(`pr.sessionNotify`, 기본 켬 — 훅이 턴마다
   `session_id → CLAUDE_CODE_MESSAGING_SOCKET · cwd` 를 `POST /api/sessions/inbox`(로컬 전용, 경로 모양 검증)로
   등록하고, 데몬이 그 레포 보드에서 일하는 가장 최근 세션 하나의 소켓에 JSON 한 줄

@@ -68,13 +68,14 @@ describe('summarizeThreads', () => {
 });
 
 describe('reactionsToRemove', () => {
-  it('목표 외의 내 상태 리액션만 — 옛 👍 도 뗀다', () => {
-    expect(reactionsToRemove(['EYES', 'THUMBS_UP', 'HEART'], 'ROCKET')).toEqual([
-      'EYES',
-      'THUMBS_UP',
-    ]);
+  it('상태는 상태끼리만 바꾼다 — 👍/👎 피드백은 그대로 둔다', () => {
+    expect(reactionsToRemove(['EYES', 'THUMBS_UP', 'HEART'], 'ROCKET')).toEqual(['EYES']);
     expect(reactionsToRemove(['ROCKET'], 'ROCKET')).toEqual([]);
     expect(reactionsToRemove([], 'EYES')).toEqual([]);
+  });
+  it('피드백은 피드백끼리만 바꾼다 — 상태(🚀/👀)는 그대로 둔다', () => {
+    expect(reactionsToRemove(['ROCKET', 'THUMBS_DOWN'], 'THUMBS_UP')).toEqual(['THUMBS_DOWN']);
+    expect(reactionsToRemove(['EYES'], 'THUMBS_DOWN')).toEqual([]);
   });
 });
 
@@ -155,14 +156,15 @@ describe('parseArgs', () => {
     expect(parseArgs(['watch', '154']).waitBot).toBeUndefined();
   });
 
-  it('react 는 코멘트 id 와 상태 리액션 둘 다 필요하고 👍 는 거부한다', () => {
-    expect(parseArgs(['react', 'PRRC_1', 'EYES'])).toMatchObject({
+  it('react 는 코멘트 id 와 리액션 둘 다 필요하다 — 상태(🚀/👀)와 피드백(👍/👎)만 받는다', () => {
+    expect(parseArgs(['react', 'PRRC_1', 'ROCKET'])).toMatchObject({
       cmd: 'react',
       commentId: 'PRRC_1',
-      reaction: 'EYES',
+      reaction: 'ROCKET',
     });
+    expect(parseArgs(['react', 'PRRC_1', 'THUMBS_UP']).reaction).toBe('THUMBS_UP');
     expect(() => parseArgs(['react', 'PRRC_1'])).toThrow('둘 다');
-    expect(() => parseArgs(['react', 'PRRC_1', 'THUMBS_UP'])).toThrow('EYES|ROCKET');
+    expect(() => parseArgs(['react', 'PRRC_1', 'HEART'])).toThrow('ROCKET|EYES');
   });
 
   it('잘못된 입력은 조용히 넘기지 않는다', () => {
@@ -193,6 +195,7 @@ describe('readyVerdict', () => {
   const t = (mine: string[]): ThreadSummary => ({
     threadId: 'T',
     commentId: 'C',
+    url: 'https://x/pull/1#discussion_rC',
     path: 'a',
     line: 1,
     outdated: false,
@@ -201,18 +204,18 @@ describe('readyVerdict', () => {
     mine,
     body: '',
   });
-  it('CI 초록 + 전부 👀 면 ready — 열린 스레드 수는 조건이 아니다', () => {
-    const v = readyVerdict([t(['EYES']), t(['EYES'])], 'pass');
+  it('CI 초록 + 전부 🚀 면 ready — 열린 스레드 수는 조건이 아니다', () => {
+    const v = readyVerdict([t(['ROCKET']), t(['ROCKET', 'THUMBS_UP'])], 'pass');
     expect(v.ready).toBe(true);
-    expect(v.threads).toEqual({ total: 2, unhandled: 0, rocket: 0 });
+    expect(v.threads).toEqual({ total: 2, unhandled: 0, decision: 0 });
   });
-  it('👀 없는 스레드, 🚀, CI 실패·진행 중은 각각 이유가 된다', () => {
-    const v = readyVerdict([t([]), t(['ROCKET']), t(['EYES'])], 'fail');
+  it('상태 없는 스레드, 👀(결정 필요), CI 실패·진행 중은 각각 이유가 된다 — 👍 만으로는 처리가 아니다', () => {
+    const v = readyVerdict([t(['THUMBS_UP']), t(['EYES']), t(['ROCKET'])], 'fail');
     expect(v.ready).toBe(false);
-    expect(v.threads).toEqual({ total: 3, unhandled: 1, rocket: 1 });
+    expect(v.threads).toEqual({ total: 3, unhandled: 1, decision: 1 });
     expect(v.reasons.join(' ')).toMatch(/CI 실패/);
     expect(v.reasons.join(' ')).toMatch(/처리 안 된 스레드 1건/);
-    expect(v.reasons.join(' ')).toMatch(/🚀 1건/);
+    expect(v.reasons.join(' ')).toMatch(/👀 1건/);
     expect(readyVerdict([], 'pending').reasons).toEqual(['CI 진행 중']);
   });
 });
@@ -317,8 +320,8 @@ describe('afterMergeFindings', () => {
       nodes: [
         thread('before', '2026-09-29T09:00:00Z'), // 머지 전 — 그 PR 에서 다뤘다
         thread('after', '2026-09-29T10:05:00Z'), // 머지 뒤 · 미처리 → 다음 PR 에
-        thread('done', '2026-09-29T10:06:00Z', { mine: ['EYES'] }), // 이미 👀
-        thread('ask', '2026-09-29T10:07:00Z', { mine: ['ROCKET'] }), // 이미 🚀
+        thread('done', '2026-09-29T10:06:00Z', { mine: ['ROCKET'] }), // 이미 🚀(처리)
+        thread('ask', '2026-09-29T10:07:00Z', { mine: ['EYES'] }), // 이미 👀(결정 필요)
         thread('closed', '2026-09-29T10:08:00Z', { resolved: true }),
       ],
     },
@@ -336,10 +339,10 @@ describe('afterMergeFindings', () => {
     });
   });
 
-  it('다른 사람이 단 👀 는 처리로 치지 않는다', () => {
+  it('다른 사람이 단 🚀 는 처리로 치지 않는다', () => {
     const t = thread('x', '2026-09-29T10:05:00Z');
     for (const c of t.comments.nodes) {
-      c.reactions.nodes = [{ content: 'EYES', user: { login: 'someone' } }];
+      c.reactions.nodes = [{ content: 'ROCKET', user: { login: 'someone' } }];
     }
     const other = { ...merged, reviewThreads: { nodes: [t] } };
     expect(afterMergeFindings([other], 'me')).toHaveLength(1);

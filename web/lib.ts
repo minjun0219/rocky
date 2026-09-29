@@ -881,7 +881,7 @@ export function prStatus(p: PrSnapshot): PrStatus {
   if (p.ci === 'fail') {
     return 'failing';
   }
-  if (p.rocket > 0) {
+  if (p.decision > 0) {
     return 'decide';
   }
   return 'waiting';
@@ -916,8 +916,8 @@ function prDetail(p: PrSnapshot, status: PrStatus): string {
     return '초안';
   }
   const parts = [CI_LABEL[p.ci]];
-  if (p.rocket > 0) {
-    parts.push(`결정 필요 ${p.rocket}`);
+  if (p.decision > 0) {
+    parts.push(`결정 필요 ${p.decision}`);
   }
   if (p.unhandled > 0) {
     parts.push(`스레드 ${p.unhandled}`);

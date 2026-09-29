@@ -131,10 +131,10 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
      [commands/resolve-reviews.md:25-32](https://github.com/<owner>/<repo>/blob/<sha>/commands/resolve-reviews.md#L25-L32)
 
      ### 리액션 대상이 스레드가 아니라 첫 코멘트
-     여기가 틀리면 👀 가 통째로 실패해서, 1단계 GraphQL 에 comments.id 를 추가했다.
+     여기가 틀리면 🚀 가 통째로 실패해서, 1단계 GraphQL 에 comments.id 를 추가했다.
 
      ```graphql
-     addReaction(input:{subjectId:$commentId, content:EYES}){ reaction{ content } }
+     addReaction(input:{subjectId:$commentId, content:ROCKET}){ reaction{ content } }
      ```
 
      [commands/resolve-reviews.md:146-160](https://github.com/<owner>/<repo>/blob/<sha>/commands/resolve-reviews.md#L146-L160)
@@ -191,7 +191,7 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ### 7. 마무리 & 다음 단계
 
 - 생성된 PR URL 을 출력한다.
-- 이어서 리뷰 대응까지 맡기려면 `/rocky:resolve-reviews` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람) 중 판단이 필요 없는 건을 고치고, 스레드에는 리액션(👀 수정 완료 / 🚀 결정 필요)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고한다(resolve 는 사용자 몫). 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
+- 이어서 리뷰 대응까지 맡기려면 `/rocky:resolve-reviews` 을 안내한다 — PR 리뷰(Copilot / Codex / 사람) 중 판단이 필요 없는 건을 고치고, 스레드에는 리액션(🚀 수정 완료 / 👀 결정 필요)으로 상태만 남긴 채 전부 열어 둔 뒤 채팅으로 보고한다(resolve 는 사용자 몫). 머지 가능해지면 알린다 (PR 브랜치를 체크아웃한 상태에서 실행). CI 실패 자동 수정만 원하면 Claude Code 빌트인 `/autofix-pr` 이 별도 선택지다.
 
 ## 실패 / 예외 처리
 

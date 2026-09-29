@@ -747,7 +747,7 @@ describe('nowRows — PR 감시', () => {
     mergeState: 'CLEAN',
     ci: 'pass',
     unhandled: 0,
-    rocket: 0,
+    decision: 0,
     ready: false,
     updatedAt: '2026-09-28T10:00:00Z',
     ...over,
@@ -817,7 +817,7 @@ describe('prRows — PR 현황', () => {
     mergeState: 'BLOCKED',
     ci: 'pending',
     unhandled: 0,
-    rocket: 0,
+    decision: 0,
     ready: false,
     updatedAt: '2026-09-28T10:00:00Z',
     ...over,
@@ -827,8 +827,8 @@ describe('prRows — PR 현황', () => {
     expect(prStatus(pr({ mergeState: 'DIRTY', ready: true }))).toBe('conflict');
     expect(prStatus(pr({ ready: true, ci: 'pass' }))).toBe('ready');
     expect(prStatus(pr({ isDraft: true, ci: 'fail' }))).toBe('draft');
-    expect(prStatus(pr({ ci: 'fail', rocket: 1 }))).toBe('failing');
-    expect(prStatus(pr({ ci: 'pass', rocket: 1 }))).toBe('decide');
+    expect(prStatus(pr({ ci: 'fail', decision: 1 }))).toBe('failing');
+    expect(prStatus(pr({ ci: 'pass', decision: 1 }))).toBe('decide');
     expect(prStatus(pr({ ci: 'pending', unhandled: 2 }))).toBe('waiting');
   });
 

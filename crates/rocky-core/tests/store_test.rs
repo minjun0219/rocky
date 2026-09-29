@@ -3212,7 +3212,7 @@ fn pr_snap(
         ci: rocky_core::prwatch::CiState::Pass,
         unhandled: 0,
         unhandled_ids: vec![],
-        rocket: 0,
+        decision: 0,
         ready,
         updated_at: "2026-09-28T10:00:00Z".into(),
     }
