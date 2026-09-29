@@ -48,6 +48,7 @@
 > **범위 판단 전에 먼저 읽을 것.** rocky 는 지금 가진 도구로 범위가 정해진 제품이 아니라 개인 플러그인이다.
 > 지금 표면은 오늘의 기준선이지 **천장이 아니다**. 오너가 어떤 영역이나 기능을 요청하면 **만든다**. 아래
 > "선 지키기" 규율은 *요청받지 않은* 범위 확장만 막고, 오너의 명시적 요청을 넘어서지 않는다.
+> *EN: The current surface is a baseline, not a ceiling — build what the owner asks for; "hold the line" only blocks unrequested scope creep.*
 
 ## 레이아웃
 
@@ -106,7 +107,8 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   어댑터 규약(`todo.inbox[]` → 명령 → stdout JSON → `GET /api/inbox`)으로 읽기만 하고 링크로 참조한다.
   어댑터 코드는 `bridges/<name>/` 에만 둔다(오너 결정 2026-09-27,
   `docs/design/specs/2026-09-27-bridges-and-tui-design.md`); 서비스 이름이 `crates/`, `plugin/`, 매니페스트
-  keywords, MCP 도구에 나오면 위반이다. 옛 `todoist` 번들 스킬은 오너의 비공개 플러그인 레포에 있다.
+  keywords, MCP 도구에 나오면 위반이다. *EN: External task apps are read-only inboxes, never synced; a service
+  name in `crates/`, `plugin/`, manifest keywords or an MCP tool is a violation — adapter code lives only in `bridges/<name>/`.* 옛 `todoist` 번들 스킬은 오너의 비공개 플러그인 레포에 있다.
 - 워크로그 다이제스트를 MCP 도구로 노출(`wiki_*`), 독립 CLI 의 워크로그, 네이티브 메모리로 자동 승격,
   폴링 기반 자동 다이제스트. 기록 = `worklog_*` + `Stop` 훅; 정리 = `/rocky:recall` 만.
 - `openapi_*` / `seo_validate` / `notion_*` 와 독립 CLI `openapi-mcp` — v0.23 에서 사용 집계(39개 레포,
@@ -124,6 +126,7 @@ bun run fix         # Biome 안전 수정 + 포맷
 bun run typecheck   # tsc --noEmit
 bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload).
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
+                    # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
 bunx changeset      # 사용자 표면 변경의 버전 의도 선언(patch/minor/major)
 
@@ -136,7 +139,7 @@ cargo build --workspace                                   # target/debug/{rocky,
 **버전은 함께 움직인다.** `package.json` = `.claude-plugin/plugin.json` = `Cargo.toml`(workspace) =
 `Cargo.lock` 멤버. `ensure-daemon` 은 데몬이 보고한 `CARGO_PKG_VERSION` 을 자기 버전과 정확한 문자열로
 비교하고, `bin/rocky` 는 `plugin.json` 버전으로 릴리스 tarball 을 고른다. `bun run changeset:version` 이
-`scripts/sync-plugin-version.ts` 로 넷을 맞춘다.
+`scripts/sync-plugin-version.ts` 로 넷을 맞춘다. *EN: The four version fields move together — never bump one by hand.*
 
 더 좁게 돌리는 `lint` / `lint:fix` / `format` 도 있다.
 
@@ -154,7 +157,8 @@ plugin.json 동기화는 `bun run changeset:version` 안의 `scripts/sync-plugin
 husky 가 스스로 gitignore 한다.
 
 **typecheck 나 테스트를 도는 Stop/PostToolUse 훅을 추가하지 않는다** — pre-push 와 CI 가 이미 결정적으로
-막고, 턴마다 게이트를 돌리면 모든 턴이 느려질 뿐이다.
+막고, 턴마다 게이트를 돌리면 모든 턴이 느려질 뿐이다. *EN: Do not add a Stop/PostToolUse hook that runs
+typecheck or tests — pre-push and CI already cover it.*
 
 ## 코딩 규칙
 
@@ -163,14 +167,17 @@ husky 가 스스로 gitignore 한다.
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings` 가 게이트다(clippy 는
   테스트도 본다). 순수 판정 로직은 `rocky-core` 에, 통합 테스트는 `crates/*/tests/` 에; 데몬과 CLI 는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result` 를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
+  *EN: Pure logic in `rocky-core`, wiring in the daemon/CLI; hooks fail open; errors carry the input, path or status.*
 - **의존성**: 추가하지 않는 쪽으로. 워크스페이스 의존성은 루트 `Cargo.toml` 에 한 번만 선언하고,
   `Cargo.lock` 에 이미 있는 크레이트를 먼저 쓴다(예: 새 `sha1` 대신 SHA-1 은 `ring`). 새 런타임 의존성은
-  별도 범위 논의다. 개발 전용 Bun 도구는 괜찮다.
+  별도 범위 논의다. 개발 전용 Bun 도구는 괜찮다. *EN: Avoid new dependencies; a new runtime dep is a separate
+  scope decision.*
 - **TS 스크립트**: 로컬 import 에 `.js` / `.ts` 확장자를 붙이지 않고, `__dirname` 대신 `import.meta.dir`,
   테스트는 스크립트 옆 `*.test.ts`, 파일 시스템 격리는 `mkdtempSync`.
 - **계약 충실도**: 디스크의 워크로그(JSONL 모양, 키 순서, 프로젝트 키 `<basename>-<sha1[:8]>`)와 보드
   REST/MCP 표면(`docs/rewrite/contract.md`)은 옛 TypeScript 구현과의 호환 계약이다 — 골든 테스트가 고정한다
-  (`crates/rocky-core/tests/worklog_test.rs::project_key_matches_ts_golden`).
+  (`crates/rocky-core/tests/worklog_test.rs::project_key_matches_ts_golden`). *EN: The on-disk worklog and the
+  board REST/MCP surface are compatibility contracts pinned by golden tests — do not change their shape.*
 
 ## 변경 체크리스트
 
@@ -205,7 +212,8 @@ husky 가 스스로 gitignore 한다.
   띄운다; `rocky daemon install` 이 상주시킨다(launchd KeepAlive).
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 정확한 문자열로 비교해
   낡은 데몬을 교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. 옛 데몬을 못 내리면 재기동하지
-  않는다(구버전 보드가 보드 없음보다 낫다). `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도 두는
+  않는다(구버전 보드가 보드 없음보다 낫다). *EN: If the old daemon cannot be stopped, do not restart — an old
+  board beats no board.* `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도 두는
   것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서
   `/reload-plugins` 가 세션끼리 뒤집히지 않고 올린다. 교체의 각 단계는 실패를 삼키지 않고 보고한다; 데몬이
   사라지고 말았으면 launchd 밖에서라도 띄우고 `⚠ rocky 데몬: …` 경고를 주입한다.
@@ -219,10 +227,12 @@ husky 가 스스로 gitignore 한다.
   않는다.
 - **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 보드의 `path` / `repo` / `autoResolve` 변경은
   `is_local_request` 가 필요하다: 루프백 peer **이고** 프록시 헤더(`x-forwarded-*`, `forwarded`,
-  `tailscale-user-*`, `cf-*`)가 없어야 한다; peer 주소가 없으면 거부(fail-closed).
+  `tailscale-user-*`, `cf-*`)가 없어야 한다; peer 주소가 없으면 거부(fail-closed). *EN: Anything that writes to GitHub, spawns processes or steers
+  sessions is local-only: loopback peer and no proxy headers; fail closed.*
 - **cross-site 변경은 라우팅 전에 끊는다**(`is_cross_site_request`): `Sec-Fetch-Site: cross-site`(없으면
   `Origin` 으로 판단)인 변경 메서드는 REST 와 `/mcp` 에서 403; 헤더가 둘 다 없으면 비브라우저 클라이언트로 보고
-  통과시킨다. 읽기는 막지 않는다.
+  통과시킨다. 읽기는 막지 않는다. *EN: Block cross-site mutations before routing (`Sec-Fetch-Site` first); never
+  block reads.*
 - **보드 메타**(`update_board`)는 key/title/description/repo/path/autoResolve 를 한 트랜잭션으로 고친다;
   `null` 은 지우기, 빈 문자열은 400. key 를 바꾸면 옛 key 를 `board_aliases` 에 남긴다(입력 전용 — 출력은 늘
   새 key, 쓴 key 는 은퇴). `match_board` 는 현재 key 만 본다.
@@ -243,14 +253,15 @@ husky 가 스스로 gitignore 한다.
   `live` / `idle` / `gone` / `unknown`. `rockyd::sweep` 는 에이전트가 든 `gone` doing 중 24시간 지난 것만
   자동으로 멈추고 이유를 댓글로 남긴다(`should_auto_release`); 사람이 든 것·`idle`·`unknown` 은 건드리지 않는다.
 - **PR 감시**(`rockyd::prwatch`)는 `repo` 가 있는 보드의 레포를 `pr.intervalMinutes` 마다 보고 `pr-*`
-  전이(actor `rocky`)를 보드 히스토리에 남긴다. GitHub 은 읽기만 한다. 전달: macOS 배너(`pr.notify`), 세션
+  전이(actor `rocky`)를 보드 히스토리에 남긴다. GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
   받은편지함(`pr.sessionNotify` — 훅이 `CLAUDE_CODE_MESSAGING_SOCKET` 을 `POST /api/sessions/inbox` 로
   등록하고, 데몬이 그 보드의 가장 최근 세션에 JSON 한 줄을 쓴다), 브릿지(`pr.notifiers[]`, 코드는
   `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. `ready` 는 **머지
   후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:resolve-reviews` 8단계); 머지 뒤에 붙은 리뷰는
   다음 PR 로 간다(`after-merge`). **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 요청한 노드 수다 —
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`
-  (1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). 주기를 바꾸기 전에 `rateLimit { cost }` 를 잰다.
+  (1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). 주기를 바꾸기 전에 `rateLimit { cost }` 를 잰다. *EN: GraphQL cost is the nodes requested, not returned —
+  measure `rateLimit { cost }` before changing the cadence; the budget is shared with every session's `gh`.*
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다.
 - **세션 띄우기**(`boards.path` 에서 `claude --bg --worktree todo-<n>`, `rockyd::spawnctl`)는 그 워크트리에
@@ -307,4 +318,4 @@ claude plugin install rocky@rocky-marketplace
 
 **단일 정본**: 사람 = `README.md`, 에이전트 = 이 파일, 근거 = `docs/architecture.md`·`docs/daemon.md`, 도구별
 계약 = 도구 정의 자체. 루트에 형제 문서를 새로 만들지 않는다 — `FEATURES.md` 와 `REVIEW.md` 가 이 셋으로
-접히기 전에 바로 그랬다.
+접히기 전에 바로 그랬다. *EN: Do not add a new root-level sibling doc.*
