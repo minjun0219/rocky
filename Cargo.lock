@@ -1933,7 +1933,7 @@ dependencies = [
 
 [[package]]
 name = "rocky-cli"
-version = "0.32.0"
+version = "0.32.1"
 dependencies = [
  "chrono",
  "libc",
@@ -1950,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "rocky-core"
-version = "0.32.0"
+version = "0.32.1"
 dependencies = [
  "chrono",
  "rand 0.9.5",
@@ -1966,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "rocky-tui"
-version = "0.32.0"
+version = "0.32.1"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "rockyd"
-version = "0.32.0"
+version = "0.32.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
