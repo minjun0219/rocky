@@ -77,7 +77,10 @@ describe('NowTable', () => {
     );
     renderWithStore(<NowTable />, { nowTodos, nowHandoffs: [], collect: null });
     expect(screen.queryByText('멈춘 일 6')).toBeNull();
+    // 머리의 개수는 접힘과 무관하게 전체 — 펼치기 전에도 7.
+    expect(screen.getByRole('heading', { name: /내 차례\s*7/ })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: '내 차례 2개 더' }));
     expect(screen.getByText('멈춘 일 6')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /내 차례\s*7/ })).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { formatAge, type NowGlyph, type NowRow, needsSecondTick, nowRows } from '../lib';
+import { formatAge, mineCount, type NowGlyph, type NowRow, needsSecondTick, nowRows } from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 
@@ -49,12 +49,11 @@ export function NowTable() {
   });
   const now = useNow(rows);
   const mine = rows.filter((r) => r.group !== 'run');
-  const mineCount = rows.filter((r) => r.group === 'mine').length;
   const run = rows.filter((r) => r.group === 'run');
 
   return (
     <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="지금">
-      <NowGroupHead title="내 차례" count={mineCount} tone="mine" />
+      <NowGroupHead title="내 차례" count={mineCount(rows)} tone="mine" />
       {mine.length === 0 ? (
         <p className="m-0 mb-2 text-meta text-muted">내 차례 없음</p>
       ) : (

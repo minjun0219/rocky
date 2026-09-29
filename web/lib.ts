@@ -555,6 +555,8 @@ export interface NowRow {
   unread: number;
   /** 상태 글자 — 행의 둘째 줄에 작게. 색은 글리프가 말한다. */
   state: string;
+  /** 요약 한 줄(`group: 'more'`)이 접어 둔 행 수 — 묶음 머리의 개수가 접힘과 무관하게 남도록. */
+  hidden?: number;
 }
 
 /**
@@ -744,18 +746,19 @@ export function nowRows(
   const rows = shown.map((m) => m.row);
   const hidden = mine.length - shown.length;
   if (hidden > 0) {
-    rows.push(moreRow('mine:more', `내 차례 ${hidden}개 더`));
+    rows.push(moreRow('mine:more', `내 차례 ${hidden}개 더`, hidden));
   }
   if (restUnread > 0) {
-    rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 — 목록의 💬`));
+    rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 — 목록의 💬`, restUnread));
   }
   run.sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''));
   return [...rows, ...run];
 }
 
-function moreRow(key: string, title: string): NowRow {
+function moreRow(key: string, title: string, hidden: number): NowRow {
   return {
     key,
+    hidden,
     kind: 'unread',
     group: 'more',
     glyph: 'mine',
@@ -808,4 +811,15 @@ export function formatAge(
 /** 1초 틱이 필요한가 — 초가 흐르는 행(1시간 미만의 진행중)이 있을 때만. 나머지는 1분 틱이면 된다. */
 export function needsSecondTick(rows: NowRow[], now = Date.now()): boolean {
   return rows.some((r) => r.live && r.since !== undefined && now - Date.parse(r.since) < 3_600_000);
+}
+
+/**
+ * 묶음 머리 "내 차례 N" 의 N — 펼쳤든 접었든 같은 수여야 한다(접힘은 보여 주는 방식일 뿐 일의 수가
+ * 아니다). 펼친 행 + "N개 더" 가 접어 둔 행.
+ */
+export function mineCount(rows: NowRow[]): number {
+  return rows.reduce(
+    (n, r) => (r.group === 'mine' ? n + 1 : r.key === 'mine:more' ? n + (r.hidden ?? 0) : n),
+    0,
+  );
 }
