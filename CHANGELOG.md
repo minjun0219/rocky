@@ -1,5 +1,13 @@
 # @minjun0219/rocky
 
+## 0.32.2
+
+### Patch Changes
+
+- [#216](https://github.com/minjun0219/rocky/pull/216) [`ada947b`](https://github.com/minjun0219/rocky/commit/ada947b2f1777e7a3ec7d5572cc2c78b90efa975) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:resolve-reviews` 가 봇 리뷰를 기본으로 기다리지 않는다 — 봇 흔적이 보이면 "다음부터 봇 리뷰를 기다릴까" 를 한 번 묻고, 그렇다고 하면 세션 메모리에 남겨 그 레포에서만 `watch --wait-bot` 으로 기다린다. 레포 흔적으로 자동 판단하던 방식(`verdict: "none"`)은 걷어냈다.
+
+- [#214](https://github.com/minjun0219/rocky/pull/214) [`c815983`](https://github.com/minjun0219/rocky/commit/c8159830e4143dd294faf2b15f4254451871dc73) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:resolve-reviews` 의 봇 리뷰 대기가 리뷰 봇이 없는 레포에서 timeout 을 꽉 채우지 않는다 — 최근 PR 20개에 봇 흔적이 없으면 CI 만 기다리고 `verdict: "none"` 으로 바로 돌아온다.
+
 ## 0.32.1
 
 ### Patch Changes
