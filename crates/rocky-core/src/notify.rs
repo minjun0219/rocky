@@ -212,9 +212,10 @@ fn pr_transition(e: &ChangeFeedEntry) -> Option<PrTransition<'_>> {
 /// PR 감시 전이(actor `rocky`, action `pr-*`)를 세션에 알리는 블록 — ready·conflict 만.
 /// 데몬이 이미 판정했으므로 에이전트는 감시하지 않아도 된다는 뜻을 마지막 줄에 적는다.
 pub fn build_pr_context(entries: &[ChangeFeedEntry]) -> Option<String> {
-    let lines: Vec<String> = entries
+    let current = latest_pr_entries(entries);
+    let lines: Vec<String> = current
         .iter()
-        .filter_map(pr_transition)
+        .filter_map(|e| pr_transition(e))
         .map(|t| {
             let number = t.number.map(|n| format!("#{n}")).unwrap_or_default();
             format!(
@@ -267,8 +268,8 @@ pub struct PrChannelEvent {
 
 /// 변경 피드에서 채널로 보낼 것만(ready·conflict) — 훅 주입과 같은 규칙, 모양만 채널용.
 pub fn pr_channel_events(entries: &[ChangeFeedEntry]) -> Vec<PrChannelEvent> {
-    entries
-        .iter()
+    latest_pr_entries(entries)
+        .into_iter()
         .filter_map(pr_transition)
         .map(|t| {
             let number = t.number.map(|n| format!("#{n}")).unwrap_or_default();
@@ -284,6 +285,38 @@ pub fn pr_channel_events(entries: &[ChangeFeedEntry]) -> Vec<PrChannelEvent> {
                 meta,
             }
         })
+        .collect()
+}
+
+/// PR 마다 **마지막 전이만** — 피드는 커서 이후를 한꺼번에 주므로(세션이 한동안 조용했으면) 같은 PR 의
+/// "머지 가능" 뒤에 "머지됨" 이 같이 온다. 옛 "머지 가능" 을 그대로 알리면 이미 머지된 PR 을 머지하라고
+/// 한다(2026-09-29 #208). pr-* 가 아닌 항목은 버린다. 순서는 피드 순서(오래된 것부터).
+pub fn latest_pr_entries(entries: &[ChangeFeedEntry]) -> Vec<&ChangeFeedEntry> {
+    let key = |e: &ChangeFeedEntry| {
+        let changes = e.history.changes.as_ref();
+        (
+            changes
+                .and_then(|c| c.get("repo"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            changes
+                .and_then(|c| c.get("number"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+        )
+    };
+    let prs: Vec<&ChangeFeedEntry> = entries
+        .iter()
+        .filter(|e| e.history.action.starts_with("pr-"))
+        .collect();
+    prs.iter()
+        .enumerate()
+        .filter(|(i, e)| {
+            let k = key(e);
+            !prs[i + 1..].iter().any(|later| key(later) == k)
+        })
+        .map(|(_, e)| *e)
         .collect()
 }
 
@@ -303,6 +336,31 @@ pub fn pr_entries_for_board(
         .filter(|e| e.board_key.as_deref() == Some(board_key))
         .cloned()
         .collect()
+}
+
+/// 세션 보드 조회 결과. 조회가 **실패한 것**(`Failed` — 데몬 응답 없음·본문 깨짐)과 cwd 가 어느
+/// 보드로도 **안 풀리는 것**(`Unmatched`)을 가른다 — 전자에서 커서를 넘기면 그 창의 PR 전이가 이
+/// 세션에 영영 안 온다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoardLookup {
+    Found(String),
+    Unmatched,
+    Failed,
+}
+
+impl BoardLookup {
+    pub fn key(&self) -> Option<&str> {
+        match self {
+            BoardLookup::Found(key) => Some(key),
+            BoardLookup::Unmatched | BoardLookup::Failed => None,
+        }
+    }
+}
+
+/// 이번 턴의 주입을 미루고 커서를 그대로 둘지 — PR 전이가 있는데 보드 조회가 실패했을 때만.
+/// 한 창을 통째로 미루므로(사람 변경 포함) 다음 턴에 같은 창을 다시 읽어도 겹쳐 주입되지 않는다.
+pub fn hold_cursor(entries: &[ChangeFeedEntry], board: &BoardLookup) -> bool {
+    *board == BoardLookup::Failed && entries.iter().any(|e| e.history.action.starts_with("pr-"))
 }
 
 /// 여러 주입 블록을 하나의 additionalContext 로 합친다 — 사람의 보드 변경과 핸드오프
