@@ -11,8 +11,8 @@ use std::time::Duration;
 use rocky_core::config::{load_worklog_config, user_config_path};
 use rocky_core::handoff::build_handoff_prompt;
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, filter_human_changes, merge_context, read_cursor,
-    write_cursor,
+    build_notify_context, build_pr_context, filter_human_changes, hold_cursor, merge_context,
+    pr_entries_for_board, read_cursor, write_cursor, BoardLookup,
 };
 use rocky_core::transcript::{build_turn_content, extract_turn, should_capture};
 use rocky_core::types::{ChangesSince, ClaimedHandoff};
@@ -49,6 +49,46 @@ fn claim_handoff(base_url: &str, session_id: &str, via: &str) -> Option<ClaimedH
         return None;
     }
     response.body_mut().read_json().ok()
+}
+
+/// 이 세션이 일하는 보드 — 훅 입력의 cwd 를 보드 목록에 대 본다(statusline 과 같은 규칙: `boards.path`
+/// 하위 → key 세그먼트). 데몬이 없거나 어느 보드로도 안 풀리면 None.
+/// 세션 cwd 가 가리키는 보드. `/api/boards` 를 못 읽으면 `Failed` — cwd 가 없거나 매칭되는
+/// 보드가 없으면 `Unmatched` 다(둘을 섞으면 조회 실패 한 번에 PR 전이를 잃는다).
+fn session_board_key(base_url: &str, input: &serde_json::Value) -> BoardLookup {
+    let Some(cwd) = input
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+    else {
+        return BoardLookup::Unmatched;
+    };
+    let Some(boards) = hook_agent()
+        .get(format!("{base_url}/api/boards"))
+        .call()
+        .ok()
+        .and_then(|mut r| r.body_mut().read_json::<Vec<serde_json::Value>>().ok())
+    else {
+        return BoardLookup::Failed;
+    };
+    let locations: Vec<rocky_core::statusline::BoardLocation> = boards
+        .iter()
+        .filter_map(|b| {
+            Some(rocky_core::statusline::BoardLocation {
+                key: b.get("key")?.as_str()?.to_string(),
+                path: b.get("path").and_then(|p| p.as_str()).map(str::to_string),
+            })
+        })
+        .collect();
+    match rocky_core::statusline::board_key_for_cwd(&locations, Some(&cwd)) {
+        Some(key) => BoardLookup::Found(key),
+        None => BoardLookup::Unmatched,
+    }
 }
 
 fn fetch_changes(base_url: &str, since_id: i64, limit: i64) -> Option<ChangesSince> {
@@ -338,12 +378,29 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
         }
         Some(cursor) => {
             if let Some(feed) = fetch_changes(&ctx.base_url, cursor, 100) {
-                if feed.last_id != cursor {
-                    write_cursor(&cursor_file, session_id, feed.last_id);
+                // 데몬의 PR 감시 전이(actor rocky)는 사람 변경 필터에 걸리므로 먼저 따로 뽑는다 —
+                // **이 세션의 보드 것만**(다른 레포 세션에 남의 PR 을 알리지 않는다).
+                let has_pr = feed
+                    .entries
+                    .iter()
+                    .any(|e| e.history.action.starts_with("pr-"));
+                let board = if has_pr {
+                    session_board_key(&ctx.base_url, &input)
+                } else {
+                    BoardLookup::Unmatched
+                };
+                // 보드 조회가 실패했으면 이 창을 통째로 다음 턴에 미룬다 — 커서를 넘기면 그 PR
+                // 전이는 이 세션에 다시 오지 않는다.
+                if !hold_cursor(&feed.entries, &board) {
+                    if feed.last_id != cursor {
+                        write_cursor(&cursor_file, session_id, feed.last_id);
+                    }
+                    if has_pr {
+                        pr_context =
+                            build_pr_context(&pr_entries_for_board(&feed.entries, board.key()));
+                    }
+                    change_context = build_notify_context(&filter_human_changes(feed.entries));
                 }
-                // 데몬의 PR 감시 전이(actor rocky)는 사람 변경 필터에 걸리므로 먼저 따로 뽑는다.
-                pr_context = build_pr_context(&feed.entries);
-                change_context = build_notify_context(&filter_human_changes(feed.entries));
             }
         }
     }

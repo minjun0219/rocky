@@ -1,8 +1,8 @@
 //! TS `src/notify.test.ts` 포팅.
 
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, filter_human_changes, merge_context, page_cursor,
-    pr_channel_events, read_cursor, write_cursor,
+    build_notify_context, build_pr_context, filter_human_changes, hold_cursor, merge_context,
+    page_cursor, pr_channel_events, pr_entries_for_board, read_cursor, write_cursor, BoardLookup,
 };
 use rocky_core::types::{ChangeFeedEntry, Changes, HistoryEntity, HistoryEntry};
 use serde_json::json;
@@ -339,4 +339,87 @@ fn page_cursor_advances_through_full_pages_only() {
         entries: vec![],
     };
     assert_eq!(page_cursor(&empty, 100), (7, false));
+}
+
+/// 사고 회귀(2026-09-29) — rocky 의 "머지 가능" 이 tally 세션에 주입됐다. PR 전이는 그 세션의 보드
+/// 것만, 보드를 모르는 세션에는 아무것도.
+#[test]
+fn pr_transitions_are_scoped_to_the_sessions_board() {
+    let pr = |board: &str, number: i64| {
+        let mut e = with_changes(
+            entry(number, "rocky", "pr-ready"),
+            serde_json::json!({ "number": number, "title": "t", "url": "u", "repo": "o/r" }),
+        );
+        e.history.entity = HistoryEntity::Board;
+        e.board_key = Some(board.into());
+        e
+    };
+    let entries = vec![pr("rocky", 1), pr("tally", 2), entry(3, "logan", "update")];
+    let rocky: Vec<i64> = pr_entries_for_board(&entries, Some("rocky"))
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(
+        rocky,
+        vec![1],
+        "rocky 세션엔 rocky PR 만 — 보드 변경(update)은 여기서 다루지 않는다"
+    );
+    let tally: Vec<i64> = pr_entries_for_board(&entries, Some("tally"))
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(tally, vec![2]);
+    assert!(
+        pr_entries_for_board(&entries, None).is_empty(),
+        "보드를 모르는 세션엔 아무것도"
+    );
+    assert!(build_pr_context(&pr_entries_for_board(&entries, Some("blip-a"))).is_none());
+}
+
+/// 사고 회귀(2026-09-29 #208) — 한동안 조용했던 세션은 "머지 가능" 과 그 뒤의 "머지됨" 을 한꺼번에
+/// 받는다. PR 마다 마지막 전이로 판단해야 이미 머지된 PR 을 머지하라고 하지 않는다.
+#[test]
+fn a_ready_followed_by_merged_in_the_same_batch_is_not_announced() {
+    let pr = |id: i64, action: &str, number: i64| {
+        let mut e = with_changes(
+            entry(id, "rocky", action),
+            serde_json::json!({ "number": number, "title": "t", "url": "u", "repo": "o/r" }),
+        );
+        e.history.entity = HistoryEntity::Board;
+        e
+    };
+    let batch = vec![
+        pr(1, "pr-ready", 208),
+        pr(2, "pr-opened", 209),
+        pr(3, "pr-merged", 208),
+        pr(4, "pr-ready", 210),
+    ];
+    let text = build_pr_context(&batch).unwrap();
+    assert!(!text.contains("#208"), "머지된 PR 의 옛 머지 가능은 빠진다");
+    assert!(text.contains("#210"));
+    // 머지 가능 → 다시 대기면 알리지 않는다(마지막이 unready).
+    let back = vec![pr(1, "pr-ready", 7), pr(2, "pr-unready", 7)];
+    assert!(build_pr_context(&back).is_none());
+    // 충돌 → 머지 가능이면 마지막(머지 가능)만.
+    let fixed = vec![pr(1, "pr-conflict", 8), pr(2, "pr-ready", 8)];
+    let text = build_pr_context(&fixed).unwrap();
+    assert!(text.contains("확인·머지") && !text.contains("충돌"));
+}
+
+/// 보드 조회 실패는 "보드 없음" 과 다르다 — 실패면 커서를 넘기지 않아 다음 턴에 같은 PR 전이를
+/// 다시 받는다. 매칭 없음·PR 전이 없음이면 평소처럼 넘긴다.
+#[test]
+fn a_failed_board_lookup_holds_the_cursor_only_when_pr_transitions_are_waiting() {
+    let mut pr = entry(1, "rocky", "pr-ready");
+    pr.history.entity = HistoryEntity::Board;
+    pr.board_key = Some("rocky".into());
+    let with_pr = vec![pr, entry(2, "logan", "update")];
+    let without_pr = vec![entry(3, "logan", "update")];
+
+    assert!(hold_cursor(&with_pr, &BoardLookup::Failed));
+    assert!(!hold_cursor(&with_pr, &BoardLookup::Unmatched));
+    assert!(!hold_cursor(&with_pr, &BoardLookup::Found("rocky".into())));
+    assert!(!hold_cursor(&without_pr, &BoardLookup::Failed));
+    assert_eq!(BoardLookup::Found("rocky".into()).key(), Some("rocky"));
+    assert_eq!(BoardLookup::Failed.key(), None);
 }
