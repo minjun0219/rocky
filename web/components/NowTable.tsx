@@ -1,30 +1,36 @@
 import { useEffect, useState } from 'react';
-import { formatClock, nowRows } from '../lib';
+import { formatAge, type NowGlyph, type NowRow, needsSecondTick, nowRows } from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 
-/** 1초마다 갱신되는 현재 시각 — 경과 열이 초 단위로 흐르게. 행이 없으면 돌지 않는다. */
-function useNow(active: boolean): number {
+/**
+ * 현재 시각 — 초가 흐르는 행(1시간 미만의 진행중)이 있으면 1초, 없으면 1분마다. 곁눈으로 보는
+ * 화면이라 움직이는 숫자는 정말 필요한 자리에만 둔다(`web/DESIGN.md` "Time Display").
+ */
+function useNow(rows: NowRow[]): number {
   const [now, setNow] = useState(() => Date.now());
+  const fast = needsSecondTick(rows, now);
   useEffect(() => {
-    if (!active) {
+    if (rows.length === 0) {
       return;
     }
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => setNow(Date.now()), fast ? 1000 : 60_000);
     return () => clearInterval(id);
-  }, [active]);
+  }, [fast, rows.length]);
   return now;
 }
 
-const STAMP: Record<'run' | 'mine' | 'dead', string> = {
-  run: 'border-run text-run',
-  mine: 'border-mine bg-mine-soft text-mine',
-  dead: 'border-dashed border-dead text-dead',
+/** 행 앞 글리프 — 색만으로 말하지 않도록 모양이 상태마다 다르다. */
+const GLYPH: Record<NowGlyph, { char: string; className: string; label: string }> = {
+  run: { char: '●', className: 'text-run', label: '돌고 있음' },
+  mine: { char: '◆', className: 'text-mine', label: '내 차례' },
+  dead: { char: '◌', className: 'text-dead', label: '세션 없음' },
+  unknown: { char: '○', className: 'text-faint', label: '세션 모름' },
 };
 
 /**
- * "지금" 표 — 첫 화면이 답할 한 가지: 무엇이 돌고 있고, 무엇이 내 차례인가.
- * 보고 있는 보드와 무관하게 전 보드를 본다. 행의 순서·합치기는 `nowRows`(순수)가 정한다.
+ * "지금" — 첫 화면이 답할 두 가지: 무엇이 내 차례인가, 무엇이 돌고 있나. 보고 있는 보드와
+ * 무관하게 전 보드를 본다. 무엇을 어떤 순서로 싣는지는 `nowRows`(순수)가 정한다.
  */
 export function NowTable() {
   const nowTodos = useUiStore((s) => s.nowTodos);
@@ -32,89 +38,156 @@ export function NowTable() {
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
   const prs = useUiStore((s) => s.prs);
-  const openTodoDetail = useUiStore((s) => s.openTodoDetail);
-  const rows = nowRows({ todos: nowTodos, handoffs, seen: seenComments, collect, prs });
-  const now = useNow(rows.some((r) => r.since !== undefined));
-  const mine = rows.filter((r) => r.stamp.tone !== 'run').length;
+  const [expanded, setExpanded] = useState(false);
+  const rows = nowRows({
+    todos: nowTodos,
+    handoffs,
+    seen: seenComments,
+    collect,
+    prs,
+    expanded,
+  });
+  const now = useNow(rows);
+  const mine = rows.filter((r) => r.group !== 'run');
+  const mineCount = rows.filter((r) => r.group === 'mine').length;
+  const run = rows.filter((r) => r.group === 'run');
 
   return (
-    <section className="now border-b border-line px-[26px] pb-3 pt-4" aria-label="지금">
-      <h2 className="mb-2 flex items-baseline gap-2.5 font-mono text-micro font-medium uppercase tracking-[0.14em] text-muted">
-        지금
-        {mine > 0 ? (
-          <span className="normal-case tracking-normal text-mine">내 차례 {mine}</span>
-        ) : null}
-      </h2>
-      {rows.length === 0 ? (
-        <p className="m-0 text-sm text-muted">도는 일도, 내 차례도 없다.</p>
+    <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="지금">
+      <NowGroupHead title="내 차례" count={mineCount} tone="mine" />
+      {mine.length === 0 ? (
+        <p className="m-0 mb-2 text-meta text-muted">내 차례 없음</p>
       ) : (
-        // 640~900px 사이에서 네 열이 폭을 넘치면 표만 가로로 흐르고 문서는 흐르지 않게.
-        <div className="overflow-x-auto">
-          <table className="now-table w-full border-collapse overflow-hidden rounded-[10px] border border-line bg-surface text-sm">
-            <thead>
-              <tr className="bg-surface-2 font-mono text-micro uppercase tracking-[0.12em] text-muted">
-                <th className="px-3 py-2 text-left font-medium">항목</th>
-                <th className="px-3 py-2 text-left font-medium">누가</th>
-                <th className="px-3 py-2 text-left font-medium">경과</th>
-                <th className="px-3 py-2 text-left font-medium">상태</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key} className="now-row border-t border-line">
-                  <td className="now-item px-3 py-2">
-                    {row.todoId ? (
-                      <button
-                        type="button"
-                        className="text-left hover:text-mine"
-                        onClick={() => {
-                          logUsage('web:now-row', { kind: row.kind });
-                          void openTodoDetail(row.todoId as string);
-                        }}
-                      >
-                        <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>
-                        {row.title}
-                      </button>
-                    ) : row.url ? (
-                      <a
-                        className="hover:text-mine"
-                        href={row.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => logUsage('web:now-row', { kind: row.kind })}
-                      >
-                        <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>
-                        {row.title}
-                      </a>
-                    ) : (
-                      <span>
-                        <span className="mr-2 font-mono text-chip text-muted">{row.ref}</span>
-                        {row.title}
-                      </span>
-                    )}
-                    {row.unread > 0 ? (
-                      <span className="ml-2 font-mono text-chip text-mine">💬 {row.unread}</span>
-                    ) : null}
-                  </td>
-                  <td className="now-who whitespace-nowrap px-3 py-2 font-mono text-chip text-muted">
-                    {row.who}
-                  </td>
-                  <td className="now-since whitespace-nowrap px-3 py-2 font-mono text-meta tabular-nums text-text">
-                    {row.since ? formatClock(row.since, now) : '—'}
-                  </td>
-                  <td className="now-stamp whitespace-nowrap px-3 py-2">
-                    <span
-                      className={`inline-block rounded border px-1.5 py-0.5 font-mono text-micro tracking-[0.06em] ${STAMP[row.stamp.tone]}`}
-                    >
-                      {row.stamp.label}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="m-0 mb-3 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+          {mine.map((row) =>
+            row.group === 'more' ? (
+              <MoreLine
+                key={row.key}
+                row={row}
+                onExpand={row.key === 'mine:more' ? () => setExpanded(true) : undefined}
+              />
+            ) : (
+              <NowItem key={row.key} row={row} now={now} />
+            ),
+          )}
+        </ul>
       )}
+      {run.length > 0 ? (
+        <>
+          <NowGroupHead title="돌고 있음" count={run.length} tone="run" />
+          <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+            {run.map((row) => (
+              <NowItem key={row.key} row={row} now={now} />
+            ))}
+          </ul>
+        </>
+      ) : null}
     </section>
+  );
+}
+
+/** 묶음 머리 — 이름 + 개수. 같은 상태를 행마다 반복하는 대신 여기서 한 번 말한다. */
+function NowGroupHead(props: { title: string; count: number; tone: 'mine' | 'run' }) {
+  return (
+    <h2 className="m-0 mb-1.5 flex items-baseline gap-2 font-mono text-chip font-medium text-faint">
+      {props.title}
+      {props.count > 0 ? (
+        <span className={`tabular-nums ${props.tone === 'mine' ? 'text-mine' : 'text-run'}`}>
+          {props.count}
+        </span>
+      ) : null}
+    </h2>
+  );
+}
+
+/**
+ * 한 행 — 첫 줄: 글리프 + 제목(두 줄까지), 둘째 줄: ref · 누가 · 시각 · 상태 글자.
+ * 행 전체가 누르는 자리다(todo 면 상세, PR 이면 새 탭).
+ */
+function NowItem(props: { row: NowRow; now: number }) {
+  const { row, now } = props;
+  const openTodoDetail = useUiStore((s) => s.openTodoDetail);
+  const glyph = GLYPH[row.glyph];
+  const age = row.since
+    ? formatAge(row.since, now, {
+        live: row.live,
+        // 진행 기준 시각이면 "…부터" — 세션이 사라진 진행중(dead)도 같다.
+        since: row.kind === 'doing' || row.kind === 'dead',
+      })
+    : '';
+  const meta = [row.ref, row.who !== '—' ? row.who : '', age, row.state].filter(Boolean);
+  const body = (
+    <>
+      <span
+        className={`mt-px w-4 shrink-0 text-center font-mono text-chip ${glyph.className} ${row.glyph === 'dead' ? 'opacity-90' : ''}`}
+        role="img"
+        aria-label={glyph.label}
+      >
+        {glyph.char}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="now-title block text-sm leading-[1.45] text-text">
+          {row.title}
+          {row.unread > 0 ? (
+            <span className="ml-1.5 font-mono text-chip font-semibold text-mine">
+              💬 {row.unread}
+            </span>
+          ) : null}
+        </span>
+        <span className="mt-0.5 block truncate font-mono text-chip tabular-nums text-muted">
+          {meta.join(' · ')}
+        </span>
+      </span>
+    </>
+  );
+  const className =
+    'now-item flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-2 focus-visible:bg-surface-2';
+  return (
+    <li className="border-t border-line first:border-t-0">
+      {row.todoId ? (
+        <button
+          type="button"
+          className={className}
+          onClick={() => {
+            logUsage('web:now-row', { kind: row.kind });
+            void openTodoDetail(row.todoId as string);
+          }}
+        >
+          {body}
+        </button>
+      ) : row.url ? (
+        <a
+          className={className}
+          href={row.url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => logUsage('web:now-row', { kind: row.kind })}
+        >
+          {body}
+        </a>
+      ) : (
+        <div className={className}>{body}</div>
+      )}
+    </li>
+  );
+}
+
+/** 접힌 나머지의 요약 한 줄. 내 차례의 "N 더" 는 누르면 펼친다. */
+function MoreLine(props: { row: NowRow; onExpand?: () => void }) {
+  const text = <span className="font-mono text-chip text-muted">{props.row.title}</span>;
+  return (
+    <li className="border-t border-line first:border-t-0">
+      {props.onExpand ? (
+        <button
+          type="button"
+          className="w-full px-3 py-2 text-left hover:bg-surface-2"
+          onClick={props.onExpand}
+        >
+          {text}
+        </button>
+      ) : (
+        <div className="px-3 py-2">{text}</div>
+      )}
+    </li>
   );
 }
