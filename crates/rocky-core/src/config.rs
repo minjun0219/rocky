@@ -334,6 +334,9 @@ pub struct PrWatchConfig {
     /// 알림 브릿지 — ready·conflict 마다 실행하는 명령들(`pr.notifiers[]`). 환경마다 고른다
     /// (텔레그램·ntfy·…은 `bridges/<name>/`). `notify`(macOS 배너)와 독립.
     pub notifiers: Vec<CommandBridge>,
+    /// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에
+    /// 밀어 넣는다(`rocky_core::peer_inbox`). 기본 켬.
+    pub session_notify: Option<bool>,
 }
 
 /// 명령 하나로 된 브릿지 — `todo.inbox[]`(읽기)와 `pr.notifiers[]`(알림)가 같은 모양이다.
@@ -370,6 +373,7 @@ pub fn load_pr_block(config_path: &Path) -> PrWatchConfig {
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(parse_inbox_source).collect())
             .unwrap_or_default(),
+        session_notify: block.get("sessionNotify").and_then(|v| v.as_bool()),
     }
 }
 

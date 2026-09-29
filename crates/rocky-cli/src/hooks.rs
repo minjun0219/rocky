@@ -93,13 +93,46 @@ pub fn hook_ensure_daemon(ctx: &CliContext, session_summary: Option<bool>) {
     }
     // 세션 컨텍스트에 보드 요약 몇 줄 — `rocky today` 와 같은 문자열. SessionStart 의 stdout 은
     // 컨텍스트로 들어간다. 데몬이 아직 안 떴거나 실패하면 조용히 넘어간다(fail-open).
+    let input = read_stdin_json();
+    register_inbox(&ctx.base_url, &input);
     if session_summary.unwrap_or(true) {
-        print_session_summary(ctx);
+        print_session_summary(ctx, &input);
     }
 }
 
-fn print_session_summary(ctx: &CliContext) {
-    let input = read_stdin_json();
+/// 데몬에 보낼 받은편지함 등록 본문 — 세션 id·소켓·cwd 가 다 있어야 만든다. 소켓은 Claude Code 가
+/// 훅에 export 하는 `CLAUDE_CODE_MESSAGING_SOCKET`(없으면 이 세션은 받은편지함이 없다).
+pub fn inbox_registration_body(
+    input: &serde_json::Value,
+    socket: Option<&str>,
+    fallback_cwd: Option<&str>,
+) -> Option<serde_json::Value> {
+    let session_id = input.get("session_id").and_then(|v| v.as_str())?;
+    let socket = socket.filter(|s| !s.is_empty())?;
+    let cwd = input
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .or(fallback_cwd)
+        .filter(|c| !c.is_empty())?;
+    Some(json!({ "sessionId": session_id, "socket": socket, "cwd": cwd }))
+}
+
+/// 이 세션의 받은편지함 소켓을 데몬에 알린다 — 데몬이 PR 전이 등을 이 세션에 밀어 넣을 수 있게
+/// (`rocky_core::peer_inbox`). 턴마다 다시 알려 "가장 최근에 쓰인 세션" 이 갱신된다. fail-open.
+fn register_inbox(base_url: &str, input: &serde_json::Value) {
+    let socket = std::env::var("CLAUDE_CODE_MESSAGING_SOCKET").ok();
+    let fallback = std::env::current_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+    let Some(body) = inbox_registration_body(input, socket.as_deref(), fallback.as_deref()) else {
+        return;
+    };
+    let _ = hook_agent()
+        .post(format!("{base_url}/api/sessions/inbox"))
+        .send_json(body);
+}
+
+fn print_session_summary(ctx: &CliContext, input: &serde_json::Value) {
     let cwd = input
         .get("cwd")
         .and_then(|v| v.as_str())
@@ -270,6 +303,12 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
         emit_prompt_context(merge_context(&[upgrade_warning]));
         return;
     };
+    // 받은편지함 등록은 다른 조회와 나란히 — 이 훅의 지연에 보태지 않는다.
+    let inbox_thread = {
+        let base_url = ctx.base_url.clone();
+        let input = input.clone();
+        std::thread::spawn(move || register_inbox(&base_url, &input))
+    };
 
     let cursor_file = ctx.dir.join("hook-cursors.json");
     let cursor = read_cursor(&cursor_file, session_id);
@@ -307,6 +346,7 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
 
     // 패닉한 스레드는 "요청 없음"과 같게 본다 — fail-open.
     let claimed = claim_thread.join().unwrap_or(None);
+    let _ = inbox_thread.join();
     let handoff_context = claimed.as_ref().map(build_handoff_prompt);
 
     emit_prompt_context(merge_context(&[

@@ -82,6 +82,71 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
     })
 }
 
+/// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션(가장 최근에 쓰인 하나)의
+/// 받은편지함 소켓에 한 줄로 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다.
+/// 보내다 실패하면(세션이 끝났다) 그 등록을 걷는다. 이 레포 보드에 등록된 세션이 없으면 조용하다.
+pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
+    Arc::new(move |event| {
+        let Some(text) = rocky_core::peer_inbox::pr_session_message(event) else {
+            return;
+        };
+        let boards = state.store.list_boards(false).unwrap_or_default();
+        let locations: Vec<rocky_core::statusline::BoardLocation> = boards
+            .iter()
+            .map(|b| rocky_core::statusline::BoardLocation {
+                key: b.key.clone(),
+                path: b.path.clone(),
+            })
+            .collect();
+        let registrations = state.inboxes();
+        let now = chrono::Utc::now().timestamp();
+        let mut targets: Vec<rocky_core::peer_inbox::InboxRegistration> = Vec::new();
+        for board in boards
+            .iter()
+            .filter(|b| b.repo.as_deref() == Some(event.repo.as_str()))
+        {
+            if let Some(r) =
+                rocky_core::peer_inbox::pick_session(&registrations, &locations, &board.key, now)
+            {
+                if !targets.iter().any(|t| t.session_id == r.session_id) {
+                    targets.push(r.clone());
+                }
+            }
+        }
+        for target in targets {
+            let state = state.clone();
+            let line = rocky_core::peer_inbox::inbox_line(&text);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = write_inbox(&target.socket, &line) {
+                    eprintln!(
+                        "rocky: 세션 알림 실패({}): {e} — 등록을 걷는다",
+                        target.session_id
+                    );
+                    state.forget_inbox(&target.session_id);
+                }
+            });
+        }
+    })
+}
+
+/// 받은편지함 소켓에 한 줄 — 연결·쓰기 모두 2초 안에. 유닉스가 아니면 조용히 실패한다.
+fn write_inbox(socket: &str, line: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
+        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+        stream.write_all(line.as_bytes())?;
+        stream.shutdown(std::net::Shutdown::Write)?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (socket, line);
+        Err(std::io::Error::other("unix socket 이 없는 플랫폼"))
+    }
+}
+
 /// 여러 알림기를 하나로 — 전부에게 같은 전이. 비어 있으면 조용하다.
 pub fn compose_notifiers(notifiers: Vec<Notifier>) -> Notifier {
     Arc::new(move |event| {

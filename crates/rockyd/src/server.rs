@@ -122,6 +122,9 @@ pub struct ServerState {
     note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
     /// PR 감시 잡의 마지막 결과 — health 가 낸다.
     pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
+    /// 세션 받은편지함 등록부 — 훅이 `session_id → 소켓` 을 알려 준다(`rocky_core::peer_inbox`).
+    /// 데몬 수명 상태다: 훅이 턴마다 다시 등록하므로 재기동 뒤 첫 턴에 다시 채워진다.
+    inboxes: Mutex<HashMap<String, rocky_core::peer_inbox::InboxRegistration>>,
     /// 스토어 구독 해제용.
     _subscription: u64,
     _doc_subscription: u64,
@@ -151,6 +154,32 @@ impl ServerState {
 
     pub fn pr_watch(&self) -> crate::prwatch::PrWatchStatus {
         self.pr_watch.lock().expect("pr_watch poisoned").clone()
+    }
+
+    /// 세션 받은편지함 등록 — 같은 세션이면 덮어쓴다(cwd·소켓이 바뀌었을 수 있다).
+    pub fn register_inbox(&self, registration: rocky_core::peer_inbox::InboxRegistration) {
+        let mut inboxes = self.inboxes.lock().expect("inboxes poisoned");
+        let now = registration.seen_at;
+        inboxes.retain(|_, r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS);
+        inboxes.insert(registration.session_id.clone(), registration);
+    }
+
+    /// 지금 등록된 세션들(사본).
+    pub fn inboxes(&self) -> Vec<rocky_core::peer_inbox::InboxRegistration> {
+        self.inboxes
+            .lock()
+            .expect("inboxes poisoned")
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// 보내다 실패한 등록을 걷는다 — 세션이 끝나 소켓이 없거나 아무도 안 듣는다.
+    pub fn forget_inbox(&self, session_id: &str) {
+        self.inboxes
+            .lock()
+            .expect("inboxes poisoned")
+            .remove(session_id);
     }
 
     /// 노트의 문서 스트림을 **구독한다** — 채널이 없으면 만든다. 구독을 락 안에서 끝내는 이유:
@@ -264,6 +293,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
+        inboxes: Mutex::new(HashMap::new()),
         _subscription: subscription,
         _doc_subscription: doc_subscription,
     });
@@ -1146,6 +1176,44 @@ async fn dispatch(
             "reason": result.reason,
             "sessions": sessions,
         })));
+    }
+
+    // ── 세션 받은편지함 등록 — 훅만 부른다 ──
+    if *method == Method::POST && path == "/api/sessions/inbox" {
+        // 데몬이 이 경로에 **쓰게** 되므로 원격에는 존재 자체를 드러내지 않고(404 위장),
+        // 경로는 Claude Code 받은편지함 모양만 받는다.
+        if !local {
+            return Ok(error_response(
+                &format!("not found: {method} {path}"),
+                StatusCode::NOT_FOUND,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let session_id = str_field(&body, "sessionId").unwrap_or("");
+        let socket = str_field(&body, "socket").unwrap_or("");
+        let cwd = str_field(&body, "cwd").unwrap_or("");
+        if session_id.is_empty() || cwd.is_empty() {
+            return Ok(error_response(
+                "sessionId and cwd are required",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        if !rocky_core::peer_inbox::is_inbox_socket_path(socket) {
+            return Ok(error_response(
+                &format!("not a Claude Code inbox socket path: {socket}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        state.register_inbox(rocky_core::peer_inbox::InboxRegistration {
+            session_id: session_id.to_string(),
+            socket: socket.to_string(),
+            cwd: cwd.to_string(),
+            seen_at: chrono::Utc::now().timestamp(),
+        });
+        return Ok(Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(Body::empty())
+            .unwrap());
     }
 
     // ── handoffs ──

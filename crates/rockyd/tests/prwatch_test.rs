@@ -486,3 +486,107 @@ async fn bridge_notifier_runs_the_command_with_the_transition_on_stdin() {
     assert_eq!(payload["text"], "#7 확인·머지해도 된다 — PR 7");
     assert_eq!(seen.lock().unwrap().len(), 1, "다른 알림기도 받는다");
 }
+
+/// 세션 알림 — 훅이 등록한 받은편지함 소켓에, 그 레포 보드에서 일하는 가장 최근 세션 하나에만
+/// 한 줄을 쓴다. 실제 유닉스 소켓으로 끝까지 본다. 등록 라우트는 로컬 전용·경로 검증.
+#[cfg(unix)]
+#[tokio::test]
+async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
+    use rockyd::prwatch::session_notifier;
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockytest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let old_sock = dir.join("100.sock");
+    let new_sock = dir.join("200.sock");
+    let old_listener = UnixListener::bind(&old_sock).unwrap();
+    let new_listener = UnixListener::bind(&new_sock).unwrap();
+    old_listener.set_nonblocking(true).unwrap();
+
+    // 등록 — 원격은 404(존재를 숨긴다), 받은편지함 모양이 아닌 경로는 400.
+    let remote = call(
+        &f.state,
+        "POST",
+        "/api/sessions/inbox",
+        Some(json!({ "sessionId": "x", "socket": new_sock.to_str().unwrap(), "cwd": "/w/rocky" })),
+        ReqOptions {
+            peer: Some("100.64.0.1"),
+            ..ReqOptions::default()
+        },
+    )
+    .await;
+    assert_eq!(remote.0, 404);
+    let bad = post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "x", "socket": "/var/run/docker.sock", "cwd": "/w/rocky" }),
+    )
+    .await;
+    assert_eq!(bad.0, 400);
+    for (id, sock) in [("old", &old_sock), ("new", &new_sock)] {
+        let (status, _) = post(
+            &f.state,
+            "/api/sessions/inbox",
+            json!({ "sessionId": id, "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+        )
+        .await;
+        assert_eq!(status, 204);
+        // 같은 초에 등록되면 순서를 가를 수 없다 — 나중 등록이 확실히 더 최근이게.
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+    }
+
+    let notify = session_notifier(f.state.clone());
+    let snap = PrSnapshot {
+        repo: "o/r".into(),
+        number: 7,
+        title: "PR 7".into(),
+        url: "https://github.com/o/r/pull/7".into(),
+        state: "OPEN".into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "0123456".into(),
+        merge_state: "CLEAN".into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        rocket: 0,
+        ready: true,
+        updated_at: "2026-09-28T10:00:00Z".into(),
+    };
+    let events = diff(&[], &[snap]);
+    let ready = events
+        .iter()
+        .find(|e| e.kind == PrEventKind::Ready)
+        .unwrap();
+    notify(ready);
+
+    let received = tokio::task::spawn_blocking(move || {
+        let (mut conn, _) = new_listener.accept().unwrap();
+        let mut text = String::new();
+        conn.read_to_string(&mut text).unwrap();
+        text
+    })
+    .await
+    .unwrap();
+    let v: Value = serde_json::from_str(received.trim_end()).unwrap();
+    assert_eq!(v["type"], "user");
+    assert!(v["message"]["content"]
+        .as_str()
+        .unwrap()
+        .starts_with("rocky: o/r #7 확인·머지해도 된다"));
+    // 옛 세션에는 보내지 않는다 — 한 곳에만.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(old_listener.accept().is_err(), "가장 최근 세션 하나에만");
+
+    // 받는 이가 사라지면(소켓 없음) 등록을 걷는다.
+    drop(old_listener);
+    std::fs::remove_file(&new_sock).unwrap();
+    notify(ready);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!f.state.inboxes().iter().any(|r| r.session_id == "new"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

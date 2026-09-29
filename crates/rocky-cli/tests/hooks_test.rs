@@ -269,3 +269,30 @@ fn only_if_older_replaces_a_managed_older_daemon() {
     assert_eq!(*log.replaced.borrow(), 1);
     assert!(log.stopped.borrow().is_empty());
 }
+
+/// 받은편지함 등록 본문 — 세션 id·소켓·cwd 가 다 있어야 보낸다(없으면 등록하지 않는다).
+#[test]
+fn inbox_registration_needs_session_socket_and_cwd() {
+    use rocky_cli::hooks::inbox_registration_body;
+    let input = serde_json::json!({ "session_id": "s1", "cwd": "/w/rocky" });
+    let body = inbox_registration_body(&input, Some("/tmp/cc-socks/1.sock"), None).unwrap();
+    assert_eq!(body["sessionId"], "s1");
+    assert_eq!(body["socket"], "/tmp/cc-socks/1.sock");
+    assert_eq!(body["cwd"], "/w/rocky");
+    // 훅 입력에 cwd 가 없으면 프로세스 cwd 로.
+    let no_cwd = serde_json::json!({ "session_id": "s1" });
+    assert_eq!(
+        inbox_registration_body(&no_cwd, Some("/tmp/cc-socks/1.sock"), Some("/w/x")).unwrap()
+            ["cwd"],
+        "/w/x"
+    );
+    // 받은편지함이 없는 세션(환경 변수 없음)·세션 id 없음은 보내지 않는다.
+    assert!(inbox_registration_body(&input, None, None).is_none());
+    assert!(inbox_registration_body(&input, Some(""), None).is_none());
+    assert!(inbox_registration_body(
+        &serde_json::json!({}),
+        Some("/tmp/cc-socks/1.sock"),
+        Some("/w")
+    )
+    .is_none());
+}
