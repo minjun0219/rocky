@@ -218,17 +218,54 @@ pub async fn run_daemon(
     }
 
     let shutdown_pid = pid_path.clone();
+    let (signaled_tx, signaled_rx) = tokio::sync::watch::channel(false);
     let server = axum::serve(
         listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
+        let _ = signaled_tx.send(true);
         let _ = std::fs::remove_file(&shutdown_pid);
     });
-    server.await?;
+    serve_with_grace(
+        std::future::IntoFuture::into_future(server),
+        signaled_rx,
+        SHUTDOWN_GRACE,
+    )
+    .await?;
     let _ = std::fs::remove_file(&pid_path);
     Ok(())
+}
+
+/// 종료 신호 뒤 열린 연결이 끝나기를 기다리는 한도. SSE 스트림(`/api/events`, 채널 전달기)은 스스로
+/// 끝나지 않아서, 기다림에 한도가 없으면 옛 데몬이 포트만 놓은 채 계속 산다 — 그 안의 PR 감시·sweep 도 같이
+/// 돌아 새 데몬과 겹친다(2026-09-30 실측: 교체된 v0.32.3 이 옛 세션 두 곳의 SSE 를 물고 몇 시간 남았다).
+pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// 서버를 돌리되, 종료 신호(`signaled` 가 true)를 받은 뒤 `grace` 가 지나도 안 끝나면 그대로 돌아온다 —
+/// 남은 연결은 프로세스가 끝나면서 끊기고, 클라이언트(SSE)는 새 데몬에 다시 붙는다.
+pub async fn serve_with_grace<F, E>(
+    server: F,
+    mut signaled: tokio::sync::watch::Receiver<bool>,
+    grace: std::time::Duration,
+) -> Result<(), E>
+where
+    F: std::future::Future<Output = Result<(), E>>,
+{
+    tokio::select! {
+        result = server => result,
+        () = async {
+            // 보내는 쪽이 없어지면(서버가 먼저 끝남) 기다릴 이유가 없다 — 위 분기가 끝난다.
+            if signaled.wait_for(|v| *v).await.is_err() {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(grace).await;
+        } => {
+            eprintln!("rocky: 종료 유예 {grace:?} 초과 — 남은 연결을 끊고 나간다");
+            Ok(())
+        }
+    }
 }
 
 async fn shutdown_signal() {
