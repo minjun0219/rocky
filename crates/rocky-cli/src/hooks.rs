@@ -204,7 +204,7 @@ fn print_session_summary(ctx: &CliContext, input: &serde_json::Value) {
 }
 
 /// 실제 배선 — SessionStart 와 매 턴 훅이 같은 의존을 쓴다.
-fn with_live_deps<R>(f: impl FnOnce(&EnsureDeps) -> R) -> R {
+pub fn with_live_deps<R>(f: impl FnOnce(&EnsureDeps) -> R) -> R {
     f(&EnsureDeps {
         version: env!("CARGO_PKG_VERSION"),
         check_health: &daemon_health,
@@ -240,6 +240,9 @@ pub enum RestartPolicy {
     /// (`rocky daemon stop` 뒤 개발자가 자기 데몬을 띄우는 흐름을 안 깨려고), 나보다 새 데몬도
     /// 그대로 둔다 — 안 그러면 옛 플러그인으로 도는 세션과 새 세션이 턴마다 서로 뒤집는다.
     OnlyIfOlder,
+    /// `rocky daemon restart`: 버전과 상관없이 **늘** 교체한다 — 없으면 띄운다. 교체 경로
+    /// (launchd 재등록 / 내린 뒤 띄우기)와 실패 보고는 버전 교체와 같다.
+    Always,
 }
 
 /// 판정 + 배선. 돌려주는 문자열은 **사람에게 알려야 할 것**이다 — 재기동의 어느 단계가
@@ -256,7 +259,7 @@ pub fn ensure_daemon_with_policy(
     policy: RestartPolicy,
 ) -> Option<String> {
     let Some(running) = (deps.check_health)(&ctx.base_url) else {
-        if policy == RestartPolicy::ExactVersion {
+        if policy != RestartPolicy::OnlyIfOlder {
             return (deps.spawn)(ctx)
                 .err()
                 .map(|error| format!("데몬을 띄우지 못했다 — {error}"));
@@ -270,6 +273,7 @@ pub fn ensure_daemon_with_policy(
             None => true,
             Some(v) => rocky_core::version::is_older(v, deps.version),
         },
+        RestartPolicy::Always => true,
     };
     if !stale {
         return None;
@@ -298,11 +302,11 @@ pub fn ensure_daemon_with_policy(
     }
     if (deps.stop)(ctx, running.pid) {
         return (deps.spawn)(ctx).err().map(|error| {
-            format!("구버전 데몬(v{old})은 내렸는데 v{new} 를 띄우지 못했다 — {error}\n  `rocky daemon start` 로 올려라.")
+            format!("데몬(v{old})은 내렸는데 v{new} 를 띄우지 못했다 — {error}\n  `rocky daemon start` 로 올려라.")
         });
     }
     Some(format!(
-        "구버전 데몬(v{old}{})을 내리지 못해 v{new} 로 재기동하지 않았다 — `rocky daemon stop && rocky daemon start`",
+        "도는 데몬(v{old}{})을 내리지 못해 v{new} 로 재기동하지 않았다 — `rocky daemon stop && rocky daemon start`",
         running
             .pid
             .map(|p| format!(", pid {p}"))
