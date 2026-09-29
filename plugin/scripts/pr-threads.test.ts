@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   botVerdict,
-  hasReviewBot,
+  botSeen,
   ciStateOf,
   parseArgs,
   reactionsToRemove,
@@ -149,6 +149,9 @@ describe('parseArgs', () => {
       timeoutSec: 60,
       intervalSec: 60,
     });
+    // 봇 대기는 켤 때만 — 기본 Args 에는 waitBot 이 없다.
+    expect(parseArgs(['watch', '154', '--wait-bot']).waitBot).toBe(true);
+    expect(parseArgs(['watch', '154']).waitBot).toBeUndefined();
   });
 
   it('react 는 코멘트 id 와 상태 리액션 둘 다 필요하고 👍 는 거부한다', () => {
@@ -249,29 +252,22 @@ describe('parseArgs — ready / transitions', () => {
   });
 });
 
-describe('hasReviewBot', () => {
-  const pr = (reviewers: string[], reactors: string[] = []) => ({
-    reviews: { nodes: reviewers.map((login) => ({ author: { login } })) },
-    reactions: { nodes: reactors.map((login) => ({ user: { login } })) },
-  });
-
-  it('최근 PR 어디에도 봇 흔적이 없으면 봇 없는 레포 — watch 가 기다리지 않는다', () => {
-    expect(hasReviewBot([])).toBe(false);
-    expect(hasReviewBot([pr(['minjun0219']), pr([], ['someone'])])).toBe(false);
-  });
-
-  it('봇이 한 번이라도 리뷰했거나 본문에 리액션을 달았으면 봇 있는 레포', () => {
-    expect(hasReviewBot([pr(['minjun0219']), pr(['chatgpt-codex-connector'])])).toBe(true);
+describe('botSeen', () => {
+  const none: Array<{ author: { login: string } | null }> = [];
+  it('봇이 리뷰했거나 스레드를 열었거나 본문에 리액션을 달았으면 흔적이 있다', () => {
+    expect(botSeen([{ author: { login: 'chatgpt-codex-connector' } }], [], [])).toBe(true);
     // 본문 리액션의 user 는 `[bot]` 접미사로 온다 — 👀(리뷰 중)·👍(지적 없음) 어느 쪽이든.
-    expect(hasReviewBot([pr([], ['chatgpt-codex-connector[bot]'])])).toBe(true);
-    expect(hasReviewBot([pr(['copilot-pull-request-reviewer'])])).toBe(true);
+    expect(botSeen(none, [{ user: { login: 'chatgpt-codex-connector[bot]' } }], [])).toBe(true);
+    expect(botSeen(none, [], ['copilot-pull-request-reviewer'])).toBe(true);
   });
 
-  it('author 가 지워진(null) 항목은 봇이 아니다', () => {
+  it('사람만 있거나 작성자가 지워졌으면 흔적이 없다 — 이 레포는 봇을 기다리지 않는다', () => {
     expect(
-      hasReviewBot([
-        { reviews: { nodes: [{ author: null }] }, reactions: { nodes: [{ user: null }] } },
-      ]),
+      botSeen(
+        [{ author: { login: 'minjun0219' } }, { author: null }],
+        [{ user: null }],
+        ['someone', null],
+      ),
     ).toBe(false);
   });
 });
