@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DetailDrawer } from './components/DetailDrawer';
+import { ViewSwitch } from './components/ViewSwitch';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
 import { TodoPane } from './components/TodoPane';
@@ -18,6 +19,7 @@ function App() {
   const setConnected = useUiStore((s) => s.setConnected);
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
+  const view = useUiStore((s) => s.view);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -111,11 +113,12 @@ function App() {
   return (
     <div className="app">
       <TopBar />
-      {/* 관제판 — 한 열. 머리줄(보드 스위처) → "지금"(전 보드) → 그 보드의 목록 → 메모(접힘). */}
-      <NowTable />
+      <ViewSwitch />
+      {/* 관제판 — 한 열. 머리줄(보드 스위처) 아래 할 일: "지금"(전 보드) → 그 보드의 목록.
+          노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
+      {view === 'todos' ? <NowTable /> : null}
       <div className="layout flex min-h-0 flex-1 flex-col">
-        <TodoPane />
-        <NotesRail />
+        {view === 'todos' ? <TodoPane /> : <NotesRail />}
       </div>
       <DetailDrawer />
     </div>

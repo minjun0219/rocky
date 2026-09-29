@@ -1,24 +1,7 @@
 /*
- * 메모 레일 — 목록 아래 한 줄 헤더로 접혀 있고, 토글로 편다(모든 폭). 정적 스타일은
- * NotesRail.tsx 의 유틸리티.
+ * 노트 보기 — 머리의 "할 일 | 노트" 전환으로 여는 화면 전체. 정적 스타일은 NotesRail.tsx 의
+ * 유틸리티.
  */
-
-.notes-toggle {
-  cursor: pointer;
-  min-height: 36px;
-}
-
-.notes-caret {
-  display: inline;
-}
-
-.notes-body {
-  display: none;
-}
-
-.notes-rail.is-open .notes-body {
-  display: contents;
-}
 
 /* 편집기 후보 (b) CodeMirror — 카드 안에서 textarea 와 같은 자리·같은 글자 크기. 상대 커서는
  * y-codemirror 의 테마가 그리고, 색은 actor 이름 해시(codemirror-editor.ts). */

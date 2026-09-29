@@ -223,3 +223,6 @@ export interface PrSnapshot {
   ready: boolean;
   updatedAt: string;
 }
+
+/** 보드 화면의 두 보기 — 할 일 목록 / 노트. */
+export type BoardView = 'todos' | 'notes';

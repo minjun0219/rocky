@@ -181,7 +181,7 @@
   .drawer-actions {
     gap: 12px;
   }
-  .notes-rail .notes-add {
+  .notes-view .notes-add {
     min-height: 44px;
     padding-inline: 12px;
   }

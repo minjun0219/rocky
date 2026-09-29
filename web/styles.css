@@ -24,7 +24,6 @@
 
 @import "./styles/tokens.css";
 @import "./styles/topbar.css";
-@import "./styles/sidebar.css";
 @import "./styles/todo-item.css";
 @import "./styles/handoff.css";
 @import "./styles/notes.css";

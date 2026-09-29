@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, ChevronRight, History } from 'lucide-react';
+import { Archive, History } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { NoteView } from '../types';
 import {
@@ -20,8 +20,8 @@ const LOCAL_ORIGIN = Symbol('note-textarea');
 const LIVE_LINGER_MS = 20_000;
 
 /**
- * 메모 레일 — 목록 아래, 기본 접힘. 헤더(개수)가 토글이다. 넓은 화면에서 옆 열로 늘 펼쳐
- * 있던 시절엔 대개 빈 열이었다 — 관제판에선 필요할 때만 편다.
+ * 노트 보기 — 머리의 "할 일 | 노트" 전환으로 들어오는 화면 전체. 예전엔 목록 아래 접힌 레일이라
+ * 좁은 패널에서 스크롤 1,000px 너머에 묻혔다(`web/DESIGN.md` "Notes").
  *
  * 편집기 스위치(textarea / CodeMirror)는 둘을 번갈아 써 보고 하나를 지우기 위한 임시 것이다
  * (설계 2026-09-28-note-crdt-design, 결정 6). 결정 뒤 지운다.
@@ -30,7 +30,6 @@ export function NotesRail() {
   const notes = useUiStore((s) => s.notes);
   const selected = useUiStore((s) => s.selected);
   const addNote = useUiStore((s) => s.addNote);
-  const [open, setOpen] = useState(false);
   const [editor, setEditor] = useState<NoteEditorKind>(() => readEditorPref(localStorage));
 
   const switchEditor = (kind: NoteEditorKind) => {
@@ -43,77 +42,46 @@ export function NotesRail() {
   };
 
   return (
-    <aside
-      className={`notes-rail flex shrink-0 flex-col gap-3 border-t border-line px-[22px] py-2 ${open ? 'is-open' : ''}`}
-    >
-      <div className="notes-head flex items-center justify-between">
+    <section className="notes-view flex flex-col gap-3 px-4 py-3" aria-label="노트">
+      <div className="notes-head flex items-center justify-between gap-2">
         <button
           type="button"
-          className="notes-toggle"
-          aria-expanded={open}
-          onClick={() => {
-            logUsage('web:notes-toggle');
-            setOpen((v) => !v);
-          }}
+          className="notes-add min-h-8 rounded-md border border-line bg-surface px-3 text-sm text-text hover:border-mine"
+          onClick={() =>
+            void addNote({
+              board: selected === 'all' ? undefined : selected,
+              title: '새 메모',
+            })
+          }
         >
-          <span className="sidebar-label">
-            NOTES
-            {notes.length > 0 ? ` · ${notes.length}` : ''}
-            <span className="notes-caret">
-              {open ? (
-                <ChevronDown size={11} aria-hidden className="inline align-[-1px]" />
-              ) : (
-                <ChevronRight size={11} aria-hidden className="inline align-[-1px]" />
-              )}
-            </span>
-          </span>
+          + 새 노트
         </button>
-        <div className="flex items-center gap-2">
-          {open && (
-            <span
-              className="note-editor-switch font-mono text-micro text-faint"
-              title="편집기 — 둘 다 써 보고 하나만 남긴다"
+        <span
+          className="note-editor-switch font-mono text-chip text-faint"
+          title="편집기 — 둘 다 써 보고 하나만 남긴다"
+        >
+          편집기{' '}
+          {(['textarea', 'codemirror'] as const).map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={`px-1 ${editor === kind ? 'text-text underline' : 'hover:text-text'}`}
+              aria-pressed={editor === kind}
+              onClick={() => switchEditor(kind)}
             >
-              편집기{' '}
-              {(['textarea', 'codemirror'] as const).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  className={`px-1 ${editor === kind ? 'text-text underline' : 'hover:text-text'}`}
-                  aria-pressed={editor === kind}
-                  onClick={() => switchEditor(kind)}
-                >
-                  {kind === 'textarea' ? '기본' : 'CodeMirror'}
-                </button>
-              ))}
-            </span>
-          )}
-          <button
-            type="button"
-            className="notes-add text-meta text-warm"
-            onClick={() => {
-              setOpen(true); // 접힌 채 추가하면 새 메모가 안 보인다
-              void addNote({
-                board: selected === 'all' ? undefined : selected,
-                title: '새 메모',
-              });
-            }}
-          >
-            + 메모
-          </button>
+              {kind === 'textarea' ? '기본' : 'CodeMirror'}
+            </button>
+          ))}
+        </span>
+      </div>
+      {notes.length === 0 ? (
+        <div className="empty-state px-1 py-[18px] text-sm text-muted">
+          노트가 없다. 사람과 에이전트가 같이 쓰는 스크래치 패드다 — "+ 새 노트" 로 시작.
         </div>
-      </div>
-      <div className="notes-body">
-        {notes.length === 0 && (
-          <div className="empty-state px-1 py-[18px] text-sm text-faint">
-            메모가 없다. 스크래치패드로 쓰자.
-          </div>
-        )}
-        {notes.map((note) => (
-          <NoteCard key={`${note.id}:${editor}`} note={note} editor={editor} />
-        ))}
-      </div>
-    </aside>
+      ) : (
+        notes.map((note) => <NoteCard key={`${note.id}:${editor}`} note={note} editor={editor} />)
+      )}
+    </section>
   );
 }
 
@@ -342,7 +310,7 @@ function NoteCard({ note, editor }: { note: NoteView; editor: NoteEditorKind }) 
           ref={textareaRef}
           className="note-content mt-1 w-full resize-y border-none bg-transparent text-sm leading-[1.55] text-muted focus:text-text focus:outline-none"
           defaultValue={note.content}
-          rows={Math.min(12, Math.max(3, lines + 1))}
+          rows={Math.min(24, Math.max(6, lines + 1))}
           readOnly={live === 'opening'}
           aria-label={`${note.title} 본문`}
           onFocus={() => void startLive()}
