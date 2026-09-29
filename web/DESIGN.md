@@ -471,13 +471,7 @@ ref·시각·개수는 모노에 `tabular-nums` 로 — 갱신될 때 자릿수�
 
 | 지금 코드 | 규칙 | 자리 |
 | --- | --- | --- |
-| 보드 탭이 데이터 갱신마다 `scrollIntoView` → 페이지가 탭 줄로 튕긴다, 첫 탭이 왼쪽에서 잘린다 | 보던 자리를 지킨다 | `web/components/Sidebar.tsx` |
-| "지금" 표에 읽지 않은 댓글이 기간 제한 없이 6행 | 내 차례 우선순위·3일·최대 5행 | `nowRows` in `web/lib.ts` |
-| `formatClock` 이 며칠이 지나도 초까지 흐른다 | Time Display | `web/lib.ts` |
-| 같은 주황 배지가 행마다 | 개수는 섹션 머리에 한 번 | `web/components/NowTable.tsx` |
 | 완료가 손으로 정한 자리에 남는다 | 완료는 맨 아래 접힘 | `web/components/TodoPane.tsx` |
-| 머리줄의 `LINK ♪`·보관됨 체크박스·`logan` 버튼 | 한 줄 머리줄 + `⋯` 메뉴 | `web/components/TopBar.tsx` |
-| 가로 보드 탭 줄 | 보드 스위처 시트 | `web/components/Sidebar.tsx` |
 | 상세가 오버레이 드로어 | < 720px 에서 push | `web/components/DetailDrawer.tsx` |
 | 드래그 핸들이 hover 에서만 보인다 | hover 전용 컨트롤 없음 | `web/components/TodoItem.tsx` |
 | 11px(`micro`) 19곳 | 12px 미만 없음 | `web/styles/tokens.css` |

@@ -825,22 +825,6 @@ export function mineCount(rows: NowRow[]): number {
 }
 
 /**
- * 가로 스크롤 컨테이너 안에서 한 요소를 가운데 오게 하는 `scrollLeft` — 양 끝에서는 넘치지 않게
- * 자른다. 문서 스크롤은 건드리지 않는 대안이 필요해서 둔다(`scrollIntoView` 는 조상을 전부 움직인다).
- * 좌표는 컨테이너 **내용** 기준(스크롤 0 일 때의 x)이다.
- */
-export function centeredScrollLeft(box: {
-  elStart: number;
-  elWidth: number;
-  viewWidth: number;
-  contentWidth: number;
-}): number {
-  const max = Math.max(0, box.contentWidth - box.viewWidth);
-  const target = box.elStart - (box.viewWidth - box.elWidth) / 2;
-  return Math.round(Math.min(max, Math.max(0, target)));
-}
-
-/**
  * 노트에 새 소식이 있나 — 노트 보기를 마지막으로 본 뒤에 고쳐진 노트가 하나라도 있으면.
  * 할 일 보기에서 에이전트가 노트를 고친 걸 알 수 있게 전환 버튼에 점을 찍는다.
  */
