@@ -287,6 +287,24 @@ pub fn pr_channel_events(entries: &[ChangeFeedEntry]) -> Vec<PrChannelEvent> {
         .collect()
 }
 
+/// 이 세션의 보드에 남은 PR 전이만 — 훅 주입은 세션마다 돌므로, 거르지 않으면 모든 세션이 모든 레포의
+/// "머지 가능" 을 받는다(tally 세션에 rocky PR 알림이 간 사고, 2026-09-29). 세션 cwd 가 어느 보드로도
+/// 안 풀리면(`None`) PR 전이는 싣지 않는다 — 모르는 세션에 남의 PR 을 알리느니 조용한 편이 낫다.
+pub fn pr_entries_for_board(
+    entries: &[ChangeFeedEntry],
+    board_key: Option<&str>,
+) -> Vec<ChangeFeedEntry> {
+    let Some(board_key) = board_key else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter(|e| e.history.action.starts_with("pr-"))
+        .filter(|e| e.board_key.as_deref() == Some(board_key))
+        .cloned()
+        .collect()
+}
+
 /// 여러 주입 블록을 하나의 additionalContext 로 합친다 — 사람의 보드 변경과 핸드오프
 /// 요청이 같은 프롬프트에 함께 도착할 수 있다. 실을 내용이 없으면 `None`.
 pub fn merge_context(parts: &[Option<String>]) -> Option<String> {

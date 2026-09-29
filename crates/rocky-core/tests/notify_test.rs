@@ -2,7 +2,7 @@
 
 use rocky_core::notify::{
     build_notify_context, build_pr_context, filter_human_changes, merge_context, page_cursor,
-    pr_channel_events, read_cursor, write_cursor,
+    pr_channel_events, pr_entries_for_board, read_cursor, write_cursor,
 };
 use rocky_core::types::{ChangeFeedEntry, Changes, HistoryEntity, HistoryEntry};
 use serde_json::json;
@@ -339,4 +339,39 @@ fn page_cursor_advances_through_full_pages_only() {
         entries: vec![],
     };
     assert_eq!(page_cursor(&empty, 100), (7, false));
+}
+
+/// 사고 회귀(2026-09-29) — rocky 의 "머지 가능" 이 tally 세션에 주입됐다. PR 전이는 그 세션의 보드
+/// 것만, 보드를 모르는 세션에는 아무것도.
+#[test]
+fn pr_transitions_are_scoped_to_the_sessions_board() {
+    let pr = |board: &str, number: i64| {
+        let mut e = with_changes(
+            entry(number, "rocky", "pr-ready"),
+            serde_json::json!({ "number": number, "title": "t", "url": "u", "repo": "o/r" }),
+        );
+        e.history.entity = HistoryEntity::Board;
+        e.board_key = Some(board.into());
+        e
+    };
+    let entries = vec![pr("rocky", 1), pr("tally", 2), entry(3, "logan", "update")];
+    let rocky: Vec<i64> = pr_entries_for_board(&entries, Some("rocky"))
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(
+        rocky,
+        vec![1],
+        "rocky 세션엔 rocky PR 만 — 보드 변경(update)은 여기서 다루지 않는다"
+    );
+    let tally: Vec<i64> = pr_entries_for_board(&entries, Some("tally"))
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(tally, vec![2]);
+    assert!(
+        pr_entries_for_board(&entries, None).is_empty(),
+        "보드를 모르는 세션엔 아무것도"
+    );
+    assert!(build_pr_context(&pr_entries_for_board(&entries, Some("blip-a"))).is_none());
 }
