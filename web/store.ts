@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
-import type { AgentSession } from './types';
+import type { AgentSession, BoardView } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
 import { markSeen, readSeen, readThemePref, resolveTheme, THEME_KEY, type ThemePref } from './lib';
 import { logUsage, setUsageActor } from './usage';
@@ -26,6 +26,27 @@ import {
  */
 
 const ACTOR_KEY = 'rocky-actor';
+/** 할 일 / 노트 보기 — 새로고침·cmux 의 페이지 재로드 뒤에도 보던 쪽으로 돌아온다. */
+const VIEW_KEY = 'rocky:view';
+/** 노트 보기를 마지막으로 떠난(또는 연) 시각 — 그 뒤의 편집이 "노트 •" 표시가 된다. */
+const NOTES_SEEN_KEY = 'rocky:notes-seen';
+
+/** 저장소가 막혀도(비공개 창·차단) 화면은 떠야 한다 — 읽기 실패는 저장값 없음으로. */
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // 다음 방문에 기본값으로 돌아갈 뿐 — 이번 화면은 정상 동작한다.
+  }
+}
 
 // BoardSelection 은 './route' 가 소유한다 — store 가 route 를 import 하므로 반대 방향은
 // 순환이 된다. 기존 import 경로(`from './store'`)를 쓰는 컴포넌트를 위해 재수출한다.
@@ -61,6 +82,13 @@ interface UiState {
    * `<html data-theme>` 에서 직접 읽는다. 사본을 두면 DOM 과 어긋날 두 번째 진실만 생긴다.
    */
   themePref: ThemePref;
+  /**
+   * 할 일 / 노트 — 좁은 패널에서 노트를 목록 아래 두면 스크롤 1,000px 너머라 눈이 가지 않는다.
+   * 둘을 전환해 노트가 화면 전체를 쓴다(`web/DESIGN.md` "Notes").
+   */
+  view: BoardView;
+  /** 노트 보기를 마지막으로 연/떠난 시각(ISO). 그 뒤의 노트 편집이 전환 버튼의 표시가 된다. */
+  notesSeenAt: string;
   connected: boolean;
   detail: DetailState | null;
   /** todo id → 마지막으로 확인한 댓글 시각. localStorage 의 화면용 사본. */
@@ -89,6 +117,7 @@ interface UiState {
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
+  setView: (view: BoardView) => void;
   setConnected: (connected: boolean) => void;
 
   refetch: () => Promise<void>;
@@ -251,6 +280,8 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     })(),
   ),
+  view: readStored(VIEW_KEY) === 'notes' ? 'notes' : 'todos',
+  notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
   connected: false,
   detail: null,
   seenComments: readSeen(localStorage),
@@ -296,6 +327,17 @@ export const useUiStore = create<UiState>((set, get) => ({
     } catch {
       // 저장 실패는 다음 방문에 auto 로 돌아간다는 뜻일 뿐 — 이번 세션은 정상 동작한다.
     }
+  },
+  setView: (view) => {
+    if (view === get().view) {
+      return;
+    }
+    logUsage('web:view', { view });
+    // 노트 보기에 들어갈 때도, 떠날 때도 "여기까지 봤다" 로 친다 — 보는 동안의 편집은 새 소식이 아니다.
+    const seen = new Date().toISOString();
+    set({ view, notesSeenAt: seen });
+    writeStored(VIEW_KEY, view);
+    writeStored(NOTES_SEEN_KEY, seen);
   },
   setConnected: (connected) => set({ connected }),
 

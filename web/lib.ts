@@ -720,3 +720,12 @@ export function formatClock(iso: string, now = Date.now()): string {
   const ss = String(rest % 60).padStart(2, '0');
   return days > 0 ? `${days}일 ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`;
 }
+
+/**
+ * 노트에 새 소식이 있나 — 노트 보기를 마지막으로 본 뒤에 고쳐진 노트가 하나라도 있으면.
+ * 할 일 보기에서 에이전트가 노트를 고친 걸 알 수 있게 전환 버튼에 점을 찍는다.
+ */
+export function hasNoteNews(notes: { updatedAt: string }[], seenAt: string): boolean {
+  const seen = Date.parse(seenAt);
+  return notes.some((n) => Date.parse(n.updatedAt) > (Number.isNaN(seen) ? 0 : seen));
+}

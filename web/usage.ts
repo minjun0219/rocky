@@ -7,7 +7,7 @@ export type WebUsageEvent =
   | 'web:now-row'
   | 'web:board-tab'
   | 'web:todo-open'
-  | 'web:notes-toggle'
+  | 'web:view'
   | 'web:note-live'
   | 'web:note-editor'
   | 'web:theme'

@@ -18,44 +18,27 @@ const NOTE: NoteView = {
 
 afterEach(cleanup);
 
-/** happy-dom 은 matchMedia 가 항상 불일치라 좁은 화면을 흉내 낸다. 반환값으로 복원. */
-function stubNarrow(matches: boolean) {
-  const original = window.matchMedia;
-  window.matchMedia = ((query: string) =>
-    ({
-      matches,
-      media: query,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }) as unknown as MediaQueryList) as typeof window.matchMedia;
-  return () => {
-    window.matchMedia = original;
-  };
-}
-
-describe('NotesRail 접힘 토글', () => {
-  // 접힘은 모든 폭에서 같다 — 여기서는 상태와 신호(is-open 클래스·캐럿·개수)가 올바르게
-  // 오가는지만 고정한다.
-  test('토글이 is-open 과 캐럿을 뒤집고, 개수를 보여준다', async () => {
-    const restore = stubNarrow(true);
+describe('NotesRail — 노트 보기', () => {
+  // 접히는 레일이 아니라 화면 전체 — 들어오면 바로 노트가 보여야 한다(좁은 패널에서 목록 아래
+  // 접힌 레일은 스크롤 너머에 묻혔다).
+  test('토글 없이 바로 노트를 싣는다', () => {
     renderWithStore(<NotesRail />, { notes: [NOTE] });
-    const toggle = screen.getByRole('button', { name: /NOTES/ });
-    expect(toggle.textContent).toContain('· 1');
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(document.querySelector('.notes-rail.is-open')).toBeNull();
-
-    await userEvent.click(toggle);
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    expect(document.querySelector('.notes-rail.is-open')).not.toBeNull();
-    restore();
+    expect(screen.queryByRole('button', { name: /NOTES/ })).toBeNull();
+    expect(screen.getByDisplayValue('메모')).toBeTruthy();
   });
 
-  test('+ 메모는 접힘을 강제로 편다 — 접힌 채 추가하면 새 메모가 안 보인다', async () => {
-    const restore = stubNarrow(true);
-    const addNote = async () => {};
-    renderWithStore(<NotesRail />, { notes: [], addNote });
-    await userEvent.click(screen.getByRole('button', { name: '+ 메모' }));
-    expect(document.querySelector('.notes-rail.is-open')).not.toBeNull();
-    restore();
+  test('노트가 없으면 무엇인지와 시작하는 법을 말한다', () => {
+    renderWithStore(<NotesRail />, { notes: [] });
+    expect(screen.getByText(/같이 쓰는 스크래치 패드/)).toBeTruthy();
+  });
+
+  test('"+ 새 노트" 는 보고 있는 보드에 만든다', async () => {
+    const calls: unknown[] = [];
+    const addNote = async (input: unknown) => {
+      calls.push(input);
+    };
+    renderWithStore(<NotesRail />, { notes: [], selected: 'rocky', addNote });
+    await userEvent.click(screen.getByRole('button', { name: '+ 새 노트' }));
+    expect(calls).toEqual([{ board: 'rocky', title: '새 메모' }]);
   });
 });
