@@ -3,7 +3,15 @@ import type { HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
 import type { AgentSession, BoardView } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
-import { markSeen, readSeen, readThemePref, resolveTheme, THEME_KEY, type ThemePref } from './lib';
+import {
+  advanceSeen,
+  markSeen,
+  readSeen,
+  readThemePref,
+  resolveTheme,
+  THEME_KEY,
+  type ThemePref,
+} from './lib';
 import { logUsage, setUsageActor } from './usage';
 import {
   type BoardSelection,
@@ -30,6 +38,10 @@ const ACTOR_KEY = 'rocky-actor';
 const VIEW_KEY = 'rocky:view';
 /** 노트 보기를 마지막으로 떠난(또는 연) 시각 — 그 뒤의 편집이 "노트 •" 표시가 된다. */
 const NOTES_SEEN_KEY = 'rocky:notes-seen';
+
+/** 노트 보기를 떠난 뒤 이만큼은 저장 중이던 내 편집이 돌아오는 refetch 를 "본 것" 으로 친다. */
+const NOTES_SETTLE_MS = 5_000;
+let notesSettleUntil = 0;
 
 /** 저장소가 막혀도(비공개 창·차단) 화면은 떠야 한다 — 읽기 실패는 저장값 없음으로. */
 function readStored(key: string): string | null {
@@ -334,10 +346,13 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     logUsage('web:view', { view });
     // 노트 보기에 들어갈 때도, 떠날 때도 "여기까지 봤다" 로 친다 — 보는 동안의 편집은 새 소식이 아니다.
-    const seen = new Date().toISOString();
-    set({ view, notesSeenAt: seen });
+    // 기준은 브라우저 시계가 아니라 **서버가 찍은 노트 시각**이다(원격 브라우저의 시계 어긋남). 떠나는
+    // 순간엔 아직 저장 중인 편집(제목 PATCH·편집기의 배치 flush)이 남아 있을 수 있어, 잠시 동안의
+    // refetch 도 "본 것" 으로 올린다(`refetch` 의 `notesSettleUntil`).
+    notesSettleUntil = view === 'todos' ? Date.now() + NOTES_SETTLE_MS : 0;
+    set({ view, notesSeenAt: advanceSeen(get().notesSeenAt, get().notes) });
     writeStored(VIEW_KEY, view);
-    writeStored(NOTES_SEEN_KEY, seen);
+    writeStored(NOTES_SEEN_KEY, get().notesSeenAt);
   },
   setConnected: (connected) => set({ connected }),
 
@@ -390,6 +405,14 @@ export const useUiStore = create<UiState>((set, get) => ({
       prs,
       collect: typeof summary.collect === 'number' ? summary.collect : null,
     });
+    // 노트를 보는 중이거나 막 떠난 참이면, 방금 받은 노트까지 "본 것" — 내 편집이 새 소식이 되지 않게.
+    if (get().view === 'notes' || Date.now() < notesSettleUntil) {
+      const seen = advanceSeen(get().notesSeenAt, notes);
+      if (seen !== get().notesSeenAt) {
+        set({ notesSeenAt: seen });
+        writeStored(NOTES_SEEN_KEY, seen);
+      }
+    }
 
     // 열린 상세가 있으면 함께 갱신 (SSE 로 들어온 변경 반영). await 하지 않으므로
     // `refresh: true` 로 "그 항목이 아직 열려 있을 때만" 반영하게 한다 — 그 사이 라우팅이

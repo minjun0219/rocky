@@ -729,3 +729,21 @@ export function hasNoteNews(notes: { updatedAt: string }[], seenAt: string): boo
   const seen = Date.parse(seenAt);
   return notes.some((n) => Date.parse(n.updatedAt) > (Number.isNaN(seen) ? 0 : seen));
 }
+
+/**
+ * 노트를 "여기까지 봤다" 의 새 기준 — 지금 기준과 노트들의 `updatedAt`(서버 시각) 중 가장 늦은 것.
+ * 브라우저 시계(`new Date()`)를 쓰지 않는 이유: 원격 브라우저는 시계가 어긋나 있어 점이 영영
+ * 안 꺼지거나 새 편집을 놓친다. 뒤로 가지 않는다.
+ */
+export function advanceSeen(seenAt: string, notes: { updatedAt: string }[]): string {
+  let best = seenAt;
+  let bestMs = Date.parse(seenAt);
+  for (const n of notes) {
+    const ms = Date.parse(n.updatedAt);
+    if (!Number.isNaN(ms) && (Number.isNaN(bestMs) || ms > bestMs)) {
+      best = n.updatedAt;
+      bestMs = ms;
+    }
+  }
+  return best;
+}

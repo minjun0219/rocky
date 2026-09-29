@@ -3,6 +3,7 @@ import { DETAIL_HISTORY_EXCLUDED as STORE_DETAIL_HISTORY_EXCLUDED } from './type
 import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
 import {
+  advanceSeen,
   hasNoteNews,
   boardCommand,
   COPY_FEEDBACK_MS,
@@ -721,5 +722,23 @@ describe('hasNoteNews', () => {
     expect(hasNoteNews([], seen)).toBe(false);
     // 본 시각을 못 읽으면(저장값 깨짐) 처음부터 본 적 없는 것으로.
     expect(hasNoteNews([{ updatedAt: '2026-09-01T00:00:00.000Z' }], 'bad')).toBe(true);
+  });
+});
+
+describe('advanceSeen — 서버 시각으로만 전진', () => {
+  test('노트의 가장 늦은 updatedAt 으로 올리고, 뒤로 가지 않는다', () => {
+    const seen = '2026-09-28T00:00:00.000Z';
+    expect(
+      advanceSeen(seen, [
+        { updatedAt: '2026-09-28T01:00:00.000Z' },
+        { updatedAt: '2026-09-28T03:00:00.000Z' },
+      ]),
+    ).toBe('2026-09-28T03:00:00.000Z');
+    expect(advanceSeen(seen, [{ updatedAt: '2026-09-27T00:00:00.000Z' }])).toBe(seen);
+    expect(advanceSeen(seen, [])).toBe(seen);
+    // 기준이 깨져 있으면 노트 시각으로 새로 잡는다.
+    expect(advanceSeen('bad', [{ updatedAt: '2026-09-28T01:00:00.000Z' }])).toBe(
+      '2026-09-28T01:00:00.000Z',
+    );
   });
 });

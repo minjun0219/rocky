@@ -53,3 +53,19 @@ describe('ViewSwitch', () => {
     expect(screen.queryByRole('img', { name: '새 편집 있음' })).toBeNull();
   });
 });
+
+// Codex 지적 회귀 — "봤다" 기준을 브라우저 시계로 잡으면, 서버 시계가 앞선(원격 브라우저) 경우
+// 방금 본 노트가 계속 새 소식으로 남았다. 실제 setView 로 들어갔다 나오면 점이 없어야 한다.
+describe('ViewSwitch — 봤다 기준은 서버 시각', () => {
+  test('서버 시계가 브라우저보다 앞서도, 노트 보기를 다녀오면 점이 꺼진다', async () => {
+    renderWithStore(<ViewSwitch />, {
+      view: 'todos',
+      notesSeenAt: '2026-09-01T00:00:00.000Z',
+      notes: [note('2099-01-01T00:00:00.000Z')],
+    });
+    expect(screen.getByRole('img', { name: '새 편집 있음' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /노트/ }));
+    await userEvent.click(screen.getByRole('button', { name: '할 일' }));
+    expect(screen.queryByRole('img', { name: '새 편집 있음' })).toBeNull();
+  });
+});
