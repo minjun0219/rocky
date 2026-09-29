@@ -1,5 +1,21 @@
 # @minjun0219/rocky
 
+## 0.32.0
+
+### Minor Changes
+
+- [#210](https://github.com/minjun0219/rocky/pull/210) [`f35dc69`](https://github.com/minjun0219/rocky/commit/f35dc69dcf254723bdc12fd3e6eda27bf75a30ee) Thanks [@minjun0219](https://github.com/minjun0219)! - 리뷰가 붙은 PR 을 세션이 알아서 처리하게 한다 — 보드마다 그 레포의 세션이 `rocky board auto-resolve on|off` 로 켠다(기본 끔, `PATCH /api/boards/:key {"autoResolve": true}` 는 로컬 요청 전용). 처음 보는 처리 안 된 리뷰 스레드가 생기면 데몬이 "리뷰 도착" 전이(`pr-review`)를 남기고, 켠 보드의 레포면 그 레포에서 일하는 Claude Code 세션에 `/rocky:resolve-reviews N` 절차대로 처리하라는 메시지를 받은편지함으로 보낸다. 배너·알림 브릿지는 이 전이를 쓰지 않는다.
+
+- [#207](https://github.com/minjun0219/rocky/pull/207) [`30a2a48`](https://github.com/minjun0219/rocky/commit/30a2a481691c2fb85119b2c5f9920dc81734bdba) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 이 "확인·머지해도 된다" 나 충돌로 바뀌면 데몬이 그 레포에서 일하는 Claude Code 세션을 **받은편지함 소켓**으로 깨운다(`pr.sessionNotify`, 기본 켬). 훅이 턴마다 세션의 소켓(`CLAUDE_CODE_MESSAGING_SOCKET`)을 데몬에 등록하고, 데몬은 그 레포 보드에서 가장 최근에 쓰인 세션 하나에 메시지 한 줄을 쓴다 — 쉬던 세션도 그 자리에서 턴이 열리고, 채널과 달리 개발 플래그가 필요 없다.
+
+### Patch Changes
+
+- [#209](https://github.com/minjun0219/rocky/pull/209) [`c454605`](https://github.com/minjun0219/rocky/commit/c454605f1b9d205d9b373c5a8d6145cc95678986) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션 훅이 PR 감시 전이("확인·머지해도 된다"·충돌)를 **그 세션이 일하는 보드의 것만** 주입한다. 전에는 모든 세션에 모든 레포의 PR 전이가 들어가, 예를 들어 tally 세션이 rocky PR 의 머지 가능 알림을 받았다. 세션 cwd 가 어느 보드로도 안 풀리면 PR 전이는 싣지 않는다.
+
+- [#204](https://github.com/minjun0219/rocky/pull/204) [`7cb8bd4`](https://github.com/minjun0219/rocky/commit/7cb8bd4f7891289d142c241b24f9d001f4b7396d) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 머리줄을 한 줄로 줄이고 가로 보드 탭 줄을 보드 스위처로 바꾼다. 머리줄에는 보드 스위처(지금 보드 이름 → 누르면 전 보드 목록과 진행중 개수, 새 보드 추가)와 `⋯` 메뉴(테마·보관된 항목 보기·편집자 이름·전체 보기·새로고침)만 남고, 연결 표시는 끊겼을 때만 나온다. 설명 없던 `LINK ♪`·활동 띠·보관됨 체크박스·이름 버튼은 메뉴로 들어가거나 없어졌다.
+
+- [#208](https://github.com/minjun0219/rocky/pull/208) [`f5eacec`](https://github.com/minjun0219/rocky/commit/f5eacec898fda1f1bf4311331543c6676ba13d15) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 "지금" 에 **PR** 묶음을 더한다 — 보고 있는 보드 레포의 열린 PR 전부(전체 보기면 전 보드)를 손댈 순서(충돌 → 머지 가능 → CI 실패 → 결정 필요 → 대기 → 초안)로, 둘째 줄에 CI·스레드·갱신 시각. 행 앞 상태 표시는 글꼴 문자(●◆◌) 대신 lucide 아이콘으로 바꾼다.
+
 ## 0.31.1
 
 ### Patch Changes
