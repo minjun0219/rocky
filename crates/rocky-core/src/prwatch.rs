@@ -407,7 +407,7 @@ pub enum PrEventKind {
     Merged,
     Closed,
     /// 처리 안 된 리뷰 스레드가 늘었다 — 봇·사람 리뷰가 새로 붙었다. 사람에게는 알리지 않고(배너
-    /// 없음), 켜 둔 레포면 세션에 리뷰 처리를 시킨다(`pr.autoResolve`).
+    /// 없음), 그 레포 보드가 켰으면 세션에 리뷰 처리를 시킨다(보드의 `autoResolve`).
     Review,
 }
 
