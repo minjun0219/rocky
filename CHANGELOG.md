@@ -1,5 +1,21 @@
 # @minjun0219/rocky
 
+## 0.33.0
+
+### Minor Changes
+
+- [#223](https://github.com/minjun0219/rocky/pull/223) [`2373eec`](https://github.com/minjun0219/rocky/commit/2373eec38cd987c255ef41b01f70109419c5b7f9) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review` 를 없앤다 — 버그 찾기는 기본 `/code-review` 가 같은 diff 를 더 잘 본다. 이 커맨드만의 몫이던 "요구사항 대비 점검" 은 `/rocky:finish` 의 한 단계(2.5)로 옮겼다: 위험한 변경이면 커밋 전에 `/code-review` 와 `reviewer` 서브에이전트를 돌린다.
+
+- [#223](https://github.com/minjun0219/rocky/pull/223) [`2373eec`](https://github.com/minjun0219/rocky/commit/2373eec38cd987c255ef41b01f70109419c5b7f9) Thanks [@minjun0219](https://github.com/minjun0219)! - 커맨드 이름을 바꾼다 — `/rocky:finish` → `/rocky:review-request`(게이트 → 프리리뷰 → 커밋 → PR), `/rocky:resolve-reviews` → `/rocky:review-fix`(리뷰 반영 → 머지 후보 판단 → 머지 뒤 정리). 옛 이름은 남기지 않는다. 데몬이 세션에 보내는 메시지도 새 이름을 가리킨다.
+
+- [#222](https://github.com/minjun0219/rocky/pull/222) [`1eb9ac9`](https://github.com/minjun0219/rocky/commit/1eb9ac9c03d26f62ab2b7ee368a0041eb1b2c4fa) Thanks [@minjun0219](https://github.com/minjun0219)! - 리뷰 스레드 리액션의 뜻을 뒤집는다 — 🚀 = 고쳐서 내보냈다(resolve 해도 된다), 👀 = 오너가 봐야 한다(결정 필요). 데몬의 머지 후보 판정과 `pr-threads.ts` 가 새 뜻으로 센다(스냅숏·`/api/prs` 필드 `rocket` → `decision`, 옛 스냅숏은 그대로 읽힌다). `/rocky:resolve-reviews` 는 Codex 코멘트에 판정대로 👍/👎 피드백을 달고, 채팅 보고의 줄마다 그 코멘트 링크와 리뷰어 제목을 붙인다.
+
+### Patch Changes
+
+- [#219](https://github.com/minjun0219/rocky/pull/219) [`25f5649`](https://github.com/minjun0219/rocky/commit/25f564997d8d61966125195fc631c0dba7ddb311) Thanks [@minjun0219](https://github.com/minjun0219)! - `todo_write` 도구 설명과 board 스킬에서 특정 외부 할 일 앱 이름을 걷어냈다(외부 앱은 링크로만 참조한다는 규칙에 맞춤). `/rocky:finish`·`/rocky:resolve-reviews` 의 테스트 게이트를 레포의 test 스크립트(`bun run test`)로 바꿨다.
+
+- [#221](https://github.com/minjun0219/rocky/pull/221) [`a87cb31`](https://github.com/minjun0219/rocky/commit/a87cb3101c6d93dbc8d19a4c1d4ab3045143b312) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 이 머지되면 데몬이 그 레포 세션의 받은편지함에 "머지됨" 을 보낸다 — 세션은 `/rocky:resolve-reviews` 11단계대로 머지 뒤 정리(main 최신화·브랜치 정리·릴리스 PR·스택 다음 PR·머지 뒤 리뷰)를 한 번 한다. 사람에게 가는 macOS 배너와 알림 브릿지에는 여전히 보내지 않는다.
+
 ## 0.32.3
 
 ### Patch Changes
