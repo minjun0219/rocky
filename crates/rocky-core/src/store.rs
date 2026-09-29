@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS boards (
   description TEXT,
   repo TEXT,
   path TEXT,
+  auto_resolve INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   archived_at TEXT
 );
@@ -174,6 +175,7 @@ fn board_from_row(row: &Row) -> rusqlite::Result<Board> {
         repo: row.get("repo")?,
         path: row.get("path")?,
         previous_keys: None,
+        auto_resolve: row.get::<_, i64>("auto_resolve")? != 0,
         created_at: row.get("created_at")?,
         archived_at: row.get("archived_at")?,
     })
@@ -1151,6 +1153,17 @@ impl TodoStore {
                     blank_to_null(value.as_deref()),
                 );
             }
+            if let Some(next) = patch.auto_resolve {
+                if next != existing.auto_resolve {
+                    // 히스토리엔 참/거짓으로 남긴다(문자열 "0"/"1" 이 아니라).
+                    changes.insert(
+                        "autoResolve".to_string(),
+                        json!([existing.auto_resolve, next]),
+                    );
+                    sets.push("auto_resolve = ?".to_string());
+                    vals.push(Some(if next { "1" } else { "0" }.to_string()));
+                }
+            }
 
             if sets.is_empty() {
                 hydrate_board(&conn, existing)?
@@ -1397,6 +1410,7 @@ fn ensure_board_conn(
         repo: None,
         path: None,
         previous_keys: None,
+        auto_resolve: false,
         created_at: now_iso(),
         archived_at: None,
     };

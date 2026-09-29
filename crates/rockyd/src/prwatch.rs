@@ -88,14 +88,13 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
 /// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에 한 줄로
 /// 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 가장 최근 세션부터 시도해
 /// **처음 성공한 한 곳**에서 멈추고, 실패한 등록(끝난 세션)은 걷는다. 등록된 세션이 없으면 조용하다.
-pub fn session_notifier(
-    state: Arc<ServerState>,
-    auto_resolve: rocky_core::config::AutoResolve,
-) -> Notifier {
+pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
     Arc::new(move |event| {
-        // 리뷰 도착은 켜 둔 레포에서만 세션에 처리를 시킨다(`pr.autoResolve`).
+        let boards = state.store.list_boards(false).unwrap_or_default();
+        // 리뷰 도착은 그 레포를 둔 보드 중 하나라도 autoResolve 를 켰을 때만 세션에 처리를 시킨다
+        // (`rocky board auto-resolve on` — 그 레포의 세션이 자기 보드를 켠다).
         let text = if event.kind == PrEventKind::Review {
-            if !auto_resolve.enabled_for(&event.repo) {
+            if !rocky_core::prwatch::auto_resolve_enabled(&boards, &event.repo) {
                 return;
             }
             rocky_core::peer_inbox::review_session_message(event)
@@ -105,7 +104,6 @@ pub fn session_notifier(
         let Some(text) = text else {
             return;
         };
-        let boards = state.store.list_boards(false).unwrap_or_default();
         let locations: Vec<rocky_core::statusline::BoardLocation> = boards
             .iter()
             .map(|b| rocky_core::statusline::BoardLocation {

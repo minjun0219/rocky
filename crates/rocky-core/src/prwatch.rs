@@ -524,6 +524,17 @@ fn has_new_review(was: &PrSnapshot, cur: &PrSnapshot) -> bool {
         || overflow(cur) > overflow(was)
 }
 
+/// 이 레포의 리뷰를 세션에 처리시킬지 — 그 레포를 둔 보드 중 하나라도 `auto_resolve` 가 켜졌으면.
+/// 레포 이름은 대소문자를 가리지 않는다(GitHub 과 같다).
+pub fn auto_resolve_enabled(boards: &[crate::types::Board], repo: &str) -> bool {
+    boards.iter().any(|b| {
+        b.auto_resolve
+            && b.repo
+                .as_deref()
+                .is_some_and(|r| r.eq_ignore_ascii_case(repo))
+    })
+}
+
 /// macOS 알림의 (제목, 본문).
 pub fn notification_text(event: &PrEvent) -> (String, String) {
     let title = format!("rocky · {}", event.repo);

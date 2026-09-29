@@ -62,6 +62,7 @@ fn board(key: &str, path: Option<&str>) -> Board {
         path: path.map(str::to_string),
         created_at: "2026-09-27T00:00:00Z".into(),
         previous_keys: None,
+        auto_resolve: false,
         archived_at: None,
     }
 }

@@ -93,13 +93,6 @@
           "type": "boolean",
           "description": "macOS 알림(osascript) 여부. 기본 true. ready·충돌만 알린다."
         },
-        "autoResolve": {
-          "description": "리뷰가 붙으면(처리 안 된 리뷰 스레드가 늘면) 그 레포에서 일하는 세션에 /rocky:resolve-reviews 로 처리하라고 받은편지함 메시지를 보낸다. true = 전 레포, [\"owner/name\", …] = 그 레포만. 기본 끔. sessionNotify 가 켜져 있어야 한다.",
-          "oneOf": [
-            { "type": "boolean" },
-            { "type": "array", "items": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" } }
-          ]
-        },
         "sessionNotify": {
           "type": "boolean",
           "description": "세션 알림 — ready·충돌을 그 레포 보드에서 일하는 Claude Code 세션(가장 최근에 쓰인 하나)의 받은편지함 소켓에 밀어 넣는다. 쉬던 세션도 그 자리에서 턴이 열린다. 기본 true."

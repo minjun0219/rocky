@@ -187,7 +187,19 @@ fn add_pr_watch(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 8] = [
+/// 마이그레이션 9: 보드별 autoResolve(리뷰가 붙으면 세션이 처리). 설정 파일이 아니라 보드에 두는 이유는
+/// 그 레포의 세션이 cwd 로 자기 보드를 켜고 끌 수 있게 하려는 것이다.
+fn add_board_auto_resolve(db: &Connection) -> rusqlite::Result<()> {
+    if table_columns(db, "boards")?
+        .iter()
+        .any(|c| c == "auto_resolve")
+    {
+        return Ok(());
+    }
+    db.execute_batch("ALTER TABLE boards ADD COLUMN auto_resolve INTEGER NOT NULL DEFAULT 0")
+}
+
+pub const MIGRATIONS: [MigrationFn; 9] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -196,6 +208,7 @@ pub const MIGRATIONS: [MigrationFn; 8] = [
     add_board_meta,
     add_note_docs,
     add_pr_watch,
+    add_board_auto_resolve,
 ];
 
 #[derive(Default)]

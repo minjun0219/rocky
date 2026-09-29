@@ -273,6 +273,9 @@ fn board_shows_description_repo_path_and_previous_keys() {
     assert!(out.contains("https://github.com/minjun0219/tally"), "{out}");
     assert!(out.contains("/dev/tally"), "{out}");
     assert!(out.contains("gotgan"), "{out}");
+    assert!(!out.contains("autoResolve"), "끈 보드엔 줄이 없다: {out}");
+    board.auto_resolve = true;
+    assert!(render_board(&board).contains("autoResolve  켬"));
 }
 
 // ── formatSessions ──────────────────────────────────────────────────────────
