@@ -1,8 +1,8 @@
 //! 세션 받은편지함으로 밀어 넣기 — 경로 검증·한 줄 형식·본문·보낼 세션 고르기(순수).
 
 use rocky_core::peer_inbox::{
-    inbox_line, is_inbox_socket_path, pick_session, pr_session_message, InboxRegistration,
-    REGISTRATION_TTL_SECS,
+    inbox_line, is_inbox_socket_path, pick_session, pr_session_message, session_candidates,
+    InboxRegistration, REGISTRATION_TTL_SECS,
 };
 use rocky_core::prwatch::{PrEvent, PrEventKind};
 use rocky_core::statusline::BoardLocation;
@@ -112,4 +112,24 @@ fn picks_the_most_recent_live_session_working_on_that_board() {
     assert!(pick_session(&regs, &boards, "nope", now).is_none());
     // 오래된 등록만 있으면 아무 데도 안 보낸다.
     assert!(pick_session(&regs[3..], &boards, "rocky", now).is_none());
+}
+
+/// 후보는 최근 순 전부 — 가장 최근 세션이 끝났으면 데몬이 그다음으로 넘어간다.
+#[test]
+fn candidates_come_newest_first_for_fallback() {
+    let boards = vec![BoardLocation {
+        key: "rocky".into(),
+        path: Some("/w/rocky".into()),
+    }];
+    let now = 10_000;
+    let regs = vec![
+        reg("a", "/w/rocky", now - 300),
+        reg("b", "/w/rocky", now - 10),
+        reg("c", "/w/rocky", now - 100),
+    ];
+    let ids: Vec<&str> = session_candidates(&regs, &boards, "rocky", now)
+        .iter()
+        .map(|r| r.session_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["b", "c", "a"]);
 }

@@ -590,3 +590,63 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
     assert!(!f.state.inboxes().iter().any(|r| r.session_id == "new"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Codex 지적 회귀 — 가장 최근 세션이 이미 끝났으면(소켓 없음) 그다음 세션이 받는다. 전이는 한 번만
+/// 나므로 여기서 놓치면 살아 있는 세션은 영영 모른다.
+#[cfg(unix)]
+#[tokio::test]
+async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
+    use rockyd::prwatch::session_notifier;
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockyfb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let live = dir.join("300.sock");
+    let gone = dir.join("400.sock"); // 만들지 않는다 — 세션이 끝났다
+    let listener = UnixListener::bind(&live).unwrap();
+    for (id, sock) in [("live", &live), ("gone", &gone)] {
+        let (status, _) = post(
+            &f.state,
+            "/api/sessions/inbox",
+            json!({ "sessionId": id, "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+        )
+        .await;
+        assert_eq!(status, 204);
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+    }
+    let conflict = rocky_core::prwatch::PrEvent {
+        kind: PrEventKind::Conflict,
+        repo: "o/r".into(),
+        number: 8,
+        title: "PR 8".into(),
+        url: "https://github.com/o/r/pull/8".into(),
+    };
+    session_notifier(f.state.clone())(&conflict);
+    let received = tokio::task::spawn_blocking(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut text = String::new();
+        conn.read_to_string(&mut text).unwrap();
+        text
+    })
+    .await
+    .unwrap();
+    assert!(received.contains("#8 충돌"));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let ids: Vec<String> = f
+        .state
+        .inboxes()
+        .into_iter()
+        .map(|r| r.session_id)
+        .collect();
+    assert!(
+        !ids.contains(&"gone".to_string()),
+        "끝난 세션의 등록은 걷는다"
+    );
+    assert!(ids.contains(&"live".to_string()));
+    let _ = std::fs::remove_dir_all(&dir);
+}

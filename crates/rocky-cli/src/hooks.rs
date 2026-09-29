@@ -294,20 +294,24 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
     // 업그레이드가 반쯤 실패했으면 그 사실을 이 턴의 컨텍스트에 싣는다 — 실패한 턴에만 뜬다
     // (그 뒤로는 데몬이 없거나 새 버전이라 `OnlyIfOlder` 가 다시 건드리지 않는다).
     let upgrade_warning = upgrade_daemon_if_older(ctx).map(|w| format!("⚠ rocky 데몬: {w}"));
-    if !watch_enabled(watch_config) {
-        emit_prompt_context(merge_context(&[upgrade_warning]));
-        return;
-    }
     let input = read_stdin_json();
-    let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) else {
-        emit_prompt_context(merge_context(&[upgrade_warning]));
-        return;
-    };
-    // 받은편지함 등록은 다른 조회와 나란히 — 이 훅의 지연에 보태지 않는다.
+    // 받은편지함 등록은 보드 변경 주입(`todo.watch`)과 독립이다 — 주입을 꺼도 세션 알림
+    // (`pr.sessionNotify`)은 턴마다의 갱신이 있어야 "가장 최근 세션" 을 맞게 고른다. 다른 조회와
+    // 나란히 돌려 이 훅의 지연에 보태지 않는다.
     let inbox_thread = {
         let base_url = ctx.base_url.clone();
         let input = input.clone();
         std::thread::spawn(move || register_inbox(&base_url, &input))
+    };
+    if !watch_enabled(watch_config) {
+        let _ = inbox_thread.join();
+        emit_prompt_context(merge_context(&[upgrade_warning]));
+        return;
+    }
+    let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) else {
+        let _ = inbox_thread.join();
+        emit_prompt_context(merge_context(&[upgrade_warning]));
+        return;
     };
 
     let cursor_file = ctx.dir.join("hook-cursors.json");

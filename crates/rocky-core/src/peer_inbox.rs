@@ -82,17 +82,33 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     ))
 }
 
-/// 이 보드에서 일하는 세션 중 보낼 곳 하나 — cwd 가 그 보드로 풀리는(`board_key_for_cwd`,
-/// 경로 하위 → key 세그먼트) 등록 중 가장 최근에 등록된 것. 여러 세션에 같은 알림을 뿌리지 않는다.
+/// 이 보드에서 일하는 세션들 — 보낼 순서대로(가장 최근 등록이 먼저). cwd 가 그 보드로 풀리는
+/// (`board_key_for_cwd`, 경로 하위 → key 세그먼트) 살아 있는(TTL 안) 등록만. 데몬은 앞에서부터
+/// 보내다 **처음 성공한 한 곳**에서 멈춘다 — 가장 최근 세션이 이미 끝났으면 그다음 세션이 받는다
+/// (전이는 한 번만 나므로 여기서 놓치면 그 세션은 영영 모른다).
+pub fn session_candidates<'a>(
+    registrations: &'a [InboxRegistration],
+    boards: &[BoardLocation],
+    board_key: &str,
+    now: i64,
+) -> Vec<&'a InboxRegistration> {
+    let mut out: Vec<&InboxRegistration> = registrations
+        .iter()
+        .filter(|r| now - r.seen_at <= REGISTRATION_TTL_SECS)
+        .filter(|r| board_key_for_cwd(boards, Some(&r.cwd)).as_deref() == Some(board_key))
+        .collect();
+    out.sort_by_key(|r| std::cmp::Reverse(r.seen_at));
+    out
+}
+
+/// 후보 중 맨 앞 — 전부 살아 있다면 이것이 받는다.
 pub fn pick_session<'a>(
     registrations: &'a [InboxRegistration],
     boards: &[BoardLocation],
     board_key: &str,
     now: i64,
 ) -> Option<&'a InboxRegistration> {
-    registrations
-        .iter()
-        .filter(|r| now - r.seen_at <= REGISTRATION_TTL_SECS)
-        .filter(|r| board_key_for_cwd(boards, Some(&r.cwd)).as_deref() == Some(board_key))
-        .max_by_key(|r| r.seen_at)
+    session_candidates(registrations, boards, board_key, now)
+        .into_iter()
+        .next()
 }

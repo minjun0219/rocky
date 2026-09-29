@@ -82,9 +82,9 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
     })
 }
 
-/// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션(가장 최근에 쓰인 하나)의
-/// 받은편지함 소켓에 한 줄로 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다.
-/// 보내다 실패하면(세션이 끝났다) 그 등록을 걷는다. 이 레포 보드에 등록된 세션이 없으면 조용하다.
+/// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에 한 줄로
+/// 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 가장 최근 세션부터 시도해
+/// **처음 성공한 한 곳**에서 멈추고, 실패한 등록(끝난 세션)은 걷는다. 등록된 세션이 없으면 조용하다.
 pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
     Arc::new(move |event| {
         let Some(text) = rocky_core::peer_inbox::pr_session_message(event) else {
@@ -100,29 +100,43 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
             .collect();
         let registrations = state.inboxes();
         let now = chrono::Utc::now().timestamp();
-        let mut targets: Vec<rocky_core::peer_inbox::InboxRegistration> = Vec::new();
+        // 보드마다 후보를 최근 순으로 — 레포가 여러 보드에 걸려도 같은 세션에 두 번 보내지 않는다.
+        let mut groups: Vec<Vec<rocky_core::peer_inbox::InboxRegistration>> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for board in boards
             .iter()
             .filter(|b| b.repo.as_deref() == Some(event.repo.as_str()))
         {
-            if let Some(r) =
-                rocky_core::peer_inbox::pick_session(&registrations, &locations, &board.key, now)
-            {
-                if !targets.iter().any(|t| t.session_id == r.session_id) {
-                    targets.push(r.clone());
-                }
+            let group: Vec<_> = rocky_core::peer_inbox::session_candidates(
+                &registrations,
+                &locations,
+                &board.key,
+                now,
+            )
+            .into_iter()
+            .filter(|r| seen.insert(r.session_id.clone()))
+            .cloned()
+            .collect();
+            if !group.is_empty() {
+                groups.push(group);
             }
         }
-        for target in targets {
+        let line = rocky_core::peer_inbox::inbox_line(&text);
+        for group in groups {
             let state = state.clone();
-            let line = rocky_core::peer_inbox::inbox_line(&text);
+            let line = line.clone();
+            // 가장 최근 세션부터 — 처음 성공한 한 곳에서 멈추고, 실패한 등록(끝난 세션)은 걷는다.
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = write_inbox(&target.socket, &line) {
-                    eprintln!(
-                        "rocky: 세션 알림 실패({}): {e} — 등록을 걷는다",
-                        target.session_id
-                    );
-                    state.forget_inbox(&target.session_id);
+                for target in group {
+                    match write_inbox(&target.socket, &line) {
+                        Ok(()) => return,
+                        Err(e) => {
+                            eprintln!(
+                                "rocky: 세션 알림 — 받은편지함에 못 썼다({e}), 다음 세션으로"
+                            );
+                            state.forget_inbox(&target.session_id);
+                        }
+                    }
                 }
             });
         }
