@@ -29,16 +29,18 @@ import { logUsage } from '../usage';
  * 현재 시각 — 초가 흐르는 행(1시간 미만의 진행중)이 있으면 1초, 없으면 1분마다. 곁눈으로 보는
  * 화면이라 움직이는 숫자는 정말 필요한 자리에만 둔다(`web/DESIGN.md` "Time Display").
  */
-function useNow(rows: NowRow[]): number {
+function useNow(rows: NowRow[], extra: number): number {
   const [now, setNow] = useState(() => Date.now());
   const fast = needsSecondTick(rows, now);
+  // 시각을 보여 주는 행이 하나라도 있으면 돈다 — PR 행만 있는 보드도("12분" 이 멈추지 않게).
+  const visible = rows.length + extra;
   useEffect(() => {
-    if (rows.length === 0) {
+    if (visible === 0) {
       return;
     }
     const id = setInterval(() => setNow(Date.now()), fast ? 1000 : 60_000);
     return () => clearInterval(id);
-  }, [fast, rows.length]);
+  }, [fast, visible]);
   return now;
 }
 
@@ -96,7 +98,6 @@ export function NowTable() {
     prs,
     expanded,
   });
-  const now = useNow(rows);
   const mine = rows.filter((r) => r.group !== 'run');
   const run = rows.filter((r) => r.group === 'run');
   // PR 현황 — 보고 있는 보드의 레포(전체 보기면 전 보드)의 열린 PR 전부.
@@ -105,6 +106,7 @@ export function NowTable() {
   const repo =
     selected === 'all' ? null : (boards.find((b) => b.key === selected)?.repo ?? undefined);
   const pullRequests = repo === undefined ? [] : prRows(prs, repo);
+  const now = useNow(rows, pullRequests.length);
 
   return (
     <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="지금">

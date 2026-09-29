@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { cleanup, screen } from '@testing-library/react';
+import { act, cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore, todoFixture } from '../test-support';
 import { NowTable } from './NowTable';
@@ -133,5 +133,57 @@ describe('NowTable — PR 현황', () => {
     expect(link.textContent).toContain('CI 도는 중 · 스레드 1');
     expect(link.querySelector('[aria-label="대기"] svg')).toBeTruthy();
     expect(screen.queryByText('다른 레포')).toBeNull();
+  });
+});
+
+// Codex 지적 회귀 — PR 행만 있는 보드에서도 시각이 멈추지 않는다(1분 틱이 돈다).
+describe('NowTable — PR 만 있을 때도 시각이 흐른다', () => {
+  test('1분 뒤 "방금" 이 "1분" 으로', async () => {
+    const realNow = Date.now;
+    const realSetInterval = globalThis.setInterval;
+    let tick: (() => void) | null = null;
+    let clock = Date.parse('2026-09-28T10:00:30Z');
+    Date.now = () => clock;
+    globalThis.setInterval = ((fn: () => void) => {
+      tick = fn;
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval;
+    try {
+      renderWithStore(<NowTable />, {
+        nowTodos: [],
+        nowHandoffs: [],
+        collect: null,
+        selected: 'all',
+        boards: [],
+        prs: [
+          {
+            repo: 'o/rocky',
+            number: 7,
+            title: '대기 중인 PR',
+            url: 'https://github.com/o/rocky/pull/7',
+            state: 'OPEN',
+            isDraft: false,
+            base: 'main',
+            head: 'abc',
+            mergeState: 'BLOCKED',
+            ci: 'pending',
+            unhandled: 0,
+            rocket: 0,
+            ready: false,
+            updatedAt: '2026-09-28T10:00:00Z',
+          },
+        ] as never,
+      });
+      expect(screen.getByRole('link', { name: /대기 중인 PR/ }).textContent).toContain('방금');
+      expect(tick).not.toBeNull();
+      clock += 60_000;
+      await act(async () => {
+        tick?.();
+      });
+      expect(screen.getByRole('link', { name: /대기 중인 PR/ }).textContent).toContain('1분');
+    } finally {
+      Date.now = realNow;
+      globalThis.setInterval = realSetInterval;
+    }
   });
 });
