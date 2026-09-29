@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.32.1
+
+### Patch Changes
+
+- [#212](https://github.com/minjun0219/rocky/pull/212) [`4d624a3`](https://github.com/minjun0219/rocky/commit/4d624a3e0f7cfa6799de5bada93d518e9a47b2ed) Thanks [@minjun0219](https://github.com/minjun0219)! - GitHub 프로젝트 보드 수집함 어댑터(`bridges/github-project/inbox.ts`) — 보드 필터(`assignee:@me type:Bug component/s:Web`)를 인자로 옮겨, 조건에 맞는 열린 이슈를 rocky 수집함에 띄운다. 로그인된 `gh`(`read:project`)를 쓰고, 이슈 타입이 없는 개인 계정 레포는 같은 이름의 라벨로 본다.
+
 ## 0.32.0
 
 ### Minor Changes
