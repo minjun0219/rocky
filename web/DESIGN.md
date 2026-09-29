@@ -478,7 +478,6 @@ ref·시각·개수는 모노에 `tabular-nums` 로 — 갱신될 때 자릿수�
 | 완료가 손으로 정한 자리에 남는다 | 완료는 맨 아래 접힘 | `web/components/TodoPane.tsx` |
 | 머리줄의 `LINK ♪`·보관됨 체크박스·`logan` 버튼 | 한 줄 머리줄 + `⋯` 메뉴 | `web/components/TopBar.tsx` |
 | 가로 보드 탭 줄 | 보드 스위처 시트 | `web/components/Sidebar.tsx` |
-| 노트가 목록 아래 접힌 레일 | "할 일 | 노트" 전환 | `web/components/NotesRail.tsx` |
 | 상세가 오버레이 드로어 | < 720px 에서 push | `web/components/DetailDrawer.tsx` |
 | 드래그 핸들이 hover 에서만 보인다 | hover 전용 컨트롤 없음 | `web/components/TodoItem.tsx` |
 | 11px(`micro`) 19곳 | 12px 미만 없음 | `web/styles/tokens.css` |

@@ -839,3 +839,30 @@ export function centeredScrollLeft(box: {
   const target = box.elStart - (box.viewWidth - box.elWidth) / 2;
   return Math.round(Math.min(max, Math.max(0, target)));
 }
+
+/**
+ * 노트에 새 소식이 있나 — 노트 보기를 마지막으로 본 뒤에 고쳐진 노트가 하나라도 있으면.
+ * 할 일 보기에서 에이전트가 노트를 고친 걸 알 수 있게 전환 버튼에 점을 찍는다.
+ */
+export function hasNoteNews(notes: { updatedAt: string }[], seenAt: string): boolean {
+  const seen = Date.parse(seenAt);
+  return notes.some((n) => Date.parse(n.updatedAt) > (Number.isNaN(seen) ? 0 : seen));
+}
+
+/**
+ * 노트를 "여기까지 봤다" 의 새 기준 — 지금 기준과 노트들의 `updatedAt`(서버 시각) 중 가장 늦은 것.
+ * 브라우저 시계(`new Date()`)를 쓰지 않는 이유: 원격 브라우저는 시계가 어긋나 있어 점이 영영
+ * 안 꺼지거나 새 편집을 놓친다. 뒤로 가지 않는다.
+ */
+export function advanceSeen(seenAt: string, notes: { updatedAt: string }[]): string {
+  let best = seenAt;
+  let bestMs = Date.parse(seenAt);
+  for (const n of notes) {
+    const ms = Date.parse(n.updatedAt);
+    if (!Number.isNaN(ms) && (Number.isNaN(bestMs) || ms > bestMs)) {
+      best = n.updatedAt;
+      bestMs = ms;
+    }
+  }
+  return best;
+}
