@@ -330,11 +330,8 @@ async fn tick_repo(
         .apply_pr_snapshot(repo, &snapshots, PR_WATCH_ACTOR)
         .map_err(|e| QueryError::Other(e.to_string()))?;
     if notify {
-        // 사람에게 알릴 것(ready·conflict)과 세션이 처리할 것(review). 배너·브릿지는 앞의 둘만 쓴다.
-        for event in events
-            .iter()
-            .filter(|e| e.kind.notifies() || e.kind == PrEventKind::Review)
-        {
+        // 사람에게 알릴 것(ready·conflict)과 세션이 처리할 것(review·merged). 배너·브릿지는 앞의 둘만 쓴다.
+        for event in events.iter().filter(|e| e.kind.reaches_session()) {
             notifier(event);
         }
     }

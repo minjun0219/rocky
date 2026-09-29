@@ -430,6 +430,12 @@ impl PrEventKind {
     pub fn notifies(self) -> bool {
         matches!(self, PrEventKind::Ready | PrEventKind::Conflict)
     }
+
+    /// 세션에 넘길 것 — 사람에게 알릴 것(ready·conflict)에 더해, 세션이 처리할 리뷰 도착과 머지 뒤
+    /// 정리할 머지. 배너·브릿지는 `notifies` 만 쓴다(머지는 대개 오너가 한 일이라 다시 알리지 않는다).
+    pub fn reaches_session(self) -> bool {
+        self.notifies() || matches!(self, PrEventKind::Review | PrEventKind::Merged)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

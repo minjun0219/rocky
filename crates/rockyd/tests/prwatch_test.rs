@@ -136,7 +136,7 @@ fn detail_calls_for(calls: &Arc<Mutex<Vec<Vec<String>>>>, number: i64) -> usize 
 }
 
 #[tokio::test]
-async fn a_tick_queries_each_watched_repo_and_notifies_only_ready_and_conflict() {
+async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_on() {
     let f = fx();
     f.store.ensure_board("rocky", None, "tester").unwrap();
     f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
@@ -172,7 +172,8 @@ async fn a_tick_queries_each_watched_repo_and_notifies_only_ready_and_conflict()
     let status = f.state.pr_watch();
     assert!(status.available && status.repos == vec!["o/r".to_string()]);
 
-    // 다음 tick: 1 은 머지, 2 는 충돌 → 알림은 충돌만.
+    // 다음 tick: 1 은 머지, 2 는 충돌 → 알림기에는 둘 다 간다(머지는 세션 정리용 — 배너·브릿지는
+    // 자기 안에서 `notifies` 로 거른다).
     *responses.lock().unwrap() = json!({
         "r": [pr(1, "MERGED", "SUCCESS", "UNKNOWN", "main"), pr(2, "OPEN", "SUCCESS", "DIRTY", "main")]
     });
@@ -183,8 +184,12 @@ async fn a_tick_queries_each_watched_repo_and_notifies_only_ready_and_conflict()
         kinds,
         vec![(1, PrEventKind::Merged), (2, PrEventKind::Conflict)]
     );
-    assert_eq!(seen.lock().unwrap().len(), 2);
-    assert_eq!(seen.lock().unwrap()[1].1, "#2 충돌 — PR 2");
+    let mut texts: Vec<String> = seen.lock().unwrap()[1..]
+        .iter()
+        .map(|(_, b)| b.clone())
+        .collect();
+    texts.sort();
+    assert_eq!(texts, vec!["#1 머지됨 — PR 1", "#2 충돌 — PR 2"]);
 
     // 전이는 보드 히스토리에, 그리고 /api/prs 로 읽힌다.
     let (status, body) = get(&f.state, "/api/prs?board=rocky&open=true").await;
