@@ -61,9 +61,13 @@ fn only_ready_and_conflict_become_session_messages() {
     assert!(ready.contains("사용자가 직접 쓴 것이 아니다"));
     let conflict = pr_session_message(&event(PrEventKind::Conflict)).unwrap();
     assert!(conflict.contains("충돌") && conflict.contains("main 을 합쳐"));
+    // 머지는 세션이 정리하도록 넘긴다 — 사람에게 다시 알리라는 말은 없다.
+    let merged = pr_session_message(&event(PrEventKind::Merged)).unwrap();
+    assert!(merged.starts_with("rocky: o/rocky #7 머지됨 — PR 7"));
+    assert!(merged.contains("PushNotification 도 보내지 않는다") && merged.contains("after-merge"));
+    assert!(PrEventKind::Merged.reaches_session() && !PrEventKind::Merged.notifies());
     for kind in [
         PrEventKind::Opened,
-        PrEventKind::Merged,
         PrEventKind::Closed,
         PrEventKind::Unready,
     ] {

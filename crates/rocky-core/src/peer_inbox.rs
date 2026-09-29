@@ -59,11 +59,12 @@ pub fn inbox_line(text: &str) -> String {
     )
 }
 
-/// PR 전이를 세션에 알리는 본문 — ready·conflict 만. 받는 Claude 가 무엇을 하면 되는지까지 적는다.
+/// PR 전이를 세션에 알리는 본문 — ready·conflict·merged. 받는 Claude 가 무엇을 하면 되는지까지 적는다.
 pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     let head = match event.kind {
         PrEventKind::Ready => "머지 후보",
         PrEventKind::Conflict => "충돌 — 풀어야 한다",
+        PrEventKind::Merged => "머지됨",
         _ => return None,
     };
     let todo = match event.kind {
@@ -73,6 +74,12 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
              8단계(머지 후보 판단)대로 요청된 리뷰어 응답·봇 리뷰(메모리가 필수라 한 레포만)·방금 한 \
              푸시·작업 중 표시를 본다. 걸리는 게 없으면 사용자에게 한 줄로 알리고(PushNotification 이 \
              있으면 그것으로), 있으면 무엇을 기다리는지만 적고 알리지 않는다. 머지는 사용자 몫이다."
+        }
+        PrEventKind::Merged => {
+            "사용자가 머지했다 — 다시 알리지 않는다(PushNotification 도 보내지 않는다). 이 세션이 그 PR 을 만든 곳이면 머지 뒤 정리를 \
+             한 번 한다(`/rocky:resolve-reviews` 11단계): 로컬을 최신 main 으로 맞추고 끝난 브랜치를 \
+             정리하고, 새 릴리스 PR·스택의 다음 PR·머지 뒤 리뷰(`after-merge`)가 있는지 본다. 다른 \
+             작업 중이면 끝낸 뒤에, 무관한 세션이면 아무것도 하지 않는다."
         }
         _ => {
             "base 와 충돌이 났다. 이 세션이 그 PR 을 만든 곳이면 main 을 합쳐 충돌을 풀고 게이트를 \

@@ -223,7 +223,7 @@
   **알림 브릿지**(`pr.notifiers[]` — `todo.inbox[]` 와 같은
   `CommandBridge` 모양; 데몬이 argv 그대로 실행하고 stdin 에 `bridge_payload` JSON 을 준다, exit ≠ 0 은
   이름과 stderr 첫 줄을 로그에; 서비스 코드는 `bridges/<name>/` 에만 — `bridges/telegram/notify.ts` 가
-  참조 구현이고 토큰은 `op read`), `merged` 는 기록만. **읽기만 한다** — GitHub 에 쓰는 것은
+  참조 구현이고 토큰은 `op read`), `merged` 는 사람에게 알리지 않고 그 레포 세션의 받은편지함에만 보낸다(머지 뒤 정리용). **읽기만 한다** — GitHub 에 쓰는 것은
   없다(리액션·코멘트·머지는 여전히 세션/사람 몫). 러너·알림기는 주입 가능이라 테스트가 가짜
   `gh` 로 tick 을 돈다. `/api/health` 의 `prWatch { available, reason, lastTick, repos }`,
   `GET /api/prs[?board=&open=true]`, `rocky pr`. 세션 스크립트 `pr-threads.ts` 의 `ready`/
