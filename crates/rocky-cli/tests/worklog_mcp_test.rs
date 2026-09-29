@@ -35,11 +35,11 @@ fn declares_the_claude_channel_capability_and_instructions() {
     assert!(info.capabilities.tools.is_some(), "도구는 그대로");
     assert!(info.instructions.unwrap().contains("<channel"));
     let n = channel_notification(
-        "#3 확인·머지해도 된다",
+        "#3 머지 후보",
         &std::collections::BTreeMap::from([("kind".to_string(), "ready".to_string())]),
     );
     let wire = serde_json::to_value(&n).unwrap();
     assert_eq!(wire["method"], CHANNEL_METHOD);
-    assert_eq!(wire["params"]["content"], "#3 확인·머지해도 된다");
+    assert_eq!(wire["params"]["content"], "#3 머지 후보");
     assert_eq!(wire["params"]["meta"]["kind"], "ready");
 }

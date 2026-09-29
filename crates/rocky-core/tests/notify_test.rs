@@ -262,7 +262,7 @@ fn pr_context_lists_only_actionable_transitions() {
     ])
     .unwrap();
     assert!(text.starts_with("# rocky: PR 상태 변화"));
-    assert!(text.contains("- o/r #3 확인·머지해도 된다 — PR 3 (https://x/pull/3)"));
+    assert!(text.contains("- o/r #3 머지 후보 — PR 3 (https://x/pull/3)"));
     assert!(text.contains("#4 충돌"));
     assert!(
         !text.contains("#5"),
@@ -281,7 +281,7 @@ fn pr_context_lists_only_actionable_transitions() {
     assert_eq!(events.len(), 2);
     assert_eq!(
         events[0].content,
-        "o/r #3 확인·머지해도 된다 — PR 3\nhttps://x/pull/3"
+        "o/r #3 머지 후보 — PR 3\nhttps://x/pull/3"
     );
     assert_eq!(events[0].meta["kind"], "ready");
     assert_eq!(events[0].meta["repo"], "o/r");
@@ -403,7 +403,7 @@ fn a_ready_followed_by_merged_in_the_same_batch_is_not_announced() {
     // 충돌 → 머지 가능이면 마지막(머지 가능)만.
     let fixed = vec![pr(1, "pr-conflict", 8), pr(2, "pr-ready", 8)];
     let text = build_pr_context(&fixed).unwrap();
-    assert!(text.contains("확인·머지") && !text.contains("충돌"));
+    assert!(text.contains("#8 머지 후보") && !text.contains("충돌"));
 }
 
 /// 보드 조회 실패는 "보드 없음" 과 다르다 — 실패면 커서를 넘기지 않아 다음 턴에 같은 PR 전이를

@@ -56,7 +56,7 @@ fn event(kind: PrEventKind) -> PrEvent {
 #[test]
 fn only_ready_and_conflict_become_session_messages() {
     let ready = pr_session_message(&event(PrEventKind::Ready)).unwrap();
-    assert!(ready.starts_with("rocky: o/rocky #7 확인·머지해도 된다 — PR 7"));
+    assert!(ready.starts_with("rocky: o/rocky #7 머지 후보 — PR 7"));
     assert!(ready.contains("https://github.com/o/rocky/pull/7"));
     assert!(ready.contains("사용자가 직접 쓴 것이 아니다"));
     let conflict = pr_session_message(&event(PrEventKind::Conflict)).unwrap();

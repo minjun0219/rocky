@@ -298,7 +298,7 @@ fn notification_text_and_osascript_escaping() {
         .unwrap();
     let (title, body) = notification_text(ready);
     assert_eq!(title, "rocky · o/r");
-    assert_eq!(body, "#7 확인·머지해도 된다 — PR 7");
+    assert_eq!(body, "#7 머지 후보 — PR 7");
     let args = osascript_args("t \"q\"", "b \\ x");
     assert_eq!(args[0], "osascript");
     assert_eq!(
@@ -386,7 +386,7 @@ fn bridge_payload_carries_the_transition_and_the_banner_text() {
     assert_eq!(v["number"], 7);
     assert_eq!(v["url"], "https://x/pull/7");
     assert_eq!(v["heading"], "rocky · o/r");
-    assert_eq!(v["text"], "#7 확인·머지해도 된다 — PR 7");
+    assert_eq!(v["text"], "#7 머지 후보 — PR 7");
 }
 
 /// 리뷰 도착 — 처리 안 된 스레드가 늘면(봇·사람 리뷰가 새로 붙으면) Review. 👀 로 줄어드는 건 아니다.

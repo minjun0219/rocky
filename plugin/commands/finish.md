@@ -75,6 +75,11 @@ git push -u origin <현재 브랜치>
 
 ### 6. PR 생성
 
+**머지 뒤에 붙은 리뷰가 있으면 이 PR 에 싣는다.** 만들기 전에 한 번 본다 —
+`bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" after-merge`. 결과가 있으면
+`/rocky:resolve-reviews` 10단계대로 고쳐 이 브랜치에 커밋하고, 본문에 "머지 뒤 리뷰 반영" 섹션과 리뷰 링크를
+넣는다. 판단이 필요한 건은 고치지 않고 묻는다.
+
 **PR 을 만든 뒤에 본문을 완성한다.** Files changed 링크에는 PR 번호가 필요해서, 생성 시점에는
 아직 링크를 만들 수 없다. 그래서 두 번에 나눠 돈다.
 

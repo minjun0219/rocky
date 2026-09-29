@@ -539,7 +539,7 @@ pub fn auto_resolve_enabled(boards: &[crate::types::Board], repo: &str) -> bool 
 pub fn notification_text(event: &PrEvent) -> (String, String) {
     let title = format!("rocky · {}", event.repo);
     let body = match event.kind {
-        PrEventKind::Ready => format!("#{} 확인·머지해도 된다 — {}", event.number, event.title),
+        PrEventKind::Ready => format!("#{} 머지 후보 — {}", event.number, event.title),
         PrEventKind::Conflict => format!("#{} 충돌 — {}", event.number, event.title),
         PrEventKind::Merged => format!("#{} 머지됨 — {}", event.number, event.title),
         PrEventKind::Closed => format!("#{} 닫힘 — {}", event.number, event.title),
