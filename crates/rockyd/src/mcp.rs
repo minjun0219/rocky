@@ -197,7 +197,7 @@ impl TodoMcp {
 
     #[tool(
         name = "todo_write",
-        description = "todo 생성/수정. id 없으면 생성(board + title 필수), 있으면 부분 수정. section 은 이름으로 자동 upsert. links 에 GitHub 이슈 / Todoist URL 을 첨부해 맥락을 연결한다. 삭제는 없다 — todo_status 의 archive 를 쓴다. id 는 참조 문법(12, rocky-12, id, id prefix)을 받는다 — 맨숫자 12 로 수정하려면 board 를 함께 줘야 한다. 옛 표기(#12, rocky#12)도 계속 받는다. 진행 상황·중간 보고·사용자에게 묻고 싶은 것은 description 을 덮어쓰지 말고 comment 로 남긴다 — description 은 \"이 할 일이 무엇인가\"의 자리이고, comment 는 사용자와 주고받는 타임라인이다. createIssue: true 를 주면 이 todo 를 GitHub 이슈로 올리고 그 URL 을 links 에 붙인다 (보드에 repo 가 설정돼 있어야 한다)."
+        description = "todo 생성/수정. id 없으면 생성(board + title 필수), 있으면 부분 수정. section 은 이름으로 자동 upsert. links 에 GitHub 이슈나 외부 할 일 앱의 URL 을 첨부해 맥락을 연결한다. 삭제는 없다 — todo_status 의 archive 를 쓴다. id 는 참조 문법(12, rocky-12, id, id prefix)을 받는다 — 맨숫자 12 로 수정하려면 board 를 함께 줘야 한다. 옛 표기(#12, rocky#12)도 계속 받는다. 진행 상황·중간 보고·사용자에게 묻고 싶은 것은 description 을 덮어쓰지 말고 comment 로 남긴다 — description 은 \"이 할 일이 무엇인가\"의 자리이고, comment 는 사용자와 주고받는 타임라인이다. createIssue: true 를 주면 이 todo 를 GitHub 이슈로 올리고 그 URL 을 links 에 붙인다 (보드에 repo 가 설정돼 있어야 한다)."
     )]
     async fn todo_write(&self, Parameters(args): Parameters<TodoWriteArgs>) -> CallToolResult {
         let started = std::time::Instant::now();

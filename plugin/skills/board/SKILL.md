@@ -1,6 +1,6 @@
 ---
 name: board
-description: Use when managing the shared rocky board from a session — planning work the user should see live in the web UI ("보드에 올려둬", "todo 정리해줘"), starting/finishing tracked work items, or leaving scratchpad notes for the user. Covers the rocky daemon's MCP tools (todo_list / todo_write / todo_status / note_list / note_write) and the rocky CLI fallback, the start→done etiquette that powers the "처리중" indicator, link-attachment conventions (GitHub issue / Todoist URLs), and the archive-only rule (no deletion exists).
+description: Use when managing the shared rocky board from a session — planning work the user should see live in the web UI ("보드에 올려둬", "todo 정리해줘"), starting/finishing tracked work items, or leaving scratchpad notes for the user. Covers the rocky daemon's MCP tools (todo_list / todo_write / todo_status / note_list / note_write) and the rocky CLI fallback, the start→done etiquette that powers the "처리중" indicator, link-attachment conventions (GitHub issue / external to-do app URLs), and the archive-only rule (no deletion exists).
 ---
 
 # rocky 보드 — 공유 작업 보드
@@ -36,11 +36,11 @@ claude plugin install rocky@rocky-marketplace
 - 도구도 CLI 도 없으면 위 "설치 = 활성화" 를 안내하고 멈춘다.
 - 데몬 기동이 실패하면 중단하고 `rocky daemon status` 를 안내. 가짜 진행을 만들지 않는다.
 
-## Todoist 와의 역할 구분
+## 외부 할 일 앱과의 역할 구분
 
-코딩 세션의 작업 추적은 **rocky 보드가 기본**이다. 알림·반복 일정·마감 리마인더가
-필요하거나 사용자가 명시적으로 "todoist" 를 언급하면 `todoist` 스킬로 라우팅한다.
-두 시스템을 잇는 건 링크 필드 — 보드 항목에 Todoist task URL 을 첨부한다.
+코딩 세션의 작업 추적은 **rocky 보드가 기본**이다. 알림·반복 일정·마감 리마인더가 필요하거나
+사용자가 외부 할 일 앱을 명시하면 그 앱을 다루는 스킬로 넘긴다. 두 시스템을 잇는 건 링크 필드 —
+보드 항목에 그 앱 항목의 URL 을 첨부한다(동기화는 하지 않는다).
 
 ## 보드 결정
 
@@ -73,7 +73,7 @@ claude plugin install rocky@rocky-marketplace
 2. 끝나면 `done`, 중간에 손 떼면 `stop`. 30분 넘게 방치된 doing 은 UI 에 stale 로 보인다.
 3. **actor 인자를 항상 넣는다** — `claude-code` (Codex 면 `codex`, opencode 면 `opencode`).
    히스토리와 뱃지에 이 이름이 남는다.
-4. 관련 맥락은 `links` 로 첨부한다 — GitHub 이슈/PR URL, Todoist task URL. 상세 배경은
+4. 관련 맥락은 `links` 로 첨부한다 — GitHub 이슈/PR URL, 외부 할 일 앱 항목 URL. 상세 배경은
    `description` (markdown) 에.
 5. **삭제는 없다** — 잘못 만든 항목도 `archive` 만 한다. 메모도 동일 (`note_write` 의
    `mode: "archive"`).
@@ -125,7 +125,7 @@ REF 로 알아듣고 처리하면 된다.
 같으면 `board` 를 넣지 말고, 확신이 없으면 먼저 `note_list { id: "note-3" }` 로
 조회해 제목이 사용자가 말한 것과 맞는지 확인한다.
 
-## 우선순위 의미 (Todoist 와 동일 관례)
+## 우선순위 의미
 
 - `p1` 긴급+중요 (오늘) · `p2` 중요 (이번 주) · `p3` 여유 · `p4` 기본/백로그.
 - 마감이 실제로 있는 항목에만 `due` (YYYY-MM-DD) 를 넣는다.
