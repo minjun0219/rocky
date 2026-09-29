@@ -16,7 +16,10 @@
                 "state": "OPEN",
                 "createdAt": "2026-09-28T01:00:00Z",
                 "repository": {
-                  "nameWithOwner": "acme/app"
+                  "nameWithOwner": "acme/app",
+                  "owner": {
+                    "__typename": "Organization"
+                  }
                 },
                 "issueType": {
                   "name": "Bug"
@@ -60,11 +63,14 @@
               "content": {
                 "number": 2,
                 "title": "  라벨로 버그인 이슈  ",
-                "url": "https://github.com/acme/app/issues/2",
+                "url": "https://github.com/someone/side/issues/2",
                 "state": "OPEN",
                 "createdAt": "2026-09-29T01:00:00Z",
                 "repository": {
-                  "nameWithOwner": "acme/app"
+                  "nameWithOwner": "someone/side",
+                  "owner": {
+                    "__typename": "User"
+                  }
                 },
                 "issueType": null,
                 "assignees": {
@@ -108,7 +114,10 @@
                 "state": "CLOSED",
                 "createdAt": "2026-09-28T01:00:00Z",
                 "repository": {
-                  "nameWithOwner": "acme/app"
+                  "nameWithOwner": "acme/app",
+                  "owner": {
+                    "__typename": "Organization"
+                  }
                 },
                 "issueType": {
                   "name": "Bug"
@@ -150,7 +159,10 @@
                 "state": "OPEN",
                 "createdAt": "2026-09-28T01:00:00Z",
                 "repository": {
-                  "nameWithOwner": "acme/app"
+                  "nameWithOwner": "acme/app",
+                  "owner": {
+                    "__typename": "Organization"
+                  }
                 },
                 "issueType": {
                   "name": "Bug"
@@ -192,7 +204,10 @@
                 "state": "OPEN",
                 "createdAt": "2026-09-28T01:00:00Z",
                 "repository": {
-                  "nameWithOwner": "acme/app"
+                  "nameWithOwner": "acme/app",
+                  "owner": {
+                    "__typename": "Organization"
+                  }
                 },
                 "issueType": {
                   "name": "Bug"
@@ -276,7 +291,10 @@
                 "state": "OPEN",
                 "createdAt": "2026-09-28T01:00:00Z",
                 "repository": {
-                  "nameWithOwner": "acme/app"
+                  "nameWithOwner": "acme/app",
+                  "owner": {
+                    "__typename": "Organization"
+                  }
                 },
                 "issueType": {
                   "name": "Task"
@@ -302,6 +320,59 @@
                     "name": "Web",
                     "field": {
                       "name": "Component/s"
+                    }
+                  },
+                  {
+                    "text": "memo",
+                    "field": {
+                      "name": "Notes"
+                    }
+                  },
+                  {}
+                ]
+              }
+            },
+            {
+              "content": {
+                "number": 9,
+                "title": "조직 레포 타입 미지정 + Bug 라벨",
+                "url": "https://github.com/acme/app/issues/9",
+                "state": "OPEN",
+                "createdAt": "2026-09-28T01:00:00Z",
+                "repository": {
+                  "nameWithOwner": "acme/app",
+                  "owner": {
+                    "__typename": "Organization"
+                  }
+                },
+                "issueType": null,
+                "assignees": {
+                  "nodes": [
+                    {
+                      "login": "me"
+                    }
+                  ]
+                },
+                "labels": {
+                  "nodes": [
+                    {
+                      "name": "Bug"
+                    }
+                  ]
+                }
+              },
+              "fieldValues": {
+                "nodes": [
+                  {
+                    "name": "Web",
+                    "field": {
+                      "name": "Component/s"
+                    }
+                  },
+                  {
+                    "name": "Todo",
+                    "field": {
+                      "name": "Status"
                     }
                   },
                   {

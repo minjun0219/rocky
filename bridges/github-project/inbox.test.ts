@@ -35,14 +35,15 @@ describe('bridges/github-project/inbox.ts', () => {
     ]);
     expect(r.err).toBe('');
     expect(r.code).toBe(0);
-    // 3 닫힘 · 4 남의 것 · 5 다른 컴포넌트 · 6 초안 · 7 PR · 8 타입이 Task(라벨은 타입이 없을 때만) 제외
+    // 3 닫힘 · 4 남의 것 · 5 다른 컴포넌트 · 6 초안 · 7 PR · 8 타입이 Task · 9 조직 레포 타입 미지정 제외
+    // (라벨 대체는 개인 계정 레포인 2번에만)
     expect(ids(r.out)).toEqual(['2', '1']);
     const first = (JSON.parse(r.out) as { items: Record<string, string>[] }).items[0];
     expect(first).toEqual({
-      id: 'https://github.com/acme/app/issues/2',
+      id: 'https://github.com/someone/side/issues/2',
       title: '라벨로 버그인 이슈',
-      url: 'https://github.com/acme/app/issues/2',
-      note: 'acme/app#2',
+      url: 'https://github.com/someone/side/issues/2',
+      note: 'someone/side#2',
       createdAt: '2026-09-29T01:00:00Z',
     });
   });
@@ -50,12 +51,25 @@ describe('bridges/github-project/inbox.ts', () => {
   test('조건이 없으면 열린 이슈 전부', () => {
     const r = run(['--from', fixture]);
     expect(r.code).toBe(0);
-    expect(ids(r.out)).toEqual(['2', '1', '4', '5', '8']);
+    expect(ids(r.out)).toEqual(['2', '1', '4', '5', '8', '9']);
   });
 
   test('필드 이름·값은 대소문자를 가리지 않는다', () => {
     const r = run(['--from', fixture, '--field', 'component/S=WEB', '--assignee', 'Me']);
-    expect(ids(r.out)).toEqual(['2', '1', '8']);
+    expect(ids(r.out)).toEqual(['2', '1', '8', '9']);
+  });
+
+  test('gh 가 없으면 소스 코드 조각이 아니라 이유 한 줄로 실패한다', () => {
+    const proc = Bun.spawnSync({
+      cmd: [process.execPath, script, '--project', 'o/1'],
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { PATH: '/nonexistent', HOME: '/nonexistent' },
+    });
+    const err = proc.stderr.toString();
+    expect(proc.exitCode).toBe(1);
+    expect(err.startsWith('github-project: gh 를 실행하지 못했다')).toBe(true);
+    expect(err.trim().split('\n')).toHaveLength(1);
   });
 
   test('잘못된 인자는 exit 1 + stderr 한 줄', () => {

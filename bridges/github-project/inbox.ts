@@ -14,7 +14,8 @@
  * `gh api graphql` 로 받아 **열린 이슈만** 조건으로 거른다 — 조건은 전부 AND, 대소문자 무시:
  *
  * - `--assignee LOGIN|@me` — 담당자 중에 있어야 한다(`@me` 는 `gh` 로그인 계정).
- * - `--type NAME` — 이슈 타입(조직 레포). 이슈 타입이 없는 레포(개인 계정)는 같은 이름의 **라벨**로 본다.
+ * - `--type NAME` — 이슈 타입. 조직 레포는 이슈 타입만 본다(타입 미지정이면 제외 — Projects 의 `type:`
+ *   필터와 같다). 이슈 타입이 없는 **개인 계정 레포**만 같은 이름의 **라벨**로 대신한다.
  * - `--field "이름=값"` — 보드의 사용자 정의 필드(단일 선택·텍스트·반복·숫자). 여러 번 줄 수 있다.
  *
  * 인증은 로그인된 `gh` 를 그대로 쓴다(`read:project` 권한 필요). 토큰을 따로 읽지 않는다.
@@ -101,12 +102,12 @@ fragment board on ProjectV2 {
   items(first: $limit) { nodes {
     content { ... on Issue {
       number title url state createdAt
-      repository { nameWithOwner }
+      repository { nameWithOwner owner { __typename } }
       issueType { name }
       assignees(first: 10) { nodes { login } }
-      labels(first: 20) { nodes { name } }
+      labels(first: 50) { nodes { name } }
     } }
-    fieldValues(first: 20) { nodes {
+    fieldValues(first: 50) { nodes {
       ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
       ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
       ... on ProjectV2ItemFieldIterationValue { title field { ... on ProjectV2FieldCommon { name } } }
@@ -121,7 +122,7 @@ type Issue = {
   url: string;
   state: string;
   createdAt?: string;
-  repository?: { nameWithOwner: string };
+  repository?: { nameWithOwner: string; owner?: { __typename?: string } };
   issueType?: { name: string } | null;
   assignees?: { nodes: { login: string }[] };
   labels?: { nodes: { name: string }[] };
@@ -197,9 +198,11 @@ export function toItems(response: unknown, filters: Filters): InboxItem[] {
     }
     if (filters.type) {
       const type = issue.issueType?.name;
+      // 라벨 대체는 이슈 타입 기능이 없는 개인 계정 레포에만 — 조직 레포의 타입 미지정 이슈는 제외다.
+      const personal = issue.repository?.owner?.__typename === 'User';
       const ok = type
         ? same(type, filters.type)
-        : (issue.labels?.nodes ?? []).some((l) => same(l.name, filters.type as string));
+        : personal && (issue.labels?.nodes ?? []).some((l) => same(l.name, filters.type as string));
       if (!ok) {
         continue;
       }
@@ -231,9 +234,14 @@ export function toItems(response: unknown, filters: Filters): InboxItem[] {
   return items;
 }
 
+function spawnGh(cmd: string[]) {
+  return Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
+}
+
 async function fetchBoard(owner: string, number: number, limit: number): Promise<unknown> {
-  const proc = Bun.spawn(
-    [
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = spawnGh([
       'gh',
       'api',
       'graphql',
@@ -245,9 +253,12 @@ async function fetchBoard(owner: string, number: number, limit: number): Promise
       `number=${number}`,
       '-F',
       `limit=${limit}`,
-    ],
-    { stdout: 'pipe', stderr: 'pipe' },
-  );
+    ]);
+  } catch (error) {
+    // gh 가 없거나 실행할 수 없으면 spawn 이 던진다 — 데몬은 stderr 첫 줄을 사유로 보여 주므로 한 줄로.
+    const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0];
+    fail(`gh 를 실행하지 못했다(설치·PATH 확인): ${reason}`);
+  }
   const timer = setTimeout(() => proc.kill(), 15000);
   const [code, stdout, stderr] = await Promise.all([
     proc.exited,
