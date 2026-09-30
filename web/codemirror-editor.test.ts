@@ -1,14 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
-import {
-  AWARENESS_FLUSH_MS,
-  bridgeAwareness,
-  colorFor,
-  EDITOR_PREF_KEY,
-  readEditorPref,
-  writeEditorPref,
-} from './codemirror-editor';
+import { AWARENESS_FLUSH_MS, bridgeAwareness, colorFor } from './codemirror-editor';
 
 test('colorFor is stable per name and always a palette color', () => {
   expect(colorFor('codex')).toBe(colorFor('codex'));
@@ -84,23 +77,4 @@ describe('bridgeAwareness', () => {
     sync.onPresenceState?.('them', { not: 'awareness' });
     sync.onPresenceState?.('them', { awareness: '!!!' });
   });
-});
-
-test('editor preference defaults to textarea and round-trips', () => {
-  const store = new Map<string, string>();
-  const storage = {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-  };
-  expect(readEditorPref(storage)).toBe('textarea');
-  writeEditorPref(storage, 'codemirror');
-  expect(store.get(EDITOR_PREF_KEY)).toBe('codemirror');
-  expect(readEditorPref(storage)).toBe('codemirror');
-  expect(
-    readEditorPref({
-      getItem: () => {
-        throw new Error('blocked');
-      },
-    }),
-  ).toBe('textarea');
 });

@@ -297,3 +297,23 @@ describe('resolveBoardKey', () => {
     expect(resolveBoardKey(shadowed, 'b')).toBe('b');
   });
 });
+
+describe('노트 상세 주소', () => {
+  test('보드의 노트는 /{board}/notes/{n} 로 오가고', () => {
+    expect(buildPath({ board: 'rocky', note: 'rocky-3' })).toBe('/rocky/notes/3');
+    expect(parseRoute('/rocky/notes/3')).toEqual({ board: 'rocky', note: 'rocky-3' });
+  });
+
+  test('전체 보기·전역 메모·다른 보드는 ?note= 로 싣는다', () => {
+    expect(buildPath({ board: 'all', note: 'rocky-3' })).toBe('/?note=rocky-3');
+    expect(buildPath({ board: 'rocky', note: 'note-2' })).toBe('/rocky?note=note-2');
+    expect(parseRoute('/', '?note=rocky-3')).toEqual({ board: 'all', note: 'rocky-3' });
+    expect(parseRoute('/rocky', '?note=note-2')).toEqual({ board: 'rocky', note: 'note-2' });
+  });
+
+  test('번호가 아니면 보드 화면으로 떨어진다', () => {
+    expect(parseRoute('/rocky/notes/abc')).toEqual({ board: 'rocky' });
+    expect(parseRoute('/rocky/notes')).toEqual({ board: 'rocky' });
+    expect(parseRoute('/', '?note=')).toEqual({ board: 'all' });
+  });
+});

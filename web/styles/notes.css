@@ -3,12 +3,8 @@
  * 유틸리티.
  */
 
-/* 편집기 후보 (b) CodeMirror — 카드 안에서 textarea 와 같은 자리·같은 글자 크기. 상대 커서는
- * y-codemirror 의 테마가 그리고, 색은 actor 이름 해시(codemirror-editor.ts). */
-.note-cm {
-  margin-top: 4px;
-}
-
+/* CodeMirror 편집기 — 카드·상세 안에서 미리보기와 같은 자리·같은 글자 크기. 마크다운 꾸밈은
+ * codemirror-editor.ts 의 noteHighlight, 상대 커서 색은 actor 이름 해시. */
 .note-cm .cm-editor {
   background: transparent;
   font-size: var(--text-sm, 0.875rem);
@@ -21,9 +17,11 @@
   color: var(--color-text);
 }
 
+/* 안쪽 스크롤을 두지 않는다 — 편집기가 글 길이만큼 자라고 페이지가 스크롤한다(스크롤 안의 스크롤은
+ * 트랙패드·휠이 어느 쪽을 움직일지 매번 헷갈린다). */
 .note-cm .cm-scroller {
   font-family: inherit;
-  max-height: 24rem;
+  overflow: visible;
 }
 
 .note-cm .cm-content {
@@ -35,10 +33,24 @@
   padding: 0;
 }
 
-/* 실시간 세션 전의 미리보기 — 클릭하면 편집기가 그 자리에 뜬다. */
+.note-cm .cm-placeholder {
+  color: var(--color-faint);
+}
+
+/* 렌더된 본문의 줄 — 브라우저 기본 문단 여백을 걷는다(줄 간격은 NoteMarkdown 의 gap). */
+.note-md p,
+.note-md pre {
+  margin: 0;
+}
+
+/* 실시간 세션 전의 미리보기 — 누르면 편집기가 그 자리에 뜬다. */
 .note-cm-preview {
-  white-space: pre-wrap;
-  word-break: break-word;
   min-height: 3.2em;
   cursor: text;
+}
+
+/* 상세 — 빈 곳을 눌러도 편집기에 닿게 남은 높이를 전부 준다. */
+.note-cm.is-fill .cm-editor,
+.note-cm.is-fill .note-cm-preview {
+  min-height: 60vh;
 }

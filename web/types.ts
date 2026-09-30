@@ -87,6 +87,8 @@ export interface Note {
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
+  /** 고정한 시각 — 있으면 노트 화면 맨 위에 카드로 펼쳐 둔다(고정한 순서). */
+  pinnedAt?: string;
 }
 
 /** todo 한 건에 달리는 댓글 — 에이전트의 진행 보고와 사용자의 답이 같은 타임라인에 쌓인다. */

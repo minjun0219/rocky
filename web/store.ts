@@ -116,6 +116,8 @@ interface UiState {
    * 둘을 전환해 노트가 화면 전체를 쓴다(`web/DESIGN.md` "Notes").
    */
   view: BoardView;
+  /** 노트 화면에서 상세로 연 노트 id — null 이면 목록. */
+  openNoteId: string | null;
   /** 노트 보기를 마지막으로 연/떠난 시각(ISO). 그 뒤의 노트 편집이 전환 버튼의 표시가 된다. */
   notesSeenAt: string;
   connected: boolean;
@@ -191,6 +193,11 @@ interface UiState {
   addNote: (input: { board?: string; title: string }) => Promise<void>;
   saveNote: (id: string, patch: { title?: string; content?: string }) => Promise<void>;
   archiveNote: (id: string) => Promise<void>;
+  /** 고정/해제 — 고정한 노트는 노트 화면 맨 위에 카드로 펼쳐 둔다. */
+  pinNote: (id: string, pinned: boolean) => Promise<void>;
+  /** 노트 상세(전체 높이 편집기)를 연다 — 주소가 `/{board}/notes/{n}` 로 바뀌고 뒤로 가면 목록. */
+  openNote: (id: string) => void;
+  closeNote: () => void;
   addComment: (todoId: string, body: string) => Promise<void>;
   editComment: (id: string, body: string) => Promise<void>;
   archiveComment: (id: string) => Promise<void>;
@@ -336,6 +343,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     return stored === 'github' && readStored(GITHUB_TAB_KEY) !== 'off' ? 'github' : 'todos';
   })(),
   notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
+  openNoteId: null,
   connected: false,
   detail: null,
   seenComments: readSeen(localStorage),
@@ -355,7 +363,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (selected !== get().selected) {
       // 보드를 바꾸면 열린 상세도 닫는다 — 주소는 새 보드를 가리키는데 드로어가 이전
       // 보드의 todo 를 계속 띄우면, 같은 주소를 새로고침한 화면과 달라진다.
-      set({ selected, detail: null });
+      set({ selected, detail: null, openNoteId: null });
       pushPath(buildPath({ board: selected }));
     }
     void get().refetch();
@@ -404,6 +412,11 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
   },
   setView: (view) => {
+    if (get().openNoteId !== null) {
+      // 노트 상세를 연 채 탭을 눌렀다 — 상세부터 닫는다(우리가 쌓은 항목이면 뒤로). "노트" 탭을
+      // 다시 누른 것이면 목록으로 돌아가는 것으로 끝이다.
+      get().closeNote();
+    }
     if (view === get().view) {
       return;
     }
@@ -544,6 +557,12 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   closeDetail: () => {
+    if (get().detail?.kind === 'note') {
+      // 노트 히스토리 드로어는 주소를 만들지 않고 열린다 — 닫을 때도 주소를 건드리지 않는다(노트
+      // 상세 `/{board}/notes/{n}` 위에서 열렸으면 그 주소와 뒤로가기 항목을 그대로 둔다).
+      set({ detail: null });
+      return;
+    }
     const state = window.history.state as { rockyTodoDetail?: boolean } | null;
     if (state?.rockyTodoDetail) {
       // 우리가 만든 항목이니 뒤로가기로 되돌린다. popstate 의 applyRoute 도 어차피 닫지만,
@@ -568,7 +587,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     });
     // selected 를 먼저 바꾼 뒤 조회한다 — 순서가 반대면 refetch 가 이전 보드 기준으로
     // 돌아, 새 보드 화면에 직전 보드의 항목·섹션이 그대로 남는다.
-    set({ selected: board.key, detail: null });
+    set({ selected: board.key, detail: null, openNoteId: null });
     pushPath(buildPath({ board: board.key }));
     await get().refetch();
   },
@@ -591,6 +610,24 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({ selected: board });
       await get().refetch();
     }
+    if (route.note !== undefined) {
+      // 노트 상세 퍼머링크 — 목록은 이미 읽었으니 ref(또는 id)로 찾는다. 없거나 보관된 노트면
+      // 노트 목록만 열어 준다. 옛 key 로 온 `/old/notes/3` 은 새 key 의 ref 로 고쳐 찾는다.
+      const oldPrefix = `${route.board}-`;
+      const wanted =
+        route.board !== board && route.note.startsWith(oldPrefix)
+          ? `${board}-${route.note.slice(oldPrefix.length)}`
+          : route.note;
+      const note = get().notes.find((n) => n.ref === wanted || n.id === wanted);
+      set({ detail: null, view: 'notes', openNoteId: note?.id ?? null });
+      writeStored(VIEW_KEY, 'notes');
+      replacePath(
+        buildPath(note ? { board, note: note.ref } : { board }),
+        note ? window.history.state : null,
+      );
+      return;
+    }
+    set({ openNoteId: null });
     if (route.todo === undefined) {
       set({ detail: null });
       // `/demo/abc` 처럼 해석되지 않은 꼬리가 주소에 남지 않게 정규화한다.
@@ -673,8 +710,13 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   addNote: async (input) => {
     const { actor } = get();
-    await api('/api/notes', actor, { method: 'POST', body: JSON.stringify(input) });
+    const created = await api<NoteView>('/api/notes', actor, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
     await get().refetch();
+    // 목록 한 줄로 두면 "새 메모" 를 다시 찾아 눌러야 한다 — 만든 노트를 바로 연다.
+    get().openNote(created.id);
   },
 
   saveNote: async (id, patch) => {
@@ -687,7 +729,40 @@ export const useUiStore = create<UiState>((set, get) => ({
     const { actor } = get();
     await api(`/api/notes/${id}/archive`, actor, { method: 'POST' });
     set({ detail: null });
+    if (get().openNoteId === id) {
+      get().closeNote();
+    }
     await get().refetch();
+  },
+
+  pinNote: async (id, pinned) => {
+    const { actor } = get();
+    logUsage('web:note-pin', { action: pinned ? 'pin' : 'unpin' });
+    await api(`/api/notes/${id}/${pinned ? 'pin' : 'unpin'}`, actor, { method: 'POST' });
+    await get().refetch();
+  },
+
+  openNote: (id) => {
+    const note = get().notes.find((n) => n.id === id);
+    if (!note) {
+      return;
+    }
+    logUsage('web:note-open');
+    set({ openNoteId: id, view: 'notes' });
+    writeStored(VIEW_KEY, 'notes');
+    pushPath(buildPath({ board: get().selected, note: note.ref }), { rockyNote: true });
+  },
+
+  closeNote: () => {
+    const state = window.history.state as { rockyNote?: boolean } | null;
+    set({ openNoteId: null });
+    if (state?.rockyNote) {
+      // 우리가 쌓은 항목이니 뒤로 — closeDetail 과 같은 규칙(닫힘은 먼저 확정한다).
+      window.history.back();
+      return;
+    }
+    // 퍼머링크로 바로 들어왔다 — back() 하면 앱 밖으로 나간다.
+    replacePath(buildPath({ board: get().selected }));
   },
 
   addComment: async (todoId, body) => {
