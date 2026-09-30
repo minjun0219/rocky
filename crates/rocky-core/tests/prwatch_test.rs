@@ -481,3 +481,34 @@ fn auto_resolve_follows_the_board_that_holds_the_repo() {
         "o/r"
     ));
 }
+
+/// CI 실패 — 통과·진행 중에서 실패로 바뀔 때, 또는 새 head 가 실패일 때만. 같은 head 에서 실패가
+/// 이어지면 다시 내지 않고, 재실행(진행 중을 거침)이 또 실패하면 또 낸다. 세션에만 간다.
+#[test]
+fn ci_failure_is_sent_to_the_session_once_per_failing_run() {
+    let kinds = |a: &PrSnapshot, b: &PrSnapshot| -> Vec<PrEventKind> {
+        diff(std::slice::from_ref(a), std::slice::from_ref(b))
+            .iter()
+            .map(|e| e.kind)
+            .collect()
+    };
+    let pass = snap(1, "OPEN", false, "CLEAN");
+    let mut pending = pass.clone();
+    pending.ci = CiState::Pending;
+    let mut fail = pass.clone();
+    fail.ci = CiState::Fail;
+    assert_eq!(kinds(&pending, &fail), vec![PrEventKind::CiFailed]);
+    assert_eq!(kinds(&pass, &fail), vec![PrEventKind::CiFailed]);
+    // 같은 head 에서 실패가 이어지면 조용하다.
+    assert!(kinds(&fail, &fail).is_empty());
+    // 새 커밋도 실패 — 진행 중을 못 봤어도 다시 낸다.
+    let mut fail_new_head = fail.clone();
+    fail_new_head.head = "1234567".into();
+    assert_eq!(kinds(&fail, &fail_new_head), vec![PrEventKind::CiFailed]);
+    // 처음 보는 PR 이 이미 실패 중이면 열림과 함께.
+    let first: Vec<PrEventKind> = diff(&[], &[fail.clone()]).iter().map(|e| e.kind).collect();
+    assert_eq!(first, vec![PrEventKind::Opened, PrEventKind::CiFailed]);
+    // 사람 배너는 없고 세션에만.
+    assert!(!PrEventKind::CiFailed.notifies() && PrEventKind::CiFailed.reaches_session());
+    assert_eq!(PrEventKind::CiFailed.action(), "pr-ci-failed");
+}

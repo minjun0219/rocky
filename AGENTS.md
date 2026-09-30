@@ -256,7 +256,7 @@ typecheck or tests — pre-push and CI already cover it.*
   전이(actor `rocky`)를 보드 히스토리에 남긴다. GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
   받은편지함(`pr.sessionNotify` — 훅이 `CLAUDE_CODE_MESSAGING_SOCKET` 을 `POST /api/sessions/inbox` 로
   등록하고, 데몬이 그 보드의 가장 최근 세션에 JSON 한 줄을 쓴다), 브릿지(`pr.notifiers[]`, 코드는
-  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `ready` 는 **머지
+  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI 가 실패로 바뀜 — 같은 head 에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). `ready` 는 **머지
   후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:review-fix` 8단계); 머지 뒤에 붙은 리뷰는
   다음 PR 로 간다(`after-merge`). **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 요청한 노드 수다 —
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`
