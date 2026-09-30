@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { boardCommand, copyRefWithFeedback } from '../../lib';
 import { useUiStore } from '../../store';
-import { Markdown } from './Markdown';
+import { Markdown } from '../Markdown';
 
 export function NoteDetail() {
   const detail = useUiStore((s) => s.detail);

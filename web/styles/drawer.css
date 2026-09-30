@@ -109,23 +109,6 @@
   color: var(--faint);
 }
 
-.md-line {
-  margin: 0 0 4px;
-  overflow-wrap: anywhere;
-}
-
-.md-line code {
-  font-family: var(--mono);
-  font-size: 13px;
-  background: var(--surface-2);
-  border-radius: 4px;
-  padding: 0 4px;
-}
-
-.md-line a {
-  color: var(--cool);
-}
-
 .drawer-desc-edit {
   width: 100%;
   background: var(--bg);

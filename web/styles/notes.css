@@ -37,12 +37,6 @@
   color: var(--color-faint);
 }
 
-/* 렌더된 본문의 줄 — 브라우저 기본 문단 여백을 걷는다(줄 간격은 NoteMarkdown 의 gap). */
-.note-md p,
-.note-md pre {
-  margin: 0;
-}
-
 /* 실시간 세션 전의 미리보기 — 누르면 편집기가 그 자리에 뜬다. */
 .note-cm-preview {
   min-height: 3.2em;
