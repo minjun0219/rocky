@@ -72,3 +72,38 @@ fn board_pr_authors_accepts_logins_or_clear_but_not_both() {
     ]));
     assert!(usage(&["board", "pr-authors", "--board", "x"]));
 }
+
+/// 예전 `rocky update REF --title …`(할 일 수정)을 습관대로 부르면 플러그인 업데이트를 돌리지 않고 `edit` 으로
+/// 안내한다 — 업데이트는 플러그인을 올리고 데몬을 교체해 되돌리기 어렵다.
+#[test]
+fn old_todo_update_form_is_refused_with_a_pointer_to_edit() {
+    for args in [
+        &["update", "rocky-1"][..],
+        &["update", "rocky-1", "--title", "새 제목"][..],
+        &["update", "--priority", "p1"][..],
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("rocky.json");
+        std::fs::write(
+            &config,
+            r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"}}"#,
+        )
+        .unwrap();
+        // PATH 를 비워 둔다 — 만에 하나 안내 대신 업데이트로 빠져도 `gh`·`claude` 를 못 찾아 아무것도 바꾸지 못한다.
+        let out = Command::new(env!("CARGO_BIN_EXE_rocky"))
+            .args(args)
+            .env("ROCKY_CONFIG", &config)
+            .env("PATH", dir.path())
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_ne!(out.status.code(), Some(0), "{args:?}");
+        assert!(err.contains("rocky edit REF"), "{args:?}: {err}");
+        // 업데이트는 첫 줄에 `최신 릴리스 X · 이 CLI Y · 데몬 Z` 를 찍는다 — 그 줄이 없어야 한다.
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.contains("이 CLI") && !err.contains("이 CLI"),
+            "{args:?}: 업데이트로 빠졌다 — {stdout}{err}"
+        );
+    }
+}

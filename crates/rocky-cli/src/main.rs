@@ -80,7 +80,10 @@ fn run(argv: &[String]) -> Result<(), String> {
         "ls" => commands::cmd_ls(&ctx, &parsed, &board, &printer),
         "add" => commands::cmd_add(&ctx, &rest, &parsed, &board, &printer),
         "show" => commands::cmd_show(&ctx, &rest, &board, &printer),
-        "update" => commands::cmd_update(&ctx, &rest, &parsed, &board, &printer),
+        "edit" => commands::cmd_edit(&ctx, &rest, &parsed, &board, &printer),
+        "update" if commands::looks_like_todo_edit(&rest, &parsed) => Err(
+            "할 일 수정은 `rocky edit REF [플래그]` 로 바뀌었다 — `rocky update` 는 플러그인·데몬을 최신 릴리스로 올린다".into(),
+        ),
         "comment" => commands::cmd_comment(&ctx, &rest, &board, &printer),
         "move" => commands::cmd_move(&ctx, &rest, &parsed, &board, &printer),
         "sessions" => commands::cmd_sessions(&ctx, &board, &printer),
@@ -93,7 +96,13 @@ fn run(argv: &[String]) -> Result<(), String> {
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
-        "upgrade" => commands::cmd_upgrade(&ctx, parsed.bool_flag("check")),
+        "update" => commands::cmd_update(&ctx, parsed.bool_flag("check")),
+        // 0.36.0 에 `upgrade` 로 나갔다 — 한 릴리스 동안 숨은 별칭으로 받는다(도움말에 없다). 0.36.0 에서
+        // 올리는 사람은 옛 바이너리의 `upgrade` 를 부르므로, 올린 뒤의 손버릇만 받아 주면 된다.
+        "upgrade" => {
+            eprintln!("(rocky upgrade 는 rocky update 로 바뀌었다)");
+            commands::cmd_update(&ctx, parsed.bool_flag("check"))
+        }
         "note" => commands::cmd_note(&ctx, &rest, &parsed, &board, &printer),
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),

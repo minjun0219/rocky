@@ -70,7 +70,7 @@ claude plugin install rocky@rocky-marketplace
 rocky daemon install     # launchd 등록 (KeepAlive) — macOS
 rocky daemon status      # 기동 여부 + launchd 상태 (plist 만 있고 로드가 안 됐으면 고치는 명령까지)
 rocky daemon restart     # 버전과 상관없이 지금 설치본으로 교체 — launchd 상주면 job 재등록
-rocky upgrade [--check]  # 플러그인·데몬을 최신 릴리스로 — 마켓플레이스 갱신 → 플러그인 → 데몬 교체
+rocky update [--check]   # 플러그인·데몬을 최신 릴리스로 — 마켓플레이스 갱신 → 플러그인 → 데몬 교체
 rocky daemon uninstall
 rocky --version          # 설치된 CLI 버전
 ```
@@ -801,7 +801,7 @@ rocky inbox [--json]                               # 수집함 소스별 항목 
 rocky inbox subscribe <소스> | unsubscribe [소스]   # 이 세션이 소스를 구독 — 새 항목을 세션에 알린다
 rocky add "제목" [--section S] [--parent REF] [--desc MD] [--due YYYY-MM-DD]
                      [--priority p1..p4] [--label a,b] [--link URL]
-rocky show|start|stop|done|reopen|archive|unarchive|update REF
+rocky show|start|stop|done|reopen|archive|unarchive|edit REF
 rocky comment REF "본문"
 rocky issue REF [--repo OWNER/NAME]           # GitHub 이슈로 (gh CLI 필요)
 rocky note add|ls|show|edit|append|archive|pin|unpin
