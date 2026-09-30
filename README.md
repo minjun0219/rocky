@@ -122,7 +122,7 @@ v0.2 까지의 journal / mysql / spec-pact / pr-watch 도메인 + 에이전트 +
 ## 개발
 
 ```bash
-bun install        # 개발 도구 (biome · changesets · husky 훅 배선). 런타임 TS 는 없다
+bun install        # 개발 도구 (biome · changesets · husky 훅 배선) + 브릿지 의존(텔레그램 알림의 mdwire). 데몬·CLI 에는 TS 가 없다
 bun run check      # Biome 검증 (scripts/ · plugin/scripts/)
 bun run typecheck  # tsc --noEmit
 bun test           # 릴리스·부트스트랩·permalink 스크립트 테스트

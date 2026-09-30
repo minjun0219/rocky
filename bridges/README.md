@@ -11,6 +11,10 @@
 과 같은 문서의 "PR 감시 — 알림 브릿지".
 설계 근거는 [`docs/design/specs/2026-09-27-bridges-and-tui-design.md`](../docs/design/specs/2026-09-27-bridges-and-tui-design.md).
 
+**의존이 있는 브릿지(`telegram/`)는 이 레포에서 `bun install` 을 한 번 해 둬야 돈다** — 등록하는 경로가 이 레포의
+`bridges/…` 라서 레포 루트의 `node_modules` 를 쓴다. 안 해 두면 `Cannot find module '@minjun0219/mdwire'` 로 끝나고
+데몬 로그에 `알림 브릿지 telegram 실패(exit 1)` 가 남는다.
+
 | 디렉터리 | 무엇 |
 | --- | --- |
 | `file/` | JSON 파일을 그대로 내는 참조 구현 — 테스트·수동 확인용 |
