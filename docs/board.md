@@ -300,7 +300,7 @@ rocky board auto-resolve on    # 이 레포의 보드 — 끄려면 off
   것이다. 데몬이 `GET /api/inbox` 응답의 항목마다 `promoted` 로 채우고, 요약·TUI ✓·`rocky inbox` 가 같은
   값을 본다 — 한 보드에 올린 항목이 다른 레포 세션에서 계속 미올림으로 뜨지 않는다.
 - **statusline** — 템플릿 변수 `{due}`(오늘·지난 마감 미완료 수)와 `{collect}`(수집함 미올림 수)
-  추가. 기본 템플릿에 `[  ⏰{due}][  📥{collect}]` 로 들어 있고, 사용자 템플릿에는 직접 넣는다.
+  추가. 기본 템플릿에 `[  ⏰ {due}][  📥 {collect}]` 로 들어 있고, 사용자 템플릿에는 직접 넣는다.
   수집함은 **기다리지 않는 조회**(`GET /api/inbox?cached=true`) — 캐시된 것만 쓰고, 없거나 만료됐으면
   뒤에서 갱신을 시작한다. 그래서 첫 줄에는 비어 있다가 다음 틱부터 채워지고, 보고 있는 동안 60초
   주기로 새로워진다. 1초마다 도는 자리라 어댑터를 기다리면 안 된다.
@@ -885,7 +885,7 @@ statusline 이 보드 때문에 깨지지 않는다).
 `rocky.json` 의 `todo.statusline.template` 로 바꾼다. 기본값:
 
 ```
-[⏺ {mine.ref} {mine.title}][ 💬{mine.comments}][  ✉{inbox}][  ⚠{stale}]
+[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  ✉ {inbox}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]
 ```
 
 문법은 둘뿐이다.
@@ -909,5 +909,5 @@ statusline 이 보드 때문에 깨지지 않는다).
 들어간다). 이스케이프 안의 `[` 는 그룹 문법으로 읽지 않는다:
 
 ```json
-{ "todo": { "statusline": { "template": "[\u001b[33m⏺ {mine.ref}\u001b[0m {mine.title}][  ⚠{stale}]" } } }
+{ "todo": { "statusline": { "template": "[\u001b[33m⏺ {mine.ref}\u001b[0m {mine.title}][  ⚠ {stale}]" } } }
 ```
