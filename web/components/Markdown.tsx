@@ -52,6 +52,41 @@ export function safeHref(url: string): string | null {
   return null;
 }
 
+/** 참조형 링크 이름 비교 — CommonMark 처럼 대소문자·연속 공백을 무시한다. */
+function refKey(label: string): string {
+  return label
+    .replace(/^\[|\]$/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+/** 문서의 `[이름]: 주소` 정의를 모은다 — 본문의 `[글자][이름]` 이 이걸로 주소를 찾는다. */
+function linkReferences(src: string, top: SyntaxNode): Map<string, string> {
+  const refs = new Map<string, string>();
+  for (const def of children(top)) {
+    if (def.name !== 'LinkReference') {
+      continue;
+    }
+    const label = children(def).find((c) => c.name === 'LinkLabel');
+    const url = children(def).find((c) => c.name === 'URL');
+    if (label && url) {
+      const key = refKey(src.slice(label.from, label.to));
+      // 같은 이름이 여러 번이면 처음 것이 이긴다(CommonMark).
+      if (!refs.has(key)) {
+        refs.set(key, src.slice(url.from, url.to));
+      }
+    }
+  }
+  return refs;
+}
+
+/**
+ * 지금 그리는 문서의 참조 정의. `Markdown` 이 그리기 직전에 채우고 그리는 동안(동기)만 읽는다 —
+ * 모든 블록 함수에 인자로 끌고 다니지 않으려는 것이다.
+ */
+let currentRefs: Map<string, string> = new Map();
+
 function children(node: SyntaxNode): SyntaxNode[] {
   const out: SyntaxNode[] = [];
   for (let c = node.firstChild; c; c = c.nextSibling) {
@@ -158,8 +193,25 @@ class Inline {
         const url = children(n).find((c) => c.name === 'URL');
         const labelFrom = marks[0]?.to ?? n.from;
         const labelTo = marks[1]?.from ?? n.to;
+        let target: string | undefined;
+        if (url) {
+          target = src.slice(url.from, url.to);
+        } else {
+          // 참조형 — `[글자][이름]` 은 이름으로, `[이름][]`·`[이름]` 은 글자 자체로 정의를 찾는다.
+          const ref = children(n).find((c) => c.name === 'LinkLabel');
+          const name =
+            ref && ref.to - ref.from > 2
+              ? src.slice(ref.from, ref.to)
+              : src.slice(labelFrom, labelTo);
+          target = currentRefs.get(refKey(name));
+          if (target === undefined) {
+            // 정의가 없는 대괄호(`[WIP]` · `[약한 근거]`)는 링크가 아니라 글자다 — 원문 그대로.
+            this.text(src.slice(n.from, n.to), out);
+            return;
+          }
+        }
         const label = this.range(n, labelFrom, labelTo);
-        const href = url ? safeHref(src.slice(url.from, url.to)) : null;
+        const href = safeHref(target);
         if (!href) {
           out.push(<span key={key}>{label}</span>);
           return;
@@ -345,6 +397,7 @@ function blocks(src: string, parent: SyntaxNode, keep: (n: SyntaxNode) => boolea
 /** 본문을 그린다. 스타일은 `.md` 아래(`web/styles/markdown.css`). */
 export function Markdown({ text, className = '' }: { text: string; className?: string }) {
   const tree = md.parse(text);
+  currentRefs = linkReferences(text, tree.topNode);
   return <div className={`md ${className}`}>{blocks(text, tree.topNode)}</div>;
 }
 
@@ -375,7 +428,7 @@ export function markdownExcerpt(text: string, max = 80): string {
     let pos = n.from;
     for (const c of children(n)) {
       out += text.slice(pos, c.from);
-      if (c.name === 'URL' && n.name === 'Link') {
+      if (c.name === 'URL' && (n.name === 'Link' || n.name === 'Image')) {
         // 링크 주소는 요약에 넣지 않는다
       } else if (!MARKS.has(c.name) && c.name !== 'CodeMark') {
         out += c.name === 'InlineCode' ? text.slice(c.from, c.to).replace(/`/g, '') : plain(c);

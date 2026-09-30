@@ -35,6 +35,19 @@ describe('Markdown — 예전 줄 단위 정규식이 깨뜨리던 것', () => {
   });
 });
 
+describe('Markdown — 참조형 링크', () => {
+  test('[글자][이름] · [이름][] · [이름] 이 정의로 주소를 찾고, 정의 줄은 숨긴다', () => {
+    const out = html('[문서][docs] · [Docs][] · [docs]\n\n[docs]: https://example.com "제목"');
+    expect(out.match(/href="https:\/\/example.com"/g)).toHaveLength(3);
+    expect(out).toContain('>문서</a>');
+    expect(out).not.toContain('[docs]:');
+  });
+
+  test('정의가 없는 대괄호는 글자 그대로', () => {
+    expect(html('[WIP] 정리 · [약한 근거]')).toBe('<p>[WIP] 정리 · [약한 근거]</p>');
+  });
+});
+
 describe('Markdown — 블록', () => {
   test('제목 · 목록 · 체크박스', () => {
     const out = html('# 이번 주\n\n- 하나\n- [x] 끝\n- [ ] 남음');
@@ -95,6 +108,7 @@ describe('markdownExcerpt', () => {
     expect(markdownExcerpt('\n## **회의** 메모\n본문')).toBe('회의 메모');
     expect(markdownExcerpt('- [ ] [문서](https://x.y) 읽기')).toBe('문서 읽기');
     expect(markdownExcerpt('`rocky upgrade` 실측')).toBe('rocky upgrade 실측');
+    expect(markdownExcerpt('![그림](https://x.y/a.png) 설명')).toBe('그림 설명');
     expect(markdownExcerpt('')).toBe('');
   });
 
