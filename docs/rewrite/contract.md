@@ -102,6 +102,7 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/notes/:ref` | `?board=` | `{note: NoteView, history}` | |
 | PATCH `/api/notes/:ref` | `{title?, content?, mode?}` | `NoteView` | |
 | POST `/api/notes/:ref/(archive\|unarchive)` | — | `NoteView` | |
+| POST `/api/notes/:ref/(pin\|unpin)` | — | `NoteView` | `pinnedAt` 을 채우거나 비운다. 이미 그 상태면 그대로(히스토리 없음) |
 | POST `/api/handoffs/:id/cancel` | — | `Handoff` | |
 
 ### 보드 메타 (PATCH /api/boards/:key)
@@ -212,7 +213,7 @@ prefix. 레거시 입력 `#12`/`board#12` 는 **입력만** 허용. `note-N` 은
 
 ls · next · add · show · update · comment · issue · handoff(+--cancel) · spawn ·
 sessions · move · start/stop/done/reopen/archive/unarchive · section add/archive/ls ·
-note add/ls/show/edit/append/archive · history · board ls/show/add/rename/title/desc/
+note add/ls/show/edit/append/archive/pin/unpin · history · board ls/show/add/rename/title/desc/
 repo/path · open · daemon run/start/stop/status/install/uninstall · mcp setup ·
 tailscale on/off/status
 

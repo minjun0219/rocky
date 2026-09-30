@@ -300,6 +300,9 @@ pub struct Note {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// 고정한 시각 — 있으면 노트 탭 맨 위에 펼쳐 둔다(고정한 순서대로).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

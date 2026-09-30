@@ -261,6 +261,7 @@ fn note_from_row(row: &Row) -> rusqlite::Result<Note> {
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         archived_at: row.get("archived_at")?,
+        pinned_at: row.get("pinned_at")?,
     })
 }
 
@@ -2391,6 +2392,7 @@ impl TodoStore {
                 created_at: now.clone(),
                 updated_at: now,
                 archived_at: None,
+                pinned_at: None,
             };
             conn.execute(
                 "INSERT INTO notes (id, number, board_id, title, content, position, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -2683,6 +2685,44 @@ impl TodoStore {
                 &current.id,
                 actor,
                 "unarchive",
+                None,
+                current.board_id.as_deref(),
+                true,
+            )?;
+            must_get_note_conn(&conn, &current.id, None)?
+        };
+        self.emit_all(events);
+        Ok(note)
+    }
+
+    /// 노트 고정/해제 — 이미 그 상태면 아무것도 안 바꾸고(히스토리도 없이) 그대로 돌려준다. 다시 고정해도
+    /// 고정 시각이 밀리지 않아 순서가 흔들리지 않는다.
+    pub fn set_note_pinned(
+        &self,
+        note_ref: &str,
+        pinned: bool,
+        actor: &str,
+        current_board_id: Option<&str>,
+    ) -> StoreResult<Note> {
+        let mut events = Vec::new();
+        let note = {
+            let conn = self.lock();
+            let current = must_get_note_conn(&conn, note_ref, current_board_id)?;
+            if current.pinned_at.is_some() == pinned {
+                return Ok(current);
+            }
+            let pinned_at = pinned.then(now_iso);
+            conn.execute(
+                "UPDATE notes SET pinned_at = ?1 WHERE id = ?2",
+                params![pinned_at, current.id],
+            )?;
+            record_history(
+                &conn,
+                &mut events,
+                HistoryEntity::Note,
+                &current.id,
+                actor,
+                if pinned { "pin" } else { "unpin" },
                 None,
                 current.board_id.as_deref(),
                 true,

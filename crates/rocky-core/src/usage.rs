@@ -242,6 +242,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "PATCH /api/notes/:ref"),
     (UsageSource::Rest, "POST /api/notes/:ref/archive"),
     (UsageSource::Rest, "POST /api/notes/:ref/unarchive"),
+    (UsageSource::Rest, "POST /api/notes/:ref/pin"),
+    (UsageSource::Rest, "POST /api/notes/:ref/unpin"),
     (UsageSource::Rest, "GET /api/sections"),
     (UsageSource::Rest, "POST /api/sections"),
     (UsageSource::Rest, "POST /api/sections/:ref/archive"),

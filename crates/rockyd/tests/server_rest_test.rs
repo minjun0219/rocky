@@ -169,6 +169,12 @@ async fn notes_lifecycle() {
     .await;
     assert_eq!(updated["content"], "첫\n둘");
 
+    let (status, pinned) = post(&f.state, &format!("/api/notes/{id}/pin"), json!({})).await;
+    assert_eq!(status, 200);
+    assert!(pinned["pinnedAt"].is_string());
+    let (_, unpinned) = post(&f.state, &format!("/api/notes/{id}/unpin"), json!({})).await;
+    assert!(unpinned.get("pinnedAt").is_none());
+
     let (status, archived) = post(&f.state, &format!("/api/notes/{id}/archive"), json!({})).await;
     assert_eq!(status, 200);
     assert!(archived["archivedAt"].is_string());
