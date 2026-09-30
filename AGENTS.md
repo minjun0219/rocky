@@ -210,10 +210,10 @@ typecheck or tests — pre-push and CI already cover it.*
   link` 가 고친다. 옆 바이너리는 canonicalize 한 실제 파일 옆에서 찾는다.
 - **데몬 기동.** SessionStart 의 `hook ensure-daemon` 이 health 가 없으면 detached 로 띄운다; CLI 도 필요할 때
   띄운다; `rocky daemon install` 이 상주시킨다(launchd KeepAlive). `rocky daemon restart` 는 버전과 상관없이 같은 교체 경로(`RestartPolicy::Always`)를 탄다.
-- **`rocky upgrade [--check]`** 는 마켓플레이스 갱신 → `claude plugin update` → **새 버전 폴더의 부트스트랩**
+- **`rocky update [--check]`** 는 마켓플레이스 갱신 → `claude plugin update` → **새 버전 폴더의 부트스트랩**
   (`<cache>/rocky/<최신>/bin/rocky hook ensure-daemon`)으로 데몬 교체를 한 번에 한다 — 지금 도는 `rocky` 는 옛
-  바이너리라 자기 자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. `rocky update` 는 할 일
-  수정 명령이다(이름을 겹치지 않는다).
+  바이너리라 자기 자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. 할 일 수정은 `rocky edit`
+  이다(예전 이름이 `update` — REF·수정 플래그가 붙은 `rocky update` 는 업데이트를 돌리지 않고 `edit` 으로 안내한다).
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 정확한 문자열로 비교해
   낡은 데몬을 교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. 옛 데몬을 못 내리면 재기동하지
   않는다(구버전 보드가 보드 없음보다 낫다). *EN: If the old daemon cannot be stopped, do not restart — an old

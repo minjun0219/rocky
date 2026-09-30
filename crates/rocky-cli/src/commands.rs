@@ -178,8 +178,9 @@ pub fn cmd_show(
     Ok(())
 }
 
-/// `update` — 메타 수정.
-pub fn cmd_update(
+/// `edit` — 할 일 메타 수정(제목·설명·섹션·우선순위·마감·라벨·링크). 예전 이름은 `update` 였다 —
+/// 그 이름은 플러그인·데몬 업데이트(`cmd_update`)로 옮겼다.
+pub fn cmd_edit(
     ctx: &CliContext,
     rest: &[String],
     flags: &ParsedFlags,
@@ -187,7 +188,7 @@ pub fn cmd_update(
     printer: &Printer,
 ) -> Result<(), String> {
     let Some(id) = rest.first() else {
-        return Err("usage: rocky update REF [플래그]".into());
+        return Err("usage: rocky edit REF [플래그]".into());
     };
     let body = compact(vec![
         ("title", s(flags.str_flag("title"))),
@@ -1458,9 +1459,20 @@ fn statusline_input() -> (Option<String>, Option<String>) {
 /// 플러그인이 설치되는 마켓플레이스 레포 — 최신 릴리스 태그를 여기서 읽는다.
 const RELEASE_REPO: &str = "minjun0219/rocky";
 
-/// `upgrade [--check]` — 마켓플레이스 갱신 → 플러그인 올리기 → 새 버전 바이너리로 데몬 교체. 릴리스마다 손으로
+/// `update` 에 할 일 수정의 흔적(REF·수정 플래그)이 있나 — 예전 `rocky update REF --title …` 을 습관대로 부르면
+/// 업데이트를 돌리지 않고 `edit` 으로 안내한다(플러그인을 올리고 데몬을 교체하는 일은 되돌리기 어렵다).
+pub fn looks_like_todo_edit(rest: &[String], flags: &ParsedFlags) -> bool {
+    !rest.is_empty()
+        || [
+            "title", "desc", "section", "parent", "priority", "due", "label", "link",
+        ]
+        .iter()
+        .any(|f| flags.str_flag(f).is_some())
+}
+
+/// `update [--check]` — 마켓플레이스 갱신 → 플러그인 올리기 → 새 버전 바이너리로 데몬 교체. 릴리스마다 손으로
 /// 하던 네 단계다. `--check` 면 설치·데몬·최신 릴리스 버전만 비교하고 아무것도 바꾸지 않는다.
-pub fn cmd_upgrade(ctx: &CliContext, check: bool) -> Result<(), String> {
+pub fn cmd_update(ctx: &CliContext, check: bool) -> Result<(), String> {
     let latest = latest_release()?;
     let running = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
     let here = env!("CARGO_PKG_VERSION");
