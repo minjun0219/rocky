@@ -19,6 +19,7 @@
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.7.2",
     "@minjun0219/biome-config": "2.1.0",
+    "@minjun0219/mdwire": "^0.1.7",
     "@radix-ui/react-dialog": "^1.1.23",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

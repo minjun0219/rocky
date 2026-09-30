@@ -241,7 +241,8 @@ ready·충돌마다 등록된 명령을 argv 그대로 실행하고(셸 없음) 
 
 `kind` 는 `ready` / `conflict`. `heading`·`text` 는 macOS 배너와 같은 문구라 그대로 보내도 되고, 나머지
 필드로 직접 조립해도 된다. 참조 구현: [`bridges/telegram/notify.ts`](../bridges/telegram/notify.ts) —
-Bot API `sendMessage`, 토큰은 `--op REF` 로 `op read`(없으면 env `ROCKY_TELEGRAM_TOKEN`, 테스트용),
+Bot API `sendMessage`(`parse_mode: HTML` — `heading` 을 굵게, `text` 를 PR 링크로 마크다운을 쓰고
+[mdwire](https://github.com/minjun0219/mdwire) `telegram-html` 이 텔레그램이 받는 태그·이스케이프로 바꾼다), 토큰은 `--op REF` 로 `op read`(없으면 env `ROCKY_TELEGRAM_TOKEN`, 테스트용),
 `--api` 로 엔드포인트를 바꿔 가짜 서버로 테스트한다.
 
 텔레그램 준비: [BotFather](https://t.me/BotFather) `/newbot` → 토큰을 Agent Vault 에 넣고(항목 제목은

@@ -11,13 +11,16 @@
  * ```
  *
  * 데몬이 전이 한 건을 stdin 에 JSON 으로 준다(`{ kind, repo, number, title, url, heading, text }`).
- * 이 브릿지는 `heading` + `text` 를 Bot API `sendMessage` 로 보낸다. 토큰은 `--op REF` 로 `op read`
+ * 이 브릿지는 `heading`(굵게) + `text`(PR 링크)를 mdwire(`telegram-html`)로 바꿔 Bot API `sendMessage`
+ * (`parse_mode: HTML`)로 보낸다 — PR 제목의 `` `코드` `` 는 코드로, `<`·`&` 는 이스케이프된다. 토큰은 `--op REF` 로 `op read`
  * (1Password Agent Vault; 서비스 계정 토큰은 `~/.config/op/service-account-token`), 없으면 env
  * `ROCKY_TELEGRAM_TOKEN`(테스트·CI 용). 토큰은 어디에도 찍지 않는다 — URL 은 프로세스 안에서만 조립된다.
  *
  * chat id 는 봇에게 먼저 아무 말이나 보낸 뒤 `getUpdates` 로 확인한다(`docs/board.md` "PR 감시").
  * 실패는 exit 1 + stderr 한 줄 — 데몬이 브릿지 이름과 함께 로그에 남긴다.
  */
+
+import { render } from '@minjun0219/mdwire';
 
 type Payload = {
   kind: string;
@@ -99,9 +102,18 @@ export function parsePayload(raw: string): Payload {
   return v as Payload;
 }
 
-/** 텔레그램 본문 — 배너와 같은 두 줄. HTML 파싱을 켜지 않으니 이스케이프가 없다. */
-export function messageOf(payload: Payload): string {
-  return `${payload.heading}\n${payload.text}`;
+/** 링크 글자 안의 `[` `]` 는 링크를 끊는다 — 글자로 두게 탈출한다. */
+const label = (text: string) => text.replace(/[[\]]/g, (c) => `\\${c}`);
+
+/**
+ * 텔레그램 본문 — 배너와 같은 두 줄을 굵은 머리 + PR 로 가는 링크로. 마크다운으로 쓰고 mdwire 가 텔레그램이
+ * 받는 HTML(태그 9개·이스케이프)로 바꾼다. 한도(4096자)를 넘으면 mdwire 가 나눈 조각 순서대로 보낸다.
+ */
+export function messagesOf(payload: Payload): string[] {
+  const line = /^https?:\/\//.test(payload.url ?? '')
+    ? `[${label(payload.text)}](${payload.url})`
+    : payload.text;
+  return render(`**${payload.heading}**\n${line}`, 'telegram-html');
 }
 
 async function main() {
@@ -111,26 +123,29 @@ async function main() {
   }
   const payload = parsePayload(await new Response(Bun.stdin.stream()).text());
   const token = await readToken(args.op);
-  const body = new URLSearchParams({
-    chat_id: args.chat,
-    text: messageOf(payload),
-    disable_web_page_preview: 'true',
-  });
-  let response: Response;
-  try {
-    response = await fetch(`${args.api}/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-      signal: AbortSignal.timeout(8000),
+  for (const text of messagesOf(payload)) {
+    const body = new URLSearchParams({
+      chat_id: args.chat,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: 'true',
     });
-  } catch (error) {
-    fail(`sendMessage 요청 실패: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (!response.ok) {
-    // 응답 본문에는 토큰이 없다(설명 문구뿐) — 첫 줄만.
-    const text = (await response.text()).trim().split('\n')[0];
-    fail(`sendMessage HTTP ${response.status}: ${text}`);
+    let response: Response;
+    try {
+      response = await fetch(`${args.api}/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (error) {
+      fail(`sendMessage 요청 실패: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!response.ok) {
+      // 응답 본문에는 토큰이 없다(설명 문구뿐) — 첫 줄만.
+      const reason = (await response.text()).trim().split('\n')[0];
+      fail(`sendMessage HTTP ${response.status}: ${reason}`);
+    }
   }
 }
 

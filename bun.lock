@@ -17,6 +17,7 @@
         "@lezer/highlight": "^1.2.5",
         "@lezer/markdown": "^1.7.2",
         "@minjun0219/biome-config": "2.1.0",
+        "@minjun0219/mdwire": "^0.1.7",
         "@radix-ui/react-dialog": "^1.1.23",
         "@testing-library/react": "^16.3.2",
         "@testing-library/user-event": "^14.6.1",
@@ -144,6 +145,8 @@
     "@marijn/find-cluster-break": ["@marijn/find-cluster-break@1.0.4", "", {}, "sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ=="],
 
     "@minjun0219/biome-config": ["@minjun0219/biome-config@2.1.0", "", { "peerDependencies": { "@biomejs/biome": ">=2.5.0" } }, "sha512-9qdgVd/YCLaBfIjvXPpCVhHAfj73S5OP3cKD3eCm1kL48D8XU21oPUCXl+uNaaELcrOXrHVeX/tH3x/3DeJd3Q=="],
+
+    "@minjun0219/mdwire": ["@minjun0219/mdwire@0.1.7", "", {}, "sha512-gEUC7ej/6ppadrXFXF9+IMlpLeWzvoSkPPikCG9j7lR2xfcb/MLOY8vrPIQ8fP/P4nB9kJqyevTKfC2QIbOsdw=="],
 
     "@nodelib/fs.scandir": ["@nodelib/fs.scandir@2.1.5", "", { "dependencies": { "@nodelib/fs.stat": "2.0.5", "run-parallel": "^1.1.9" } }, "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="],
 

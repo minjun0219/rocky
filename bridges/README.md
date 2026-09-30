@@ -16,7 +16,7 @@
 | `file/` | JSON 파일을 그대로 내는 참조 구현 — 테스트·수동 확인용 |
 | `todoist/` | Todoist 미완료 작업(API v1, 필터 지원). 토큰은 `--op op://Agent Vault/<uuid>/credential` 로 `op read`. `python3` stdlib 만 |
 | `github-project/` | GitHub 프로젝트 보드의 열린 이슈를 보드 필터(`--assignee @me --type Bug --field "Component/s=Web"`)로 거른다 — 보드를 훑지 않고 이슈 검색으로 좁힌다. `--filter` 로 보드 필터 문자열을 그대로 받는다. 로그인된 `gh`(`read:project`)를 쓴다. Bun, 의존 없음 |
-| `telegram/` | **알림** — Bot API `sendMessage` 로 전이 한 건을 보낸다. 토큰은 `--op` 로 `op read`, `--chat` 이 대상. Bun, 의존 없음 |
+| `telegram/` | **알림** — Bot API `sendMessage` 로 전이 한 건을 보낸다(굵은 머리 + PR 링크, mdwire `telegram-html` 로 이스케이프). 토큰은 `--op` 로 `op read`, `--chat` 이 대상. Bun + `@minjun0219/mdwire` |
 
 새 어댑터는 `bridges/<name>/` 에 두고, 토큰은 1Password Agent Vault 에서 `op read` 로 읽는다
 (홈의 평문 파일 금지). 공개 레포이므로 계정 식별자를 코드에 박지 않는다.

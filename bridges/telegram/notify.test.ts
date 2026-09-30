@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import { messagesOf } from './notify';
 
 /**
  * 텔레그램 알림 브릿지 — 진짜 API 대신 로컬 가짜 서버(`--api`)로 요청 모양을 본다. `op read` 경로는
@@ -61,7 +62,10 @@ describe('bridges/telegram/notify.ts', () => {
     expect(seen[0].path).toBe('/bot123:abc/sendMessage');
     const form = new URLSearchParams(seen[0].body);
     expect(form.get('chat_id')).toBe('42');
-    expect(form.get('text')).toBe('rocky · o/r\n#7 확인·머지해도 된다 — PR 7');
+    expect(form.get('text')).toBe(
+      '<b>rocky · o/r</b>\n<a href="https://github.com/o/r/pull/7">#7 확인·머지해도 된다 — PR 7</a>',
+    );
+    expect(form.get('parse_mode')).toBe('HTML');
     expect(form.get('disable_web_page_preview')).toBe('true');
   });
 
@@ -90,5 +94,33 @@ describe('bridges/telegram/notify.ts', () => {
     const r2 = await run([], payload, { ROCKY_TELEGRAM_TOKEN: 'x' });
     expect(r2.code).toBe(1);
     expect(r2.err).toContain('--chat');
+  });
+});
+
+describe('messagesOf — mdwire telegram-html', () => {
+  const base = {
+    kind: 'ready',
+    repo: 'o/r',
+    number: 7,
+    url: 'https://github.com/o/r/pull/7',
+    heading: 'rocky · o/r',
+  };
+
+  test('PR 제목의 코드는 코드로, < & 는 이스케이프', () => {
+    const [msg] = messagesOf({ ...base, title: 't', text: '#7 머지 후보 — `Vec<u8>` & 정리' });
+    expect(msg).toContain('<code>Vec&lt;u8&gt;</code>');
+    expect(msg).toContain('&amp; 정리');
+  });
+
+  test('제목의 [ ] 가 링크를 끊지 않는다', () => {
+    const [msg] = messagesOf({ ...base, title: 't', text: '#7 [WIP] 정리' });
+    expect(msg).toBe(
+      '<b>rocky · o/r</b>\n<a href="https://github.com/o/r/pull/7">#7 [WIP] 정리</a>',
+    );
+  });
+
+  test('주소가 http(s) 가 아니면 링크 없이 글자로', () => {
+    const [msg] = messagesOf({ ...base, url: 'javascript:x', title: 't', text: '#7 정리' });
+    expect(msg).toBe('<b>rocky · o/r</b>\n#7 정리');
   });
 });
