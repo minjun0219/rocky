@@ -96,6 +96,7 @@ fn redact_keeps_only_exit_code() {
 
     let ok = InboxSourceResult {
         name: "b".into(),
+        board: None,
         available: true,
         reason: None,
         fetched_at: "t".into(),
@@ -125,6 +126,7 @@ fn render_inbox_marks_promoted_items_and_shows_failures_in_one_line() {
         sources: vec![
             InboxSourceResult {
                 name: "gh-bugs".into(),
+                board: None,
                 available: true,
                 reason: None,
                 fetched_at: "t".into(),
@@ -151,6 +153,7 @@ fn render_inbox_marks_promoted_items_and_shows_failures_in_one_line() {
             },
             InboxSourceResult {
                 name: "todoist".into(),
+                board: None,
                 available: false,
                 reason: Some("exit 1: 토큰 없음\n자세한 로그".into()),
                 fetched_at: "t".into(),
@@ -163,4 +166,21 @@ fn render_inbox_marks_promoted_items_and_shows_failures_in_one_line() {
         "gh-bugs — 미올림 1 / 2\n  ✓ 올라간 것\n    https://x/a\n  · 새 버그\ntodoist — 실패: exit 1: 토큰 없음"
     );
     assert!(render_inbox(&InboxResponse { sources: vec![] }).starts_with("수집함 소스 없음"));
+}
+
+#[test]
+fn describe_flags_must_look_like_flags() {
+    use rocky_core::inbox::parse_describe;
+    let ok = parse_describe(
+        r#"{"title":"t","params":[{"flag":"--project","label":"p","required":true}]}"#,
+    )
+    .unwrap();
+    assert!(ok.params[0].required);
+    for bad in [
+        r#"{"title":"t","params":[{"flag":"project","label":"p"}]}"#,
+        r#"{"title":"t","params":[{"flag":"--a b","label":"p"}]}"#,
+        "not json",
+    ] {
+        assert!(parse_describe(bad).is_err(), "{bad}");
+    }
 }

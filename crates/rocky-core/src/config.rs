@@ -46,6 +46,9 @@ pub struct TodoConfig {
     pub statusline_template: Option<String>,
     /// 수집함 어댑터 — 모양이 틀린 항목은 건너뛴다(다른 필드와 같은 fail-open).
     pub inbox: Vec<InboxSource>,
+    /// 보드 설정 화면에서 쓰는 수집함 어댑터(`todo.inboxAdapters[]`) — 그 자체로는 돌지 않고, 보드마다
+    /// 등록한 값(`BoardInboxSource`)을 붙여 실행된다. 모양은 `inbox[]` 와 같다.
+    pub inbox_adapters: Vec<InboxSource>,
     /// SessionStart 훅이 보드 요약 몇 줄을 세션 컨텍스트에 넣는가. 기본 true.
     pub session_summary: Option<bool>,
 }
@@ -78,6 +81,8 @@ pub struct TodoRuntimeConfig {
     pub statusline_template: String,
     /// env 오버라이드 없음 — 설정 파일에서만 온다.
     pub inbox: Vec<InboxSource>,
+    /// 보드 설정 화면용 어댑터(`todo.inboxAdapters[]`). 설정 파일에서만 온다.
+    pub inbox_adapters: Vec<InboxSource>,
 }
 
 /// `~/...` 를 홈으로 확장한다.
@@ -136,6 +141,9 @@ pub fn load_todo_config(config_path: &Path) -> TodoConfig {
     }
     if let Some(inbox) = todo.get("inbox").and_then(|v| v.as_array()) {
         out.inbox = inbox.iter().filter_map(parse_inbox_source).collect();
+    }
+    if let Some(adapters) = todo.get("inboxAdapters").and_then(|v| v.as_array()) {
+        out.inbox_adapters = adapters.iter().filter_map(parse_inbox_source).collect();
     }
     if let Some(flag) = todo.get("sessionSummary").and_then(|v| v.as_bool()) {
         out.session_summary = Some(flag);
@@ -257,6 +265,7 @@ pub fn resolve_runtime_config(env: &EnvMap, todo: &TodoConfig) -> TodoRuntimeCon
         expose,
         statusline_template,
         inbox: todo.inbox.clone(),
+        inbox_adapters: todo.inbox_adapters.clone(),
     }
 }
 

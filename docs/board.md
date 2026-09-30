@@ -599,6 +599,16 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
   `--filter "assignee:@me type:Bug component/s:Web"` 로 보드 화면의 필터 문자열을 그대로 줄 수 있다(부정·여러
   값·검색어는 실패로 알린다; 필드 이름의 `-` 는 공백과 같다).
 
+**보드에서 수집함 등록 — `todo.inboxAdapters[]`.** 어댑터를 `inbox[]` 와 같은 모양으로 `inboxAdapters[]` 에
+두면 그 자체로는 돌지 않고, 웹 보드의 설정에서 **보드마다** 이름과 값을 채워 등록한다(DB `board_inbox_sources`).
+무엇을 실행할지는 설정 파일이, 무엇을 거를지는 화면이 정한다 — 화면은 어댑터의 `--describe` 가 알려 준 칸만
+넘길 수 있고(`--from` 같은 테스트 인자는 거부), 값은 한 줄·500자 이하·`-` 로 시작하지 않아야 한다. 실행 argv 는
+어댑터 명령 + 칸 목록 순서의 `플래그 값` 이다. 등록한 소스는 재기동 없이 다음 조회부터 나오고, 응답의 그 소스에
+`board` 가 붙는다. `GET /api/inbox?board=K`(요약도 같다)는 설정 파일의 소스(공통) + 그 보드의 소스만 낸다.
+라우트: `GET /api/inbox/adapters`(칸 목록, 로컬 전용) · `GET /api/inbox/sources?board=K` ·
+`POST /api/inbox/sources {board, name, adapter, params:{플래그: 값}}`(로컬 전용) ·
+`DELETE /api/inbox/sources/:id`(로컬 전용). 값이 실행 인자가 되므로 쓰기는 노출된 표면에서 막는다.
+
 **`GET /api/inbox?refresh=true`** — 소스를 **동시에** 실행하고 소스별 60초 캐시(실패도 캐시된다 —
 죽은 어댑터를 매 요청마다 때리지 않는다). `refresh=true` 는 캐시를 우회한다. 설정된 소스가 없으면
 `{ "sources": [] }`.

@@ -42,6 +42,9 @@ pub struct InboxItem {
 #[serde(rename_all = "camelCase")]
 pub struct InboxSourceResult {
     pub name: String,
+    /// 보드에 등록한 소스면 그 보드 key — 설정 파일의 소스(모든 보드 공통)는 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
     pub available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -89,6 +92,117 @@ pub fn render_inbox(inbox: &InboxResponse) -> String {
         }
     }
     lines.join("\n")
+}
+
+/// 어댑터 입력 칸 하나 — `--describe` 출력의 `params[]`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescribeParam {
+    pub flag: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+}
+
+/// 어댑터가 `--describe` 로 내는 입력 칸 목록 — 보드 설정 화면이 폼을 그린다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterDescribe {
+    pub title: String,
+    pub params: Vec<DescribeParam>,
+}
+
+/// `--describe` 출력 → 칸 목록. 플래그는 `--` 로 시작하는 이름이어야 한다(argv 로 그대로 나간다).
+pub fn parse_describe(stdout: &str) -> Result<AdapterDescribe, String> {
+    let describe: AdapterDescribe = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("--describe 출력이 JSON 이 아니다: {e}"))?;
+    for p in &describe.params {
+        let name = p.flag.strip_prefix("--").unwrap_or_default();
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            return Err(format!(
+                "--describe 의 flag 가 --이름 모양이 아니다: {:?}",
+                p.flag
+            ));
+        }
+    }
+    Ok(describe)
+}
+
+/// 보드에 등록된 입력 값 하나 — 플래그와 값.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxParam {
+    pub flag: String,
+    pub value: String,
+}
+
+/// 보드마다 등록한 수집함 — 설정 파일의 어댑터(`todo.inboxAdapters[]`, **무엇을 실행할지**) + 화면에서 채운
+/// 값(**무엇을 거를지**). 실행 명령은 늘 설정 파일에서 오고 화면은 어댑터가 알려 준 칸만 채운다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardInboxSource {
+    pub id: String,
+    /// 보드 key.
+    pub board: String,
+    /// 소스 이름 — `[a-z0-9-]+`, 설정의 소스와 겹치지 않는다.
+    pub name: String,
+    /// `todo.inboxAdapters[].name`.
+    pub adapter: String,
+    pub params: Vec<InboxParam>,
+    pub created_at: String,
+}
+
+/// 화면 값 한 칸의 상한 — 필터 문자열이 들어가는 자리라 넉넉하되 끝은 있다.
+pub const INBOX_PARAM_MAX: usize = 500;
+
+/// 화면에서 온 값을 어댑터의 칸 목록으로 검증한다 — 목록에 없는 플래그(`--from` 같은 테스트 인자)는
+/// 거부, 필수 칸은 비면 거부, 제어문자·`-` 로 시작하는 값(어댑터가 플래그로 읽을 수 있다)·너무 긴 값도
+/// 거부. 순서는 칸 목록 순서로 맞춰 돌려준다.
+pub fn validate_params(
+    describe: &AdapterDescribe,
+    values: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<InboxParam>, String> {
+    for flag in values.keys() {
+        if !describe.params.iter().any(|p| &p.flag == flag) {
+            return Err(format!("이 어댑터가 받지 않는 칸: {flag}"));
+        }
+    }
+    let mut out = Vec::new();
+    for p in &describe.params {
+        let value = values.get(&p.flag).map(|v| v.trim()).unwrap_or_default();
+        if value.is_empty() {
+            if p.required {
+                return Err(format!("{} 칸이 비었다", p.label));
+            }
+            continue;
+        }
+        if value.chars().any(char::is_control) {
+            return Err(format!("{} 칸에 줄바꿈·제어문자가 있다", p.label));
+        }
+        if value.starts_with('-') {
+            return Err(format!("{} 칸은 - 로 시작할 수 없다", p.label));
+        }
+        if value.chars().count() > INBOX_PARAM_MAX {
+            return Err(format!("{} 칸이 {INBOX_PARAM_MAX}자를 넘는다", p.label));
+        }
+        out.push(InboxParam {
+            flag: p.flag.clone(),
+            value: value.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// 어댑터 명령 + 보드 값 → 실행할 argv. 셸을 거치지 않으므로 값은 인자 하나로 그대로 간다.
+pub fn source_argv(command: &[String], params: &[InboxParam]) -> Vec<String> {
+    let mut argv = command.to_vec();
+    for p in params {
+        argv.push(p.flag.clone());
+        argv.push(p.value.clone());
+    }
+    argv
 }
 
 /// `GET /api/inbox` 응답.
@@ -170,6 +284,7 @@ pub fn parse_inbox_output(stdout: &str) -> Result<Vec<InboxItem>, String> {
 pub fn unavailable(name: &str, reason: impl Into<String>, fetched_at: String) -> InboxSourceResult {
     InboxSourceResult {
         name: name.to_string(),
+        board: None,
         available: false,
         reason: Some(reason.into()),
         fetched_at,

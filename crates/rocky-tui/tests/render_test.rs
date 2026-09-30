@@ -163,6 +163,7 @@ fn inbox_tab_and_picker_overlay() {
         sources: vec![
             InboxSourceResult {
                 name: "gtasks".into(),
+                board: None,
                 available: true,
                 reason: None,
                 fetched_at: "t".into(),
@@ -178,6 +179,7 @@ fn inbox_tab_and_picker_overlay() {
             },
             InboxSourceResult {
                 name: "broken".into(),
+                board: None,
                 available: false,
                 reason: Some("exit 1: token expired".into()),
                 fetched_at: "t".into(),

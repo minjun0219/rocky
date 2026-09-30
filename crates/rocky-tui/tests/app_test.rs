@@ -262,6 +262,7 @@ fn inbox() -> InboxResponse {
         sources: vec![
             InboxSourceResult {
                 name: "gtasks".into(),
+                board: None,
                 available: true,
                 reason: None,
                 fetched_at: "t".into(),
@@ -269,6 +270,7 @@ fn inbox() -> InboxResponse {
             },
             InboxSourceResult {
                 name: "broken".into(),
+                board: None,
                 available: false,
                 reason: Some("exit 1".into()),
                 fetched_at: "t".into(),
@@ -276,6 +278,7 @@ fn inbox() -> InboxResponse {
             },
             InboxSourceResult {
                 name: "file".into(),
+                board: None,
                 available: true,
                 reason: None,
                 fetched_at: "t".into(),

@@ -310,6 +310,7 @@ async fn collect_uses_cached_inbox_only_and_excludes_promoted() {
     let inbox = rocky_core::inbox::InboxResponse {
         sources: vec![rocky_core::inbox::InboxSourceResult {
             name: "s".into(),
+            board: None,
             available: true,
             reason: None,
             fetched_at: "t".into(),
