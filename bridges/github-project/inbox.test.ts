@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { searchQuery } from './inbox';
 
 /**
  * GitHub 프로젝트 수집함 — `gh` 를 부르지 않고 `--from` 픽스처로 필터와 규약 변환만 본다.
- * 픽스처는 `QUERY` 의 응답 모양을 따른다.
+ * 픽스처는 `QUERY` 의 응답(검색 페이지 배열) 모양을 따른다.
  */
 const script = join(import.meta.dir, 'inbox.ts');
 const fixture = join(import.meta.dir, 'fixture.json');
@@ -22,41 +25,73 @@ const ids = (out: string) =>
   (JSON.parse(out) as { items: { id: string }[] }).items.map((i) => i.id.split('/').pop());
 
 describe('bridges/github-project/inbox.ts', () => {
-  test('보드 필터(assignee:@me type:Bug component/s:Web)를 AND 로 — 열린 이슈만, 새 것이 위', () => {
-    const r = run([
-      '--from',
-      fixture,
-      '--assignee',
-      '@me',
-      '--type',
-      'Bug',
-      '--field',
-      'Component/s=Web',
-    ]);
+  test('검색 결과에서 이 보드의 항목만 골라 --field 를 AND 로 — 둘째 페이지도, 새 것이 위', () => {
+    const r = run(['--from', fixture, '--project', 'acme/7', '--field', 'Component/s=Web']);
     expect(r.err).toBe('');
     expect(r.code).toBe(0);
-    // 3 닫힘 · 4 남의 것 · 5 다른 컴포넌트 · 6 초안 · 7 PR · 8 타입이 Task · 9 조직 레포 타입 미지정 제외
-    // (라벨 대체는 개인 계정 레포인 2번에만)
-    expect(ids(r.out)).toEqual(['2', '1']);
+    // 2 다른 컴포넌트 · 3 다른 보드에만 · 4 같은 번호 다른 주인 — 5 는 둘째 페이지(보드 앞 100개 밖)
+    expect(ids(r.out)).toEqual(['5', '1']);
     const first = (JSON.parse(r.out) as { items: Record<string, string>[] }).items[0];
     expect(first).toEqual({
-      id: 'https://github.com/someone/side/issues/2',
-      title: '라벨로 버그인 이슈',
-      url: 'https://github.com/someone/side/issues/2',
-      note: 'someone/side#2',
+      id: 'https://github.com/acme/web/issues/5',
+      title: '둘째 페이지의 웹 버그',
+      url: 'https://github.com/acme/web/issues/5',
+      note: 'acme/web#5',
       createdAt: '2026-09-29T01:00:00Z',
     });
   });
 
-  test('조건이 없으면 열린 이슈 전부', () => {
-    const r = run(['--from', fixture]);
-    expect(r.code).toBe(0);
-    expect(ids(r.out)).toEqual(['2', '1', '4', '5', '8', '9']);
+  test('필드 조건이 없으면 이 보드에 있는 이슈 전부', () => {
+    const r = run(['--from', fixture, '--project', 'acme/7']);
+    expect(ids(r.out)).toEqual(['5', '2', '1']);
   });
 
   test('필드 이름·값은 대소문자를 가리지 않는다', () => {
-    const r = run(['--from', fixture, '--field', 'component/S=WEB', '--assignee', 'Me']);
-    expect(ids(r.out)).toEqual(['2', '1', '8', '9']);
+    const r = run(['--from', fixture, '--project', 'acme/7', '--field', 'component/S=WEB']);
+    expect(ids(r.out)).toEqual(['5', '1']);
+  });
+
+  test('잘린 결과는 성공으로 보고하지 않는다 — 검색 페이지 누락·보드 항목 넘침·필드 값 넘침', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gh-project-'));
+    const pages = JSON.parse(readFileSync(fixture, 'utf8')) as unknown[];
+    const onlyFirst = join(dir, 'first.json');
+    writeFileSync(onlyFirst, JSON.stringify([pages[0]]));
+    // 2번 이슈는 필드 값이 넘쳤다 — "Status" 가 잘린 뒤쪽에 있었을 수 있다.
+    type Page = {
+      data: {
+        search: {
+          nodes: {
+            projectItems: { nodes: { fieldValues: { pageInfo: { hasNextPage: boolean } } }[] };
+          }[];
+        };
+      };
+    };
+    const cutPages = JSON.parse(readFileSync(fixture, 'utf8')) as Page[];
+    cutPages[0].data.search.nodes[1].projectItems.nodes[0].fieldValues.pageInfo.hasNextPage = true;
+    const fieldsCut = join(dir, 'fields.json');
+    writeFileSync(fieldsCut, JSON.stringify(cutPages));
+    for (const [file, reason] of [
+      [onlyFirst, '검색 결과가 잘렸다'],
+      [join(import.meta.dir, 'fixture-cut.json'), '보드 5개 넘게'],
+    ]) {
+      const r = run(['--from', file, '--project', 'acme/7']);
+      expect(r.code).toBe(1);
+      expect(r.err).toContain(reason);
+      expect(r.err.trim().split('\n')).toHaveLength(1);
+    }
+    const r = run(['--from', fieldsCut, '--project', 'acme/7', '--field', 'Status=Todo']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('"Status" 을 판정하지 못했다');
+  });
+
+  test('검색어 — 조직은 이슈 타입, 개인 계정은 같은 이름의 라벨, 공백 값은 따옴표', () => {
+    const filters = { assignee: '@me', type: 'Feature request', fields: [] };
+    expect(searchQuery('acme', false, filters)).toBe(
+      'user:acme is:issue is:open assignee:@me type:"Feature request"',
+    );
+    expect(searchQuery('me', true, { type: 'Bug', fields: [] })).toBe(
+      'user:me is:issue is:open label:Bug',
+    );
   });
 
   test('gh 가 없으면 소스 코드 조각이 아니라 이유 한 줄로 실패한다', () => {

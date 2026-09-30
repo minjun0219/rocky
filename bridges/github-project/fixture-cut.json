@@ -1,0 +1,103 @@
+{
+  "data": {
+    "repositoryOwner": {
+      "__typename": "Organization"
+    },
+    "search": {
+      "issueCount": 1,
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      },
+      "nodes": [
+        {
+          "number": 9,
+          "title": "보드 여럿",
+          "url": "https://github.com/acme/web/issues/9",
+          "state": "OPEN",
+          "createdAt": "2026-09-29T00:00:00Z",
+          "repository": {
+            "nameWithOwner": "acme/web"
+          },
+          "projectItems": {
+            "pageInfo": {
+              "hasNextPage": true
+            },
+            "nodes": [
+              {
+                "project": {
+                  "number": 1,
+                  "owner": {
+                    "login": "acme"
+                  }
+                },
+                "fieldValues": {
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              },
+              {
+                "project": {
+                  "number": 1,
+                  "owner": {
+                    "login": "acme"
+                  }
+                },
+                "fieldValues": {
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              },
+              {
+                "project": {
+                  "number": 1,
+                  "owner": {
+                    "login": "acme"
+                  }
+                },
+                "fieldValues": {
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              },
+              {
+                "project": {
+                  "number": 1,
+                  "owner": {
+                    "login": "acme"
+                  }
+                },
+                "fieldValues": {
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              },
+              {
+                "project": {
+                  "number": 1,
+                  "owner": {
+                    "login": "acme"
+                  }
+                },
+                "fieldValues": {
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": []
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
