@@ -27,9 +27,9 @@ pub struct StatuslineData {
     pub collect: i64,
 }
 
-/// 기본 템플릿 — 세션 앵커 중심.
+/// 기본 템플릿 — 세션 앵커 중심. 칸마다 앞에 두 칸(칸 사이), 이모지 뒤에 한 칸(이모지와 숫자 사이).
 pub const DEFAULT_STATUSLINE_TEMPLATE: &str =
-    "[⏺ {mine.ref} {mine.title}][ 💬{mine.comments}][  ✉{inbox}][  ⚠{stale}][  ⏰{due}][  📥{collect}]";
+    "[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  ✉ {inbox}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]";
 
 /// 제목 절단 길이.
 pub const STATUSLINE_TITLE_MAX: usize = 30;

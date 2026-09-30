@@ -139,7 +139,7 @@ fn comment_segment_appears_when_comments_arrive() {
     data.mine.as_mut().unwrap().comments = 3;
     assert_eq!(
         render(DEFAULT_STATUSLINE_TEMPLATE, &data),
-        "⏺ rocky-todo-12 statusline API 추가 💬3"
+        "⏺ rocky-todo-12 statusline API 추가 💬 3"
     );
 }
 
@@ -153,7 +153,7 @@ fn without_mine_all_mine_groups_disappear() {
                 ..empty()
             }
         ),
-        "⚠2"
+        "⚠ 2"
     );
 }
 
@@ -296,5 +296,5 @@ fn due_and_collect_placeholders_render_and_vanish_when_zero() {
     assert_eq!(render("[⏰{due}][ 📥{collect}]", &data), "⏰2 📥3");
     assert_eq!(render("[⏰{due}][ 📥{collect}]", &empty()), "");
     // 기본 템플릿에도 들어 있다.
-    assert_eq!(render(DEFAULT_STATUSLINE_TEMPLATE, &data), "⏰2  📥3");
+    assert_eq!(render(DEFAULT_STATUSLINE_TEMPLATE, &data), "⏰ 2  📥 3");
 }

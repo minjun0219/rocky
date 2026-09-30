@@ -115,7 +115,7 @@ async fn comment_count_appears() {
         .unwrap();
     let state = statusline_state(&f, None);
     let line = line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await;
-    assert!(line.contains("💬2"), "{line}");
+    assert!(line.contains("💬 2"), "{line}");
 }
 
 #[tokio::test]
@@ -155,7 +155,7 @@ async fn pending_handoff_counts_as_inbox() {
     let state = statusline_state(&f, None);
     assert_eq!(
         line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await,
-        "✉1"
+        "✉ 1"
     );
 }
 
@@ -198,7 +198,7 @@ async fn gone_session_doing_becomes_stale_warning() {
     let state = statusline_state(&f, None);
     assert_eq!(
         line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await,
-        "⚠1"
+        "⚠ 1"
     );
 }
 
@@ -240,7 +240,7 @@ async fn many_stale_doings_counted() {
     let state = statusline_state(&f, None);
     assert_eq!(
         line_from(&state, "?session=nobody&cwd=/w/rocky-todo").await,
-        "⚠3"
+        "⚠ 3"
     );
 }
 
