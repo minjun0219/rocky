@@ -63,6 +63,7 @@ fn only_ready_and_conflict_become_session_messages() {
     assert!(ready.contains("사용자가 직접 쓴 것이 아니다"));
     let conflict = pr_session_message(&event(PrEventKind::Conflict)).unwrap();
     assert!(conflict.contains("충돌") && conflict.contains("main 을 합쳐"));
+    assert!(conflict.contains("워크트리 서브에이전트"), "{conflict}");
     // 머지는 세션이 정리하도록 넘긴다 — 사람에게 다시 알리라는 말은 없다.
     let merged = pr_session_message(&event(PrEventKind::Merged)).unwrap();
     assert!(merged.starts_with("rocky: o/rocky #7 머지됨 — PR 7"));
@@ -72,6 +73,9 @@ fn only_ready_and_conflict_become_session_messages() {
     let ci = pr_session_message(&event(PrEventKind::CiFailed)).unwrap();
     assert!(ci.starts_with("rocky: o/rocky #7 CI 실패 — PR 7"));
     assert!(ci.contains("--log-failed") && ci.contains("한 번 재실행") && ci.contains("진짜 실패"));
+    assert!(ci.contains("워크트리 서브에이전트"), "{ci}");
+    // 머지 뒤 정리는 메인의 로컬(main·브랜치)을 만지니 맡기지 않는다.
+    assert!(!merged.contains("서브에이전트"), "{merged}");
     for kind in [
         PrEventKind::Opened,
         PrEventKind::Closed,
@@ -154,6 +158,11 @@ fn review_message_asks_the_pr_session_to_run_resolve_reviews() {
     assert!(msg.contains("rocky board auto-resolve off"), "{msg}");
     assert!(!msg.contains("pr.autoResolve"), "{msg}");
     assert!(review_session_message(&event(PrEventKind::Ready)).is_none());
+    // 바쁜 세션은 미루지 않고 워크트리 서브에이전트에 맡긴다 — 결정 필요 건은 메인이 묻는다.
+    assert!(
+        msg.contains("워크트리 서브에이전트") && msg.contains("13단계"),
+        "{msg}"
+    );
     // ready·conflict 본문은 리뷰 도착을 다루지 않는다.
     assert!(pr_session_message(&event(PrEventKind::Review)).is_none());
 }
