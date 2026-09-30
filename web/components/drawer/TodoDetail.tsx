@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { boardCommand, copyRefWithFeedback, linkLabel } from '../../lib';
 import { useUiStore } from '../../store';
 import { IssueAction } from './IssueAction';
-import { Markdown } from './Markdown';
+import { Markdown } from '../Markdown';
 import { SpawnAction } from './SpawnAction';
 
 export function TodoDetail() {

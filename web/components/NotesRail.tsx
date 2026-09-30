@@ -9,14 +9,14 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { type MountedEditor, mountNoteEditor } from '../codemirror-editor';
-import { boardCommand, copyRefWithFeedback, formatElapsed, noteExcerpt } from '../lib';
+import { boardCommand, copyRefWithFeedback, formatElapsed } from '../lib';
 import { applyFormat, FORMAT_ACTIONS } from '../markdown-commands';
 import { NoteSync, PRESENCE_PING_MS } from '../notedoc';
 import { useUiStore } from '../store';
 import type { NoteView } from '../types';
 import { logUsage } from '../usage';
 import { FORMAT_ICONS } from './format-icons';
-import { NoteMarkdown } from './NoteMarkdown';
+import { Markdown, markdownExcerpt } from './Markdown';
 
 /** 포커스가 빠진 뒤 동기화 세션을 얼마나 더 살려 두나 — 잠깐 다른 곳을 눌렀다 돌아오는 경우. */
 const LIVE_LINGER_MS = 20_000;
@@ -133,7 +133,7 @@ export function NotesRail() {
 /** 목록 한 줄 — 번호 · 제목 · 첫 줄 요약 · 갱신 시각. 누르면 상세. */
 function NoteRow({ note }: { note: NoteView }) {
   const openNote = useUiStore((s) => s.openNote);
-  const excerpt = noteExcerpt(note.content);
+  const excerpt = markdownExcerpt(note.content);
   return (
     <li className="flex items-center gap-1">
       <button
@@ -196,8 +196,8 @@ function PinnedNoteCard({
         </button>
       </div>
       {collapsed ? (
-        noteExcerpt(note.content) && (
-          <div className="truncate pl-5 text-meta text-muted">{noteExcerpt(note.content)}</div>
+        markdownExcerpt(note.content) && (
+          <div className="truncate pl-5 text-meta text-muted">{markdownExcerpt(note.content)}</div>
         )
       ) : (
         <NoteEditor note={note} />
@@ -499,7 +499,7 @@ function NoteEditor({
             }}
           >
             {note.content ? (
-              <NoteMarkdown text={note.content} />
+              <Markdown text={note.content} />
             ) : (
               <span className="text-faint">눌러서 적는다 — 마크다운</span>
             )}

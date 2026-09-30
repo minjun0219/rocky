@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Comment, HistoryEntry } from '../../types';
 import { actorTone, formatElapsed, formatStamp, mergeTimeline } from '../../lib';
 import { useUiStore } from '../../store';
-import { Markdown } from './Markdown';
+import { Markdown } from '../Markdown';
 
 export function CommentComposer({ todoId }: { todoId: string }) {
   const addComment = useUiStore((s) => s.addComment);
