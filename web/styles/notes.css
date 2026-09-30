@@ -23,7 +23,9 @@
 
 .note-cm .cm-scroller {
   font-family: inherit;
-  max-height: 24rem;
+  /* 높이 제한을 두지 않는다 — 두면 편집 모드로 바뀌는 순간 카드 안에 스크롤이 하나 더 생겨(페이지 스크롤 안의
+     스크롤) 쓰기 불편했다(2026-09-30 오너). 편집기는 내용만큼 자라고 스크롤은 페이지 하나로. */
+  overflow: visible;
 }
 
 .note-cm .cm-content {

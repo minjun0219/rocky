@@ -310,7 +310,8 @@ function NoteCard({ note, editor }: { note: NoteView; editor: NoteEditorKind }) 
           ref={textareaRef}
           className="note-content mt-1 w-full resize-y border-none bg-transparent text-sm leading-[1.55] text-muted focus:text-text focus:outline-none"
           defaultValue={note.content}
-          rows={Math.min(24, Math.max(6, lines + 1))}
+          // 내용만큼 자란다(상한 없음) — CodeMirror 와 같이 스크롤은 페이지 하나로.
+          rows={Math.max(6, lines + 1)}
           readOnly={live === 'opening'}
           aria-label={`${note.title} 본문`}
           onFocus={() => void startLive()}
