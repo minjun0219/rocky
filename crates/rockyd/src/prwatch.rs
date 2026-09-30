@@ -85,7 +85,7 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
     })
 }
 
-/// 세션 알림 — ready·conflict 를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에 한 줄로
+/// 세션 알림 — ready·conflict·merged·ci-failed(와 autoResolve 가 켜진 보드의 리뷰 도착)를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에 한 줄로
 /// 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 가장 최근 세션부터 시도해
 /// **처음 성공한 한 곳**에서 멈추고, 실패한 등록(끝난 세션)은 걷는다. 등록된 세션이 없으면 조용하다.
 pub fn session_notifier(state: Arc<ServerState>) -> Notifier {

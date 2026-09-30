@@ -412,6 +412,10 @@ pub enum PrEventKind {
     /// 처리 안 된 리뷰 스레드가 늘었다 — 봇·사람 리뷰가 새로 붙었다. 사람에게는 알리지 않고(배너
     /// 없음), 그 레포 보드가 켰으면 세션에 리뷰 처리를 시킨다(보드의 `autoResolve`).
     Review,
+    /// CI 가 실패로 바뀌었다(통과·진행 중 → 실패, 또는 새 head 가 실패). 같은 head 에서 실패가 이어지는
+    /// 동안은 다시 내지 않는다 — 재실행이 다시 실패하면(진행 중을 거치므로) 또 낸다. 사람에게는 알리지
+    /// 않고 세션에만 보낸다: 인프라 문제면 한 번 재실행, 코드 문제면 고쳐 푸시하는 건 세션 몫이다.
+    CiFailed,
 }
 
 impl PrEventKind {
@@ -425,6 +429,7 @@ impl PrEventKind {
             PrEventKind::Merged => "pr-merged",
             PrEventKind::Closed => "pr-closed",
             PrEventKind::Review => "pr-review",
+            PrEventKind::CiFailed => "pr-ci-failed",
         }
     }
 
@@ -437,7 +442,11 @@ impl PrEventKind {
     /// 세션에 넘길 것 — 사람에게 알릴 것(ready·conflict)에 더해, 세션이 처리할 리뷰 도착과 머지 뒤
     /// 정리할 머지. 배너·브릿지는 `notifies` 만 쓴다(머지는 대개 오너가 한 일이라 다시 알리지 않는다).
     pub fn reaches_session(self) -> bool {
-        self.notifies() || matches!(self, PrEventKind::Review | PrEventKind::Merged)
+        self.notifies()
+            || matches!(
+                self,
+                PrEventKind::Review | PrEventKind::Merged | PrEventKind::CiFailed
+            )
     }
 }
 
@@ -476,6 +485,9 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
                 if p.unhandled > 0 {
                     out.push(ev(PrEventKind::Review));
                 }
+                if p.ci == CiState::Fail {
+                    out.push(ev(PrEventKind::CiFailed));
+                }
             }
             continue;
         };
@@ -495,6 +507,9 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
                     if p.unhandled > 0 {
                         out.push(ev(PrEventKind::Review));
                     }
+                    if p.ci == CiState::Fail {
+                        out.push(ev(PrEventKind::CiFailed));
+                    }
                 }
                 _ => {}
             }
@@ -513,6 +528,9 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
         }
         if has_new_review(was, p) {
             out.push(ev(PrEventKind::Review));
+        }
+        if p.ci == CiState::Fail && (was.ci != CiState::Fail || was.head != p.head) {
+            out.push(ev(PrEventKind::CiFailed));
         }
     }
     out
@@ -555,6 +573,7 @@ pub fn notification_text(event: &PrEvent) -> (String, String) {
         PrEventKind::Opened => format!("#{} 열림 — {}", event.number, event.title),
         PrEventKind::Unready => format!("#{} 다시 대기 — {}", event.number, event.title),
         PrEventKind::Review => format!("#{} 리뷰 도착 — {}", event.number, event.title),
+        PrEventKind::CiFailed => format!("#{} CI 실패 — {}", event.number, event.title),
     };
     (title, body)
 }

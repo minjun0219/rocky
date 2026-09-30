@@ -66,6 +66,10 @@ fn only_ready_and_conflict_become_session_messages() {
     assert!(merged.starts_with("rocky: o/rocky #7 머지됨 — PR 7"));
     assert!(merged.contains("PushNotification 도 보내지 않는다") && merged.contains("after-merge"));
     assert!(PrEventKind::Merged.reaches_session() && !PrEventKind::Merged.notifies());
+    // CI 실패는 세션이 원인을 보고 재실행 한 번 또는 수정 — 무엇을 할지까지 적는다.
+    let ci = pr_session_message(&event(PrEventKind::CiFailed)).unwrap();
+    assert!(ci.starts_with("rocky: o/rocky #7 CI 실패 — PR 7"));
+    assert!(ci.contains("--log-failed") && ci.contains("한 번 재실행") && ci.contains("진짜 실패"));
     for kind in [
         PrEventKind::Opened,
         PrEventKind::Closed,

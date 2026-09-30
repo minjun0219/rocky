@@ -59,12 +59,13 @@ pub fn inbox_line(text: &str) -> String {
     )
 }
 
-/// PR 전이를 세션에 알리는 본문 — ready·conflict·merged. 받는 Claude 가 무엇을 하면 되는지까지 적는다.
+/// PR 전이를 세션에 알리는 본문 — ready·conflict·merged·ci-failed. 받는 Claude 가 무엇을 하면 되는지까지 적는다.
 pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     let head = match event.kind {
         PrEventKind::Ready => "머지 후보",
         PrEventKind::Conflict => "충돌 — 풀어야 한다",
         PrEventKind::Merged => "머지됨",
+        PrEventKind::CiFailed => "CI 실패",
         _ => return None,
     };
     let todo = match event.kind {
@@ -80,6 +81,13 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
              한 번 한다(`/rocky:review-fix` 11단계): 로컬을 최신 main 으로 맞추고 끝난 브랜치를 \
              정리하고, 새 릴리스 PR·스택의 다음 PR·머지 뒤 리뷰(`after-merge`)가 있는지 본다. 다른 \
              작업 중이면 끝낸 뒤에, 무관한 세션이면 아무것도 하지 않는다."
+        }
+        PrEventKind::CiFailed => {
+            "CI 가 실패했다. 이 세션이 그 PR 을 만든 곳이면 `/rocky:review-fix` 의 CI 실패 단계대로 한 번 \
+             본다: 실패 로그(`gh run view --log-failed`)를 읽고, 테스트가 돌기 전에 죽은 인프라 문제(의존성 \
+             내려받기·러너 유실)면 실패한 잡만 한 번 재실행하고, 코드 문제면 고쳐 게이트를 돌린 뒤 푸시한다. \
+             재실행이 또 실패하면 그건 진짜 실패다. 못 고치면 무엇이 왜 실패하는지 사용자에게 알린다. 다른 \
+             작업 중이면 끝낸 뒤에, 무관한 세션이면 사용자에게 알리기만 한다."
         }
         _ => {
             "base 와 충돌이 났다. 이 세션이 그 PR 을 만든 곳이면 main 을 합쳐 충돌을 풀고 게이트를 \
