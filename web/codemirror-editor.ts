@@ -1,15 +1,18 @@
 /**
- * 편집기 후보 (b): CodeMirror 6 + `y-codemirror.next` — 상대 커서·선택 영역까지 그린다.
+ * 노트 편집기: CodeMirror 6 + `y-codemirror.next` — 상대 커서·선택 영역까지 그린다. 마크다운(GFM)을
+ * 편집하는 자리에서 꾸며 보여 주고(제목 크기·굵게·코드), 서식 명령은 `markdown-commands.ts`.
  *
- * 문서 동기화는 후보 (a)와 같은 `NoteSync` 를 그대로 쓴다. 다른 점은 **awareness**: y-codemirror
+ * 문서 동기화는 `NoteSync`. 여기서 더하는 것은 **awareness**: y-codemirror
  * 는 y-protocols 의 `Awareness` 로 커서를 주고받는데 그건 전송을 모른다. 여기서 awareness 의
  * 로컬 변경을 프레즌스 라우트의 `state` 에 실어 보내고, 남의 프레즌스 `state` 를 awareness 에
  * 넣는 다리를 놓는다(`bridgeAwareness`). 프레즌스 핑(20초)이 로컬 상태를 다시 실어 보내므로
  * awareness 의 30초 만료를 넘기지 않는다.
  */
-import { markdown } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, keymap, placeholder } from '@codemirror/view';
+import { tags } from '@lezer/highlight';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import {
   applyAwarenessUpdate,
@@ -17,7 +20,32 @@ import {
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from 'y-protocols/awareness';
+import { applyFormat, insertLink, toggleWrap } from './markdown-commands';
 import { fromB64, type NoteSync, toB64 } from './notedoc';
+
+/**
+ * 마크다운을 쓰는 자리에서 꾸민다 — 기호(`#`·`**`)는 흐리게 남기고 내용만 모양을 준다. 색은 테마
+ * 토큰(`web/styles/tokens.css`)이라 다크 모드를 따라간다.
+ */
+export const noteHighlight = HighlightStyle.define([
+  { tag: tags.heading1, fontSize: '1.3em', fontWeight: '700', color: 'var(--color-text)' },
+  { tag: tags.heading2, fontSize: '1.15em', fontWeight: '700', color: 'var(--color-text)' },
+  { tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6], fontWeight: '700' },
+  { tag: tags.strong, fontWeight: '700', color: 'var(--color-text)' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  { tag: tags.monospace, fontFamily: 'var(--font-mono)', fontSize: '0.92em' },
+  { tag: [tags.link, tags.url], color: 'var(--color-link)', textDecoration: 'underline' },
+  { tag: tags.quote, fontStyle: 'italic' },
+  { tag: [tags.processingInstruction, tags.contentSeparator], color: 'var(--color-faint)' },
+]);
+
+/** 서식 단축키 — 툴바와 같은 명령. */
+const formatKeymap = keymap.of([
+  { key: 'Mod-b', run: (view) => applyFormat(view, (s) => toggleWrap(s, '**')) },
+  { key: 'Mod-i', run: (view) => applyFormat(view, (s) => toggleWrap(s, '*')) },
+  { key: 'Mod-k', run: (view) => applyFormat(view, insertLink) },
+]);
 
 /** 사람·에이전트별 커서 색 — 이름의 해시로 고정(같은 이름은 늘 같은 색). */
 const CURSOR_COLORS = ['#167a56', '#c2410c', '#1d5fb0', '#7a2e12', '#6d28d9', '#0f766e'];
@@ -144,7 +172,11 @@ export function mountNoteEditor(
       doc: sync.text.toString(),
       extensions: [
         keymap.of([...yUndoManagerKeymap]),
-        markdown(),
+        formatKeymap,
+        // GFM — 체크박스·취소선·표. 목록에서 Enter 는 다음 머리를 이어 준다(markdownKeymap).
+        markdown({ base: markdownLanguage }),
+        syntaxHighlighting(noteHighlight),
+        placeholder('마크다운으로 적는다 — ⌘B 굵게 · ⌘K 링크 · "- [ ] " 체크박스'),
         EditorView.lineWrapping,
         yCollab(sync.text, awareness),
         EditorView.updateListener.of((update) => {
@@ -165,24 +197,4 @@ export function mountNoteEditor(
       view.destroy();
     },
   };
-}
-
-/** 편집기 선택 — 둘을 번갈아 써 보고 하나를 지우기 위한 임시 스위치. localStorage 에 남는다. */
-export type NoteEditorKind = 'textarea' | 'codemirror';
-export const EDITOR_PREF_KEY = 'rocky.noteEditor';
-
-export function readEditorPref(storage: Pick<Storage, 'getItem'>): NoteEditorKind {
-  try {
-    return storage.getItem(EDITOR_PREF_KEY) === 'codemirror' ? 'codemirror' : 'textarea';
-  } catch {
-    return 'textarea';
-  }
-}
-
-export function writeEditorPref(storage: Pick<Storage, 'setItem'>, kind: NoteEditorKind): void {
-  try {
-    storage.setItem(EDITOR_PREF_KEY, kind);
-  } catch {
-    // 저장 못 해도 이번 화면에서는 동작한다.
-  }
 }

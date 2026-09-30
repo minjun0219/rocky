@@ -6,7 +6,7 @@
  * 단위 테스트된다 — `src/ui/lib.ts` 가 `mdTokens`/`formatElapsed` 를 두는 것과 같은 이유다.
  *
  * URL 문법: `/`(전체) · `/{board}` · `/{board}/{number}` · `/{board}?todo={board}-{number}` ·
- * `/?todo={board}-{number}`
+ * `/?todo={board}-{number}` · 노트 상세 `/{board}/notes/{number}` · `/{board}?note={ref}`
  *
  * 뒤의 둘은 **보고 있는 보드와 열린 todo 의 보드가 다른** 경우다 — 전체 보기에서 상세를
  * 열거나, "지금" 표에서 다른 보드의 항목을 연 경우. 예전엔 이때 선택을 그 todo 의 보드로
@@ -28,10 +28,14 @@ export interface TodoRef {
   number: number;
 }
 
-/** URL 이 담는 화면 상태. `todo` 가 있으면 그 todo 의 상세가 열린 상태다. */
+/**
+ * URL 이 담는 화면 상태. `todo` 가 있으면 그 todo 의 상세가 열린 상태, `note` 가 있으면 노트
+ * 화면에서 그 노트(ref — `rocky-3` · 전역 `note-3`)의 상세가 열린 상태다. 둘은 같이 싣지 않는다.
+ */
 export interface Route {
   board: BoardSelection;
   todo?: TodoRef;
+  note?: string;
 }
 
 /**
@@ -83,6 +87,10 @@ export function parseRoute(pathname: string, search = ''): Route {
   const segments = pathname.split('/').filter((s) => s !== '');
   const rawBoard = segments[0];
   const fromQuery = (board: BoardSelection): Route => {
+    const note = parseNoteParam(search);
+    if (note !== undefined) {
+      return { board, note };
+    }
     const todo = parseTodoParam(search);
     return todo === undefined ? { board } : { board, todo };
   };
@@ -94,6 +102,13 @@ export function parseRoute(pathname: string, search = ''): Route {
     board = decodeURIComponent(rawBoard);
   } catch {
     return fromQuery('all');
+  }
+  if (segments[1] === 'notes') {
+    const n = segments[2];
+    if (n !== undefined && /^[1-9]\d*$/.test(n) && board !== 'all') {
+      return { board, note: `${board}-${n}` };
+    }
+    return fromQuery(board);
   }
   const rawNumber = segments[1];
   if (rawNumber === undefined) {
@@ -109,6 +124,17 @@ export function parseRoute(pathname: string, search = ''): Route {
     return fromQuery(board);
   }
   return { board, todo: { board, number: Number(number) } };
+}
+
+/** `?note=rocky-3` → `'rocky-3'`. ref 는 서버가 푸니 모양만 본다(빈 값·공백 거절). */
+function parseNoteParam(search: string): string | undefined {
+  let raw: string | null;
+  try {
+    raw = new URLSearchParams(search).get('note');
+  } catch {
+    return undefined;
+  }
+  return raw !== null && /^[^\s/]+$/.test(raw) ? raw : undefined;
 }
 
 /** `?todo=rocky-12` → `{ board: 'rocky', number: 12 }`. 모양이 아니면 undefined. */
@@ -149,6 +175,15 @@ export function buildPath(route: Route): string {
     route.board === 'all' || !isAddressableBoardKey(route.board)
       ? '/'
       : `/${encodeURIComponent(route.board)}`;
+  if (route.note !== undefined) {
+    // 보고 있는 보드의 번호 ref 면 경로로, 아니면(전체 보기·전역 메모·raw id) 쿼리로.
+    const prefix = `${route.board}-`;
+    const n = route.note.startsWith(prefix) ? route.note.slice(prefix.length) : '';
+    if (base !== '/' && /^[1-9]\d*$/.test(n)) {
+      return `${base}/notes/${n}`;
+    }
+    return `${base}?${new URLSearchParams({ note: route.note }).toString()}`;
+  }
   const todo = route.todo;
   if (todo === undefined || !isAddressableBoardKey(todo.board)) {
     return base;

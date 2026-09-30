@@ -9,7 +9,9 @@ export type WebUsageEvent =
   | 'web:todo-open'
   | 'web:view'
   | 'web:note-live'
-  | 'web:note-editor'
+  | 'web:note-open'
+  | 'web:note-pin'
+  | 'web:note-format'
   | 'web:theme'
   | 'web:archived-toggle'
   | 'web:quick-add';

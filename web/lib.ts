@@ -128,6 +128,125 @@ export function mdTokens(text: string): MdToken[] {
   return tokens;
 }
 
+/** 노트 미리보기의 한 덩어리 — 줄 단위로 읽되, 코드 블록(```)만 여러 줄을 묶는다. */
+export type MdBlock =
+  | { type: 'heading'; level: number; text: string }
+  | { type: 'bullet'; depth: number; text: string }
+  | { type: 'task'; depth: number; checked: boolean; text: string }
+  | { type: 'ordered'; depth: number; marker: string; text: string }
+  | { type: 'quote'; text: string }
+  | { type: 'code'; text: string }
+  | { type: 'rule' }
+  | { type: 'blank' }
+  | { type: 'para'; text: string };
+
+/**
+ * 노트 미리보기용 블록 파서 — 제목·목록·체크박스·인용·코드 블록·구분선. 안쪽 글자는 `mdTokens`
+ * 가 맡는다. 편집은 CodeMirror 가 하니 여기서는 **읽기 좋게 보이기**만 한다(표·중첩 인용은 글자 그대로).
+ */
+export function mdBlocks(text: string): MdBlock[] {
+  const blocks: MdBlock[] = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (/^\s*```/.test(line)) {
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i] ?? '')) {
+        body.push(lines[i] ?? '');
+        i++;
+      }
+      blocks.push({ type: 'code', text: body.join('\n') });
+      continue;
+    }
+    if (line.trim() === '') {
+      blocks.push({ type: 'blank' });
+      continue;
+    }
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    const depth = Math.floor(indent / 2);
+    const trimmed = line.slice(indent);
+    let m = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (m && indent === 0) {
+      blocks.push({ type: 'heading', level: m[1]!.length, text: m[2]! });
+      continue;
+    }
+    if (/^([-*_])(\s*\1){2,}\s*$/.test(trimmed)) {
+      blocks.push({ type: 'rule' });
+      continue;
+    }
+    m = trimmed.match(/^[-*+]\s+\[([ xX])\]\s?(.*)$/);
+    if (m) {
+      blocks.push({ type: 'task', depth, checked: m[1] !== ' ', text: m[2]! });
+      continue;
+    }
+    m = trimmed.match(/^[-*+]\s+(.*)$/);
+    if (m) {
+      blocks.push({ type: 'bullet', depth, text: m[1]! });
+      continue;
+    }
+    m = trimmed.match(/^(\d+[.)])\s+(.*)$/);
+    if (m) {
+      blocks.push({ type: 'ordered', depth, marker: m[1]!, text: m[2]! });
+      continue;
+    }
+    m = trimmed.match(/^>\s?(.*)$/);
+    if (m) {
+      blocks.push({ type: 'quote', text: m[1]! });
+      continue;
+    }
+    blocks.push({ type: 'para', text: line });
+  }
+  return blocks;
+}
+
+/** 노트 본문의 한 줄 안쪽 — `mdTokens` 에 `[글자](주소)` 링크와 `*기울임*` 을 더한 것. */
+export type NoteInline =
+  | MdToken
+  | { type: 'em'; value: string }
+  | { type: 'anchor'; value: string; href: string };
+
+/**
+ * 노트 미리보기 전용 인라인 토큰 — 편집기 툴바가 만드는 `[글자](주소)`·`*기울임*` 을 먼저 떼고, 나머지는
+ * `mdTokens` 에 맡긴다. 드로어의 `Markdown`(todo 설명·댓글)은 그대로 둔다.
+ */
+export function noteInlineTokens(text: string): NoteInline[] {
+  const tokens: NoteInline[] = [];
+  const pattern = /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(?<![*\w])\*(?!\*)([^*\n]+?)\*(?![*\w]))/g;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > last) {
+      tokens.push(...mdTokens(text.slice(last, index)));
+    }
+    if (match[2] !== undefined && match[3] !== undefined) {
+      tokens.push({ type: 'anchor', value: match[2], href: match[3] });
+    } else {
+      tokens.push({ type: 'em', value: match[4] ?? '' });
+    }
+    last = index + match[0].length;
+  }
+  if (last < text.length) {
+    tokens.push(...mdTokens(text.slice(last)));
+  }
+  return tokens;
+}
+
+/** 목록 한 줄 요약 — 노트 목록 행의 둘째 줄. 첫 내용 줄에서 마크다운 기호를 걷는다. */
+export function noteExcerpt(content: string, max = 80): string {
+  const first = mdBlocks(content).find((b) => b.type !== 'blank' && b.type !== 'rule');
+  if (!first) {
+    return '';
+  }
+  const raw = 'text' in first ? first.text : '';
+  const plain = raw
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~]/g, '')
+    .split('\n')[0]!
+    .trim();
+  return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
+}
+
 /** copyRef 가 실제로 건드리는 clipboard 표면 — 테스트에서 fake 로 대체 가능. */
 export interface CopyRefClipboard {
   writeText(text: string): Promise<void>;

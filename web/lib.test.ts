@@ -4,6 +4,9 @@ import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
 import type { NowRow } from './lib';
 import {
+  mdBlocks,
+  noteExcerpt,
+  noteInlineTokens,
   prRows,
   prStatus,
   advanceSeen,
@@ -852,5 +855,67 @@ describe('prRows — PR 현황', () => {
     expect(rows[1]?.detail).toBe('확인·머지');
     // 전체 보기(null)면 레포와 무관하게.
     expect(prRows(prs, null).map((r) => r.number)).toContain(6);
+  });
+});
+
+describe('mdBlocks — 노트 미리보기', () => {
+  test('제목·목록·체크박스·인용·구분선을 가른다', () => {
+    expect(
+      mdBlocks(
+        '# 큰\n## 작은\n- 하나\n  - 안쪽\n- [x] 끝\n- [ ] 할 것\n1. 첫째\n> 인용\n---\n\n그냥',
+      ),
+    ).toEqual([
+      { type: 'heading', level: 1, text: '큰' },
+      { type: 'heading', level: 2, text: '작은' },
+      { type: 'bullet', depth: 0, text: '하나' },
+      { type: 'bullet', depth: 1, text: '안쪽' },
+      { type: 'task', depth: 0, checked: true, text: '끝' },
+      { type: 'task', depth: 0, checked: false, text: '할 것' },
+      { type: 'ordered', depth: 0, marker: '1.', text: '첫째' },
+      { type: 'quote', text: '인용' },
+      { type: 'rule' },
+      { type: 'blank' },
+      { type: 'para', text: '그냥' },
+    ]);
+  });
+
+  test('코드 블록 안의 # 나 - 는 글자 그대로다', () => {
+    expect(mdBlocks('```\n# 주석\n- x\n```\n뒤')).toEqual([
+      { type: 'code', text: '# 주석\n- x' },
+      { type: 'para', text: '뒤' },
+    ]);
+  });
+
+  test('닫히지 않은 코드 블록은 끝까지 코드', () => {
+    expect(mdBlocks('```\na')).toEqual([{ type: 'code', text: 'a' }]);
+  });
+});
+
+describe('noteInlineTokens', () => {
+  test('툴바가 만든 링크는 글자와 주소로 — 닫는 괄호가 주소에 붙지 않는다', () => {
+    expect(noteInlineTokens('[문서](https://x.y/a) 끝')).toEqual([
+      { type: 'anchor', value: '문서', href: 'https://x.y/a' },
+      { type: 'text', value: ' 끝' },
+    ]);
+  });
+
+  test('*기울임* 은 기울임, **굵게** 는 그대로 굵게', () => {
+    expect(noteInlineTokens('*살짝* 과 **꽉**')).toEqual([
+      { type: 'em', value: '살짝' },
+      { type: 'text', value: ' 과 ' },
+      { type: 'bold', value: '꽉' },
+    ]);
+  });
+});
+
+describe('noteExcerpt', () => {
+  test('첫 내용 줄에서 기호를 걷는다', () => {
+    expect(noteExcerpt('\n## **회의** 메모\n본문')).toBe('회의 메모');
+    expect(noteExcerpt('- [ ] [문서](https://x.y) 읽기')).toBe('문서 읽기');
+    expect(noteExcerpt('')).toBe('');
+  });
+
+  test('길면 자른다', () => {
+    expect(noteExcerpt('가'.repeat(100), 10)).toBe(`${'가'.repeat(9)}…`);
   });
 });
