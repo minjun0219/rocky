@@ -107,18 +107,13 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
                 match written {
                     Ok(Ok(())) => sent += 1,
                     Ok(Err(error)) if session_gone(&error) => {
-                        eprintln!(
-                            "rocky: 수집함 {name} — 세션 {} 이 끝났다({error}), 구독을 걷는다",
-                            sub.session_id
-                        );
+                        // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
+                        eprintln!("rocky: 수집함 {name} — 구독 세션 하나가 끝났다({error}), 구독을 걷는다");
                         let _ = state.store.unsubscribe_inbox(None, &sub.session_id);
                         continue;
                     }
                     Ok(Err(error)) => {
-                        eprintln!(
-                            "rocky: 수집함 {name} — 세션 {} 에 못 썼다({error}), 다음 주기에 다시",
-                            sub.session_id
-                        );
+                        eprintln!("rocky: 수집함 {name} — 구독 세션 하나에 못 썼다({error}), 다음 주기에 다시");
                         continue;
                     }
                     Err(_) => continue,
