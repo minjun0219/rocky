@@ -214,6 +214,7 @@ typecheck or tests — pre-push and CI already cover it.*
   (`<cache>/rocky/<최신>/bin/rocky hook ensure-daemon`)으로 데몬 교체를 한 번에 한다 — 지금 도는 `rocky` 는 옛
   바이너리라 자기 자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. 할 일 수정은 `rocky edit`
   이다(예전 이름이 `update` — REF·수정 플래그가 붙은 `rocky update` 는 업데이트를 돌리지 않고 `edit` 으로 안내한다).
+  0.36.0 에 나간 `rocky upgrade` 는 한 릴리스 동안 숨은 별칭이다 — 다음 릴리스에서 걷는다.
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 정확한 문자열로 비교해
   낡은 데몬을 교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. 옛 데몬을 못 내리면 재기동하지
   않는다(구버전 보드가 보드 없음보다 낫다). *EN: If the old daemon cannot be stopped, do not restart — an old

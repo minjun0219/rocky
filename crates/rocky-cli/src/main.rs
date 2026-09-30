@@ -97,6 +97,12 @@ fn run(argv: &[String]) -> Result<(), String> {
         "today" => commands::cmd_today(&ctx, &printer),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
         "update" => commands::cmd_update(&ctx, parsed.bool_flag("check")),
+        // 0.36.0 에 `upgrade` 로 나갔다 — 한 릴리스 동안 숨은 별칭으로 받는다(도움말에 없다). 0.36.0 에서
+        // 올리는 사람은 옛 바이너리의 `upgrade` 를 부르므로, 올린 뒤의 손버릇만 받아 주면 된다.
+        "upgrade" => {
+            eprintln!("(rocky upgrade 는 rocky update 로 바뀌었다)");
+            commands::cmd_update(&ctx, parsed.bool_flag("check"))
+        }
         "note" => commands::cmd_note(&ctx, &rest, &parsed, &board, &printer),
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
