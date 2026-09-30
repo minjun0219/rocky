@@ -1,393 +1,263 @@
-{
-  "data": {
-    "viewer": {
-      "login": "me"
-    },
-    "repositoryOwner": {
-      "projectV2": {
-        "title": "Board",
-        "items": {
-          "nodes": [
-            {
-              "content": {
-                "number": 1,
-                "title": "웹 로그인 버튼이 안 눌린다",
-                "url": "https://github.com/acme/app/issues/1",
-                "state": "OPEN",
-                "createdAt": "2026-09-28T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "acme/app",
-                  "owner": {
-                    "__typename": "Organization"
+[
+  {
+    "data": {
+      "repositoryOwner": {
+        "__typename": "Organization"
+      },
+      "search": {
+        "issueCount": 6,
+        "pageInfo": {
+          "hasNextPage": true,
+          "endCursor": "c1"
+        },
+        "nodes": [
+          {
+            "number": 1,
+            "title": "웹 버그",
+            "url": "https://github.com/acme/web/issues/1",
+            "state": "OPEN",
+            "createdAt": "2026-09-28T01:00:00Z",
+            "repository": {
+              "nameWithOwner": "acme/web"
+            },
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": [
+                {
+                  "project": {
+                    "number": 7,
+                    "owner": {
+                      "login": "acme"
+                    }
+                  },
+                  "fieldValues": {
+                    "pageInfo": {
+                      "hasNextPage": false
+                    },
+                    "nodes": [
+                      {
+                        "name": "Web",
+                        "field": {
+                          "name": "Component/s"
+                        }
+                      },
+                      {
+                        "name": "Todo",
+                        "field": {
+                          "name": "Status"
+                        }
+                      }
+                    ]
                   }
-                },
-                "issueType": {
-                  "name": "Bug"
-                },
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "me"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": []
                 }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "name": "Todo",
-                    "field": {
-                      "name": "Status"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "number": 2,
-                "title": "  라벨로 버그인 이슈  ",
-                "url": "https://github.com/someone/side/issues/2",
-                "state": "OPEN",
-                "createdAt": "2026-09-29T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "someone/side",
-                  "owner": {
-                    "__typename": "User"
-                  }
-                },
-                "issueType": null,
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "me"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": [
-                    {
-                      "name": "bug"
-                    }
-                  ]
-                }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "number": 3,
-                "title": "닫힌 이슈",
-                "url": "https://github.com/acme/app/issues/3",
-                "state": "CLOSED",
-                "createdAt": "2026-09-28T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "acme/app",
-                  "owner": {
-                    "__typename": "Organization"
-                  }
-                },
-                "issueType": {
-                  "name": "Bug"
-                },
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "me"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": []
-                }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "number": 4,
-                "title": "남의 이슈",
-                "url": "https://github.com/acme/app/issues/4",
-                "state": "OPEN",
-                "createdAt": "2026-09-28T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "acme/app",
-                  "owner": {
-                    "__typename": "Organization"
-                  }
-                },
-                "issueType": {
-                  "name": "Bug"
-                },
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "someone"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": []
-                }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "number": 5,
-                "title": "API 이슈",
-                "url": "https://github.com/acme/app/issues/5",
-                "state": "OPEN",
-                "createdAt": "2026-09-28T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "acme/app",
-                  "owner": {
-                    "__typename": "Organization"
-                  }
-                },
-                "issueType": {
-                  "name": "Bug"
-                },
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "me"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": []
-                }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "API",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "title": "초안 항목"
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {},
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "number": 8,
-                "title": "타입이 Task 인데 bug 라벨",
-                "url": "https://github.com/acme/app/issues/8",
-                "state": "OPEN",
-                "createdAt": "2026-09-28T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "acme/app",
-                  "owner": {
-                    "__typename": "Organization"
-                  }
-                },
-                "issueType": {
-                  "name": "Task"
-                },
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "me"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": [
-                    {
-                      "name": "Bug"
-                    }
-                  ]
-                }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
-            },
-            {
-              "content": {
-                "number": 9,
-                "title": "조직 레포 타입 미지정 + Bug 라벨",
-                "url": "https://github.com/acme/app/issues/9",
-                "state": "OPEN",
-                "createdAt": "2026-09-28T01:00:00Z",
-                "repository": {
-                  "nameWithOwner": "acme/app",
-                  "owner": {
-                    "__typename": "Organization"
-                  }
-                },
-                "issueType": null,
-                "assignees": {
-                  "nodes": [
-                    {
-                      "login": "me"
-                    }
-                  ]
-                },
-                "labels": {
-                  "nodes": [
-                    {
-                      "name": "Bug"
-                    }
-                  ]
-                }
-              },
-              "fieldValues": {
-                "nodes": [
-                  {
-                    "name": "Web",
-                    "field": {
-                      "name": "Component/s"
-                    }
-                  },
-                  {
-                    "name": "Todo",
-                    "field": {
-                      "name": "Status"
-                    }
-                  },
-                  {
-                    "text": "memo",
-                    "field": {
-                      "name": "Notes"
-                    }
-                  },
-                  {}
-                ]
-              }
+              ]
             }
-          ]
-        }
+          },
+          {
+            "number": 2,
+            "title": "앱 버그",
+            "url": "https://github.com/acme/web/issues/2",
+            "state": "OPEN",
+            "createdAt": "2026-09-28T02:00:00Z",
+            "repository": {
+              "nameWithOwner": "acme/web"
+            },
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": [
+                {
+                  "project": {
+                    "number": 7,
+                    "owner": {
+                      "login": "acme"
+                    }
+                  },
+                  "fieldValues": {
+                    "pageInfo": {
+                      "hasNextPage": false
+                    },
+                    "nodes": [
+                      {
+                        "name": "App",
+                        "field": {
+                          "name": "Component/s"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "number": 3,
+            "title": "다른 보드에만",
+            "url": "https://github.com/acme/web/issues/3",
+            "state": "OPEN",
+            "createdAt": "2026-09-28T03:00:00Z",
+            "repository": {
+              "nameWithOwner": "acme/web"
+            },
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": [
+                {
+                  "project": {
+                    "number": 8,
+                    "owner": {
+                      "login": "acme"
+                    }
+                  },
+                  "fieldValues": {
+                    "pageInfo": {
+                      "hasNextPage": false
+                    },
+                    "nodes": [
+                      {
+                        "name": "Web",
+                        "field": {
+                          "name": "Component/s"
+                        }
+                      },
+                      {
+                        "name": "Todo",
+                        "field": {
+                          "name": "Status"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "number": 4,
+            "title": "같은 번호 다른 주인",
+            "url": "https://github.com/acme/web/issues/4",
+            "state": "OPEN",
+            "createdAt": "2026-09-28T04:00:00Z",
+            "repository": {
+              "nameWithOwner": "acme/web"
+            },
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": [
+                {
+                  "project": {
+                    "number": 7,
+                    "owner": {
+                      "login": "other"
+                    }
+                  },
+                  "fieldValues": {
+                    "pageInfo": {
+                      "hasNextPage": false
+                    },
+                    "nodes": [
+                      {
+                        "name": "Web",
+                        "field": {
+                          "name": "Component/s"
+                        }
+                      },
+                      {
+                        "name": "Todo",
+                        "field": {
+                          "name": "Status"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {}
+        ]
+      }
+    }
+  },
+  {
+    "data": {
+      "repositoryOwner": {
+        "__typename": "Organization"
+      },
+      "search": {
+        "issueCount": 6,
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": null
+        },
+        "nodes": [
+          {
+            "number": 5,
+            "title": "둘째 페이지의 웹 버그",
+            "url": "https://github.com/acme/web/issues/5",
+            "state": "OPEN",
+            "createdAt": "2026-09-29T01:00:00Z",
+            "repository": {
+              "nameWithOwner": "acme/web"
+            },
+            "projectItems": {
+              "pageInfo": {
+                "hasNextPage": false
+              },
+              "nodes": [
+                {
+                  "project": {
+                    "number": 8,
+                    "owner": {
+                      "login": "acme"
+                    }
+                  },
+                  "fieldValues": {
+                    "pageInfo": {
+                      "hasNextPage": false
+                    },
+                    "nodes": []
+                  }
+                },
+                {
+                  "project": {
+                    "number": 7,
+                    "owner": {
+                      "login": "ACME"
+                    }
+                  },
+                  "fieldValues": {
+                    "pageInfo": {
+                      "hasNextPage": false
+                    },
+                    "nodes": [
+                      {
+                        "name": "Web",
+                        "field": {
+                          "name": "Component/s"
+                        }
+                      },
+                      {
+                        "name": "Todo",
+                        "field": {
+                          "name": "Status"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
       }
     }
   }
-}
+]
