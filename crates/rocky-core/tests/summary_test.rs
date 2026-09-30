@@ -1,12 +1,14 @@
 //! 보드 요약 — 마감 판정, 수집함 미올림 집계, 조립·렌더.
 
-use rocky_core::inbox::{InboxItem, InboxResponse, InboxSourceResult};
+use std::collections::HashSet;
+
+use rocky_core::inbox::{mark_promoted, InboxItem, InboxResponse, InboxSourceResult};
 use rocky_core::refs::TodoView;
 use rocky_core::summary::{
-    build_summary, count_unpromoted, due_bucket, render_summary, DueBucket, SummaryKind,
-    SUMMARY_ITEM_MAX,
+    build_summary, count_unpromoted, due_bucket, one_line, render_summary, DueBucket, SummaryKind,
+    SUMMARY_INBOX_MAX, SUMMARY_ITEM_MAX,
 };
-use rocky_core::types::{Todo, TodoLink, TodoPriority, TodoStatus};
+use rocky_core::types::{Todo, TodoPriority, TodoStatus};
 
 fn todo(n: i64, title: &str, status: TodoStatus, due: Option<&str>) -> TodoView {
     TodoView {
@@ -59,47 +61,40 @@ fn due_bucket_compares_dates_and_ignores_future_or_bad_input() {
     assert_eq!(due_bucket("2026-09-27", ""), None);
 }
 
+fn item(id: &str, title: &str, url: Option<&str>) -> InboxItem {
+    InboxItem {
+        id: id.into(),
+        title: title.into(),
+        url: url.map(str::to_string),
+        note: None,
+        due: None,
+        created_at: None,
+        promoted: false,
+    }
+}
+
+fn source(name: &str, items: Vec<InboxItem>) -> InboxSourceResult {
+    InboxSourceResult {
+        name: name.into(),
+        available: true,
+        reason: None,
+        fetched_at: "t".into(),
+        items,
+    }
+}
+
 #[test]
-fn unpromoted_counts_items_without_a_matching_board_link() {
-    let mut on_board = todo(1, "x", TodoStatus::Todo, None);
-    on_board.todo.links = vec![TodoLink {
-        url: "https://x/a".into(),
-        title: None,
-    }];
-    let inbox = InboxResponse {
+fn unpromoted_counts_items_not_linked_from_any_board() {
+    let mut inbox = InboxResponse {
         sources: vec![
-            InboxSourceResult {
-                name: "s".into(),
-                available: true,
-                reason: None,
-                fetched_at: "t".into(),
-                items: vec![
-                    InboxItem {
-                        id: "a".into(),
-                        title: "올라감".into(),
-                        url: Some("https://x/a".into()),
-                        note: None,
-                        due: None,
-                        created_at: None,
-                    },
-                    InboxItem {
-                        id: "b".into(),
-                        title: "안 올라감".into(),
-                        url: Some("https://x/b".into()),
-                        note: None,
-                        due: None,
-                        created_at: None,
-                    },
-                    InboxItem {
-                        id: "c".into(),
-                        title: "url 없음".into(),
-                        url: None,
-                        note: None,
-                        due: None,
-                        created_at: None,
-                    },
+            source(
+                "s",
+                vec![
+                    item("a", "올라감", Some("https://x/a")),
+                    item("b", "안 올라감", Some("https://x/b")),
+                    item("c", "url 없음", None),
                 ],
-            },
+            ),
             // 실패한 소스는 세지 않는다.
             InboxSourceResult {
                 name: "dead".into(),
@@ -110,7 +105,64 @@ fn unpromoted_counts_items_without_a_matching_board_link() {
             },
         ],
     };
-    assert_eq!(count_unpromoted(&inbox, &[on_board]), 2);
+    // 판정 근거는 전 보드(보관 포함)의 링크 — 데몬이 `Store::linked_urls` 로 모은다.
+    let linked: HashSet<String> = ["https://x/a".to_string()].into();
+    mark_promoted(&mut inbox, &linked);
+    assert!(inbox.sources[0].items[0].promoted);
+    assert!(
+        !inbox.sources[0].items[2].promoted,
+        "url 없는 항목은 판정 불가 — 미올림"
+    );
+    assert_eq!(count_unpromoted(&inbox), 2);
+}
+
+#[test]
+fn summary_lists_unpromoted_inbox_titles_under_board_items_with_overflow() {
+    let mut inbox = InboxResponse {
+        sources: vec![source(
+            "gh-bugs",
+            vec![
+                item("a", "올라간 것", Some("https://x/a")),
+                item("b", "그래프 색상이 디자인과 다름", Some("https://x/b")),
+                item("c", "캘린더 제한이\n동작하지 않음", Some("https://x/c")),
+                item("d", "셋째", None),
+                item("e", "넷째", None),
+            ],
+        )],
+    };
+    mark_promoted(&mut inbox, &["https://x/a".to_string()].into());
+    let todos = vec![todo(3, "로그인 리팩터", TodoStatus::Doing, None)];
+    let s = build_summary(Some("myrepo".into()), &todos, 0, Some(&inbox), "2026-09-27");
+    assert_eq!(s.collect, Some(4));
+    assert_eq!(s.collect_items.len(), SUMMARY_INBOX_MAX);
+    assert_eq!(
+        render_summary(&s),
+        "rocky · myrepo — 진행중 1 · 수집함 미올림 4\n  ● rocky-3 로그인 리팩터\n  📥 gh-bugs: 그래프 색상이 디자인과 다름\n  📥 gh-bugs: 캘린더 제한이 동작하지 않음\n  📥 gh-bugs: 셋째\n  … 외 1건"
+    );
+    let json = serde_json::to_value(&s).unwrap();
+    assert_eq!(json["collectItems"][0]["source"], "gh-bugs");
+    assert_eq!(json["collectItems"][0]["url"], "https://x/b");
+    assert!(json["collectItems"][2].get("url").is_none());
+}
+
+#[test]
+fn summary_has_no_inbox_lines_without_a_cache_or_when_everything_is_promoted() {
+    let s = build_summary(Some("b".into()), &[], 0, None, "2026-09-27");
+    assert!(s.collect_items.is_empty());
+    let mut inbox = InboxResponse {
+        sources: vec![source("s", vec![item("a", "x", Some("https://x/a"))])],
+    };
+    mark_promoted(&mut inbox, &["https://x/a".to_string()].into());
+    let s = build_summary(Some("b".into()), &[], 0, Some(&inbox), "2026-09-27");
+    assert_eq!(s.collect, Some(0));
+    assert_eq!(render_summary(&s), "rocky · b — 급한 것 없음");
+}
+
+#[test]
+fn one_line_flattens_and_caps_external_titles() {
+    assert_eq!(one_line("  a\n\tb\r\n  c ", 60), "a b c");
+    assert_eq!(one_line("가나다라마바", 4), "가나다…");
+    assert_eq!(one_line("abcd", 4), "abcd");
 }
 
 #[test]

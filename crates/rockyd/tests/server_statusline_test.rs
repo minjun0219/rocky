@@ -321,6 +321,7 @@ async fn collect_uses_cached_inbox_only_and_excludes_promoted() {
                     note: None,
                     due: None,
                     created_at: None,
+                    promoted: false,
                 },
                 rocky_core::inbox::InboxItem {
                     id: "b".into(),
@@ -329,6 +330,7 @@ async fn collect_uses_cached_inbox_only_and_excludes_promoted() {
                     note: None,
                     due: None,
                     created_at: None,
+                    promoted: false,
                 },
             ],
         }],

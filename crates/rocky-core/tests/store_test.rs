@@ -3327,3 +3327,32 @@ fn snapshots_of_unwatched_repos_are_pruned() {
     assert_eq!(f.store.list_prs(None, false).unwrap().len(), 1);
     assert_eq!(f.store.retain_pr_repos(&["o/keep".to_string()]).unwrap(), 0);
 }
+
+/// 수집함 "이미 올라감" 판정 근거 — 보드를 가리지 않고, 보관된 todo 의 링크도 포함한다(끝내고 보관한
+/// 항목이 외부에서 아직 열려 있어도 다시 미올림으로 돌아오지 않게).
+#[test]
+fn linked_urls_span_every_board_and_include_archived_todos() {
+    let f = fx();
+    let link = |url: &str| TodoLink {
+        url: url.into(),
+        title: None,
+    };
+    let with_links = |board: &str, url: &str| CreateTodoInput {
+        links: Some(vec![link(url)]),
+        ..todo_input(board, "올린 것")
+    };
+    f.store
+        .create_todo(&with_links("a", "https://x/1"), "tester")
+        .unwrap();
+    let archived = f
+        .store
+        .create_todo(&with_links("b", "https://x/2"), "tester")
+        .unwrap();
+    f.store
+        .set_todo_status(&archived.id, StatusAction::Archive, "tester", None)
+        .unwrap();
+    create(&f.store, "c", "링크 없음", "tester");
+    let urls = f.store.linked_urls().unwrap();
+    assert_eq!(urls.len(), 2);
+    assert!(urls.contains("https://x/1") && urls.contains("https://x/2"));
+}
