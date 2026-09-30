@@ -46,6 +46,8 @@ function HeaderMenu() {
   const setActor = useUiStore((s) => s.setActor);
   const showArchived = useUiStore((s) => s.showArchived);
   const setShowArchived = useUiStore((s) => s.setShowArchived);
+  const showGithub = useUiStore((s) => s.showGithub);
+  const setShowGithub = useUiStore((s) => s.setShowGithub);
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
   const setSelected = useUiStore((s) => s.setSelected);
@@ -131,6 +133,14 @@ function HeaderMenu() {
               onChange={(e) => setShowArchived(e.target.checked)}
             />
             보관된 항목도 보기
+          </label>
+          <label className="flex min-h-8 cursor-pointer items-center gap-2 text-text">
+            <input
+              type="checkbox"
+              checked={showGithub}
+              onChange={(e) => setShowGithub(e.target.checked)}
+            />
+            GitHub 탭 보기
           </label>
           <label className="flex flex-col gap-1">
             <span className="font-mono text-chip text-faint">

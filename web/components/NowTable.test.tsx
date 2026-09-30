@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { act, cleanup, screen } from '@testing-library/react';
+import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore, todoFixture } from '../test-support';
 import { NowTable } from './NowTable';
@@ -85,105 +85,34 @@ describe('NowTable', () => {
   });
 });
 
-describe('NowTable — PR 현황', () => {
-  const pr = (over: Record<string, unknown>) => ({
-    repo: 'o/rocky',
-    number: 1,
-    title: 'PR',
-    url: 'https://github.com/o/rocky/pull/1',
-    state: 'OPEN',
-    isDraft: false,
-    base: 'main',
-    head: 'abc',
-    mergeState: 'BLOCKED',
-    ci: 'pending',
-    unhandled: 0,
-    decision: 0,
-    ready: false,
-    updatedAt: '2026-09-28T10:00:00Z',
-    ...over,
-  });
-
-  test('보고 있는 보드 레포의 열린 PR 전부 — 아이콘으로 상태, 누르면 GitHub', () => {
+describe('NowTable — GitHub 은 탭으로', () => {
+  test('열린 PR 이 있어도 지금 표에는 PR 이 없다', () => {
     renderWithStore(<NowTable />, {
       nowTodos: [],
       nowHandoffs: [],
       collect: null,
-      selected: 'rocky',
-      boards: [
-        {
-          id: 'b1',
-          key: 'rocky',
-          title: 'rocky',
-          repo: 'o/rocky',
-          createdAt: '2026-09-01T00:00:00Z',
-          updatedAt: '2026-09-01T00:00:00Z',
-        } as never,
-      ],
+      selected: 'all',
+      boards: [],
       prs: [
-        pr({ number: 7, title: '대기 중인 PR', unhandled: 1 }),
-        pr({ number: 8, title: '머지 가능 PR', ready: true, ci: 'pass' }),
-        pr({ number: 9, title: '다른 레포', repo: 'o/tally' }),
+        {
+          repo: 'o/rocky',
+          number: 8,
+          title: '머지 가능 PR',
+          url: 'https://github.com/o/rocky/pull/8',
+          state: 'OPEN',
+          isDraft: false,
+          base: 'main',
+          head: 'abc',
+          mergeState: 'CLEAN',
+          ci: 'pass',
+          unhandled: 0,
+          decision: 0,
+          ready: true,
+          updatedAt: '2026-09-28T10:00:00Z',
+        },
       ] as never,
     });
-    expect(screen.getByRole('heading', { name: /PR\s*2/ })).toBeTruthy();
-    const link = screen.getByRole('link', { name: /대기 중인 PR/ });
-    expect(link.getAttribute('href')).toBe('https://github.com/o/rocky/pull/1');
-    expect(link.textContent).toContain('#7');
-    expect(link.textContent).toContain('CI 도는 중 · 스레드 1');
-    expect(link.querySelector('[aria-label="대기"] svg')).toBeTruthy();
-    expect(screen.queryByText('다른 레포')).toBeNull();
-  });
-});
-
-// Codex 지적 회귀 — PR 행만 있는 보드에서도 시각이 멈추지 않는다(1분 틱이 돈다).
-describe('NowTable — PR 만 있을 때도 시각이 흐른다', () => {
-  test('1분 뒤 "방금" 이 "1분" 으로', async () => {
-    const realNow = Date.now;
-    const realSetInterval = globalThis.setInterval;
-    let tick: (() => void) | null = null;
-    let clock = Date.parse('2026-09-28T10:00:30Z');
-    Date.now = () => clock;
-    globalThis.setInterval = ((fn: () => void) => {
-      tick = fn;
-      return 1 as unknown as ReturnType<typeof setInterval>;
-    }) as typeof setInterval;
-    try {
-      renderWithStore(<NowTable />, {
-        nowTodos: [],
-        nowHandoffs: [],
-        collect: null,
-        selected: 'all',
-        boards: [],
-        prs: [
-          {
-            repo: 'o/rocky',
-            number: 7,
-            title: '대기 중인 PR',
-            url: 'https://github.com/o/rocky/pull/7',
-            state: 'OPEN',
-            isDraft: false,
-            base: 'main',
-            head: 'abc',
-            mergeState: 'BLOCKED',
-            ci: 'pending',
-            unhandled: 0,
-            decision: 0,
-            ready: false,
-            updatedAt: '2026-09-28T10:00:00Z',
-          },
-        ] as never,
-      });
-      expect(screen.getByRole('link', { name: /대기 중인 PR/ }).textContent).toContain('방금');
-      expect(tick).not.toBeNull();
-      clock += 60_000;
-      await act(async () => {
-        tick?.();
-      });
-      expect(screen.getByRole('link', { name: /대기 중인 PR/ }).textContent).toContain('1분');
-    } finally {
-      Date.now = realNow;
-      globalThis.setInterval = realSetInterval;
-    }
+    expect(screen.queryByText('머지 가능 PR')).toBeNull();
+    expect(screen.queryByRole('heading', { name: /^PR/ })).toBeNull();
   });
 });
