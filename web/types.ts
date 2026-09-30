@@ -230,3 +230,39 @@ export interface PrSnapshot {
 
 /** 보드 화면의 두 보기 — 할 일 목록 / 노트. */
 export type BoardView = 'todos' | 'notes';
+
+/** `GET /api/inbox` — 수집함 항목 하나. `promoted` 는 데몬이 전 보드의 링크로 채운다. */
+export interface InboxItem {
+  id: string;
+  title: string;
+  url?: string;
+  note?: string;
+  promoted?: boolean;
+}
+
+/** `GET /api/inbox` — 소스 하나의 결과. `board` 는 보드에 등록한 소스일 때만. */
+export interface InboxSourceResult {
+  name: string;
+  board?: string;
+  available: boolean;
+  reason?: string;
+  items: InboxItem[];
+}
+
+/** `GET /api/inbox/adapters` — 어댑터 하나와 그 입력 칸(`--describe`). 실패면 `error`. */
+export interface InboxAdapter {
+  name: string;
+  title?: string;
+  params?: { flag: string; label: string; placeholder?: string; required: boolean }[];
+  error?: string;
+}
+
+/** `GET /api/inbox/sources` — 보드에 등록한 수집함. */
+export interface BoardInboxSource {
+  id: string;
+  board: string;
+  name: string;
+  adapter: string;
+  params: { flag: string; value: string }[];
+  adapterMissing?: boolean;
+}
