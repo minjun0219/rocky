@@ -881,7 +881,7 @@ pub fn cmd_next(
     Ok(())
 }
 
-/// `note add|ls|show|edit|append|archive` — 스크래치패드 메모.
+/// `note add|ls|show|edit|append|archive|pin|unpin` — 스크래치패드 메모.
 ///
 /// `--global` 이 서면 board 컨텍스트를 아예 안 보낸다(`note_ref_path` 참고). 맨 번호를
 /// 전역 메모로 풀려면 그 플래그가 필요하다 — 안 그러면 같은 번호의 보드 메모가 잡힌다.
@@ -942,7 +942,12 @@ pub fn cmd_note(
                             } else {
                                 ""
                             };
-                            format!("▤ {}  {}{archived}", n.r#ref, n.note.title)
+                            let pin = if n.note.pinned_at.is_some() {
+                                "📌 "
+                            } else {
+                                ""
+                            };
+                            format!("▤ {}  {pin}{}{archived}", n.r#ref, n.note.title)
                         })
                         .collect::<Vec<_>>()
                         .join("\n")
@@ -1017,7 +1022,27 @@ pub fn cmd_note(
             printer.emit(&raw, || format!("✓ 메모 {} 보관", note.r#ref));
             Ok(())
         }
-        _ => Err("usage: rocky note add|ls|show|edit|append|archive".into()),
+        "pin" | "unpin" => {
+            let Some(id) = arg else {
+                return Err(format!("usage: rocky note {sub} REF [--global]"));
+            };
+            let raw = request_value(
+                ctx,
+                "POST",
+                &note_ref_path(id, &format!("/{sub}"), board, global),
+                None,
+            )?;
+            let note: NoteView = serde_json::from_value(raw.clone())
+                .map_err(|e| format!("응답을 읽지 못했다: {e}"))?;
+            let done = if sub == "pin" {
+                "고정"
+            } else {
+                "고정 해제"
+            };
+            printer.emit(&raw, || format!("✓ 메모 {} {done}", note.r#ref));
+            Ok(())
+        }
+        _ => Err("usage: rocky note add|ls|show|edit|append|archive|pin|unpin".into()),
     }
 }
 

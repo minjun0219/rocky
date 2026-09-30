@@ -159,6 +159,11 @@ set/append 해도, CLI 가 `rocky note append` 해도 서로 지우지 않고 �
 목록·TUI·CLI 가 읽는 `content` 는 늘 합쳐진 최신 본문이다. 기존 노트는 손댈 게 없다 — 처음
 열 때 지금 본문으로 문서를 만든다.
 
+**고정.** 웹 노트 탭은 게시판처럼 목록 한 줄 → 누르면 상세(전체 높이 편집기)로 간다. 늘 곁에 둘
+노트만 고정(`rocky note pin REF`, 웹의 📌)하면 목록 위에 카드로 펼쳐 두고, 카드마다 접을 수 있다(접힘은
+브라우저에 기억). 고정 순서는 고정한 시각(`pinnedAt`)이고, 이미 고정된 것을 다시 고정해도 순서가 밀리지
+않는다. MCP 도구에는 없다 — 보여 주는 방식이지 내용이 아니다.
+
 웹이 쓰는 라우트(다른 클라이언트도 붙을 수 있다):
 
 ```
@@ -792,7 +797,7 @@ rocky add "제목" [--section S] [--parent REF] [--desc MD] [--due YYYY-MM-DD]
 rocky show|start|stop|done|reopen|archive|unarchive|update REF
 rocky comment REF "본문"
 rocky issue REF [--repo OWNER/NAME]           # GitHub 이슈로 (gh CLI 필요)
-rocky note add|ls|show|edit|append|archive
+rocky note add|ls|show|edit|append|archive|pin|unpin
 rocky history REF [--global|--note] · section ls · open
 rocky board ls|show [KEY]|add KEY [제목]      # 보드 메타 — 아래 "보드 메타" 참고
 rocky board rename NEWKEY|title "제목"|desc ["설명"]|repo [OWNER/NAME]|path [절대경로]

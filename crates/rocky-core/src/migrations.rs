@@ -259,7 +259,16 @@ fn add_pr_authors_and_baseline(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 12] = [
+/// 마이그레이션 13: 노트 고정(`notes.pinned_at`). 고정한 노트는 노트 탭 맨 위에 카드로 펼쳐 두고, 나머지는
+/// 목록 한 줄로 접는다. 고정 순서는 고정한 시각이라 불리언이 아니라 시각을 둔다.
+fn add_note_pinned(db: &Connection) -> rusqlite::Result<()> {
+    if table_columns(db, "notes")?.iter().any(|c| c == "pinned_at") {
+        return Ok(());
+    }
+    db.execute_batch("ALTER TABLE notes ADD COLUMN pinned_at TEXT")
+}
+
+pub const MIGRATIONS: [MigrationFn; 13] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -272,6 +281,7 @@ pub const MIGRATIONS: [MigrationFn; 12] = [
     add_board_inbox_sources,
     add_inbox_subscriptions,
     add_pr_authors_and_baseline,
+    add_note_pinned,
 ];
 
 #[derive(Default)]

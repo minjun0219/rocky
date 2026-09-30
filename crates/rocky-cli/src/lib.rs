@@ -43,7 +43,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky note add "제목" [--board K|--global] [--content MD]
   rocky note ls [--board K|--global]
   rocky note show REF [--global] | edit REF --content MD [--global] |
-                       append REF "텍스트" [--global] | archive REF [--global]
+                       append REF "텍스트" [--global] | archive REF [--global] |
+                       pin|unpin REF [--global]   (고정 — 웹 노트 탭 맨 위에 펼쳐 둔다)
   rocky history REF [--limit N] [--global|--note] · section ls
   rocky board ls|show|add|rename|title|desc|repo|path|auto-resolve|pr-authors   보드 메타 (이름·slug·설명·GitHub·리뷰 자동 처리·알릴 PR 작성자)
   rocky tui [--board K]                   보드를 터미널 화면으로 (옆의 rocky-tui 실행)

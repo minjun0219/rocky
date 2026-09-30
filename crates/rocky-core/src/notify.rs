@@ -38,6 +38,8 @@ fn action_label(action: &str) -> &str {
         "reopen" => "다시 열기",
         "archive" => "보관",
         "unarchive" => "보관 해제",
+        "pin" => "고정",
+        "unpin" => "고정 해제",
         "comment-archive" => "댓글 보관",
         "comment-unarchive" => "댓글 보관 해제",
         other => other,

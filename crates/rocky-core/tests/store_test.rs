@@ -1180,6 +1180,55 @@ fn note_lifecycle_create_edit_append_archive() {
 }
 
 #[test]
+fn pinning_a_note_is_idempotent_and_keeps_its_order() {
+    let f = fx();
+    let note = f
+        .store
+        .create_note(
+            &CreateNoteInput {
+                board: Some("rocky".into()),
+                title: "고정".into(),
+                ..Default::default()
+            },
+            "tester",
+        )
+        .unwrap();
+    assert!(note.pinned_at.is_none());
+
+    let pinned = f
+        .store
+        .set_note_pinned(&note.id, true, "tester", None)
+        .unwrap();
+    let first = pinned.pinned_at.clone().expect("고정 시각");
+    // 다시 고정해도 시각이 밀리지 않고 히스토리도 늘지 않는다.
+    let again = f
+        .store
+        .set_note_pinned(&note.id, true, "tester", None)
+        .unwrap();
+    assert_eq!(again.pinned_at.as_deref(), Some(first.as_str()));
+    let actions = |f: &Fx| {
+        f.store
+            .list_history(&ListHistoryFilter {
+                entity_id: Some(note.id.clone()),
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .map(|h| h.action)
+            .filter(|a| a == "pin" || a == "unpin")
+            .count()
+    };
+    assert_eq!(actions(&f), 1);
+
+    let unpinned = f
+        .store
+        .set_note_pinned(&note.id, false, "tester", None)
+        .unwrap();
+    assert!(unpinned.pinned_at.is_none());
+    assert_eq!(actions(&f), 2);
+}
+
+#[test]
 fn global_note_has_no_board() {
     let f = fx();
     let note = f

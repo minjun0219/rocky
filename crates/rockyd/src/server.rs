@@ -1582,12 +1582,17 @@ async fn dispatch(
         }
     }
     if *method == Method::POST {
-        if let Some((r, tail)) = seg2_match(path, "/api/notes/", &["archive", "unarchive"]) {
+        if let Some((r, tail)) = seg2_match(
+            path,
+            "/api/notes/",
+            &["archive", "unarchive", "pin", "unpin"],
+        ) {
             let current_board_id = current_board_id_of(store, query, &r)?;
-            let note = if tail == "archive" {
-                store.archive_note(&r, actor, current_board_id.as_deref())?
-            } else {
-                store.unarchive_note(&r, actor, current_board_id.as_deref())?
+            let board_id = current_board_id.as_deref();
+            let note = match tail {
+                "archive" => store.archive_note(&r, actor, board_id)?,
+                "unarchive" => store.unarchive_note(&r, actor, board_id)?,
+                _ => store.set_note_pinned(&r, tail == "pin", actor, board_id)?,
             };
             return Ok(ok_json(&with_ref_note(store, note)?));
         }
