@@ -267,6 +267,8 @@ typecheck or tests — pre-push and CI already cover it.*
   세션 시작 요약은 수집함 캐시만 본다(어댑터를 기다리지 않는다); 📥 제목은 외부 글이라 한 줄로 펴서 자른다.
   보드 수집함은 **실행할 명령은 설정 파일(`todo.inboxAdapters[]`), 값은 화면**이다 — 화면 값은 어댑터의
   `--describe` 칸으로만 검증해 받고(`rocky_core::inbox::validate_params`), 명령 자체를 화면이 바꾸게 하지 않는다.
+  **수집함 구독**(`rocky inbox subscribe`)은 세션을 소스의 구독자로 적고(`inbox_subscriptions`, 기준선은 `inbox_seen`),
+  `rockyd::inbox_watch` 가 구독된 소스만 5분마다 읽어 새 항목을 그 세션 받은편지함에 보낸다 — 알리기만, 착수는 사람.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다.
 - **세션 띄우기**(`boards.path` 에서 `claude --bg --worktree todo-<n>`, `rockyd::spawnctl`)는 그 워크트리에

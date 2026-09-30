@@ -63,7 +63,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     // 도구 단위로 자기가 기록하므로 여기서는 뺀다.
     let started = std::time::Instant::now();
     let usage_name = match command {
-        "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" => {
+        "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" | "inbox" => {
             match rest.first() {
                 Some(sub) => format!("rocky {command} {sub}"),
                 None => format!("rocky {command}"),
@@ -87,7 +87,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "history" => commands::cmd_history(&ctx, &rest, &parsed, &board, &printer),
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),
-        "inbox" => commands::cmd_inbox(&ctx, &printer),
+        "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
         "note" => commands::cmd_note(&ctx, &rest, &parsed, &board, &printer),
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),

@@ -214,7 +214,29 @@ fn add_board_inbox_sources(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 10] = [
+/// 마이그레이션 11: 수집함 구독(`inbox_subscriptions`)과 세션별 본 항목(`inbox_seen`) — 세션이 구독한 소스의 새
+/// 항목을 데몬이 그 세션에 보낸다. SCHEMA 에도 있으니 IF NOT EXISTS.
+fn add_inbox_subscriptions(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS inbox_subscriptions (\n\
+           source     TEXT NOT NULL,\n\
+           session_id TEXT NOT NULL,\n\
+           socket      TEXT NOT NULL,\n\
+           fingerprint TEXT NOT NULL,\n\
+           created_at  TEXT NOT NULL,\n\
+           PRIMARY KEY (source, session_id)\n\
+         );\n\
+         CREATE TABLE IF NOT EXISTS inbox_seen (\n\
+           source     TEXT NOT NULL,\n\
+           session_id TEXT NOT NULL,\n\
+           item_id    TEXT NOT NULL,\n\
+           seen_at    TEXT NOT NULL,\n\
+           PRIMARY KEY (source, session_id, item_id)\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 11] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -225,6 +247,7 @@ pub const MIGRATIONS: [MigrationFn; 10] = [
     add_pr_watch,
     add_board_auto_resolve,
     add_board_inbox_sources,
+    add_inbox_subscriptions,
 ];
 
 #[derive(Default)]

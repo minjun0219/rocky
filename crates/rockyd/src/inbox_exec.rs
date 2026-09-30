@@ -71,7 +71,7 @@ pub async fn fetch_source(runner: &Runner, source: &InboxSource) -> InboxSourceR
 
 /// 캐시 키 — 이름**과 실행 argv**. 보드 수집함은 지우고 같은 이름으로 다른 값을 다시 등록할 수 있어서,
 /// 이름만 키로 쓰면 TTL 동안 옛 값으로 가져온 결과가 새 소스 이름으로 나온다.
-fn cache_key(source: &InboxSource) -> String {
+pub fn cache_key(source: &InboxSource) -> String {
     let mut key = source.name.clone();
     for arg in &source.command {
         key.push('\0');

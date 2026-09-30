@@ -115,6 +115,21 @@ CREATE TABLE IF NOT EXISTS board_inbox_sources (
   params TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS inbox_subscriptions (
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  socket TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (source, session_id)
+);
+CREATE TABLE IF NOT EXISTS inbox_seen (
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  seen_at TEXT NOT NULL,
+  PRIMARY KEY (source, session_id, item_id)
+);
 CREATE TABLE IF NOT EXISTS pr_watch (
   repo TEXT NOT NULL,
   number INTEGER NOT NULL,
@@ -1919,6 +1934,132 @@ impl TodoStore {
             )?;
         }
         self.emit_all(events);
+        Ok(())
+    }
+
+    /// 세션을 수집함 소스의 구독자로 — 이미 있으면 소켓·지문을 갱신하고 기준선을 다시 잡는다. `baseline` 은
+    /// 구독 시점에 이미 있던 항목 id 로, **이 세션에게** "본 것" 이 된다(세션마다 따로 — 한 세션의 구독이
+    /// 다른 세션이 아직 못 받은 항목을 삼키지 않게). `fingerprint` 는 소스의 실행 argv 지문(바뀌면 감시가
+    /// 기준선을 다시 잡는다).
+    pub fn subscribe_inbox(
+        &self,
+        source: &str,
+        session_id: &str,
+        socket: &str,
+        fingerprint: &str,
+        baseline: &[String],
+    ) -> StoreResult<()> {
+        let conn = self.lock();
+        let at = now_iso();
+        conn.execute_batch("BEGIN")?;
+        let applied = (|| -> StoreResult<()> {
+            conn.execute(
+                "INSERT INTO inbox_subscriptions (source, session_id, socket, fingerprint, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(source, session_id) DO UPDATE SET socket = excluded.socket, fingerprint = excluded.fingerprint",
+                params![source, session_id, socket, fingerprint, at],
+            )?;
+            conn.execute(
+                "DELETE FROM inbox_seen WHERE source = ?1 AND session_id = ?2",
+                params![source, session_id],
+            )?;
+            for id in baseline {
+                conn.execute(
+                    "INSERT OR IGNORE INTO inbox_seen (source, session_id, item_id, seen_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![source, session_id, id, at],
+                )?;
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        })();
+        if let Err(error) = applied {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// 구독 해지 — `source` 가 None 이면 그 세션의 구독 전부(세션이 끝났을 때). 그 구독의 본 항목도 지운다
+    /// (다시 구독하면 기준선을 새로 잡으니 안전하다). 지운 구독 수.
+    pub fn unsubscribe_inbox(&self, source: Option<&str>, session_id: &str) -> StoreResult<usize> {
+        let conn = self.lock();
+        conn.execute(
+            "DELETE FROM inbox_seen WHERE session_id = ?1 AND (?2 IS NULL OR source = ?2)",
+            params![session_id, source],
+        )?;
+        Ok(conn.execute(
+            "DELETE FROM inbox_subscriptions WHERE session_id = ?1 AND (?2 IS NULL OR source = ?2)",
+            params![session_id, source],
+        )?)
+    }
+
+    /// 구독 전부 — 소스·만든 순.
+    pub fn inbox_subscriptions(&self) -> StoreResult<Vec<crate::inbox::InboxSubscription>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT source, session_id, socket, fingerprint FROM inbox_subscriptions ORDER BY source, created_at",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(crate::inbox::InboxSubscription {
+                source: r.get(0)?,
+                session_id: r.get(1)?,
+                socket: r.get(2)?,
+                fingerprint: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// `ids` 중 이 세션이 아직 안 본 것 — 적지는 않는다(보내기에 성공한 뒤 `mark_inbox_seen`).
+    pub fn unseen_inbox_ids(
+        &self,
+        source: &str,
+        session_id: &str,
+        ids: &[String],
+    ) -> StoreResult<Vec<String>> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        for id in ids {
+            let seen: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM inbox_seen WHERE source = ?1 AND session_id = ?2 AND item_id = ?3)",
+                params![source, session_id, id],
+                |r| r.get(0),
+            )?;
+            if !seen {
+                out.push(id.clone());
+            }
+        }
+        Ok(out)
+    }
+
+    /// 이 세션에게 "본 것" 으로 적는다.
+    pub fn mark_inbox_seen(
+        &self,
+        source: &str,
+        session_id: &str,
+        ids: &[String],
+    ) -> StoreResult<()> {
+        let conn = self.lock();
+        let at = now_iso();
+        for id in ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO inbox_seen (source, session_id, item_id, seen_at) VALUES (?1, ?2, ?3, ?4)",
+                params![source, session_id, id, at],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// 구독의 소켓을 갱신한다 — 세션이 새 프로세스로 이어 열리면(resume) 소켓이 바뀐다.
+    pub fn update_inbox_subscription_socket(
+        &self,
+        session_id: &str,
+        socket: &str,
+    ) -> StoreResult<()> {
+        let conn = self.lock();
+        conn.execute(
+            "UPDATE inbox_subscriptions SET socket = ?1 WHERE session_id = ?2",
+            params![socket, session_id],
+        )?;
         Ok(())
     }
 

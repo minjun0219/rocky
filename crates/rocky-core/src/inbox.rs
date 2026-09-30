@@ -205,6 +205,15 @@ pub fn source_argv(command: &[String], params: &[InboxParam]) -> Vec<String> {
     argv
 }
 
+/// 세션 하나의 수집함 구독 — 소켓은 구독(또는 마지막 갱신) 시점의 값, `fingerprint` 는 소스 argv 지문.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboxSubscription {
+    pub source: String,
+    pub session_id: String,
+    pub socket: String,
+    pub fingerprint: String,
+}
+
 /// `GET /api/inbox` 응답.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

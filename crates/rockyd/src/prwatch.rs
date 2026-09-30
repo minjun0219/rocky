@@ -157,7 +157,7 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
 }
 
 /// 받은편지함 소켓에 한 줄 — 연결·쓰기 모두 2초 안에. 유닉스가 아니면 조용히 실패한다.
-fn write_inbox(socket: &str, line: &str) -> std::io::Result<()> {
+pub(crate) fn write_inbox(socket: &str, line: &str) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::io::Write;

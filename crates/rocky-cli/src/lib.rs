@@ -26,6 +26,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky next [--board K|--all] [--limit N] [--json]   착수 후보 랭킹 (다음에 뭘 할까)
   rocky today [--json]                    보드 요약 몇 줄 (마감·진행중·핸드오프·수집함 제목) — `! rocky today`
   rocky inbox [--json]                    수집함 소스별 항목 (✓ 보드에 올라감 · 실패 사유) — `! rocky inbox`
+  rocky inbox subscribe <소스> | unsubscribe [소스]   이 세션이 소스를 구독 — 새 항목을 세션에 알린다(착수는 사람이)
   rocky add "제목" [--board K] [--section S] [--parent REF] [--desc MD]
                        [--due YYYY-MM-DD] [--priority p1..p4] [--label a,b] [--link URL]
   rocky show REF · update REF [플래그] [--title "새 제목"]

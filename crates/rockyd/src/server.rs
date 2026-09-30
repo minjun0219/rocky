@@ -118,6 +118,8 @@ pub struct ServerState {
     recent_spawns: Arc<RecentSpawns>,
     inbox: InboxProvider,
     inbox_adapters: Arc<Vec<InboxSource>>,
+    /// 지금 조회할 수집함 소스 목록(설정 + 보드 등록) — 구독 감시가 소스 하나만 골라 돌릴 때 쓴다.
+    pub inbox_sources: SourcesFn,
     /// 설정 파일의 소스 이름 — 보드 수집함 이름이 겹치지 않게.
     inbox_config_names: Vec<String>,
     usage: UsageSink,
@@ -179,6 +181,11 @@ impl ServerState {
             .values()
             .cloned()
             .collect()
+    }
+
+    /// 외부 명령 실행기 — 수집함 어댑터·gh 가 같은 것을 쓴다(테스트는 하나를 갈아 끼운다).
+    pub fn runner(&self) -> Runner {
+        self.gh_runner.clone()
     }
 
     /// 보내다 실패한 등록을 걷는다 — 세션이 끝나 소켓이 없거나 아무도 안 듣는다.
@@ -258,6 +265,11 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
     let inbox_store = options.store.clone();
     // `--describe` 와 수집함 조회가 같은 러너를 쓴다 — 테스트가 하나만 갈아 끼우면 둘 다 가짜가 된다.
     let gh_runner = options.gh_runner.clone().unwrap_or(default_gh.clone());
+    let sources_fn = board_sources_fn(
+        inbox_store,
+        options.inbox_sources.clone(),
+        inbox_adapters.clone(),
+    );
     // 주입된 sessions 는 spawn/statusline 조회기의 **폴백**이기도 하다 — 테스트가
     // sessions 하나만 넣었을 때 세 라우트가 같은 결정론적 목록을 보게 한다
     // (TS `resolveSpawnSessions` / statuslineSessions 배선과 동일).
@@ -296,15 +308,12 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         inbox: options.inbox.unwrap_or_else(|| {
             cached_inbox_dynamic(
                 gh_runner.clone(),
-                board_sources_fn(
-                    inbox_store,
-                    options.inbox_sources.clone(),
-                    inbox_adapters.clone(),
-                ),
+                sources_fn.clone(),
                 Duration::from_secs(INBOX_CACHE_TTL_SECS),
             )
         }),
         inbox_adapters: inbox_adapters.clone(),
+        inbox_sources: sources_fn.clone(),
         inbox_config_names: options
             .inbox_sources
             .iter()
@@ -816,6 +825,107 @@ async fn dispatch(
             state.store.delete_board_inbox_source(&id, actor)?;
             return Ok(ok_json(&json!({ "ok": true })));
         }
+    }
+
+    // ── 수집함 구독 — 세션이 소스를 구독하면 새 항목을 그 세션 받은편지함으로 보낸다(로컬 전용) ──
+    if path == "/api/inbox/subscriptions" && *method == Method::GET {
+        // 세션 id 는 로컬에만 — 노출된 화면에는 소스별 구독 세션 수만 내린다(웹 머리줄이 쓰는 것도 그것뿐).
+        let list: Vec<Value> = state
+            .store
+            .inbox_subscriptions()?
+            .into_iter()
+            .map(|s| {
+                if local {
+                    json!({ "source": s.source, "sessionId": s.session_id })
+                } else {
+                    json!({ "source": s.source })
+                }
+            })
+            .collect();
+        return Ok(ok_json(&list));
+    }
+    if path == "/api/inbox/subscriptions" && *method == Method::POST {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let source_name = str_field(&body, "source").unwrap_or("").trim().to_string();
+        let session_id = str_field(&body, "sessionId")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let socket = str_field(&body, "socket").unwrap_or("").trim().to_string();
+        if source_name.is_empty() || session_id.is_empty() {
+            return Ok(error_response(
+                "source, sessionId are required",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        // 데몬이 이 경로에 쓴다 — Claude Code 받은편지함 모양만 받는다(세션 등록과 같은 가드).
+        if !rocky_core::peer_inbox::is_inbox_socket_path(&socket) {
+            return Ok(error_response(
+                "socket 은 Claude Code 받은편지함 소켓이어야 한다(CLAUDE_CODE_MESSAGING_SOCKET) — 이 세션은 받은편지함이 없다",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let Some(source) = (state.inbox_sources)()
+            .into_iter()
+            .find(|s| s.name == source_name)
+        else {
+            return Ok(error_response(
+                &format!("없는 수집함 소스: {source_name} — `rocky inbox` 로 이름을 본다"),
+                StatusCode::NOT_FOUND,
+            ));
+        };
+        // 구독 시점에 이미 있던 항목은 "본 것" — 켜자마자 옛 항목이 몰려오지 않게. 못 읽으면 기준선을
+        // 잡을 수 없으니 구독하지 않는다(다음 조회에 전부가 새 항목으로 쏟아진다).
+        // CLI 요청 한도(30초)보다 먼저 끝나게 자른다 — 넘기면 CLI 는 실패라는데 구독은 저장되는 어긋남이 난다.
+        let mut bounded = source.clone();
+        bounded.timeout_ms = Some(bounded.timeout_ms.unwrap_or(10_000).min(20_000));
+        let result = crate::inbox_exec::fetch_source(&state.gh_runner, &bounded).await;
+        if !result.available {
+            return Ok(error_response(
+                &format!(
+                    "{source_name} 을 지금 읽지 못해 구독하지 않았다 — {}",
+                    result.reason.as_deref().unwrap_or("사유 없음")
+                ),
+                StatusCode::BAD_GATEWAY,
+            ));
+        }
+        let baseline: Vec<String> = result.items.iter().map(|i| i.id.clone()).collect();
+        state.store.subscribe_inbox(
+            &source_name,
+            &session_id,
+            &socket,
+            &crate::inbox_exec::cache_key(&source),
+            &baseline,
+        )?;
+        return Ok(ok_json(&json!({
+            "source": source_name,
+            "sessionId": session_id,
+            "baseline": baseline.len(),
+        })));
+    }
+    if path == "/api/inbox/subscriptions" && *method == Method::DELETE {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let Some(session_id) = query.get("sessionId").filter(|s| !s.is_empty()) else {
+            return Ok(error_response(
+                "sessionId is required",
+                StatusCode::BAD_REQUEST,
+            ));
+        };
+        let removed = state
+            .store
+            .unsubscribe_inbox(query.get("source").map(String::as_str), session_id)?;
+        return Ok(ok_json(&json!({ "removed": removed })));
     }
 
     // ── summary (rocky today · SessionStart 요약) ──
