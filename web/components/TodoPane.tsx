@@ -3,7 +3,6 @@ import type { TodoView } from '../types';
 import { resolveDropBefore } from '../lib';
 import { useUiStore } from '../store';
 import { BoardHeader } from './BoardHeader';
-import { BoardInbox } from './BoardInbox';
 import { TodoItem } from './TodoItem';
 
 /**
@@ -155,8 +154,6 @@ export function TodoPane() {
         **지금 보고 있는 보드**가 직전 보드의 값으로 덮어써진다(rename 포함).
       */}
       {currentBoard && <BoardHeader key={currentBoard.key} board={currentBoard} />}
-      {/* key 는 헤더와 겹치면 안 된다 — 형제끼리 같은 key 면 React 가 둘을 한 자리로 보고 편집 폼이 남는다. */}
-      {currentBoard && <BoardInbox key={`inbox:${currentBoard.key}`} board={currentBoard.key} />}
       {selected !== 'all' && (
         <form
           className="sticky top-0 z-[1] mb-3 border-b border-line bg-bg pb-3"

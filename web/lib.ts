@@ -951,3 +951,25 @@ export function prRows(prs: PrSnapshot[], repo: string | null): PrRow[] {
         b.updatedAt.localeCompare(a.updatedAt),
     );
 }
+
+/**
+ * GitHub 항목을 숨길 때의 키. PR 은 **상태까지** 키에 넣는다 — "대기" 일 때 숨긴 PR 이 충돌·머지 가능으로
+ * 바뀌면 다시 보여야 한다(사람이 움직일 일이 생겼다). 수집함 항목은 소스와 id.
+ */
+export function githubHideKey(
+  item:
+    | { kind: 'pr'; key: string; status: PrStatus }
+    | { kind: 'inbox'; source: string; id: string },
+): string {
+  return item.kind === 'pr' ? `pr:${item.key}:${item.status}` : `inbox:${item.source}:${item.id}`;
+}
+
+/** 사람이 움직일 PR 수(충돌·머지 가능·CI 실패·결정 필요) — GitHub 탭 옆 숫자. 숨긴 것은 빼고 센다. */
+export function githubAttention(rows: PrRow[], hidden: readonly string[]): number {
+  const loud: PrStatus[] = ['conflict', 'ready', 'failing', 'decide'];
+  return rows.filter(
+    (r) =>
+      loud.includes(r.status) &&
+      !hidden.includes(githubHideKey({ kind: 'pr', key: r.key, status: r.status })),
+  ).length;
+}

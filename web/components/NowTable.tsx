@@ -18,9 +18,7 @@ import {
   type NowRow,
   needsSecondTick,
   nowRows,
-  type PrRow,
   type PrStatus,
-  prRows,
 } from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
@@ -29,7 +27,7 @@ import { logUsage } from '../usage';
  * 현재 시각 — 초가 흐르는 행(1시간 미만의 진행중)이 있으면 1초, 없으면 1분마다. 곁눈으로 보는
  * 화면이라 움직이는 숫자는 정말 필요한 자리에만 둔다(`web/DESIGN.md` "Time Display").
  */
-function useNow(rows: NowRow[], extra: number): number {
+export function useNow(rows: NowRow[], extra: number): number {
   const [now, setNow] = useState(() => Date.now());
   const fast = needsSecondTick(rows, now);
   // 시각을 보여 주는 행이 하나라도 있으면 돈다 — PR 행만 있는 보드도("12분" 이 멈추지 않게).
@@ -56,7 +54,7 @@ const GLYPH: Record<NowGlyph, { Icon: LucideIcon; className: string; label: stri
 };
 
 /** PR 상태 아이콘 — 머지 가능·충돌은 내 차례 색, 대기·초안은 무채색. */
-const PR_ICON: Record<PrStatus, { Icon: LucideIcon; className: string; label: string }> = {
+export const PR_ICON: Record<PrStatus, { Icon: LucideIcon; className: string; label: string }> = {
   conflict: { Icon: TriangleAlert, className: 'text-dead', label: '충돌' },
   ready: { Icon: GitMerge, className: 'text-mine', label: '확인·머지 가능' },
   failing: { Icon: CircleX, className: 'text-dead', label: 'CI 실패' },
@@ -66,7 +64,7 @@ const PR_ICON: Record<PrStatus, { Icon: LucideIcon; className: string; label: st
 };
 
 /** 아이콘 한 칸 — 행 제목의 첫 줄에 맞춘다. */
-function StateIcon(props: { Icon: LucideIcon; className: string; label: string }) {
+export function StateIcon(props: { Icon: LucideIcon; className: string; label: string }) {
   const { Icon } = props;
   return (
     <span
@@ -88,25 +86,18 @@ export function NowTable() {
   const handoffs = useUiStore((s) => s.nowHandoffs);
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
-  const prs = useUiStore((s) => s.prs);
   const [expanded, setExpanded] = useState(false);
+  // PR 은 GitHub 탭으로 옮겼다 — 여기 섞이면 어지럽다(2026-09-30 오너). 할 일만 싣는다.
   const rows = nowRows({
     todos: nowTodos,
     handoffs,
     seen: seenComments,
     collect,
-    prs,
     expanded,
   });
   const mine = rows.filter((r) => r.group !== 'run');
   const run = rows.filter((r) => r.group === 'run');
-  // PR 현황 — 보고 있는 보드의 레포(전체 보기면 전 보드)의 열린 PR 전부.
-  const selected = useUiStore((s) => s.selected);
-  const boards = useUiStore((s) => s.boards);
-  const repo =
-    selected === 'all' ? null : (boards.find((b) => b.key === selected)?.repo ?? undefined);
-  const pullRequests = repo === undefined ? [] : prRows(prs, repo);
-  const now = useNow(rows, pullRequests.length);
+  const now = useNow(rows, 0);
 
   return (
     <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="지금">
@@ -134,18 +125,6 @@ export function NowTable() {
           <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
             {run.map((row) => (
               <NowItem key={row.key} row={row} now={now} />
-            ))}
-          </ul>
-        </>
-      ) : null}
-      {pullRequests.length > 0 ? (
-        <>
-          <div className="mt-3">
-            <NowGroupHead title="PR" count={pullRequests.length} tone="run" />
-          </div>
-          <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
-            {pullRequests.map((pr) => (
-              <PrItem key={pr.key} pr={pr} now={now} showRepo={repo === null} />
             ))}
           </ul>
         </>
@@ -252,35 +231,6 @@ function MoreLine(props: { row: NowRow; onExpand?: () => void }) {
       ) : (
         <div className="px-3 py-2">{text}</div>
       )}
-    </li>
-  );
-}
-
-/**
- * PR 한 줄 — 상태 아이콘 + 제목(두 줄까지), 둘째 줄: 번호 · CI·스레드 · 갱신. 누르면 GitHub 새 탭.
- * 머지 가능·충돌은 "내 차례" 에도 있으니 여기선 따로 강조하지 않는다 — 열린 PR 전부의 상태판이다.
- */
-function PrItem(props: { pr: PrRow; now: number; showRepo: boolean }) {
-  const { pr, now, showRepo } = props;
-  const ref = showRepo ? `${pr.repo.split('/')[1] ?? pr.repo} #${pr.number}` : `#${pr.number}`;
-  const meta = [ref, pr.detail, formatAge(pr.updatedAt, now)].filter(Boolean);
-  return (
-    <li className="border-t border-line first:border-t-0">
-      <a
-        className="now-item flex w-full items-start gap-2 px-3 py-2 text-left no-underline hover:bg-surface-2 focus-visible:bg-surface-2"
-        href={pr.url}
-        target="_blank"
-        rel="noreferrer"
-        onClick={() => logUsage('web:now-row', { kind: 'pr-status' })}
-      >
-        <StateIcon {...PR_ICON[pr.status]} />
-        <span className="min-w-0 flex-1">
-          <span className="now-title block text-sm leading-[1.45] text-text">{pr.title}</span>
-          <span className="mt-0.5 block truncate font-mono text-chip tabular-nums text-muted">
-            {meta.join(' · ')}
-          </span>
-        </span>
-      </a>
     </li>
   );
 }

@@ -1,6 +1,8 @@
 import { ArrowUpRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { githubHideKey } from '../lib';
 import { api, useUiStore } from '../store';
+import { HideButton } from './HideButton';
 import type { BoardInboxSource, InboxAdapter, InboxSourceResult } from '../types';
 
 /**
@@ -47,8 +49,17 @@ export function BoardInbox({ board }: { board: string }) {
     void load(false);
   }, [load]);
 
+  const hidden = useUiStore((s) => s.githubHidden);
+  const hide = useUiStore((s) => s.hideGithub);
   const open = (sources ?? []).flatMap((s) =>
-    s.available ? s.items.filter((i) => !i.promoted).map((i) => ({ source: s.name, item: i })) : [],
+    s.available
+      ? s.items
+          .filter((i) => !i.promoted)
+          .filter(
+            (i) => !hidden.includes(githubHideKey({ kind: 'inbox', source: s.name, id: i.id })),
+          )
+          .map((i) => ({ source: s.name, item: i }))
+      : [],
   );
   const failed = (sources ?? []).filter((s) => !s.available);
 
@@ -106,6 +117,10 @@ export function BoardInbox({ board }: { board: string }) {
             ) : (
               <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
             )}
+            <HideButton
+              label={`${item.title} 숨기기`}
+              onClick={() => hide(githubHideKey({ kind: 'inbox', source, id: item.id }))}
+            />
           </li>
         ))}
       </ul>

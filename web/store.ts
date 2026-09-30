@@ -38,6 +38,19 @@ const ACTOR_KEY = 'rocky-actor';
 const VIEW_KEY = 'rocky:view';
 /** 노트 보기를 마지막으로 떠난(또는 연) 시각 — 그 뒤의 편집이 "노트 •" 표시가 된다. */
 const NOTES_SEEN_KEY = 'rocky:notes-seen';
+/** 숨긴 GitHub 항목(PR·수집함) 키 — 이 브라우저에만. `githubHideKey` 가 만든다. */
+const GITHUB_HIDDEN_KEY = 'rocky:github-hidden';
+/** GitHub 탭을 보이나 — 끄면 탭도 GitHub 줄도 안 보인다. 기본 켬. */
+const GITHUB_TAB_KEY = 'rocky:github-tab';
+
+function readHidden(): string[] {
+  try {
+    const raw = JSON.parse(readStored(GITHUB_HIDDEN_KEY) ?? '[]') as unknown;
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 /** 노트 보기를 떠난 뒤 이만큼은 저장 중이던 내 편집이 돌아오는 refetch 를 "본 것" 으로 친다. */
 const NOTES_SETTLE_MS = 5_000;
@@ -87,6 +100,10 @@ interface UiState {
   notes: NoteView[];
   selected: BoardSelection;
   showArchived: boolean;
+  /** 숨긴 GitHub 항목 키(`githubHideKey`). 이 브라우저에만 남는다. */
+  githubHidden: string[];
+  /** GitHub 탭을 보이나. 끄면 GitHub 줄은 어디에도 안 보인다. */
+  showGithub: boolean;
   actor: string;
   /**
    * 사용자의 테마 **의도**(auto/dark/light).
@@ -133,6 +150,9 @@ interface UiState {
 
   setSelected: (selection: BoardSelection) => void;
   setShowArchived: (show: boolean) => void;
+  hideGithub: (key: string) => void;
+  unhideAllGithub: () => void;
+  setShowGithub: (show: boolean) => void;
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
@@ -289,6 +309,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   // 부팅 직후의 applyRoute 가 전체 보기로 되돌린다.
   selected: parseRoute(window.location.pathname, window.location.search).board,
   showArchived: false,
+  githubHidden: readHidden(),
+  showGithub: readStored(GITHUB_TAB_KEY) !== 'off',
   actor: localStorage.getItem(ACTOR_KEY) ?? 'logan',
   themePref: readThemePref(
     (() => {
@@ -299,7 +321,14 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     })(),
   ),
-  view: readStored(VIEW_KEY) === 'notes' ? 'notes' : 'todos',
+  view: (() => {
+    const stored = readStored(VIEW_KEY);
+    if (stored === 'notes') {
+      return 'notes';
+    }
+    // GitHub 탭을 꺼 둔 채 GitHub 화면이 기억돼 있으면 할 일로 연다.
+    return stored === 'github' && readStored(GITHUB_TAB_KEY) !== 'off' ? 'github' : 'todos';
+  })(),
   notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
   connected: false,
   detail: null,
@@ -324,6 +353,25 @@ export const useUiStore = create<UiState>((set, get) => ({
       pushPath(buildPath({ board: selected }));
     }
     void get().refetch();
+  },
+  hideGithub: (key) => {
+    const next = [...new Set([...get().githubHidden, key])];
+    // 끝없이 쌓이지 않게 최근 200개만 — 오래된 PR·이슈는 이미 닫혔다.
+    const trimmed = next.slice(-200);
+    writeStored(GITHUB_HIDDEN_KEY, JSON.stringify(trimmed));
+    set({ githubHidden: trimmed });
+  },
+  unhideAllGithub: () => {
+    writeStored(GITHUB_HIDDEN_KEY, '[]');
+    set({ githubHidden: [] });
+  },
+  setShowGithub: (showGithub) => {
+    writeStored(GITHUB_TAB_KEY, showGithub ? 'on' : 'off');
+    set(
+      showGithub
+        ? { showGithub }
+        : { showGithub, view: get().view === 'github' ? 'todos' : get().view },
+    );
   },
   setShowArchived: (showArchived) => {
     logUsage('web:archived-toggle');
