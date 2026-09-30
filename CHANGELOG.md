@@ -1,5 +1,17 @@
 # @minjun0219/rocky
 
+## 0.35.0
+
+### Minor Changes
+
+- [#239](https://github.com/minjun0219/rocky/pull/239) [`41156f3`](https://github.com/minjun0219/rocky/commit/41156f3a144295e53c7878e26871445d95a3f855) Thanks [@minjun0219](https://github.com/minjun0219)! - 수집함 구독 — 세션이 `rocky inbox subscribe <소스>` 로 구독하면 그 뒤 새로 생긴 항목을 데몬이 5분마다 확인해 그 세션에 메시지로 알린다(PR 알림과 같은 받은편지함). 알리기만 하고 착수는 사람이 정한다. 웹 보드 수집함 머리에 구독 중인 목록이 보인다.
+
+### Patch Changes
+
+- [#240](https://github.com/minjun0219/rocky/pull/240) [`8c12808`](https://github.com/minjun0219/rocky/commit/8c128089be5e8c9fd5e980a6bd62ec17fd302334) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션에 보내는 "머지 후보" 메시지에서 끝줄의 출처 표시와 겹치던 첫머리("데몬이 기계적으로 본 결과다")를 뺀다.
+
+- [#237](https://github.com/minjun0219/rocky/pull/237) [`910dd53`](https://github.com/minjun0219/rocky/commit/910dd53c2357acac214e71693924fbe6d296aba7) Thanks [@minjun0219](https://github.com/minjun0219)! - statusline 기본 템플릿에서 이모지와 숫자 사이를 한 칸 띄운다(`⏰ 2  📥 3`).
+
 ## 0.34.0
 
 ### Minor Changes
