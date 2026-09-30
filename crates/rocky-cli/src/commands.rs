@@ -1359,6 +1359,146 @@ fn this_session() -> Result<(String, String), String> {
     }
 }
 
+/// `statusline [--cwd P] [--session S]` — rocky 한 줄(데몬이 렌더). 둘 다 없으면 Claude Code 가 statusline
+/// 명령에 주는 stdin JSON(`workspace.current_dir`·`session_id`)에서 읽는다. cc-usage `extra_commands` 에는
+/// `["rocky","statusline","--cwd","{{cwd}}","--session","{{session_id}}"]` 로 넣는다. 보여줄 게 없거나 데몬이
+/// 없으면 아무것도 출력하지 않고 성공으로 끝난다 — statusline 이 에러 줄을 띄우지 않게.
+pub fn cmd_statusline(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) {
+    let (cwd, session) = if cwd.is_none() && session.is_none() {
+        statusline_input()
+    } else {
+        (cwd.map(str::to_string), session.map(str::to_string))
+    };
+    let mut query = Vec::new();
+    if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {
+        query.push(format!("cwd={}", encode_query(&cwd)));
+    }
+    if let Some(session) = session.filter(|s| !s.is_empty()) {
+        query.push(format!("session={}", encode_query(&session)));
+    }
+    if let Some(line) = crate::client::statusline_line(&ctx.base_url, &query.join("&")) {
+        println!("{line}");
+    }
+}
+
+/// Claude Code 의 statusline 입력 — 터미널에서 그냥 부르면(stdin 이 TTY) 읽지 않는다.
+fn statusline_input() -> (Option<String>, Option<String>) {
+    use std::io::{IsTerminal, Read};
+    if std::io::stdin().is_terminal() {
+        return (None, None);
+    }
+    let mut raw = String::new();
+    if std::io::stdin().read_to_string(&mut raw).is_err() {
+        return (None, None);
+    }
+    let Ok(input) = serde_json::from_str::<Value>(&raw) else {
+        return (None, None);
+    };
+    let cwd = input
+        .pointer("/workspace/current_dir")
+        .or_else(|| input.get("cwd"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let session = input
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    (cwd, session)
+}
+
+/// 플러그인이 설치되는 마켓플레이스 레포 — 최신 릴리스 태그를 여기서 읽는다.
+const RELEASE_REPO: &str = "minjun0219/rocky";
+
+/// `upgrade [--check]` — 마켓플레이스 갱신 → 플러그인 올리기 → 새 버전 바이너리로 데몬 교체. 릴리스마다 손으로
+/// 하던 네 단계다. `--check` 면 설치·데몬·최신 릴리스 버전만 비교하고 아무것도 바꾸지 않는다.
+pub fn cmd_upgrade(ctx: &CliContext, check: bool) -> Result<(), String> {
+    let latest = latest_release()?;
+    let running = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
+    let here = env!("CARGO_PKG_VERSION");
+    println!(
+        "최신 릴리스 {latest} · 이 CLI {here} · 데몬 {}",
+        running.as_deref().unwrap_or("(없음)")
+    );
+    if check {
+        return Ok(());
+    }
+    if here == latest && running.as_deref() == Some(latest.as_str()) {
+        println!("✓ 이미 최신이다");
+        return Ok(());
+    }
+    run_claude(&["plugin", "marketplace", "update", "rocky-marketplace"])?;
+    run_claude(&["plugin", "update", "rocky@rocky-marketplace"])?;
+    // 지금 도는 이 rocky 는 옛 바이너리다 — 새 버전 폴더의 부트스트랩이 새 바이너리를 받아 데몬을 교체하고
+    // `~/.local/bin/rocky` 링크도 새 버전으로 옮긴다.
+    let bootstrap = plugin_cache_dir().join(&latest).join("bin/rocky");
+    if !bootstrap.is_file() {
+        return Err(format!(
+            "플러그인은 올렸는데 새 버전 폴더가 없다 — {} (claude plugin list 로 확인)",
+            bootstrap.display()
+        ));
+    }
+    let mut child = std::process::Command::new(&bootstrap)
+        .args(["hook", "ensure-daemon"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("{} 를 실행하지 못했다: {e}", bootstrap.display()))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(b"{}");
+    }
+    let _ = child.wait();
+    let after = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
+    println!(
+        "✓ 데몬 {} → {}",
+        running.as_deref().unwrap_or("(없음)"),
+        after.as_deref().unwrap_or("(없음)")
+    );
+    println!(
+        "  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 플러그인(훅·커맨드)이 적용된다."
+    );
+    Ok(())
+}
+
+/// GitHub 의 최신 릴리스 버전(`v` 뺀 것).
+fn latest_release() -> Result<String, String> {
+    let url = format!("https://api.github.com/repos/{RELEASE_REPO}/releases/latest");
+    let mut response = ureq::get(&url)
+        .header("user-agent", "rocky-cli")
+        .call()
+        .map_err(|e| format!("최신 릴리스를 못 읽었다({url}): {e}"))?;
+    let body: Value = response
+        .body_mut()
+        .read_json()
+        .map_err(|e| format!("최신 릴리스 응답이 JSON 이 아니다: {e}"))?;
+    body.get("tag_name")
+        .and_then(Value::as_str)
+        .map(|t| t.trim_start_matches('v').to_string())
+        .ok_or_else(|| "최신 릴리스에 tag_name 이 없다".to_string())
+}
+
+/// 플러그인 캐시 — `CLAUDE_CONFIG_DIR` 가 있으면 그 아래.
+fn plugin_cache_dir() -> std::path::PathBuf {
+    let base = std::env::var("CLAUDE_CONFIG_DIR")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| rocky_core::config::expand_tilde("~/.claude"));
+    base.join("plugins/cache/rocky-marketplace/rocky")
+}
+
+/// `claude <args>` — 출력은 그대로 사용자에게. 없거나 실패하면 무엇을 못 했는지 한 줄로.
+fn run_claude(args: &[&str]) -> Result<(), String> {
+    let status = std::process::Command::new("claude")
+        .args(args)
+        .status()
+        .map_err(|e| format!("claude CLI 를 실행하지 못했다(PATH 확인): {e}"))?;
+    if !status.success() {
+        return Err(format!("claude {} 실패 ({status})", args.join(" ")));
+    }
+    Ok(())
+}
+
 /// 쿼리 값 인코딩 — 경로에 공백·한글이 올 수 있다.
 fn encode_query(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

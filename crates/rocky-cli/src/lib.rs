@@ -50,6 +50,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky open                              접속 주소 출력 (로컬/내부망/테일넷 — 링크 클릭으로 열기)
   rocky daemon run|start|stop|restart|status|install|uninstall   restart 는 버전과 상관없이 지금 설치본으로 교체, status 는 launchd 로드 여부와 고치는 명령까지
   rocky version | --version               설치된 CLI 버전
+  rocky upgrade [--check]                 플러그인·데몬을 최신 릴리스로 (--check 는 버전 비교만)
+  rocky statusline [--cwd P] [--session S]  rocky 한 줄 — 없으면 stdin 의 Claude Code 입력을 읽는다
   rocky config show|init|link|path [--json] 설치·설정 점검 / 기본 rocky.json 생성 / ~/.local/bin/rocky 링크 / 설정 파일 경로
   rocky usage [--since 30d] [--json]        사용 로그 보고 — 많이 쓴 표면 · 에러 · 안 쓴 표면 (rocky.json usage 블록으로 끔)
   rocky mcp setup                         호스트별 MCP 등록 안내

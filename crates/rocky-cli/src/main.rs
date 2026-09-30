@@ -51,6 +51,11 @@ fn run(argv: &[String]) -> Result<(), String> {
     let expose_ts = runtime
         .expose
         .contains(&rocky_core::config::ExposeChannel::TailscaleServe);
+    // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬 자동 기동을 거치지 않는다.
+    if command == "statusline" {
+        commands::cmd_statusline(&ctx, parsed.str_flag("cwd"), parsed.str_flag("session"));
+        return Ok(());
+    }
     let board = parsed
         .str_flag("board")
         .map(str::to_string)
@@ -88,6 +93,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
+        "upgrade" => commands::cmd_upgrade(&ctx, parsed.bool_flag("check")),
         "note" => commands::cmd_note(&ctx, &rest, &parsed, &board, &printer),
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),

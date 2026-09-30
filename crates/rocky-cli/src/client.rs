@@ -63,6 +63,18 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .into()
 }
 
+/// statusline 한 줄 — 데몬이 렌더까지 한 `GET /api/statusline` 본문. 1초마다 도는 자리라 300ms 안에
+/// 못 받거나 실패하면(데몬 없음·구버전의 404) `None` — 호출자는 아무것도 출력하지 않는다. 데몬을 띄우지 않는다.
+pub fn statusline_line(base_url: &str, query: &str) -> Option<String> {
+    let mut response = agent(Duration::from_millis(300))
+        .get(format!("{base_url}/api/statusline?{query}"))
+        .call()
+        .ok()?;
+    let text = response.body_mut().read_to_string().ok()?;
+    let line = text.trim_end_matches('\n');
+    (!line.is_empty()).then(|| line.to_string())
+}
+
 /// 데몬 health 를 본문째 돌려준다 — 호출자가 실행 중인 코드의 버전/pid 를 볼 수 있다.
 ///
 /// **신원 검증**: 설정된 포트에 rocky 가 아닌 서비스가 떠 2xx JSON 을 돌려줄 수
