@@ -33,6 +33,23 @@ pub struct InboxRegistration {
     pub seen_at: i64,
 }
 
+/// 데몬이 세션 받은편지함에 보낸 한 건 — 웹의 "세션 전달" 현황용(메모리에만, 최근 몇십 건).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Delivery {
+    /// RFC 3339.
+    pub at: String,
+    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox`.
+    pub kind: String,
+    /// 무엇을 — `owner/repo#12 제목` 또는 `gh-bugs 새 항목 2건`.
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub session_id: String,
+    /// 받은편지함에 썼나.
+    pub ok: bool,
+}
+
 /// 받은편지함 소켓 경로로 보이는가 — 데몬은 이 경로에 **쓰기** 때문에, 등록 요청이 아무
 /// 유닉스 소켓(다른 서비스의 제어 소켓 등)이나 가리키게 두지 않는다. Claude Code 가 쓰는
 /// 모양만 받는다: 절대경로, 부모 디렉터리 이름이 `cc-socks` 로 시작(`/tmp/cc-socks`,

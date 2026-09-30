@@ -127,6 +127,8 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
                 now,
             )
             .into_iter()
+            // "보내지 않기" 를 켠 세션은 건너뛴다 — 그 보드의 다음 세션이 받는다.
+            .filter(|r| !state.is_muted(&r.session_id))
             .filter(|r| seen.insert(r.session_id.clone()))
             .cloned()
             .collect();
@@ -135,13 +137,28 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
             }
         }
         let line = rocky_core::peer_inbox::inbox_line(&text);
+        let subject = format!("{}#{} {}", event.repo, event.number, event.title);
         for group in groups {
             let state = state.clone();
             let line = line.clone();
+            let (kind, subject, url) = (
+                event.kind.action().to_string(),
+                subject.clone(),
+                event.url.clone(),
+            );
             // 가장 최근 세션부터 — 처음 성공한 한 곳에서 멈추고, 실패한 등록(끝난 세션)은 걷는다.
             tokio::task::spawn_blocking(move || {
                 for target in group {
-                    match write_inbox(&target.socket, &line) {
+                    let ok = write_inbox(&target.socket, &line);
+                    state.record_delivery(rocky_core::peer_inbox::Delivery {
+                        at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                        kind: kind.clone(),
+                        subject: subject.clone(),
+                        url: Some(url.clone()),
+                        session_id: target.session_id.clone(),
+                        ok: ok.is_ok(),
+                    });
+                    match ok {
                         Ok(()) => return,
                         Err(e) => {
                             eprintln!(

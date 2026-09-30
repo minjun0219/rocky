@@ -714,3 +714,89 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
     assert!(received.contains("/rocky:review-fix 9"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 세션 전달 현황 — 받는 세션·최근 보낸 기록이 보이고, "보내지 않기" 를 켠 세션은 건너뛰어 그 보드의 다음
+/// 세션이 받는다. 다시 켜면 돌아온다. 현황·조작은 로컬 전용.
+#[cfg(unix)]
+#[tokio::test]
+async fn muting_a_session_skips_it_and_the_delivery_log_shows_it() {
+    use rockyd::prwatch::session_notifier;
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockymute-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let older = dir.join("500.sock");
+    let newer = dir.join("600.sock");
+    let older_l = UnixListener::bind(&older).unwrap();
+    let newer_l = UnixListener::bind(&newer).unwrap();
+    newer_l.set_nonblocking(true).unwrap();
+    for (id, sock) in [("older", &older), ("newer", &newer)] {
+        post(
+            &f.state,
+            "/api/sessions/inbox",
+            json!({ "sessionId": id, "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+    }
+    let (_, before) = get(&f.state, "/api/deliveries").await;
+    let receiver = |v: &Value| {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| !s["receivesPrFor"].as_array().unwrap().is_empty())
+            .map(|s| s["sessionId"].as_str().unwrap().to_string())
+    };
+    assert_eq!(receiver(&before).as_deref(), Some("newer"));
+
+    let (status, _) = post(
+        &f.state,
+        "/api/deliveries/mute",
+        json!({ "sessionId": "newer", "muted": true }),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let conflict = rocky_core::prwatch::PrEvent {
+        kind: PrEventKind::Conflict,
+        repo: "o/r".into(),
+        number: 9,
+        title: "PR 9".into(),
+        url: "https://github.com/o/r/pull/9".into(),
+    };
+    session_notifier(f.state.clone())(&conflict);
+    let got = tokio::task::spawn_blocking(move || {
+        let (mut conn, _) = older_l.accept().unwrap();
+        let mut text = String::new();
+        conn.read_to_string(&mut text).unwrap();
+        text
+    })
+    .await
+    .unwrap();
+    assert!(
+        got.contains("#9"),
+        "보내지 않기인 세션을 건너뛰고 다음 세션이 받는다"
+    );
+    assert!(newer_l.accept().is_err());
+
+    let (_, after) = get(&f.state, "/api/deliveries").await;
+    assert_eq!(receiver(&after).as_deref(), Some("older"));
+    let recent = &after["recent"][0];
+    assert_eq!(recent["kind"], "pr-conflict");
+    assert_eq!(recent["sessionId"], "older");
+    assert_eq!(recent["ok"], true);
+
+    // 로컬 전용 — 원격에는 현황도 조작도 없다.
+    let remote = ReqOptions {
+        headers: vec![("x-forwarded-for", "10.0.0.2")],
+        ..ReqOptions::default()
+    };
+    let (status, _) = call(&f.state, "GET", "/api/deliveries", None, remote).await;
+    assert_eq!(status, 403);
+    let _ = std::fs::remove_dir_all(&dir);
+}

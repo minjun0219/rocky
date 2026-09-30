@@ -62,6 +62,10 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
         let fingerprint = crate::inbox_exec::cache_key(source);
         let ids: Vec<String> = result.items.iter().map(|i| i.id.clone()).collect();
         for sub in subs {
+            // "보내지 않기" 를 켠 세션은 미룬다(본 것으로 적지 않으니 다시 켜면 받는다).
+            if state.is_muted(&sub.session_id) {
+                continue;
+            }
             if sub.fingerprint != fingerprint {
                 if let Err(error) = state.store.subscribe_inbox(
                     &name,
@@ -112,6 +116,14 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
                     crate::prwatch::write_inbox(&socket, &line)
                 })
                 .await;
+                state.record_delivery(rocky_core::peer_inbox::Delivery {
+                    at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    kind: "inbox".into(),
+                    subject: format!("{name} 새 항목 {}건", new.len()),
+                    url: None,
+                    session_id: sub.session_id.clone(),
+                    ok: matches!(written, Ok(Ok(()))),
+                });
                 match written {
                     Ok(Ok(())) => sent += 1,
                     Ok(Err(error)) if session_gone(&error) => {

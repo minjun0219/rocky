@@ -3,6 +3,7 @@ import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 import { BoardInbox } from './BoardInbox';
 import { HideButton } from './HideButton';
+import { SessionDelivery } from './SessionDelivery';
 import { PR_ICON, StateIcon, useNow } from './NowTable';
 
 /**
@@ -61,6 +62,7 @@ export function GithubPane() {
           수집함은 보드를 고르면 보인다(보드마다 등록한다).
         </p>
       )}
+      <SessionDelivery />
       {hidden.length > 0 ? (
         <p className="m-0 text-meta text-faint">
           숨긴 항목 {hidden.length}건 ·{' '}
