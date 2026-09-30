@@ -156,7 +156,7 @@ export function TodoPane() {
       {currentBoard && <BoardHeader key={currentBoard.key} board={currentBoard} />}
       {selected !== 'all' && (
         <form
-          className="sticky top-0 z-[1] mb-3 border-b border-line bg-bg pb-3"
+          className="below-head sticky top-0 z-[1] mb-3 border-b border-line bg-bg pb-3"
           onSubmit={(e) => {
             e.preventDefault();
             const title = draft.trim();

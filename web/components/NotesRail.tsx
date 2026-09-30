@@ -78,7 +78,10 @@ export function NotesRail() {
   };
 
   return (
-    <section className="notes-view flex flex-col gap-3 px-4 py-3" aria-label="노트">
+    <section
+      className="notes-view flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
+      aria-label="노트"
+    >
       <div className="notes-head flex items-center gap-2">
         <button
           type="button"
@@ -207,7 +210,10 @@ function PinnedNoteCard({
 function NoteDetail({ note }: { note: NoteView }) {
   const closeNote = useUiStore((s) => s.closeNote);
   return (
-    <section className="notes-view flex min-h-full flex-col gap-2 px-4 py-3" aria-label="노트 상세">
+    <section
+      className="notes-view flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3"
+      aria-label="노트 상세"
+    >
       <div className="flex items-center gap-1">
         <button
           type="button"
@@ -446,7 +452,7 @@ function NoteEditor({
     <div className={`note-body mt-1 flex flex-col ${fill ? 'flex-1' : ''}`}>
       {live === 'on' && (
         <div
-          className={`note-toolbar sticky top-0 z-10 -mx-1 flex flex-wrap gap-0.5 px-1 py-1 ${fill ? 'bg-bg' : 'bg-surface'}`}
+          className={`note-toolbar below-head sticky -top-3 z-10 -mx-1 flex flex-wrap gap-0.5 px-1 py-1 ${fill ? 'bg-bg' : 'bg-surface'}`}
           role="toolbar"
           aria-label="서식"
         >

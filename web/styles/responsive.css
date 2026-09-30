@@ -25,6 +25,14 @@
     overflow-y: visible;
     flex-shrink: 0;
   }
+  .notes-view {
+    overflow-y: visible;
+    flex-shrink: 0;
+  }
+  /* 문서가 스크롤하니 sticky 머리(.app-head) 밑에 붙는다 — 높이는 main.tsx 가 잰다. */
+  .below-head {
+    top: var(--app-head-h, 0px);
+  }
   /* 한 항목은 한 덩어리다 — 2행 grid.
 
        [✓]  7  제목 (길면 감싼다)

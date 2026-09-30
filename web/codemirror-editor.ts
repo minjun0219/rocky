@@ -40,6 +40,19 @@ export const noteHighlight = HighlightStyle.define([
   { tag: [tags.processingInstruction, tags.contentSeparator], color: 'var(--color-faint)' },
 ]);
 
+/**
+ * 커서를 화면 안으로 끌어올 때 가려지는 띠 — 화면 위의 고정 머리(`--app-head-h`, main.tsx 가 잰다)와
+ * 서식 툴바, 바닥의 고정 버전 줄. 이걸 모르면 긴 글 끝에서 치는 줄이 버전 줄 밑에 숨는다.
+ */
+const TOOLBAR_H = 40;
+const FOOTER_H = 36;
+const shellMargins = EditorView.scrollMargins.of(() => {
+  const head = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--app-head-h'),
+  );
+  return { top: (Number.isFinite(head) ? head : 0) + TOOLBAR_H, bottom: FOOTER_H };
+});
+
 /** 서식 단축키 — 툴바와 같은 명령. */
 const formatKeymap = keymap.of([
   { key: 'Mod-b', run: (view) => applyFormat(view, (s) => toggleWrap(s, '**')) },
@@ -176,6 +189,7 @@ export function mountNoteEditor(
         // GFM — 체크박스·취소선·표. 목록에서 Enter 는 다음 머리를 이어 준다(markdownKeymap).
         markdown({ base: markdownLanguage }),
         syntaxHighlighting(noteHighlight),
+        shellMargins,
         placeholder('마크다운으로 적는다 — ⌘B 굵게 · ⌘K 링크 · "- [ ] " 체크박스'),
         EditorView.lineWrapping,
         yCollab(sync.text, awareness),
