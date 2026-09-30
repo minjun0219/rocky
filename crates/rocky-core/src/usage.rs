@@ -82,7 +82,7 @@ pub fn now_iso() -> String {
 }
 
 /// 셋째 세그먼트가 id 가 아니라 동작인 라우트.
-const LITERAL_THIRD: &[&str] = &["claim"];
+const LITERAL_THIRD: &[&str] = &["claim", "adapters", "sources"];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
 const SKIPPED_ROUTES: &[&str] = &[
@@ -113,6 +113,10 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     // 셋째 자리가 id·key 가 아니라 동작 이름인 라우트는 접지 않는다(`/api/handoffs/claim`).
     if segs.len() >= 3 && segs[0] == "api" && !LITERAL_THIRD.contains(&segs[2]) {
         segs[2] = ":ref";
+    }
+    // `/api/inbox/sources/:id` — 셋째 자리가 이름이라 넷째가 id 다.
+    if segs.len() >= 4 && segs[1] == "inbox" && segs[2] == "sources" {
+        segs[3] = ":ref";
     }
     let shape = format!("{} /{}", method.to_uppercase(), segs.join("/"));
     if SKIPPED_SHAPES.contains(&shape.as_str()) {
@@ -247,6 +251,10 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/changes"),
     (UsageSource::Rest, "GET /api/history"),
     (UsageSource::Rest, "GET /api/inbox"),
+    (UsageSource::Rest, "GET /api/inbox/adapters"),
+    (UsageSource::Rest, "GET /api/inbox/sources"),
+    (UsageSource::Rest, "POST /api/inbox/sources"),
+    (UsageSource::Rest, "DELETE /api/inbox/sources/:ref"),
     (UsageSource::Rest, "GET /api/sessions"),
     (UsageSource::Rest, "GET /api/summary"),
     (UsageSource::Mcp, "todo_list"),

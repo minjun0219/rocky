@@ -20,7 +20,7 @@ use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
 use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
     is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
-    NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
+    NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -40,7 +40,7 @@ use tokio::sync::broadcast;
 use crate::github::{
     create_issue_for_todo, find_issue_link, is_repo_slug, IssueForTodoError, IssueForTodoOptions,
 };
-use crate::inbox_exec::{cached_inbox, InboxFetch, InboxProvider};
+use crate::inbox_exec::{cached_inbox_dynamic, InboxFetch, InboxProvider, SourcesFn};
 use crate::runner::{default_runner, Runner};
 use crate::sessions_exec::{cached_sessions, uncached_sessions, SessionsProvider};
 use crate::spawnctl::{
@@ -76,6 +76,8 @@ pub struct ServerOptions {
     pub recent_spawns: Option<Arc<RecentSpawns>>,
     /// 수집함 소스(`todo.inbox[]`). `inbox` 주입이 없을 때 기본 조회기가 이걸로 만들어진다.
     pub inbox_sources: Vec<InboxSource>,
+    /// 보드 설정 화면용 어댑터(`todo.inboxAdapters[]`) — 보드마다 등록한 값을 붙여 실행한다.
+    pub inbox_adapters: Vec<InboxSource>,
     /// 수집함 조회기 — 테스트가 fake 를 넣는다.
     pub inbox: Option<InboxProvider>,
     /// 사용 로그 싱크 — 없으면 안 남긴다(테스트·끈 설정).
@@ -96,6 +98,7 @@ impl ServerOptions {
             real_path: None,
             recent_spawns: None,
             inbox_sources: Vec::new(),
+            inbox_adapters: Vec::new(),
             inbox: None,
             usage: None,
         }
@@ -114,6 +117,9 @@ pub struct ServerState {
     real_path: RealPath,
     recent_spawns: Arc<RecentSpawns>,
     inbox: InboxProvider,
+    inbox_adapters: Arc<Vec<InboxSource>>,
+    /// 설정 파일의 소스 이름 — 보드 수집함 이름이 겹치지 않게.
+    inbox_config_names: Vec<String>,
     usage: UsageSink,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
@@ -248,6 +254,10 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         );
     });
     let default_gh = default_runner();
+    let inbox_adapters = Arc::new(options.inbox_adapters.clone());
+    let inbox_store = options.store.clone();
+    // `--describe` 와 수집함 조회가 같은 러너를 쓴다 — 테스트가 하나만 갈아 끼우면 둘 다 가짜가 된다.
+    let gh_runner = options.gh_runner.clone().unwrap_or(default_gh.clone());
     // 주입된 sessions 는 spawn/statusline 조회기의 **폴백**이기도 하다 — 테스트가
     // sessions 하나만 넣었을 때 세 라우트가 같은 결정론적 목록을 보게 한다
     // (TS `resolveSpawnSessions` / statuslineSessions 배선과 동일).
@@ -272,7 +282,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         sessions,
         spawn_sessions,
         statusline_sessions,
-        gh_runner: options.gh_runner.unwrap_or(default_gh.clone()),
+        gh_runner: gh_runner.clone(),
         spawn: options.spawn.unwrap_or_else(default_spawn_fn),
         path_exists: options
             .path_exists
@@ -284,12 +294,22 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
             .recent_spawns
             .unwrap_or_else(|| Arc::new(RecentSpawns::new(RECENT_SPAWN_TTL))),
         inbox: options.inbox.unwrap_or_else(|| {
-            cached_inbox(
-                default_gh.clone(),
-                options.inbox_sources,
+            cached_inbox_dynamic(
+                gh_runner.clone(),
+                board_sources_fn(
+                    inbox_store,
+                    options.inbox_sources.clone(),
+                    inbox_adapters.clone(),
+                ),
                 Duration::from_secs(INBOX_CACHE_TTL_SECS),
             )
         }),
+        inbox_adapters: inbox_adapters.clone(),
+        inbox_config_names: options
+            .inbox_sources
+            .iter()
+            .map(|s| s.name.clone())
+            .collect(),
         usage: options.usage.unwrap_or_else(noop_sink),
         events,
         note_streams: Mutex::new(HashMap::new()),
@@ -670,10 +690,132 @@ async fn dispatch(
         } else {
             InboxFetch::Normal
         };
-        let response = marked_inbox(state, mode).await?;
+        let scope = match query.get("board") {
+            Some(board) => InboxScope::Board(Some(board.as_str())),
+            None => InboxScope::All,
+        };
+        let response = marked_inbox(state, mode, scope).await?;
         // 실패 사유의 stderr·출력 조각은 로컬 요청에만 — 원격에는 exit code 만.
         let response = if local { response } else { response.redacted() };
         return Ok(ok_json(&response));
+    }
+
+    // ── 보드 수집함 설정 — 어댑터 칸 목록 · 등록 · 삭제는 로컬 전용(값이 실행 인자가 된다) ──
+    if path == "/api/inbox/adapters" && *method == Method::GET {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let mut out = Vec::new();
+        for adapter in state.inbox_adapters.iter() {
+            out.push(match describe_adapter(state, adapter).await {
+                Ok(d) => json!({ "name": adapter.name, "title": d.title, "params": d.params }),
+                Err(error) => json!({ "name": adapter.name, "error": error }),
+            });
+        }
+        return Ok(ok_json(&out));
+    }
+    if path == "/api/inbox/sources" && *method == Method::GET {
+        let board = query.get("board").map(String::as_str);
+        let list: Vec<Value> = state
+            .store
+            .list_board_inbox_sources(board)?
+            .into_iter()
+            .map(|s| {
+                let missing = !state.inbox_adapters.iter().any(|a| a.name == s.adapter);
+                let clash = state.inbox_config_names.contains(&s.name);
+                let mut v = serde_json::to_value(&s).unwrap_or(Value::Null);
+                if missing {
+                    v["adapterMissing"] = json!(true);
+                }
+                if clash {
+                    v["nameClash"] = json!(true);
+                }
+                v
+            })
+            .collect();
+        return Ok(ok_json(&list));
+    }
+    if path == "/api/inbox/sources" && *method == Method::POST {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let board = str_field(&body, "board").unwrap_or("").trim().to_string();
+        let name = str_field(&body, "name").unwrap_or("").trim().to_string();
+        let adapter_name = str_field(&body, "adapter").unwrap_or("").trim().to_string();
+        if board.is_empty() || name.is_empty() || adapter_name.is_empty() {
+            return Ok(error_response(
+                "board, name, adapter are required",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        if state.inbox_config_names.contains(&name) {
+            return Ok(error_response(
+                &format!("설정 파일의 수집함과 이름이 겹친다: {name}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let Some(adapter) = state.inbox_adapters.iter().find(|a| a.name == adapter_name) else {
+            return Ok(error_response(
+                &format!("rocky.json 의 todo.inboxAdapters[] 에 없는 어댑터: {adapter_name}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        };
+        let mut values = std::collections::BTreeMap::new();
+        let params_value = body.get("params").cloned().unwrap_or(json!({}));
+        let Some(obj) = params_value.as_object() else {
+            return Ok(error_response(
+                "params 는 {플래그: 값} 객체여야 한다",
+                StatusCode::BAD_REQUEST,
+            ));
+        };
+        {
+            for (flag, value) in obj {
+                let Some(text) = value.as_str() else {
+                    return Ok(error_response(
+                        &format!("params.{flag} 는 문자열이어야 한다"),
+                        StatusCode::BAD_REQUEST,
+                    ));
+                };
+                values.insert(flag.clone(), text.to_string());
+            }
+        }
+        let describe = match describe_adapter(state, adapter).await {
+            Ok(d) => d,
+            Err(error) => {
+                return Ok(error_response(
+                    &format!("{adapter_name} 어댑터의 --describe 실패: {error}"),
+                    StatusCode::BAD_GATEWAY,
+                ))
+            }
+        };
+        let params = match rocky_core::inbox::validate_params(&describe, &values) {
+            Ok(p) => p,
+            Err(error) => return Ok(error_response(&error, StatusCode::BAD_REQUEST)),
+        };
+        let created =
+            state
+                .store
+                .create_board_inbox_source(&board, &name, &adapter_name, &params, actor)?;
+        return Ok(ok_json(&created));
+    }
+    if *method == Method::DELETE {
+        if let Some(id) = seg_match(path, "/api/inbox/sources/", "") {
+            if !local {
+                return Ok(error_response(
+                    NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+            state.store.delete_board_inbox_source(&id, actor)?;
+            return Ok(ok_json(&json!({ "ok": true })));
+        }
     }
 
     // ── summary (rocky today · SessionStart 요약) ──
@@ -1864,7 +2006,12 @@ async fn statusline_inner(
                     .is_some()
             })
             .count() as i64;
-        let inbox = marked_inbox(state, InboxFetch::CachedOnly).await?;
+        let inbox = marked_inbox(
+            state,
+            InboxFetch::CachedOnly,
+            InboxScope::Board(board_key.as_deref()),
+        )
+        .await?;
         (due, count_unpromoted(&inbox))
     };
     // 보여줄 게 없으면 **세션 조회 전에** 빈 문자열 — 초당 도는 최빈 경로의 비용 절감.
@@ -2021,17 +2168,113 @@ fn today_local() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
-/// GET /api/summary?cwd=&cached= — 보드 요약 JSON. 렌더는 소비자(CLI·훅)가 core 로 한다.
+/// 어댑터의 입력 칸 목록 — `command --describe` 를 5초 안에. 보드 설정 화면이 열 때와 등록 검증 때만 부른다.
+async fn describe_adapter(
+    state: &Arc<ServerState>,
+    adapter: &InboxSource,
+) -> Result<rocky_core::inbox::AdapterDescribe, String> {
+    let mut argv = adapter.command.clone();
+    argv.push("--describe".into());
+    let output = (state.gh_runner)(argv, String::new(), Duration::from_secs(5)).await;
+    if !output.ok() {
+        let first = output.stderr.lines().map(str::trim).find(|l| !l.is_empty());
+        return Err(match first {
+            Some(line) => format!("exit {}: {line}", output.code),
+            None => format!("exit {}", output.code),
+        });
+    }
+    rocky_core::inbox::parse_describe(&output.stdout)
+}
+
+/// 조회할 수집함 = 설정 파일의 소스 + 보드마다 등록한 소스(어댑터 명령 + 화면에서 채운 값). 어댑터가
+/// 설정에서 빠진 보드 소스는 조용히 건너뛴다 — 목록 라우트가 `adapterMissing` 으로 알려 준다.
+fn board_sources_fn(
+    store: Arc<TodoStore>,
+    config: Vec<InboxSource>,
+    adapters: Arc<Vec<InboxSource>>,
+) -> SourcesFn {
+    Arc::new(move || {
+        let mut sources = config.clone();
+        let board = store
+            .list_board_inbox_sources(None)
+            .unwrap_or_else(|error| {
+                eprintln!("rocky: 보드 수집함 목록을 못 읽었다 — {error}");
+                Vec::new()
+            });
+        for b in board {
+            // 설정 파일에 같은 이름이 나중에 생겼으면 설정이 이긴다 — 목록 라우트가 `nameClash` 로 알린다.
+            if config.iter().any(|c| c.name == b.name) {
+                continue;
+            }
+            if let Some(adapter) = adapters.iter().find(|a| a.name == b.adapter) {
+                sources.push(InboxSource {
+                    name: b.name,
+                    command: rocky_core::inbox::source_argv(&adapter.command, &b.params),
+                    timeout_ms: adapter.timeout_ms,
+                });
+            }
+        }
+        sources
+    })
+}
+
 /// 수집함 조회 + "이미 올라감" 표시 — 판정 근거는 전 보드(보관 포함)의 링크다(`Store::linked_urls`).
 /// 항목이 하나도 없으면 스토어를 읽지 않는다(statusline 은 초 단위로 부른다).
-async fn marked_inbox(state: &Arc<ServerState>, mode: InboxFetch) -> StoreResult<InboxResponse> {
+/// 보드 소스는 결과에 보드 key 를 붙이고(`board`), `board` 로 거른다 — 설정 파일의 소스(공통) + 그
+/// 보드의 소스. 보드를 모르면(`None`, cwd 가 어느 보드에도 안 맞음) 공통 소스만: 다른 보드의 전용 필터
+/// 결과가 섞이지 않게. 보드 소스 목록을 못 읽어도 수집함 전체를 실패시키지 않는다(조회기와 같다).
+/// 항목이 없으면 링크를 읽지 않는다(statusline 은 초 단위로 부른다).
+/// 보드 key(별칭 포함) → 현재 key. 없는 보드면 None.
+fn current_board_key(state: &Arc<ServerState>, key: &str) -> Option<String> {
+    let id = state.store.board_id_of(key).ok().flatten()?;
+    state.store.board_key_of(&id).ok().flatten()
+}
+
+/// `marked_inbox` 가 남길 소스.
+#[derive(Debug, Clone, Copy)]
+enum InboxScope<'a> {
+    /// 전부 — `GET /api/inbox`(TUI 탭·`rocky inbox`).
+    All,
+    /// 설정 파일의 소스 + 그 보드의 소스. `None` 이면 공통 소스만(요약·statusline 이 보드를 모를 때).
+    Board(Option<&'a str>),
+}
+
+async fn marked_inbox(
+    state: &Arc<ServerState>,
+    mode: InboxFetch,
+    scope: InboxScope<'_>,
+) -> StoreResult<InboxResponse> {
     let mut inbox = (state.inbox)(mode).await;
+    if !inbox.sources.is_empty() {
+        let owners: HashMap<String, String> = state
+            .store
+            .list_board_inbox_sources(None)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !state.inbox_config_names.contains(&s.name))
+            .map(|s| (s.name, s.board))
+            .collect();
+        for source in &mut inbox.sources {
+            source.board = owners.get(&source.name).cloned();
+        }
+        if let InboxScope::Board(board) = scope {
+            // 옛 key(별칭)로 물어도 현재 key 로 비교한다 — 결과의 `board` 는 늘 현재 key 다.
+            let current = match board {
+                Some(key) => current_board_key(state, key),
+                None => None,
+            };
+            inbox
+                .sources
+                .retain(|s| s.board.is_none() || (current.is_some() && s.board == current));
+        }
+    }
     if inbox.sources.iter().any(|s| !s.items.is_empty()) {
         mark_promoted(&mut inbox, &state.store.linked_urls()?);
     }
     Ok(inbox)
 }
 
+/// GET /api/summary?cwd=&cached= — 보드 요약 JSON. 렌더는 소비자(CLI·훅)가 core 로 한다.
 async fn summary_of(
     state: &Arc<ServerState>,
     query: &HashMap<String, String>,
@@ -2078,7 +2321,7 @@ async fn summary_of(
             HandoffStatus::Cancelled => false,
         })
         .count() as i64;
-    let inbox = marked_inbox(state, inbox_mode).await?;
+    let inbox = marked_inbox(state, inbox_mode, InboxScope::Board(board_key.as_deref())).await?;
     // CachedOnly 로 비어 온 건 "모름" — collect 를 None 으로.
     let inbox_ref =
         (!inbox.sources.is_empty() || inbox_mode != InboxFetch::CachedOnly).then_some(&inbox);

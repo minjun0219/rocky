@@ -148,6 +148,7 @@ pub async fn run_daemon(
     let state = build_server(ServerOptions {
         statusline_template: Some(runtime.statusline_template.clone()),
         inbox_sources: runtime.inbox.clone(),
+        inbox_adapters: runtime.inbox_adapters.clone(),
         usage,
         ..ServerOptions::new(store)
     });

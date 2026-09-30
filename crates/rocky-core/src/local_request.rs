@@ -134,5 +134,8 @@ pub const NON_LOCAL_ISSUE_MESSAGE: &str =
 pub const NON_LOCAL_BOARD_META_MESSAGE: &str =
     "보드의 path·repo 변경은 로컬(루프백) 요청만 할 수 있다 — spawn 워크트리와 이슈 대상이 걸린 값이라 노출된 표면으로는 허용하지 않는다";
 
+pub const NON_LOCAL_INBOX_SOURCE_MESSAGE: &str =
+    "보드 수집함 설정은 로컬(루프백) 요청만 할 수 있다 — 데몬이 실행할 명령의 인자가 되는 값이라 노출된 표면으로는 허용하지 않는다";
+
 pub const NON_LOCAL_SPAWN_MESSAGE: &str =
     "백그라운드 세션 띄우기는 로컬(루프백) 요청만 할 수 있다 — 이 기계에서 파일을 고치는 프로세스를 띄우기 때문에 노출된 표면으로는 허용하지 않는다";

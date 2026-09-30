@@ -59,6 +59,7 @@ pub async fn fetch_source(runner: &Runner, source: &InboxSource) -> InboxSourceR
     match parse_inbox_output(&output.stdout) {
         Ok(items) => InboxSourceResult {
             name: source.name.clone(),
+            board: None,
             available: true,
             reason: None,
             fetched_at,
@@ -68,18 +69,38 @@ pub async fn fetch_source(runner: &Runner, source: &InboxSource) -> InboxSourceR
     }
 }
 
-/// 소스별 TTL 캐시 조회기. `Refresh` 는 전부 다시, `CachedOnly` 는 기다리지 않는다.
+/// 캐시 키 — 이름**과 실행 argv**. 보드 수집함은 지우고 같은 이름으로 다른 값을 다시 등록할 수 있어서,
+/// 이름만 키로 쓰면 TTL 동안 옛 값으로 가져온 결과가 새 소스 이름으로 나온다.
+fn cache_key(source: &InboxSource) -> String {
+    let mut key = source.name.clone();
+    for arg in &source.command {
+        key.push('\0');
+        key.push_str(arg);
+    }
+    key
+}
+
+/// 조회할 소스 목록을 그때그때 내는 함수 — 보드 설정 화면에서 등록한 소스가 재기동 없이 반영되게.
+pub type SourcesFn = Arc<dyn Fn() -> Vec<InboxSource> + Send + Sync>;
+
+/// 고정 소스의 TTL 캐시 조회기 — `cached_inbox_dynamic` 의 소스가 늘 같은 경우.
 pub fn cached_inbox(runner: Runner, sources: Vec<InboxSource>, ttl: Duration) -> InboxProvider {
+    let sources = Arc::new(sources);
+    cached_inbox_dynamic(runner, Arc::new(move || sources.as_ref().clone()), ttl)
+}
+
+/// 소스별 TTL 캐시 조회기. `Refresh` 는 전부 다시, `CachedOnly` 는 기다리지 않는다. 소스 목록은
+/// 호출마다 `sources()` 로 새로 받는다 — 캐시는 소스 이름이 키라, 지운 소스는 그냥 안 나온다.
+pub fn cached_inbox_dynamic(runner: Runner, sources_fn: SourcesFn, ttl: Duration) -> InboxProvider {
     let cache: Arc<Mutex<HashMap<String, (Instant, InboxSourceResult)>>> =
         Arc::new(Mutex::new(HashMap::new()));
     // CachedOnly 가 띄운 백그라운드 갱신이 도는 소스 — 초당 호출이 갱신을 겹쳐 띄우지 않게.
     let refreshing: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
-    let sources = Arc::new(sources);
     Arc::new(move |mode| {
         let runner = runner.clone();
         let cache = cache.clone();
         let refreshing = refreshing.clone();
-        let sources = sources.clone();
+        let sources = Arc::new(sources_fn());
         Box::pin(async move {
             if mode == InboxFetch::CachedOnly {
                 return cached_only(&runner, &sources, &cache, &refreshing, ttl).await;
@@ -92,7 +113,7 @@ pub fn cached_inbox(runner: Runner, sources: Vec<InboxSource>, ttl: Duration) ->
                 let slot = cache.lock().await;
                 for (index, source) in sources.iter().enumerate() {
                     let hit = (!refresh)
-                        .then(|| slot.get(&source.name))
+                        .then(|| slot.get(&cache_key(source)))
                         .flatten()
                         .filter(|(at, _)| at.elapsed() < ttl)
                         .map(|(_, cached)| cached.clone());
@@ -117,7 +138,7 @@ pub fn cached_inbox(runner: Runner, sources: Vec<InboxSource>, ttl: Duration) ->
                 }
                 let mut slot = cache.lock().await;
                 for (index, result) in fresh {
-                    slot.insert(result.name.clone(), (Instant::now(), result.clone()));
+                    slot.insert(cache_key(&sources[index]), (Instant::now(), result.clone()));
                     results[index] = Some(result);
                 }
             }
@@ -158,15 +179,16 @@ async fn cached_only(
         let slot = cache.lock().await;
         let mut busy = refreshing.lock().await;
         for source in sources.iter() {
-            match slot.get(&source.name) {
+            let key = cache_key(source);
+            match slot.get(&key) {
                 Some((at, cached)) => {
                     out.push(cached.clone());
-                    if at.elapsed() >= ttl && busy.insert(source.name.clone()) {
+                    if at.elapsed() >= ttl && busy.insert(key) {
                         to_refresh.push(source.clone());
                     }
                 }
                 None => {
-                    if busy.insert(source.name.clone()) {
+                    if busy.insert(key) {
                         to_refresh.push(source.clone());
                     }
                 }
@@ -182,8 +204,8 @@ async fn cached_only(
             cache
                 .lock()
                 .await
-                .insert(source.name.clone(), (Instant::now(), result));
-            refreshing.lock().await.remove(&source.name);
+                .insert(cache_key(&source), (Instant::now(), result));
+            refreshing.lock().await.remove(&cache_key(&source));
         });
     }
     InboxResponse { sources: out }

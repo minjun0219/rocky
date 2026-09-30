@@ -76,6 +76,7 @@ fn item(id: &str, title: &str, url: Option<&str>) -> InboxItem {
 fn source(name: &str, items: Vec<InboxItem>) -> InboxSourceResult {
     InboxSourceResult {
         name: name.into(),
+        board: None,
         available: true,
         reason: None,
         fetched_at: "t".into(),
@@ -98,6 +99,7 @@ fn unpromoted_counts_items_not_linked_from_any_board() {
             // 실패한 소스는 세지 않는다.
             InboxSourceResult {
                 name: "dead".into(),
+                board: None,
                 available: false,
                 reason: Some("exit 1".into()),
                 fetched_at: "t".into(),

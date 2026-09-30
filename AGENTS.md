@@ -225,7 +225,7 @@ typecheck or tests — pre-push and CI already cover it.*
 - **tailscale serve 자동 확보는 남의 노출을 빼앗지 않는다.** `decide_serve_action`: `claim`(빈 자리),
   `keep`(내 것), `yield`(살아 있는 다른 rocky 데몬), `reclaim`(죽은 포트). 수동 `rocky tailscale on` 은 가드하지
   않는다.
-- **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 보드의 `path` / `repo` / `autoResolve` 변경은
+- **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 보드의 `path` / `repo` / `autoResolve` 변경, 보드 수집함 설정(`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다)은
   `is_local_request` 가 필요하다: 루프백 peer **이고** 프록시 헤더(`x-forwarded-*`, `forwarded`,
   `tailscale-user-*`, `cf-*`)가 없어야 한다; peer 주소가 없으면 거부(fail-closed). *EN: Anything that writes to GitHub, spawns processes or steers
   sessions is local-only: loopback peer and no proxy headers; fail closed.*
@@ -265,6 +265,8 @@ typecheck or tests — pre-push and CI already cover it.*
 - **수집함 "이미 올라감"** 은 데몬 한 곳에서 판정한다(`mark_promoted`): 항목 url 이 **어느 보드든**(보관 포함)
   todo 링크에 있으면 `promoted`. 요약·TUI ✓·`rocky inbox` 가 이 값을 본다 — 소비자마다 다시 판정하지 않는다.
   세션 시작 요약은 수집함 캐시만 본다(어댑터를 기다리지 않는다); 📥 제목은 외부 글이라 한 줄로 펴서 자른다.
+  보드 수집함은 **실행할 명령은 설정 파일(`todo.inboxAdapters[]`), 값은 화면**이다 — 화면 값은 어댑터의
+  `--describe` 칸으로만 검증해 받고(`rocky_core::inbox::validate_params`), 명령 자체를 화면이 바꾸게 하지 않는다.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다.
 - **세션 띄우기**(`boards.path` 에서 `claude --bg --worktree todo-<n>`, `rockyd::spawnctl`)는 그 워크트리에

@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS note_docs (
   state BLOB NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS board_inbox_sources (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id),
+  name TEXT NOT NULL UNIQUE,
+  adapter TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pr_watch (
   repo TEXT NOT NULL,
   number INTEGER NOT NULL,
@@ -1762,6 +1770,156 @@ impl TodoStore {
         };
         self.emit_all(events);
         Ok(todo)
+    }
+
+    /// 보드에 등록한 수집함 — `board` 가 있으면 그 보드만, 없으면 전부(보관된 보드 제외). 만든 순서.
+    pub fn list_board_inbox_sources(
+        &self,
+        board: Option<&str>,
+    ) -> StoreResult<Vec<crate::inbox::BoardInboxSource>> {
+        let conn = self.lock();
+        let board_id = match board {
+            Some(key) => match board_id_of_conn(&conn, key)? {
+                Some(id) => Some(id),
+                None => return Err(StoreError::new(format!("board not found: {key}"))),
+            },
+            None => None,
+        };
+        let mut stmt = conn.prepare(
+            "SELECT s.id, b.key, s.name, s.adapter, s.params, s.created_at
+               FROM board_inbox_sources s JOIN boards b ON b.id = s.board_id
+              WHERE b.archived_at IS NULL AND (?1 IS NULL OR s.board_id = ?1)
+              ORDER BY s.created_at, s.id",
+        )?;
+        let rows = stmt.query_map(params![board_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, board, name, adapter, params, created_at) = row?;
+            out.push(crate::inbox::BoardInboxSource {
+                id,
+                board,
+                name,
+                adapter,
+                params: serde_json::from_str(&params)
+                    .map_err(|e| StoreError::new(format!("board_inbox_sources.params: {e}")))?,
+                created_at,
+            });
+        }
+        Ok(out)
+    }
+
+    /// 보드에 수집함을 등록한다. 값 검증(어댑터가 받는 칸인가)은 호출자(데몬)가 어댑터의 `--describe` 로
+    /// 끝낸 뒤다 — 여기서는 이름 규칙과 중복만 본다. 보드 히스토리에 남기고 보드 이벤트를 낸다.
+    pub fn create_board_inbox_source(
+        &self,
+        board: &str,
+        name: &str,
+        adapter: &str,
+        params: &[crate::inbox::InboxParam],
+        actor: &str,
+    ) -> StoreResult<crate::inbox::BoardInboxSource> {
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        {
+            return Err(StoreError::new(format!(
+                "수집함 이름은 [a-z0-9-]+ 여야 한다: {name:?}"
+            )));
+        }
+        let mut events = Vec::new();
+        let created = {
+            let conn = self.lock();
+            let row = board_row_by_any_key(&conn, board)?
+                .ok_or_else(|| StoreError::new(format!("board not found: {board}")))?;
+            // 보관된 보드의 수집함은 목록에 안 나와 지울 길이 없다 — 이름만 전역으로 붙잡는다.
+            if row.archived_at.is_some() {
+                return Err(StoreError::new(format!(
+                    "보관된 보드에는 수집함을 등록할 수 없다: {board}"
+                )));
+            }
+            let board_id = row.id.clone();
+            let taken: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM board_inbox_sources WHERE name = ?1)",
+                params![name],
+                |r| r.get(0),
+            )?;
+            if taken {
+                return Err(StoreError::new(format!("이미 있는 수집함 이름: {name}")));
+            }
+            let source = crate::inbox::BoardInboxSource {
+                id: new_id(),
+                // 별칭으로 등록해도 응답은 현재 key — 목록과 같은 값.
+                board: row.key.clone(),
+                name: name.to_string(),
+                adapter: adapter.to_string(),
+                params: params.to_vec(),
+                created_at: now_iso(),
+            };
+            let params_json = serde_json::to_string(&source.params)
+                .map_err(|e| StoreError::new(e.to_string()))?;
+            conn.execute(
+                "INSERT INTO board_inbox_sources (id, board_id, name, adapter, params, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![source.id, board_id, source.name, source.adapter, params_json, source.created_at],
+            )?;
+            let mut changes = Changes::new();
+            changes.insert("inboxSource".into(), json!([null, name]));
+            record_history(
+                &conn,
+                &mut events,
+                HistoryEntity::Board,
+                &board_id,
+                actor,
+                "inbox-source-add",
+                Some(&changes),
+                Some(&board_id),
+                true,
+            )?;
+            source
+        };
+        self.emit_all(events);
+        Ok(created)
+    }
+
+    /// 보드 수집함을 지운다(보관 없이 — 조건일 뿐 기록할 내용이 없다). 없으면 에러.
+    pub fn delete_board_inbox_source(&self, id: &str, actor: &str) -> StoreResult<()> {
+        let mut events = Vec::new();
+        {
+            let conn = self.lock();
+            let (board_id, name): (String, String) = conn
+                .query_row(
+                    "SELECT board_id, name FROM board_inbox_sources WHERE id = ?1",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::new(format!("inbox source not found: {id}")))?;
+            conn.execute("DELETE FROM board_inbox_sources WHERE id = ?1", params![id])?;
+            let mut changes = Changes::new();
+            changes.insert("inboxSource".into(), json!([name, null]));
+            record_history(
+                &conn,
+                &mut events,
+                HistoryEntity::Board,
+                &board_id,
+                actor,
+                "inbox-source-remove",
+                Some(&changes),
+                Some(&board_id),
+                true,
+            )?;
+        }
+        self.emit_all(events);
+        Ok(())
     }
 
     /// 모든 todo(보관 포함, 전 보드)의 링크 url — 수집함 항목이 이미 올라갔는지의 판정 근거.

@@ -199,7 +199,22 @@ fn add_board_auto_resolve(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("ALTER TABLE boards ADD COLUMN auto_resolve INTEGER NOT NULL DEFAULT 0")
 }
 
-pub const MIGRATIONS: [MigrationFn; 9] = [
+/// 마이그레이션 10: 보드별 수집함(`board_inbox_sources`) — 무엇을 실행할지는 설정 파일의 어댑터,
+/// 무엇을 거를지는 보드 설정 화면이 정한다. SCHEMA 에도 있으니 IF NOT EXISTS.
+fn add_board_inbox_sources(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS board_inbox_sources (\n\
+           id         TEXT PRIMARY KEY,\n\
+           board_id   TEXT NOT NULL REFERENCES boards(id),\n\
+           name       TEXT NOT NULL UNIQUE,\n\
+           adapter    TEXT NOT NULL,\n\
+           params     TEXT NOT NULL DEFAULT '[]',\n\
+           created_at TEXT NOT NULL\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 10] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -209,6 +224,7 @@ pub const MIGRATIONS: [MigrationFn; 9] = [
     add_note_docs,
     add_pr_watch,
     add_board_auto_resolve,
+    add_board_inbox_sources,
 ];
 
 #[derive(Default)]
