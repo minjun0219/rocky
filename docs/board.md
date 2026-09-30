@@ -70,6 +70,7 @@ claude plugin install rocky@rocky-marketplace
 rocky daemon install     # launchd 등록 (KeepAlive) — macOS
 rocky daemon status      # 기동 여부 + launchd 상태 (plist 만 있고 로드가 안 됐으면 고치는 명령까지)
 rocky daemon restart     # 버전과 상관없이 지금 설치본으로 교체 — launchd 상주면 job 재등록
+rocky upgrade [--check]  # 플러그인·데몬을 최신 릴리스로 — 마켓플레이스 갱신 → 플러그인 → 데몬 교체
 rocky daemon uninstall
 rocky --version          # 설치된 CLI 버전
 ```
@@ -858,26 +859,26 @@ rocky 의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0
 statusline 에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무것도 출력하지 않는다.**
 
 `GET /api/statusline?cwd=<경로>&session=<세션 id>` 가 완성된 한 줄을 `text/plain` 으로
-돌려준다 — 렌더까지 데몬이 하므로 소비자 쪽은 `curl` 한 줄이면 된다. 이 자리는 1초마다 ×
-열어둔 세션 수만큼 도는 곳이라, 여기서 프로세스를 하나 더 띄우지 않는 것이 설계 목적이다.
+돌려준다 — 렌더까지 데몬이 한다. 끼워 넣는 쪽은 **`rocky statusline`** 을 부르면 된다: 포트는 `rocky.json`
+에서, 인코딩·300ms 제한·실패 숨기기(데몬 없음·라우트 없는 구버전의 404)는 명령이 한다. 보여줄 게 없거나
+실패하면 아무것도 출력하지 않고 성공으로 끝난다(statusline 이 보드 때문에 깨지지 않는다). 사용 로그를 남기지
+않고 데몬을 띄우지도 않는다 — 1초마다 × 세션 수만큼 도는 자리다.
 
-`~/.claude/statusline-command.sh` 끝에 (또는 `settings.json` 의 `statusLine.command` 에)
-이어 붙인다 — 입력 JSON 에서 두 값을 꺼내 쓴다:
+- **cc-usage `extra_commands`** — `{{cwd}}`·`{{session_id}}` 를 채워 준다:
 
-```sh
-cwd=$(echo "$input" | jq -r '.workspace.current_dir // empty')
-sid=$(echo "$input" | jq -r '.session_id // empty')
-rt=$(curl -sf --max-time 0.3 "http://127.0.0.1:8636/api/statusline?cwd=$cwd&session=$sid")
-[ -n "$rt" ] && printf '%s\n' "$rt"
-```
+  ```json
+  { "command": ["rocky", "statusline", "--cwd", "{{cwd}}", "--session", "{{session_id}}"], "timeout_ms": 500 }
+  ```
 
-(앞선 줄이 개행으로 끝난다는 전제다 — 보통 `printf '...\n'` 로 끝나므로 여기서 `\n` 을
-앞에 또 붙이면 빈 줄이 하나 생긴다.)
+- **`settings.json` 의 `statusLine.command` 나 statusline 스크립트** — 인자 없이 부르면 Claude Code 가 주는
+  stdin JSON(`workspace.current_dir`·`session_id`)을 읽는다:
 
-`-f` 를 빼지 마라. 데몬이 안 떠 있으면 `curl` 이 빈 값을 내지만, **이 라우트가 없는 구버전
-데몬**은 404 와 함께 JSON 에러 본문을 낸다 — `-f` 가 없으면 그 JSON 이 그대로 statusline 에
-찍힌다. `-f` 는 비 2xx 응답을 무출력으로 만들어 두 경우를 같게 만든다 (fail-open —
-statusline 이 보드 때문에 깨지지 않는다).
+  ```sh
+  printf '%s' "$input" | rocky statusline
+  ```
+
+`rocky` 가 PATH 에 없는 환경이면 `~/.local/share/rocky/current/rocky` 를 쓴다. `curl` 로 라우트를 직접 불러도
+되지만(`curl -sf --max-time 0.3 --get --data-urlencode cwd=… …/api/statusline`), 그때는 `-f` 를 빼지 않는다.
 
 **환경 전제 셋** — 새 머신에 붙일 때 걸리는 것들이다:
 

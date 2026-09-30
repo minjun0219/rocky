@@ -210,6 +210,10 @@ typecheck or tests — pre-push and CI already cover it.*
   link` 가 고친다. 옆 바이너리는 canonicalize 한 실제 파일 옆에서 찾는다.
 - **데몬 기동.** SessionStart 의 `hook ensure-daemon` 이 health 가 없으면 detached 로 띄운다; CLI 도 필요할 때
   띄운다; `rocky daemon install` 이 상주시킨다(launchd KeepAlive). `rocky daemon restart` 는 버전과 상관없이 같은 교체 경로(`RestartPolicy::Always`)를 탄다.
+- **`rocky upgrade [--check]`** 는 마켓플레이스 갱신 → `claude plugin update` → **새 버전 폴더의 부트스트랩**
+  (`<cache>/rocky/<최신>/bin/rocky hook ensure-daemon`)으로 데몬 교체를 한 번에 한다 — 지금 도는 `rocky` 는 옛
+  바이너리라 자기 자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. `rocky update` 는 할 일
+  수정 명령이다(이름을 겹치지 않는다).
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 정확한 문자열로 비교해
   낡은 데몬을 교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. 옛 데몬을 못 내리면 재기동하지
   않는다(구버전 보드가 보드 없음보다 낫다). *EN: If the old daemon cannot be stopped, do not restart — an old
@@ -270,7 +274,8 @@ typecheck or tests — pre-push and CI already cover it.*
   **수집함 구독**(`rocky inbox subscribe`)은 세션을 소스의 구독자로 적고(`inbox_subscriptions`, 기준선은 `inbox_seen`),
   `rockyd::inbox_watch` 가 구독된 소스만 5분마다 읽어 새 항목을 그 세션 받은편지함에 보낸다 — 알리기만, 착수는 사람.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
-  TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다.
+  TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다. 끼워 넣는 쪽은 `rocky statusline`(`--cwd`·`--session`, 없으면 stdin JSON) — 1초마다 도는
+  자리라 사용 로그·데몬 자동 기동을 거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.
 - **세션 띄우기**(`boards.path` 에서 `claude --bg --worktree todo-<n>`, `rockyd::spawnctl`)는 그 워크트리에
   살아 있는 세션이 있으면 띄우지 않고 그 세션을 쓴다; 캐시 없는 세션 목록과 60초 `RecentSpawns` 예약(창 안의
   재요청은 409)이 이중 기동을 막는다. `boards.path` 는 절대경로여야 하고 canonicalize 한다. 실행은 비동기,
