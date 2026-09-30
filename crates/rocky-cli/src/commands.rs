@@ -719,8 +719,8 @@ pub fn cmd_board(
             // PR 감시가 **알릴** 작성자 — 기록(히스토리·rocky pr)은 필터와 무관하게 전부 남는다.
             let authors: Vec<String> = rest.iter().skip(1).map(|s| s.trim().to_string()).collect();
             // 둘 다 주면 무엇을 원했는지 모른다 — 필터를 건 줄 알았는데 지워지는 일이 없게 거부한다.
+            // 로그인들 또는 --clear 중 하나만 — 둘 다(필터를 건 줄 알았는데 지워짐)나 둘 다 없음은 거부한다.
             if authors.is_empty() != clear {
-            } else {
                 return Err(USAGE.into());
             }
             let value = if clear { Value::Null } else { json!(authors) };
