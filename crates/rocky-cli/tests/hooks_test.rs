@@ -210,6 +210,15 @@ fn a_managed_daemon_on_the_same_version_is_untouched() {
 // ── 매 턴 정책: 오래된 데몬만 올린다 ────────────────────────────────────────────
 
 fn run_only_if_older(log: &Log, check: &dyn Fn(&str) -> Option<DaemonHealth>, managed: bool) {
+    run_with_policy(log, check, managed, RestartPolicy::OnlyIfOlder);
+}
+
+fn run_with_policy(
+    log: &Log,
+    check: &dyn Fn(&str) -> Option<DaemonHealth>,
+    managed: bool,
+    policy: RestartPolicy,
+) {
     let ctx = build_context(8636, std::env::temp_dir(), "test");
     ensure_daemon_with_policy(
         &ctx,
@@ -230,7 +239,7 @@ fn run_only_if_older(log: &Log, check: &dyn Fn(&str) -> Option<DaemonHealth>, ma
                 Ok(())
             },
         },
-        RestartPolicy::OnlyIfOlder,
+        policy,
     );
 }
 
@@ -268,6 +277,41 @@ fn only_if_older_replaces_a_managed_older_daemon() {
     run_only_if_older(&log, &|_| Some(health(Some("0.9.0"), 6)), true);
     assert_eq!(*log.replaced.borrow(), 1);
     assert!(log.stopped.borrow().is_empty());
+}
+
+// ── `rocky daemon restart`: 버전과 상관없이 늘 교체한다 ─────────────────────────────
+
+#[test]
+fn always_restarts_a_same_version_daemon() {
+    let log = Log::default();
+    run_with_policy(
+        &log,
+        &|_| Some(health(Some("1.0.0"), 7)),
+        false,
+        RestartPolicy::Always,
+    );
+    assert_eq!(*log.stopped.borrow(), vec![Some(7)]);
+    assert_eq!(*log.spawned.borrow(), 1);
+}
+
+#[test]
+fn always_reregisters_a_managed_daemon_instead_of_killing_it() {
+    let log = Log::default();
+    run_with_policy(
+        &log,
+        &|_| Some(health(Some("1.0.0"), 8)),
+        true,
+        RestartPolicy::Always,
+    );
+    assert_eq!(*log.replaced.borrow(), 1);
+    assert!(log.stopped.borrow().is_empty());
+}
+
+#[test]
+fn always_spawns_when_nothing_is_running() {
+    let log = Log::default();
+    run_with_policy(&log, &|_| None, false, RestartPolicy::Always);
+    assert_eq!(*log.spawned.borrow(), 1);
 }
 
 /// 받은편지함 등록 본문 — 세션 id·소켓·cwd 가 다 있어야 보낸다(없으면 등록하지 않는다).

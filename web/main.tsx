@@ -6,6 +6,7 @@ import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
+import { VersionFooter } from './components/VersionFooter';
 import { parseRoute } from './route';
 import { useUiStore } from './store';
 import { setUsageActor } from './usage';
@@ -57,9 +58,12 @@ function App() {
     // 넘겨야 `onSyncError` 가 목록 재조회의 실패만 받는다 — `.catch()` 로 이으면 뒤따르는
     // 주소 해석의 실패까지 함께 삼킨다.
     void refetch().then(applyRoute, onSyncError);
-    // 출처는 화면 수명 동안 바뀌지 않으니 부팅에 한 번만 확인한다 (refetch 에 얹으면
-    // SSE 이벤트마다 health 를 다시 묻게 된다).
-    void useUiStore.getState().loadCapabilities();
+    // health 는 부팅과 SSE 재연결 때만 묻는다 (refetch 에 얹으면 SSE 이벤트마다 다시 묻게
+    // 된다). 재연결 때 다시 묻는 이유는 버전이다 — 데몬이 재시작되면 SSE 가 끊겼다 붙는다.
+    const loadHealth = (): void => {
+      void useUiStore.getState().loadCapabilities();
+    };
+    loadHealth();
     // 사용 로그가 붙일 actor — 스토어를 import 하지 않는 모듈이라 여기서 한 번 맞춘다.
     setUsageActor(useUiStore.getState().actor);
 
@@ -78,7 +82,15 @@ function App() {
     document.addEventListener('visibilitychange', onVisible);
 
     const source = new EventSource('/api/events');
-    source.onopen = () => setConnected(true);
+    // 첫 onopen 은 부팅 직후라 위의 health 조회와 겹친다 — 재연결일 때만 다시 묻는다.
+    let opened = false;
+    source.onopen = () => {
+      setConnected(true);
+      if (opened) {
+        loadHealth();
+      }
+      opened = true;
+    };
     source.onerror = () => setConnected(false);
     source.onmessage = () => {
       // 연속 mutation 을 한 번의 refetch 로 흡수
@@ -120,6 +132,7 @@ function App() {
       <div className="layout flex min-h-0 flex-1 flex-col">
         {view === 'todos' ? <TodoPane /> : <NotesRail />}
       </div>
+      <VersionFooter />
       <DetailDrawer />
     </div>
   );

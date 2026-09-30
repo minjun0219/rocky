@@ -115,6 +115,13 @@ interface UiState {
   issueCreateAllowed: boolean;
   /** `/api/health` 가 알려주는 힌트 — 이 출처에서 세션을 띄울 수 있는가. */
   spawnAllowed: boolean;
+  /** 지금 도는 데몬의 버전(`/api/health`). 아직 모르거나 구버전 데몬이면 null. */
+  daemonVersion: string | null;
+  /**
+   * 이 화면을 연 뒤 데몬 버전이 바뀌었는가. 화면의 번들은 데몬이 서빙한 것이라, 데몬이
+   * 새 버전으로 재시작되면 열려 있던 화면은 옛 코드로 남는다 — 새로고침하라는 신호다.
+   */
+  daemonVersionChanged: boolean;
   /** 현재 보드의 아직 안 끝난 핸드오프(대기 중 + 배달됐지만 미완료) — refetch 가 함께 갱신한다. */
   handoffs: HandoffView[];
   /** 보내기 패널을 열 때만 채운다. */
@@ -178,9 +185,9 @@ interface UiState {
    */
   createIssue: (todoId: string, repo?: string) => Promise<void>;
   /**
-   * `/api/health` 로 이 출처의 능력을 한 번 확인한다 — 부팅 때만 부른다(출처는 화면
-   * 수명 동안 바뀌지 않는다). 실패는 삼킨다: 힌트를 못 얻어도 화면은 그대로 동작해야 하고,
-   * 강제는 서버가 한다.
+   * `/api/health` 로 이 출처의 능력과 데몬 버전을 확인한다 — 부팅 때와 SSE 가 다시 붙을
+   * 때만 부른다(데몬 재시작은 SSE 재연결로 드러난다). 실패는 삼킨다: 힌트를 못 얻어도 화면은
+   * 그대로 동작해야 하고, 강제는 서버가 한다.
    */
   loadCapabilities: () => Promise<void>;
 
@@ -299,6 +306,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   seenComments: readSeen(localStorage),
   issueCreateAllowed: true,
   spawnAllowed: true,
+  daemonVersion: null,
+  daemonVersionChanged: false,
   handoffs: [],
   sessions: { available: true, list: [] },
 
@@ -705,14 +714,22 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   loadCapabilities: async () => {
     try {
-      const health = await api<{ issueCreateAllowed?: boolean; spawnAllowed?: boolean }>(
-        '/api/health',
-        get().actor,
-      );
+      const health = await api<{
+        issueCreateAllowed?: boolean;
+        spawnAllowed?: boolean;
+        version?: string;
+      }>('/api/health', get().actor);
+      const previous = get().daemonVersion;
+      const version = health.version ?? null;
       // 필드가 없는 구버전 데몬이면 낙관적으로 둔다 — 그 데몬에는 애초에 이 가드가 없다.
       set({
         issueCreateAllowed: health.issueCreateAllowed ?? true,
         spawnAllowed: health.spawnAllowed ?? true,
+        daemonVersion: version,
+        // 한 번 바뀌었으면 새로고침 전까지 켜 둔다 — 되돌아가도 번들은 이미 첫 버전의 것이다.
+        daemonVersionChanged:
+          get().daemonVersionChanged ||
+          (previous !== null && version !== null && previous !== version),
       });
     } catch {
       // 힌트를 못 얻는 것으로 화면이 망가지면 안 된다. 강제는 서버 몫이다.

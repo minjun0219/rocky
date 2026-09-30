@@ -1088,7 +1088,7 @@ pub fn cmd_open(ctx: &CliContext, expose_lan: bool, expose_tailscale: bool) -> R
     Ok(())
 }
 
-/// `daemon run|start|stop|status|install|uninstall`.
+/// `daemon run|start|stop|restart|status|install|uninstall`.
 pub fn cmd_daemon(
     ctx: &CliContext,
     rest: &[String],
@@ -1140,6 +1140,52 @@ pub fn cmd_daemon(
             }
             Ok(())
         }
+        // 버전 교체 훅과 같은 경로를 늘 탄다 — launchd 상주면 job 재등록(pid kill 은
+        // KeepAlive 가 즉시 되살린다), 아니면 꺼질 때까지 기다린 뒤 띄운다. `stop && start`
+        // 를 손으로 하면 이 둘을 사람이 골라야 하고, stop 이 끝나기 전에 start 가 health 를
+        // 보고 "이미 떠 있다" 며 지나가기도 한다.
+        Some("restart") => {
+            use crate::hooks::{ensure_daemon_with_policy, with_live_deps, RestartPolicy};
+            let before = crate::client::daemon_health(&ctx.base_url);
+            if let Some(error) =
+                with_live_deps(|deps| ensure_daemon_with_policy(ctx, deps, RestartPolicy::Always))
+            {
+                return Err(error);
+            }
+            // launchd 재등록은 job 이 로드된 것까지만 확인한다 — 새 데몬이 포트를 잡을 때까지
+            // 잠깐 기다려야 새 버전을 적을 수 있다.
+            let mut after = None;
+            for _ in 0..20 {
+                after = crate::client::daemon_health(&ctx.base_url);
+                if after.is_some() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            }
+            let version = |h: &Option<crate::client::DaemonHealth>| {
+                h.as_ref()
+                    .and_then(|h| h.version.clone())
+                    .map(|v| format!("v{v}"))
+                    .unwrap_or_else(|| "?".into())
+            };
+            let pid = after
+                .as_ref()
+                .and_then(|h| h.pid)
+                .map(|p| format!(", pid {p}"))
+                .unwrap_or_default();
+            match before {
+                Some(_) => println!(
+                    "✓ daemon 재시작 {} → {}{pid}",
+                    version(&before),
+                    version(&after)
+                ),
+                None => println!(
+                    "✓ daemon on {} — 떠 있지 않아 새로 띄웠다{pid}",
+                    version(&after)
+                ),
+            }
+            Ok(())
+        }
         Some("status") => {
             let alive = crate::client::health(&ctx.base_url);
             if alive {
@@ -1167,7 +1213,7 @@ pub fn cmd_daemon(
             println!("{}", uninstall_launchd());
             Ok(())
         }
-        _ => Err("usage: rocky daemon run|start|stop|status|install|uninstall".into()),
+        _ => Err("usage: rocky daemon run|start|stop|restart|status|install|uninstall".into()),
     }
 }
 

@@ -24,7 +24,7 @@
   다시 설치한다. 못 내리면 재기동하지 않는다 — 보드가 없는 것보다 구버전이라도 있는 게 낫다.
   health 의 `name` 이 `"rocky"` 가 아니면 우리 데몬으로 보지 않는다(0.23.0 이하 `rocky-todo` 포함).
   한계: **버전이 같으면 경로가 달라도 재기동하지 않는다** — 로컬 레포 데몬과 설치본 버전이
-  같을 때(개발 중) 서로 갈아치우지 않는 건 의도된 동작. 강제 교체는 `rocky daemon stop`.
+  같을 때(개발 중) 서로 갈아치우지 않는 건 의도된 동작. 강제 교체는 `rocky daemon restart`(`RestartPolicy::Always`).
   **`/reload-plugins` 경로**: SessionStart 가 다시 돌지 않으므로 매 턴의 `UserPromptSubmit`
   훅(`notify-todo`)이 같은 검사를 `RestartPolicy::OnlyIfOlder` 로 한다 — 도는 데몬이 자기보다
   **오래됐을 때만** 올리고, 없거나 더 새 데몬은 건드리지 않는다(옛 플러그인으로 도는 세션과

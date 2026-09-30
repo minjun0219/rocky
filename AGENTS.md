@@ -209,7 +209,7 @@ typecheck or tests — pre-push and CI already cover it.*
   (`link_cli`, 남의 실제 파일은 덮지 않는다); `rocky config show` 가 링크·PATH 누락을 알려 주고 `rocky config
   link` 가 고친다. 옆 바이너리는 canonicalize 한 실제 파일 옆에서 찾는다.
 - **데몬 기동.** SessionStart 의 `hook ensure-daemon` 이 health 가 없으면 detached 로 띄운다; CLI 도 필요할 때
-  띄운다; `rocky daemon install` 이 상주시킨다(launchd KeepAlive).
+  띄운다; `rocky daemon install` 이 상주시킨다(launchd KeepAlive). `rocky daemon restart` 는 버전과 상관없이 같은 교체 경로(`RestartPolicy::Always`)를 탄다.
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 정확한 문자열로 비교해
   낡은 데몬을 교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. 옛 데몬을 못 내리면 재기동하지
   않는다(구버전 보드가 보드 없음보다 낫다). *EN: If the old daemon cannot be stopped, do not restart — an old

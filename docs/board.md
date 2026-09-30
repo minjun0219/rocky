@@ -69,12 +69,16 @@ claude plugin install rocky@rocky-marketplace
 ```bash
 rocky daemon install     # launchd 등록 (KeepAlive) — macOS
 rocky daemon status      # 기동 여부 + launchd 상태 (plist 만 있고 로드가 안 됐으면 고치는 명령까지)
+rocky daemon restart     # 버전과 상관없이 지금 설치본으로 교체 — launchd 상주면 job 재등록
 rocky daemon uninstall
 rocky --version          # 설치된 CLI 버전
 ```
 
 `rocky daemon start` 는 데몬을 띄운 뒤 그것이 launchd 상주인지, launchd 밖의 온디맨드
 프로세스인지를 같이 적는다 — "✓ daemon on" 만 보고 상주가 복구된 줄 알지 않게.
+`rocky daemon restart` 는 버전 교체 훅과 같은 경로(launchd 재등록 또는 종료 확인 뒤 기동)를
+늘 타고 `v<옛> → v<새>` 를 적는다 — `stop && start` 를 손으로 하면 launchd 상주에서는 KeepAlive 가
+곧바로 옛 경로로 되살린다. 지금 도는 데몬 버전은 웹 보드 맨 아래 줄에 보인다.
 
 > **플러그인 업그레이드 뒤 데몬이 사라졌다면**: 옛 job 을 내린 뒤 새 job 등록이 실패한
 > 경우다(launchd 의 bootout 이 비동기라 바로 이어지는 bootstrap 이 튈 수 있다). 지금은
