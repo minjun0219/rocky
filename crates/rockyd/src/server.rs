@@ -134,6 +134,11 @@ pub struct ServerState {
     /// 세션 받은편지함 등록부 — 훅이 `session_id → 소켓` 을 알려 준다(`rocky_core::peer_inbox`).
     /// 데몬 수명 상태다: 훅이 턴마다 다시 등록하므로 재기동 뒤 첫 턴에 다시 채워진다.
     inboxes: Mutex<HashMap<String, rocky_core::peer_inbox::InboxRegistration>>,
+    /// 세션에 보낸 기록 — 최근 `DELIVERY_LOG_MAX` 건, 메모리에만(웹 "세션 전달" 현황).
+    deliveries: Mutex<std::collections::VecDeque<rocky_core::peer_inbox::Delivery>>,
+    /// "보내지 않기" 를 켠 세션 — PR·수집함 알림을 이 세션에는 보내지 않는다. 메모리에만(데몬을 다시
+    /// 띄우면 풀린다 — 세션은 오래 살지 않는다).
+    muted: Mutex<std::collections::HashSet<String>>,
     /// 스토어 구독 해제용.
     _subscription: u64,
     _doc_subscription: u64,
@@ -181,6 +186,40 @@ impl ServerState {
             .values()
             .cloned()
             .collect()
+    }
+
+    /// 세션에 보낸 한 건을 적는다(오래된 것부터 버린다).
+    pub fn record_delivery(&self, delivery: rocky_core::peer_inbox::Delivery) {
+        let mut log = self.deliveries.lock().expect("deliveries poisoned");
+        log.push_front(delivery);
+        log.truncate(DELIVERY_LOG_MAX);
+    }
+
+    /// 최근 보낸 기록 — 새 것부터.
+    pub fn deliveries(&self) -> Vec<rocky_core::peer_inbox::Delivery> {
+        self.deliveries
+            .lock()
+            .expect("deliveries poisoned")
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// 이 세션에 보내지 않기를 켜거나 끈다.
+    pub fn set_muted(&self, session_id: &str, muted: bool) {
+        let mut set = self.muted.lock().expect("muted poisoned");
+        if muted {
+            set.insert(session_id.to_string());
+        } else {
+            set.remove(session_id);
+        }
+    }
+
+    pub fn is_muted(&self, session_id: &str) -> bool {
+        self.muted
+            .lock()
+            .expect("muted poisoned")
+            .contains(session_id)
     }
 
     /// 외부 명령 실행기 — 수집함 어댑터·gh 가 같은 것을 쓴다(테스트는 하나를 갈아 끼운다).
@@ -324,6 +363,8 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
         inboxes: Mutex::new(HashMap::new()),
+        deliveries: Mutex::new(std::collections::VecDeque::new()),
+        muted: Mutex::new(std::collections::HashSet::new()),
         _subscription: subscription,
         _doc_subscription: doc_subscription,
     });
@@ -933,6 +974,98 @@ async fn dispatch(
             .store
             .unsubscribe_inbox(query.get("source").map(String::as_str), session_id)?;
         return Ok(ok_json(&json!({ "removed": removed })));
+    }
+
+    // ── 세션 전달 현황 — 어느 세션이 PR·수집함 알림을 받나, 최근 보낸 기록, 보내지 않기(로컬 전용) ──
+    if path == "/api/deliveries" && *method == Method::GET {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let boards = state.store.list_boards(false)?;
+        let locations: Vec<BoardLocation> = boards
+            .iter()
+            .map(|b| BoardLocation {
+                key: b.key.clone(),
+                path: b.path.clone(),
+            })
+            .collect();
+        let now = chrono::Utc::now().timestamp();
+        let registrations = state.inboxes();
+        // PR 알림을 지금 받는 세션 — repo 가 있는 보드마다 보내지 않기가 아닌 가장 최근 세션(알림기와 같은 규칙).
+        let mut receives: HashMap<String, Vec<String>> = HashMap::new();
+        for board in boards.iter().filter(|b| b.repo.is_some()) {
+            if let Some(top) = rocky_core::peer_inbox::session_candidates(
+                &registrations,
+                &locations,
+                &board.key,
+                now,
+            )
+            .into_iter()
+            .find(|r| !state.is_muted(&r.session_id))
+            {
+                receives
+                    .entry(top.session_id.clone())
+                    .or_default()
+                    .push(board.key.clone());
+            }
+        }
+        let mut sessions: Vec<Value> = registrations
+            .iter()
+            .filter(|r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS)
+            .map(|r| {
+                json!({
+                    "sessionId": r.session_id,
+                    "cwd": r.cwd,
+                    "board": board_key_for_cwd(&locations, Some(&r.cwd)),
+                    "seenAt": chrono::DateTime::from_timestamp(r.seen_at, 0)
+                        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                    "muted": state.is_muted(&r.session_id),
+                    "receivesPrFor": receives.get(&r.session_id).cloned().unwrap_or_default(),
+                })
+            })
+            .collect();
+        sessions.sort_by(|a, b| b["seenAt"].as_str().cmp(&a["seenAt"].as_str()));
+        let subscriptions: Vec<Value> = state
+            .store
+            .inbox_subscriptions()?
+            .into_iter()
+            .map(|s| json!({ "source": s.source, "sessionId": s.session_id }))
+            .collect();
+        return Ok(ok_json(&json!({
+            "sessions": sessions,
+            "subscriptions": subscriptions,
+            "recent": state.deliveries(),
+        })));
+    }
+    if path == "/api/deliveries/mute" && *method == Method::POST {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let session_id = str_field(&body, "sessionId")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let Some(muted) = body.get("muted").and_then(Value::as_bool) else {
+            return Ok(error_response(
+                "sessionId 와 muted(true|false) 가 필요하다",
+                StatusCode::BAD_REQUEST,
+            ));
+        };
+        if session_id.is_empty() {
+            return Ok(error_response(
+                "sessionId is required",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        state.set_muted(&session_id, muted);
+        return Ok(ok_json(&json!({ "sessionId": session_id, "muted": muted })));
     }
 
     // ── summary (rocky today · SessionStart 요약) ──
@@ -2302,6 +2435,9 @@ async fn describe_adapter(
     }
     rocky_core::inbox::parse_describe(&output.stdout)
 }
+
+/// 세션 전달 기록의 상한.
+pub const DELIVERY_LOG_MAX: usize = 50;
 
 /// 조회할 수집함 = 설정 파일의 소스 + 보드마다 등록한 소스(어댑터 명령 + 화면에서 채운 값). 어댑터가
 /// 설정에서 빠진 보드 소스는 조용히 건너뛴다 — 목록 라우트가 `adapterMissing` 으로 알려 준다.

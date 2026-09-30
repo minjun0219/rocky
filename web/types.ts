@@ -266,3 +266,25 @@ export interface BoardInboxSource {
   params: { flag: string; value: string }[];
   adapterMissing?: boolean;
 }
+
+/** `GET /api/deliveries` — 데몬이 세션 받은편지함에 보내는 현황(로컬 전용). */
+export interface DeliveryStatus {
+  sessions: {
+    sessionId: string;
+    cwd: string;
+    board?: string | null;
+    seenAt?: string | null;
+    muted: boolean;
+    /** 이 세션이 지금 PR 알림을 받는 보드들 — 보드마다 가장 최근의(보내지 않기가 아닌) 세션. */
+    receivesPrFor: string[];
+  }[];
+  subscriptions: { source: string; sessionId: string }[];
+  recent: {
+    at: string;
+    kind: string;
+    subject: string;
+    url?: string;
+    sessionId: string;
+    ok: boolean;
+  }[];
+}

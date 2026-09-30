@@ -7,11 +7,17 @@ import { ViewSwitch } from './ViewSwitch';
 
 afterEach(cleanup);
 
-// 보드를 고르면 수집함이 `/api/inbox` 를 부른다 — 여기선 빈 응답으로.
+// 수집함(`/api/inbox`)·세션 전달(`/api/deliveries`)이 부른다 — 여기선 경로별 빈 응답으로.
 const realFetch = globalThis.fetch;
 beforeEach(() => {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ sources: [] }), { status: 200 })) as unknown as typeof fetch;
+  globalThis.fetch = (async (input: string) => {
+    const body = String(input).startsWith('/api/deliveries')
+      ? { sessions: [], subscriptions: [], recent: [] }
+      : String(input).startsWith('/api/inbox/subscriptions')
+        ? []
+        : { sources: [] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as unknown as typeof fetch;
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
