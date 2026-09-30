@@ -1,5 +1,27 @@
 # @minjun0219/rocky
 
+## 0.34.0
+
+### Minor Changes
+
+- [#233](https://github.com/minjun0219/rocky/pull/233) [`e29aa5c`](https://github.com/minjun0219/rocky/commit/e29aa5c5fd863d3cf4595312d21ad6bc5cf9d8f6) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드마다 수집함을 등록한다 — `rocky.json` 의 `todo.inboxAdapters[]` 에 어댑터를 두면, 보드 화면에서 어댑터가 `--describe` 로 알려 준 칸(예: 프로젝트·필터)을 채워 그 보드 전용 수집함을 만든다. 등록·삭제는 로컬 요청만, 재기동 없이 반영된다.
+
+- [#234](https://github.com/minjun0219/rocky/pull/234) [`c2f45db`](https://github.com/minjun0219/rocky/commit/c2f45dbaa1d729b78051b30493b2ccdc88565830) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 보드 머리 아래에 그 보드의 수집함(아직 안 올린 항목)을 보이고, "설정" 에서 어댑터를 골라 칸을 채워 보드 수집함을 등록·삭제한다.
+
+- [#227](https://github.com/minjun0219/rocky/pull/227) [`c95c6c1`](https://github.com/minjun0219/rocky/commit/c95c6c19968218196a16702935bbd6cd5fae67dd) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky daemon restart` 를 더한다 — 버전과 상관없이 지금 설치본으로 데몬을 교체한다(launchd 상주면 job 재등록). 웹 보드 맨 아래 줄에 도는 데몬 버전을 보이고, 화면을 연 뒤 데몬이 바뀌면 새로고침을 권한다.
+
+- [#230](https://github.com/minjun0219/rocky/pull/230) [`97567b5`](https://github.com/minjun0219/rocky/commit/97567b51fedc91d62cd28afa2734e8af2294c688) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky today`·세션 시작 요약에 미올림 수집함 항목을 제목으로 싣고(최대 3개, 넘치면 `… 외 N건`), `rocky inbox [--json]` 을 더한다. "이미 올라감" 판정을 현재 보드가 아니라 전 보드(보관 포함)의 링크로 넓혔고, 세션 시작 요약은 수집함 어댑터를 기다리지 않는다.
+
+- [#235](https://github.com/minjun0219/rocky/pull/235) [`943af87`](https://github.com/minjun0219/rocky/commit/943af87b7a8cab580beea2481fdfeda80377dd61) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 감시가 CI 실패를 그 레포의 세션에 알린다(`pr-ci-failed`) — 세션이 로그를 보고 인프라 문제면 한 번 재실행, 코드 문제면 고쳐 푸시한다(`/rocky:review-fix` 12단계). 사람 배너는 없다.
+
+### Patch Changes
+
+- [#231](https://github.com/minjun0219/rocky/pull/231) [`cde4082`](https://github.com/minjun0219/rocky/commit/cde408250d9433f7a2299baf7091f6ea73930b23) Thanks [@minjun0219](https://github.com/minjun0219)! - github-project 수집함 어댑터가 `--filter "assignee:@me type:Bug component/s:Web"` 로 보드 필터 문자열을 그대로 받고, `--describe` 로 입력 칸 목록을 낸다.
+
+- [#228](https://github.com/minjun0219/rocky/pull/228) [`321fc23`](https://github.com/minjun0219/rocky/commit/321fc23d83064e009dbd8b953c8ed406c5d25ce4) Thanks [@minjun0219](https://github.com/minjun0219)! - github-project 수집함 어댑터가 보드를 앞 100개만 훑던 것을 이슈 검색으로 바꾼다 — 큰 보드에서도 조건에 맞는 이슈를 놓치지 않고, 결과가 잘리면 실패로 알린다.
+
+- [#232](https://github.com/minjun0219/rocky/pull/232) [`1a49676`](https://github.com/minjun0219/rocky/commit/1a4967629a751af8a5cdc67b1b9a02c82719754d) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-request` 가 PR 을 만든 뒤 `/rocky:review-fix` 로 이어갈지 정한다 — 보드 자동 처리가 켜졌으면 데몬에 맡기고, 아니면 레포별로 한 번 물어 메모리에 남긴 답대로 진행한다.
+
 ## 0.33.1
 
 ### Patch Changes
