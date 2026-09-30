@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { searchQuery } from './inbox';
+import { applyFilter, searchQuery } from './inbox';
 
 /**
  * GitHub 프로젝트 수집함 — `gh` 를 부르지 않고 `--from` 픽스처로 필터와 규약 변환만 본다.
@@ -82,6 +82,43 @@ describe('bridges/github-project/inbox.ts', () => {
     const r = run(['--from', fieldsCut, '--project', 'acme/7', '--field', 'Status=Todo']);
     expect(r.code).toBe(1);
     expect(r.err).toContain('"Status" 을 판정하지 못했다');
+  });
+
+  test('--filter 는 보드 필터 문자열을 그대로 — 필드·담당자·타입으로 풀린다', () => {
+    const ok = run(['--from', fixture, '--project', 'acme/7', '--filter', 'component/s:Web']);
+    expect(ids(ok.out)).toEqual(['5', '1']);
+    const filters = { fields: [] as { name: string; value: string }[] } as Parameters<
+      typeof applyFilter
+    >[0];
+    applyFilter(filters, 'assignee:@me type:"Feature request" due-date:2026-10-01');
+    expect(filters).toEqual({
+      assignee: '@me',
+      type: 'Feature request',
+      fields: [{ name: 'due-date', value: '2026-10-01' }],
+    });
+  });
+
+  test('--filter 가 못 하는 문법은 조용히 버리지 않고 실패한다', () => {
+    for (const filter of [
+      '-type:Bug',
+      'type:Bug,Task',
+      'crash',
+      'is:closed',
+      'type:A type:B',
+      'a:"b',
+    ]) {
+      const r = run(['--from', fixture, '--project', 'acme/7', '--filter', filter]);
+      expect(r.code).toBe(1);
+      expect(r.err.startsWith('github-project: ')).toBe(true);
+    }
+  });
+
+  test('--describe 는 입력 칸 목록만 — 다른 인자 없이', () => {
+    const r = run(['--describe']);
+    expect(r.code).toBe(0);
+    const d = JSON.parse(r.out) as { params: { flag: string; required: boolean }[] };
+    expect(d.params.map((p) => p.flag)).toEqual(['--project', '--filter']);
+    expect(d.params.find((p) => p.flag === '--project')?.required).toBe(true);
   });
 
   test('검색어 — 조직은 이슈 타입, 개인 계정은 같은 이름의 라벨, 공백 값은 따옴표', () => {
