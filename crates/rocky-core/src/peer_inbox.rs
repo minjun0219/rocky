@@ -70,10 +70,9 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     };
     let todo = match event.kind {
         PrEventKind::Ready => {
-            "데몬이 기계적으로 본 결과다 — CI 녹색, 리뷰 스레드 전부 처리(🚀, 결정 필요 👀 없음). 리뷰는 머지 \
-             전까지 언제든 붙을 수 있으니 알리기 전에 이 세션이 판단한다: `/rocky:review-fix` 의 \
-             8단계(머지 후보 판단)대로 요청된 리뷰어 응답·봇 리뷰(메모리가 필수라 한 레포만)·방금 한 \
-             푸시·작업 중 표시를 본다. 걸리는 게 없으면 사용자에게 한 줄로 알리고(PushNotification 이 \
+            "CI 녹색, 리뷰 스레드 전부 처리(🚀, 결정 필요 👀 없음). 리뷰는 머지 전까지 언제든 붙을 수 \
+             있으니 알리기 전에 판단한다: `/rocky:review-fix` 8단계대로 요청된 리뷰어 응답·봇 리뷰(메모리가 \
+             필수라 한 레포만)·방금 한 푸시·작업 중 표시를 본다. 걸리는 게 없으면 사용자에게 한 줄로 알리고(PushNotification 이 \
              있으면 그것으로), 있으면 무엇을 기다리는지만 적고 알리지 않는다. 머지는 사용자 몫이다."
         }
         PrEventKind::Merged => {
