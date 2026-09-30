@@ -23,6 +23,20 @@ function App() {
   const setThemePref = useUiStore((s) => s.setThemePref);
   const view = useUiStore((s) => s.view);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const headRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const head = headRef.current;
+    if (!head || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const publish = () =>
+      document.documentElement.style.setProperty('--app-head-h', `${head.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(head);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     // `refetch` 는 네트워크·서버 오류로 reject 한다(`api()` 가 !res.ok 에 throw). 아래 모든
@@ -125,8 +139,12 @@ function App() {
 
   return (
     <div className="app">
-      <TopBar />
-      <ViewSwitch />
+      {/* 머리(보드 전환 · 탭)는 늘 보인다 — 좁은 창은 문서가 스크롤하니 sticky 로 붙여 두고, 그 높이를
+          `--app-head-h` 로 알려 아래의 sticky(빠른 추가 · 노트 툴바)가 그 밑에 붙게 한다. */}
+      <div ref={headRef} className="app-head sticky top-0 z-20 bg-bg">
+        <TopBar />
+        <ViewSwitch />
+      </div>
       {/* 관제판 — 한 열. 머리줄(보드 스위처) 아래 할 일: "지금"(전 보드) → 그 보드의 목록.
           노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
       {view === 'todos' ? <NowTable /> : null}
