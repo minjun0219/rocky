@@ -84,7 +84,7 @@ PATH 에 있으면 터미널에서 `rocky` 가 바로 된다(없으면 셸 rc �
 | --- | --- |
 | `worklog` | `dir` (env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture` (기본 true) / `captureMaxChars` (기본 800) / `digestThreshold` (기본 40) |
 | `usage` | 사용 로그(`dir` 기본 `~/.config/rocky/usage`, `enabled` 기본 true). 표면별 호출을 월별 JSONL 로 남기고 `rocky usage` 로 읽는다 — 내용은 싣지 않는다 |
-| `pr` | PR 감시(`enabled` 기본 true, `intervalMinutes` 기본 3, `notify` 기본 true, `sessionNotify` 기본 true — 그 레포에서 일하는 Claude Code 세션을 받은편지함 소켓으로 깨운다; 리뷰가 붙으면 그 세션에 `/rocky:review-fix` 를 시키는 것은 보드마다 그 레포의 세션이 `rocky board auto-resolve on` 으로 켠다(기본 끔), `notifiers[]` 알림 브릿지 — 수집함과 같은 명령 규약, 텔레그램은 `bridges/telegram/`). `repo` 가 설정된 보드의 PR 을 데몬이 주기적으로 보고 "머지 후보"·충돌을 macOS 알림 · 알림 브릿지 · 보드 "지금" 표 · 세션 훅 주입으로 알린다. CI 실패는 사람에게 알리지 않고 그 레포의 세션에만 보내 세션이 원인을 보고 재실행 한 번 또는 수정한다. `rocky pr` 로 읽는다 — [`docs/board.md`](./docs/board.md) "PR 감시" |
+| `pr` | PR 감시(`enabled` 기본 true, `intervalMinutes` 기본 3, `notify` 기본 true, `sessionNotify` 기본 true — 그 레포에서 일하는 Claude Code 세션을 받은편지함 소켓으로 깨운다; 리뷰가 붙으면 그 세션에 `/rocky:review-fix` 를 시키는 것은 보드마다 그 레포의 세션이 `rocky board auto-resolve on` 으로 켠다(기본 끔), `notifiers[]` 알림 브릿지 — 수집함과 같은 명령 규약, 텔레그램은 `bridges/telegram/`). `repo` 가 설정된 보드의 PR 을 데몬이 주기적으로 보고 "머지 후보"·충돌을 macOS 알림 · 알림 브릿지 · 보드 "지금" 표 · 세션 훅 주입으로 알린다. CI 실패는 사람에게 알리지 않고 그 레포의 세션에만 보내 세션이 원인을 보고 재실행 한 번 또는 수정한다. 팀 레포면 `rocky board pr-authors @me` 로 내 PR 의 전이만 깨우게 한다(기록은 전부 남는다). 보드에 레포를 처음 붙인 첫 조회는 기준선만 잡고 알리지 않는다. `rocky pr` 로 읽는다 — [`docs/board.md`](./docs/board.md) "PR 감시" |
 | `todo` | 보드 데몬 설정(`port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `inboxAdapters` — 웹 보드에서 보드마다 조건을 채워 등록하는 수집함 어댑터 / `sessionSummary`). Rust 데몬(`crates/`)이 읽고, TS 로더는 통과만 시킨다 — 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수

@@ -248,6 +248,7 @@ fn snap(number: i64, state: &str, ready: bool, merge_state: &str) -> PrSnapshot 
         decision: 0,
         ready,
         updated_at: "2026-09-28T10:00:00Z".into(),
+        author: None,
     }
 }
 
@@ -465,6 +466,7 @@ fn auto_resolve_follows_the_board_that_holds_the_repo() {
         auto_resolve: on,
         created_at: "2026-09-29T00:00:00Z".into(),
         archived_at: None,
+        pr_authors: Vec::new(),
     };
     assert!(auto_resolve_enabled(
         &[board(Some("Minjun0219/Mdwire"), true)],

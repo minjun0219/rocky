@@ -423,3 +423,21 @@ fn a_failed_board_lookup_holds_the_cursor_only_when_pr_transitions_are_waiting()
     assert_eq!(BoardLookup::Found("rocky".into()).key(), Some("rocky"));
     assert_eq!(BoardLookup::Failed.key(), None);
 }
+
+/// 작성자 필터에 걸린 전이(`quiet`)는 기록에는 있지만 세션 훅 주입·채널이 건너뛴다.
+#[test]
+fn quiet_pr_transitions_are_not_injected() {
+    let pr = |id: i64, number: i64, quiet: bool| {
+        let mut changes =
+            serde_json::json!({ "number": number, "title": "t", "url": "u", "repo": "o/r" });
+        if quiet {
+            changes["quiet"] = serde_json::json!(true);
+        }
+        let mut e = with_changes(entry(id, "rocky", "pr-ready"), changes);
+        e.history.entity = HistoryEntity::Board;
+        e
+    };
+    let text = build_pr_context(&[pr(1, 11, false), pr(2, 12, true)]).unwrap();
+    assert!(text.contains("#11") && !text.contains("#12"));
+    assert!(build_pr_context(&[pr(3, 13, true)]).is_none());
+}

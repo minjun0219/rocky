@@ -51,3 +51,24 @@ fn no_daemon_or_bad_input_is_silent_success() {
         assert_eq!(err, "", "{args:?}");
     }
 }
+
+/// `board pr-authors` 의 인자 조합 — 로그인들, 또는 `--clear` 중 하나만. 둘 다·둘 다 없음은 사용법 오류로
+/// 데몬에 가기 전에 막는다(데몬이 없으니 통과한 조합은 연결 오류로 끝난다 — 사용법 오류가 아니면 통과다).
+#[test]
+fn board_pr_authors_accepts_logins_or_clear_but_not_both() {
+    let usage = |args: &[&str]| {
+        let (code, _, err) = run(args, "");
+        code != 0 && err.contains("usage: rocky board")
+    };
+    assert!(!usage(&["board", "pr-authors", "@me", "--board", "x"]));
+    assert!(!usage(&["board", "pr-authors", "--clear", "--board", "x"]));
+    assert!(usage(&[
+        "board",
+        "pr-authors",
+        "@me",
+        "--clear",
+        "--board",
+        "x"
+    ]));
+    assert!(usage(&["board", "pr-authors", "--board", "x"]));
+}

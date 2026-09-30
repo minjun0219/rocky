@@ -242,7 +242,13 @@ interface UiState {
    */
   updateBoard: (
     boardKey: string,
-    patch: { key?: string; title?: string; description?: string | null; repo?: string | null },
+    patch: {
+      key?: string;
+      title?: string;
+      description?: string | null;
+      repo?: string | null;
+      prAuthors?: string[] | null;
+    },
   ) => Promise<void>;
 }
 

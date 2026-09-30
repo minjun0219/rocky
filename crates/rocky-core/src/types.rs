@@ -218,6 +218,9 @@ pub struct Board {
     /// `autoResolve: true` 로 실린다 — 끈 보드의 응답 모양은 그대로다.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_resolve: bool,
+    /// PR 감시가 **알릴** PR 작성자 — `@me` 또는 login. 비면 전부(기본). 기록은 필터와 무관하게 전부 남는다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pr_authors: Vec<String>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -233,6 +236,8 @@ pub struct BoardPatch {
     pub repo: Option<Option<String>>,
     pub path: Option<Option<String>>,
     pub auto_resolve: Option<bool>,
+    /// `Some(vec![])` 은 지우기(전부 알림).
+    pub pr_authors: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -542,6 +547,7 @@ mod tests {
             path: None,
             previous_keys: None,
             auto_resolve: false,
+            pr_authors: Vec::new(),
             created_at: "2026-01-01T00:00:00.000Z".into(),
             archived_at: None,
         };

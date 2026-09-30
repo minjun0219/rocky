@@ -87,6 +87,7 @@ fn board_screen_shows_tabs_rows_detail_and_help() {
             previous_keys: None,
             auto_resolve: false,
             archived_at: None,
+            pr_authors: Vec::new(),
         },
         Board {
             id: "b2".into(),
@@ -99,6 +100,7 @@ fn board_screen_shows_tabs_rows_detail_and_help() {
             previous_keys: None,
             auto_resolve: false,
             archived_at: None,
+            pr_authors: Vec::new(),
         },
     ];
     app.connected = true;

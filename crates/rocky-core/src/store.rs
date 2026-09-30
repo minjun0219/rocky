@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS boards (
   repo TEXT,
   path TEXT,
   auto_resolve INTEGER NOT NULL DEFAULT 0,
+  pr_authors TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   archived_at TEXT
 );
@@ -130,6 +131,10 @@ CREATE TABLE IF NOT EXISTS inbox_seen (
   seen_at TEXT NOT NULL,
   PRIMARY KEY (source, session_id, item_id)
 );
+CREATE TABLE IF NOT EXISTS pr_watch_repos (
+  repo TEXT PRIMARY KEY,
+  baselined_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pr_watch (
   repo TEXT NOT NULL,
   number INTEGER NOT NULL,
@@ -199,6 +204,7 @@ fn board_from_row(row: &Row) -> rusqlite::Result<Board> {
         path: row.get("path")?,
         previous_keys: None,
         auto_resolve: row.get::<_, i64>("auto_resolve")? != 0,
+        pr_authors: serde_json::from_str(&row.get::<_, String>("pr_authors")?).unwrap_or_default(),
         created_at: row.get("created_at")?,
         archived_at: row.get("archived_at")?,
     })
@@ -486,6 +492,7 @@ impl TodoStore {
         repo: &str,
         snapshots: &[PrSnapshot],
         actor: &str,
+        allow: &dyn Fn(&PrEvent, Option<&str>) -> bool,
     ) -> StoreResult<Vec<PrEvent>> {
         let mut events = Vec::new();
         // 행의 키는 인자의 `repo` 다 — 스냅숏의 repo 필드가 다른 표기(대소문자 등)여도 한 레포로 본다.
@@ -501,10 +508,31 @@ impl TodoStore {
         let result = {
             let conn = self.lock();
             let prev = list_prs_conn(&conn, Some(repo))?;
-            let changes = pr_diff(&prev, snapshots);
+            // 처음 보는 레포(보드에 repo 를 막 붙였다)의 첫 tick 은 기준선만 — 이미 실패 중인 CI·이미 머지
+            // 가능한 PR 은 "새 변화" 가 아니다. 표시는 `pr_watch_repos`(레포를 떼면 `retain_pr_repos` 가 걷는다).
+            let baselined: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pr_watch_repos WHERE repo = ?1)",
+                params![repo],
+                |r| r.get(0),
+            )?;
+            let mut changes = if baselined {
+                pr_diff(&prev, snapshots)
+            } else {
+                Vec::new()
+            };
+            for event in &mut changes {
+                // 레포 단위(배너·브릿지) — 그 레포를 둔 보드 중 하나라도 통과시키면 알린다.
+                event.quiet = !allow(event, None);
+            }
             conn.execute_batch("BEGIN")?;
             let inner = (|| -> StoreResult<Vec<PrEvent>> {
                 let now = now_iso();
+                if !baselined {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO pr_watch_repos (repo, baselined_at) VALUES (?1, ?2)",
+                        params![repo, now],
+                    )?;
+                }
                 for snap in snapshots {
                     conn.execute(
                         "INSERT INTO pr_watch (repo, number, snapshot, updated_at) VALUES (?1, ?2, ?3, ?4)\n\
@@ -526,8 +554,11 @@ impl TodoStore {
                     ids
                 };
                 for event in &changes {
-                    let changes_map = event_changes(event);
                     for board_id in &board_ids {
+                        // 보드 단위(세션 훅 주입·채널) — 그 보드의 prAuthors 가 정한다.
+                        let mut per_board = event.clone();
+                        per_board.quiet = !allow(event, Some(board_id));
+                        let changes_map = event_changes(&per_board);
                         record_history(
                             &conn,
                             &mut events,
@@ -572,6 +603,17 @@ impl TodoStore {
         let mut removed = 0;
         for repo in existing.iter().filter(|r| !repos.contains(r)) {
             removed += conn.execute("DELETE FROM pr_watch WHERE repo = ?1", params![repo])?;
+        }
+        // 기준선 표시도 — 나중에 다시 붙이면 그때 다시 기준선부터.
+        let marked: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT repo FROM pr_watch_repos")?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for repo in marked.iter().filter(|r| !repos.contains(r)) {
+            conn.execute("DELETE FROM pr_watch_repos WHERE repo = ?1", params![repo])?;
         }
         Ok(removed)
     }
@@ -1187,6 +1229,20 @@ impl TodoStore {
                     vals.push(Some(if next { "1" } else { "0" }.to_string()));
                 }
             }
+            if let Some(next) = &patch.pr_authors {
+                if let Some(bad) = next.iter().find(|a| !crate::prwatch::is_pr_author(a)) {
+                    return Err(StoreError::new(format!(
+                        "prAuthors 는 @me 또는 GitHub login 이어야 한다: {bad:?}"
+                    )));
+                }
+                if next != &existing.pr_authors {
+                    changes.insert("prAuthors".to_string(), json!([existing.pr_authors, next]));
+                    sets.push("pr_authors = ?".to_string());
+                    vals.push(Some(
+                        serde_json::to_string(next).map_err(|e| StoreError::new(e.to_string()))?,
+                    ));
+                }
+            }
 
             if sets.is_empty() {
                 hydrate_board(&conn, existing)?
@@ -1434,6 +1490,7 @@ fn ensure_board_conn(
         path: None,
         previous_keys: None,
         auto_resolve: false,
+        pr_authors: Vec::new(),
         created_at: now_iso(),
         archived_at: None,
     };

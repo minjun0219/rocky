@@ -30,6 +30,8 @@ export interface Board {
    * 옛 참조(`gotgan-12`)와 옛 `board` 인자가 계속 이 보드로 풀린다. 없으면 생략된다.
    */
   previousKeys?: string[];
+  /** PR 감시가 알릴 작성자(`@me`·login). 없으면 전부 알린다. */
+  prAuthors?: string[];
   /** 리뷰가 붙으면 이 레포의 세션이 review-fix 를 돈다 — 켰을 때만 실린다. */
   autoResolve?: boolean;
   createdAt: string;

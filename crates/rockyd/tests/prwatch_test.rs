@@ -11,6 +11,14 @@ use rockyd::prwatch::{tick, Notifier};
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::{json, Value};
 
+/// 레포의 기준선을 먼저 잡는다 — 처음 보는 레포의 첫 tick 은 전이를 내지 않으므로, 전이를 보려는 테스트는
+/// 이미 보던 레포처럼 시작한다.
+fn baseline(f: &Fx, repo: &str) {
+    f.store
+        .apply_pr_snapshot(repo, &[], "rocky", &|_, _| true)
+        .unwrap();
+}
+
 fn pr(number: i64, state: &str, rollup: &str, merge_state: &str, base: &str) -> Value {
     json!({
         "number": number, "title": format!("PR {number}"), "url": format!("https://github.com/o/r/pull/{number}"),
@@ -86,6 +94,7 @@ fn fake_gh(responses: Arc<Mutex<Value>>, calls: Arc<Mutex<Vec<Vec<String>>>>) ->
                 let (open, recent): (Vec<_>, Vec<_>) = visible.partition(|p| p["state"] == "OPEN");
                 json!({
                     "rateLimit": rate_limit(remaining, 7),
+                    "viewer": { "login": "me" },
                     "repository": {
                         "defaultBranchRef": { "name": "main" },
                         "open": { "pageInfo": { "hasNextPage": false }, "nodes": open },
@@ -140,6 +149,7 @@ async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_o
     let f = fx();
     f.store.ensure_board("rocky", None, "tester").unwrap();
     f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    baseline(&f, "o/r");
     f.store.ensure_board("norepo", None, "tester").unwrap();
     let responses = Arc::new(Mutex::new(json!({
         "r": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main"), pr(2, "OPEN", "PENDING", "CLEAN", "main")]
@@ -228,6 +238,7 @@ async fn a_failing_repo_is_reported_in_health_and_does_not_break_others() {
     f.store.set_board_repo("a", "o/gone", "tester").unwrap();
     f.store.ensure_board("b", None, "tester").unwrap();
     f.store.set_board_repo("b", "o/r", "tester").unwrap();
+    baseline(&f, "o/r");
     let responses = Arc::new(Mutex::new(
         json!({ "r": [pr(5, "OPEN", "SUCCESS", "CLEAN", "main")] }),
     ));
@@ -393,8 +404,10 @@ async fn a_low_budget_stops_the_tick_before_the_limit() {
     let f = fx();
     f.store.ensure_board("a", None, "tester").unwrap();
     f.store.set_board_repo("a", "o/a", "tester").unwrap();
+    baseline(&f, "o/a");
     f.store.ensure_board("b", None, "tester").unwrap();
     f.store.set_board_repo("b", "o/b", "tester").unwrap();
+    baseline(&f, "o/b");
     let responses = Arc::new(Mutex::new(json!({
         "a": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main")],
         "a:remaining": 903,
@@ -465,6 +478,7 @@ async fn bridge_notifier_runs_the_command_with_the_transition_on_stdin() {
         decision: 0,
         ready: true,
         updated_at: "2026-09-28T10:00:00Z".into(),
+        author: None,
     };
     let events = diff(&[], &[snap]);
     let ready = events
@@ -563,6 +577,7 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
         decision: 0,
         ready: true,
         updated_at: "2026-09-28T10:00:00Z".into(),
+        author: None,
     };
     let events = diff(&[], &[snap]);
     let ready = events
@@ -632,6 +647,8 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
         number: 8,
         title: "PR 8".into(),
         url: "https://github.com/o/r/pull/8".into(),
+        quiet: false,
+        author: None,
     };
     session_notifier(f.state.clone())(&conflict);
     let received = tokio::task::spawn_blocking(move || {
@@ -688,6 +705,8 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
         number: 9,
         title: "PR 9".into(),
         url: "https://github.com/o/r/pull/9".into(),
+        quiet: false,
+        author: None,
     };
     // 꺼진 보드(기본) — 아무것도 안 간다.
     session_notifier(f.state.clone())(&review);
@@ -768,6 +787,8 @@ async fn muting_a_session_skips_it_and_the_delivery_log_shows_it() {
         number: 9,
         title: "PR 9".into(),
         url: "https://github.com/o/r/pull/9".into(),
+        quiet: false,
+        author: None,
     };
     session_notifier(f.state.clone())(&conflict);
     let got = tokio::task::spawn_blocking(move || {
@@ -799,4 +820,138 @@ async fn muting_a_session_skips_it_and_the_delivery_log_shows_it() {
     let (status, _) = call(&f.state, "GET", "/api/deliveries", None, remote).await;
     assert_eq!(status, 403);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 보드의 PR 작성자 필터 — `@me`(gh 로그인 계정)의 PR 전이만 세션·배너로 간다. 남의 PR 은 전이로 기록되지만
+/// `quiet` 라 알림기에 가지 않고, 스냅숏(`rocky pr`)에는 그대로 남는다.
+#[tokio::test]
+async fn pr_author_filter_wakes_only_for_my_prs() {
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    f.store
+        .update_board(
+            "rocky",
+            &rocky_core::types::BoardPatch {
+                pr_authors: Some(vec!["@me".into()]),
+                ..Default::default()
+            },
+            "tester",
+        )
+        .unwrap();
+    baseline(&f, "o/r");
+    let mut mine = pr(1, "OPEN", "SUCCESS", "CLEAN", "main");
+    mine["author"] = json!({ "login": "Me" }); // 대소문자는 가리지 않는다
+    let mut theirs = pr(2, "OPEN", "SUCCESS", "CLEAN", "main");
+    theirs["author"] = json!({ "login": "other" });
+    let responses = Arc::new(Mutex::new(json!({ "r": [mine, theirs] })));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let runner = fake_gh(responses, calls);
+    let (notifier, seen) = capture();
+    let events = tick(&f.state, &runner, &notifier, true).await.events;
+    assert!(events
+        .iter()
+        .any(|e| e.number == 2 && e.kind == PrEventKind::Ready && e.quiet));
+    let texts: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, b)| b.clone())
+        .collect();
+    assert_eq!(
+        texts,
+        vec!["#1 머지 후보 — PR 1".to_string()],
+        "내 PR 만 깨운다"
+    );
+    assert_eq!(
+        f.store.list_prs(Some("o/r"), true).unwrap().len(),
+        2,
+        "보기는 넓게"
+    );
+}
+
+/// `PATCH /api/boards/:key {"prAuthors"}` — 로컬 전용, 배열 아니면 400, 모양이 틀린 login 은 400, null 은 지우기.
+#[tokio::test]
+async fn board_pr_authors_patch_is_local_and_validated() {
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    let (status, b) = patch(
+        &f.state,
+        "/api/boards/rocky",
+        json!({ "prAuthors": ["@me"] }),
+    )
+    .await;
+    assert_eq!(status, 200, "{b}");
+    assert_eq!(b["prAuthors"], json!(["@me"]));
+    let (status, _) = patch(&f.state, "/api/boards/rocky", json!({ "prAuthors": "@me" })).await;
+    assert_eq!(status, 400);
+    let (status, _) = patch(
+        &f.state,
+        "/api/boards/rocky",
+        json!({ "prAuthors": ["no spaces"] }),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let remote = ReqOptions {
+        headers: vec![("x-forwarded-for", "10.0.0.2")],
+        ..ReqOptions::default()
+    };
+    let (status, _) = call(
+        &f.state,
+        "PATCH",
+        "/api/boards/rocky",
+        Some(json!({ "prAuthors": ["x"] })),
+        remote,
+    )
+    .await;
+    assert_eq!(status, 403);
+    let (_, b) = patch(&f.state, "/api/boards/rocky", json!({ "prAuthors": null })).await;
+    assert!(b.get("prAuthors").is_none(), "지우면 응답에서 빠진다: {b}");
+}
+
+/// 필터는 보드 속성이다 — 같은 레포를 둔 두 보드 중 `@me` 보드에는 남의 PR 전이가 `quiet` 로, 필터 없는
+/// 보드에는 그대로 기록된다(훅 주입이 보드별로 갈린다). 배너·브릿지(레포 단위)는 하나라도 통과시키면 알린다.
+#[tokio::test]
+async fn pr_author_filter_is_per_board() {
+    let f = fx();
+    for key in ["mine", "team"] {
+        f.store.ensure_board(key, None, "tester").unwrap();
+        f.store.set_board_repo(key, "o/r", "tester").unwrap();
+    }
+    f.store
+        .update_board(
+            "mine",
+            &rocky_core::types::BoardPatch {
+                pr_authors: Some(vec!["@me".into()]),
+                ..Default::default()
+            },
+            "tester",
+        )
+        .unwrap();
+    baseline(&f, "o/r");
+    let mut theirs = pr(2, "OPEN", "SUCCESS", "CLEAN", "main");
+    theirs["author"] = json!({ "login": "other" });
+    let responses = Arc::new(Mutex::new(json!({ "r": [theirs] })));
+    let runner = fake_gh(responses, Arc::new(Mutex::new(Vec::new())));
+    let (notifier, seen) = capture();
+    let events = tick(&f.state, &runner, &notifier, true).await.events;
+    assert!(
+        events.iter().all(|e| !e.quiet),
+        "레포 단위로는 team 보드가 통과시킨다"
+    );
+    assert_eq!(seen.lock().unwrap().len(), 1, "배너·세션 알림기는 한 번");
+    let quiet_on = |key: &str| {
+        let id = f.store.board_id_of(key).unwrap().unwrap();
+        f.store
+            .list_history(&rocky_core::types::ListHistoryFilter {
+                entity_id: Some(id),
+                ..Default::default()
+            })
+            .unwrap()
+            .iter()
+            .filter(|h| h.action == "pr-ready")
+            .all(|h| h.changes.as_ref().and_then(|c| c.get("quiet")) == Some(&json!(true)))
+    };
+    assert!(quiet_on("mine"), "@me 보드에는 남의 PR 이 조용히 기록된다");
+    assert!(!quiet_on("team"), "필터 없는 보드에는 그대로");
 }

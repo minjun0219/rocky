@@ -450,6 +450,7 @@ fn board(key: &str, previous: Option<Vec<&str>>, path: Option<&str>) -> Board {
         auto_resolve: false,
         created_at: String::new(),
         archived_at: None,
+        pr_authors: Vec::new(),
     }
 }
 
