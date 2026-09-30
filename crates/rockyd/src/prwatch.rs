@@ -116,9 +116,18 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
         // 보드마다 후보를 최근 순으로 — 레포가 여러 보드에 걸려도 같은 세션에 두 번 보내지 않는다.
         let mut groups: Vec<Vec<rocky_core::peer_inbox::InboxRegistration>> = Vec::new();
         let mut seen = std::collections::HashSet::new();
+        let viewer = state.gh_viewer();
         for board in boards
             .iter()
             .filter(|b| b.repo.as_deref() == Some(event.repo.as_str()))
+            // 보드 속성 — 이 보드의 prAuthors 에 걸린 PR 이면 이 보드의 세션은 깨우지 않는다.
+            .filter(|b| {
+                rocky_core::prwatch::author_matches(
+                    &b.pr_authors,
+                    event.author.as_deref(),
+                    viewer.as_deref(),
+                )
+            })
         {
             let group: Vec<_> = rocky_core::peer_inbox::session_candidates(
                 &registrations,
@@ -342,13 +351,44 @@ async fn tick_repo(
         snapshots
             .extend(parse_pr_details(&detail, repo, &default_branch).map_err(QueryError::Other)?);
     }
+    // 알릴지는 보드의 PR 작성자 필터(`prAuthors`)가 정한다 — `@me` 는 gh 로그인 계정(목록 쿼리의 viewer).
+    // 걸린 전이도 히스토리·스냅숏에는 남는다(보기는 넓게, 깨우기는 좁게).
+    let viewer = data
+        .pointer("/viewer/login")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let boards = state.store.list_boards(false).unwrap_or_default();
+    // `@me` 를 풀 계정이 응답에 없으면 그 보드는 아무것도 알리지 못한다 — 조용히 끊기지 않게 남긴다.
+    if viewer.is_none()
+        && boards
+            .iter()
+            .any(|b| b.repo.as_deref() == Some(repo) && b.pr_authors.iter().any(|a| a == "@me"))
+    {
+        eprintln!(
+            "rocky: PR 감시 {repo} — 응답에 viewer 가 없어 @me 판정 불가(그 보드는 알림이 가지 않는다)"
+        );
+    }
+    state.set_gh_viewer(viewer.clone());
+    // board_id 가 있으면 그 보드의 필터(세션 훅 주입), 없으면 레포 단위(배너·브릿지).
+    let allow = |e: &rocky_core::prwatch::PrEvent, board_id: Option<&str>| {
+        rocky_core::prwatch::author_allowed(
+            &boards,
+            &e.repo,
+            board_id,
+            e.author.as_deref(),
+            viewer.as_deref(),
+        )
+    };
     let events = state
         .store
-        .apply_pr_snapshot(repo, &snapshots, PR_WATCH_ACTOR)
+        .apply_pr_snapshot(repo, &snapshots, PR_WATCH_ACTOR, &allow)
         .map_err(|e| QueryError::Other(e.to_string()))?;
     if notify {
         // 사람에게 알릴 것(ready·conflict)과 세션이 처리할 것(review·merged). 배너·브릿지는 앞의 둘만 쓴다.
-        for event in events.iter().filter(|e| e.kind.reaches_session()) {
+        for event in events
+            .iter()
+            .filter(|e| e.kind.reaches_session() && !e.quiet)
+        {
             notifier(event);
         }
     }
@@ -434,7 +474,11 @@ pub fn spawn_pr_watcher(
         tokio::time::sleep(first_after).await;
         loop {
             let outcome = tick(&state, &runner, &notifier, notify).await;
-            for e in outcome.events.iter().filter(|e| e.kind.notifies()) {
+            for e in outcome
+                .events
+                .iter()
+                .filter(|e| e.kind.notifies() && !e.quiet)
+            {
                 let (_, body) = notification_text(e);
                 println!("rocky: PR — {body}");
             }

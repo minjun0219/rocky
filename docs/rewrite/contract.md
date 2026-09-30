@@ -112,8 +112,9 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
   값이 설정을 날리지 않게. key/title 은 null 도 400.
 - `repo` 는 `isRepoSlug`(OWNER/NAME) 검증. 값은 `trim()` 후 저장.
 - `autoResolve` 는 불리언만(아니면 400). 응답의 `Board` 에는 켰을 때만 `autoResolve: true` 가 실린다.
-- patch 가 비면 400 `key, title, description, repo, path or autoResolve is required`.
-- `repo`/`path`/`autoResolve` 변경은 로컬 전용(403), title/description/key 는 원격 허용.
+- patch 가 비면 400 `key, title, description, repo, path, autoResolve or prAuthors is required`.
+- `prAuthors` 는 문자열 배열(`@me` 또는 GitHub login — 모양이 틀리면 400) 또는 `null`(지우기, 빈 배열과 같다). 응답의 `Board` 에는 비어 있지 않을 때만 실린다.
+- `repo`/`path`/`autoResolve`/`prAuthors` 변경은 로컬 전용(403), title/description/key 는 원격 허용.
 
 ### 핸드오프 (POST /api/todos/:ref/handoff)
 

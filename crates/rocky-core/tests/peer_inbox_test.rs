@@ -50,6 +50,8 @@ fn event(kind: PrEventKind) -> PrEvent {
         number: 7,
         title: "PR 7".into(),
         url: "https://github.com/o/rocky/pull/7".into(),
+        quiet: false,
+        author: None,
     }
 }
 

@@ -191,6 +191,14 @@ fn pr_transition(e: &ChangeFeedEntry) -> Option<PrTransition<'_>> {
         _ => return None,
     };
     let changes = e.history.changes.as_ref();
+    // 보드의 PR 작성자 필터에 걸린 전이 — 기록은 있지만 세션을 깨우지 않는다(훅 주입·채널 공통).
+    if changes
+        .and_then(|c| c.get("quiet"))
+        .and_then(|v| v.as_bool())
+        == Some(true)
+    {
+        return None;
+    }
     let str_of = |key: &str| {
         changes
             .and_then(|c| c.get(key))

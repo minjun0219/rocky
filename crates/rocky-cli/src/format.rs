@@ -415,6 +415,12 @@ pub fn render_board(board: &Board) -> String {
     if let Some(path) = board.path.as_deref().filter(|p| !p.is_empty()) {
         lines.push(format!("  path  {path}"));
     }
+    if !board.pr_authors.is_empty() {
+        lines.push(format!(
+            "  prAuthors    {} (이 작성자의 PR 만 알린다 — 기록은 전부)",
+            board.pr_authors.join(", ")
+        ));
+    }
     if board.auto_resolve {
         lines.push("  autoResolve  켬 (리뷰가 붙으면 이 레포의 세션이 review-fix)".to_string());
     }

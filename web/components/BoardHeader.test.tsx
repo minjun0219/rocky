@@ -128,3 +128,20 @@ describe('BoardHeader 편집', () => {
     expect(screen.getByRole('button', { name: '편집' })).toBeDefined();
   });
 });
+
+describe('BoardHeader PR 알림 작성자', () => {
+  test('공백·쉼표로 나눠 prAuthors 로 보내고, 비우면 null(전부 알림)', async () => {
+    const updateBoard = mountHeader({ title: 'rocky', repo: 'o/r' });
+    await userEvent.click(editButton());
+    await userEvent.type(field('PR 작성자'), '@me, octo-cat');
+    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(updateBoard).toHaveBeenCalledWith('rocky-todo', { prAuthors: ['@me', 'octo-cat'] });
+    cleanup();
+    const clearing = mountHeader({ title: 'rocky', prAuthors: ['@me'] });
+    expect(screen.getByText('PR 알림 @me')).toBeDefined();
+    await userEvent.click(editButton());
+    await userEvent.clear(field('PR 작성자'));
+    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(clearing).toHaveBeenCalledWith('rocky-todo', { prAuthors: null });
+  });
+});

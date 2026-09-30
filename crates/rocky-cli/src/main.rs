@@ -88,7 +88,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "spawn" => commands::cmd_spawn(&ctx, &rest, &parsed, &board, &printer),
         "section" => commands::cmd_section(&ctx, &rest, &board, &printer),
         "handoff" => commands::cmd_handoff(&ctx, &rest, &parsed, &board, &printer),
-        "board" => commands::cmd_board(&ctx, &rest, &board, &printer),
+        "board" => commands::cmd_board(&ctx, &rest, &board, parsed.bool_flag("clear"), &printer),
         "history" => commands::cmd_history(&ctx, &rest, &parsed, &board, &printer),
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),

@@ -58,6 +58,14 @@ export function BoardHeader({ board }: { board: Board }) {
           </a>
         )}
         {board.path && <span className="chip text-faint">{board.path}</span>}
+        {board.prAuthors && board.prAuthors.length > 0 && (
+          <span
+            className="chip text-faint"
+            title="이 작성자의 PR 만 세션·알림으로 — 기록은 전부 남는다"
+          >
+            PR 알림 {board.prAuthors.join(', ')}
+          </span>
+        )}
         {board.previousKeys && board.previousKeys.length > 0 && (
           // 옛 참조(`gotgan-12`)가 아직 살아 있다는 걸 아는 유일한 자리다 — 다른 표면은
           // 언제나 새 key 만 내보낸다.
@@ -80,13 +88,20 @@ function BoardEditForm({
   onDone: () => void;
   onSave: (
     boardKey: string,
-    patch: { key?: string; title?: string; description?: string | null; repo?: string | null },
+    patch: {
+      key?: string;
+      title?: string;
+      description?: string | null;
+      repo?: string | null;
+      prAuthors?: string[] | null;
+    },
   ) => Promise<void>;
 }) {
   const [key, setKey] = useState(board.key);
   const [title, setTitle] = useState(board.title);
   const [description, setDescription] = useState(board.description ?? '');
   const [repo, setRepo] = useState(board.repo ?? '');
+  const [authors, setAuthors] = useState((board.prAuthors ?? []).join(' '));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,6 +129,11 @@ function BoardEditForm({
       }
       if (repo.trim() !== (board.repo ?? '')) {
         patch.repo = repo.trim() === '' ? null : repo.trim();
+      }
+      // 공백·쉼표로 나눈다 — 비우면 null(전부 알림).
+      const nextAuthors = authors.split(/[\s,]+/).filter(Boolean);
+      if (nextAuthors.join(' ') !== (board.prAuthors ?? []).join(' ')) {
+        patch.prAuthors = nextAuthors.length === 0 ? null : nextAuthors;
       }
       if (Object.keys(patch).length > 0) {
         await onSave(board.key, patch);
@@ -184,6 +204,18 @@ function BoardEditForm({
           value={repo}
           placeholder="OWNER/NAME"
           onChange={(e) => setRepo(e.target.value)}
+        />
+      </label>
+      <label className="mb-1.5 flex items-center gap-2.5">
+        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
+          PR 알림
+        </span>
+        <input
+          className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
+          value={authors}
+          placeholder="@me (비우면 모든 작성자)"
+          aria-label="PR 작성자"
+          onChange={(e) => setAuthors(e.target.value)}
         />
       </label>
       {/* 저장 실패 사유는 즉시 읽혀야 한다 — 보이기만 하면 스크린리더가 놓친다. */}

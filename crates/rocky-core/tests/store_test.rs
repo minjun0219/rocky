@@ -3193,6 +3193,17 @@ fn an_out_of_order_batch_is_kept_until_its_predecessor_arrives() {
 
 // ── PR 감시 ─────────────────────────────────────────────────────────────────
 
+/// 알림 판정 — 전부 알림(필터 없음).
+const ALL: &dyn Fn(&rocky_core::prwatch::PrEvent, Option<&str>) -> bool = &|_, _| true;
+
+/// 레포의 기준선을 먼저 잡는다 — 처음 보는 레포의 첫 스냅숏은 전이를 내지 않는다.
+fn baseline(store: &TodoStore, repo: &str) {
+    assert!(store
+        .apply_pr_snapshot(repo, &[], "rocky", ALL)
+        .unwrap()
+        .is_empty());
+}
+
 fn pr_snap(
     number: i64,
     state: &str,
@@ -3215,6 +3226,7 @@ fn pr_snap(
         decision: 0,
         ready,
         updated_at: "2026-09-28T10:00:00Z".into(),
+        author: None,
     }
 }
 
@@ -3225,6 +3237,7 @@ fn pr_snapshots_are_remembered_and_transitions_land_in_board_history() {
     let f = fx();
     f.store.ensure_board("rocky", None, "tester").unwrap();
     f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    baseline(&f.store, "o/r");
     let events = f
         .store
         .apply_pr_snapshot(
@@ -3234,6 +3247,7 @@ fn pr_snapshots_are_remembered_and_transitions_land_in_board_history() {
                 pr_snap(2, "OPEN", false, "CLEAN"),
             ],
             "rocky",
+            ALL,
         )
         .unwrap();
     assert_eq!(
@@ -3256,6 +3270,7 @@ fn pr_snapshots_are_remembered_and_transitions_land_in_board_history() {
                 pr_snap(2, "OPEN", false, "CLEAN"),
             ],
             "rocky",
+            ALL,
         )
         .unwrap();
     assert!(again.is_empty());
@@ -3268,6 +3283,7 @@ fn pr_snapshots_are_remembered_and_transitions_land_in_board_history() {
                 pr_snap(2, "OPEN", false, "DIRTY"),
             ],
             "rocky",
+            ALL,
         )
         .unwrap();
     assert_eq!(merged.len(), 2);
@@ -3305,9 +3321,15 @@ fn pr_snapshots_are_remembered_and_transitions_land_in_board_history() {
 #[test]
 fn pr_events_without_a_board_are_returned_but_not_recorded() {
     let f = fx();
+    baseline(&f.store, "no/board");
     let events = f
         .store
-        .apply_pr_snapshot("no/board", &[pr_snap(1, "OPEN", true, "CLEAN")], "rocky")
+        .apply_pr_snapshot(
+            "no/board",
+            &[pr_snap(1, "OPEN", true, "CLEAN")],
+            "rocky",
+            ALL,
+        )
         .unwrap();
     assert_eq!(events.len(), 2);
     assert_eq!(f.store.list_prs(Some("no/board"), false).unwrap().len(), 1);
@@ -3318,10 +3340,10 @@ fn pr_events_without_a_board_are_returned_but_not_recorded() {
 fn snapshots_of_unwatched_repos_are_pruned() {
     let f = fx();
     f.store
-        .apply_pr_snapshot("o/keep", &[pr_snap(1, "OPEN", true, "CLEAN")], "rocky")
+        .apply_pr_snapshot("o/keep", &[pr_snap(1, "OPEN", true, "CLEAN")], "rocky", ALL)
         .unwrap();
     f.store
-        .apply_pr_snapshot("o/gone", &[pr_snap(2, "OPEN", true, "CLEAN")], "rocky")
+        .apply_pr_snapshot("o/gone", &[pr_snap(2, "OPEN", true, "CLEAN")], "rocky", ALL)
         .unwrap();
     assert_eq!(f.store.retain_pr_repos(&["o/keep".to_string()]).unwrap(), 1);
     assert_eq!(f.store.list_prs(None, false).unwrap().len(), 1);
@@ -3355,4 +3377,165 @@ fn linked_urls_span_every_board_and_include_archived_todos() {
     let urls = f.store.linked_urls().unwrap();
     assert_eq!(urls.len(), 2);
     assert!(urls.contains("https://x/1") && urls.contains("https://x/2"));
+}
+
+/// 보드에 repo 를 처음 붙인 첫 tick 은 기준선만 — 이미 머지 가능·이미 실패 중인 PR 이 한꺼번에 쏟아지지 않는다.
+/// 다음 스냅숏부터의 실제 변화만 전이다. 레포를 떼면 표시가 걷혀, 다시 붙이면 또 기준선부터.
+#[test]
+fn first_snapshot_of_a_new_repo_is_a_silent_baseline() {
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let first = f
+        .store
+        .apply_pr_snapshot("o/r", &[pr_snap(1, "OPEN", true, "CLEAN")], "rocky", ALL)
+        .unwrap();
+    assert!(first.is_empty(), "첫 tick 은 기준선만: {first:?}");
+    assert_eq!(
+        f.store.list_prs(Some("o/r"), true).unwrap().len(),
+        1,
+        "스냅숏은 적는다"
+    );
+    let next = f
+        .store
+        .apply_pr_snapshot(
+            "o/r",
+            &[
+                pr_snap(1, "OPEN", true, "CLEAN"),
+                pr_snap(2, "OPEN", true, "CLEAN"),
+            ],
+            "rocky",
+            ALL,
+        )
+        .unwrap();
+    assert_eq!(
+        next.iter().filter(|e| e.number == 2).count(),
+        2,
+        "새 PR 은 전이"
+    );
+    assert!(next.iter().all(|e| e.number == 2));
+    f.store.retain_pr_repos(&[]).unwrap();
+    let again = f
+        .store
+        .apply_pr_snapshot("o/r", &[pr_snap(3, "OPEN", true, "CLEAN")], "rocky", ALL)
+        .unwrap();
+    assert!(again.is_empty(), "떼었다 다시 붙이면 기준선부터");
+}
+
+/// 작성자 필터에 걸린 전이는 기록은 남되 `quiet` — 세션·배너·훅은 건너뛴다.
+#[test]
+fn filtered_transitions_are_recorded_as_quiet() {
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    baseline(&f.store, "o/r");
+    let mut mine = pr_snap(1, "OPEN", true, "CLEAN");
+    mine.author = Some("me".into());
+    let mut theirs = pr_snap(2, "OPEN", true, "CLEAN");
+    theirs.author = Some("other".into());
+    let only_me: &dyn Fn(&rocky_core::prwatch::PrEvent, Option<&str>) -> bool =
+        &|e, _| e.author.as_deref() == Some("me");
+    let events = f
+        .store
+        .apply_pr_snapshot("o/r", &[mine, theirs], "rocky", only_me)
+        .unwrap();
+    assert!(events.iter().filter(|e| e.number == 1).all(|e| !e.quiet));
+    assert!(events.iter().filter(|e| e.number == 2).all(|e| e.quiet));
+    let board_id = f.store.board_id_of("rocky").unwrap().unwrap();
+    let history = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(board_id),
+            ..Default::default()
+        })
+        .unwrap();
+    let quiet_rows = history
+        .iter()
+        .filter(|h| h.action.starts_with("pr-"))
+        .filter(|h| {
+            h.changes.as_ref().and_then(|c| c.get("quiet")) == Some(&serde_json::json!(true))
+        })
+        .count();
+    assert_eq!(
+        quiet_rows, 2,
+        "남의 PR 의 전이(열림·머지 후보)도 기록은 남는다"
+    );
+}
+
+/// 보드의 prAuthors — 저장·지우기, 모양이 틀린 값은 거부.
+#[test]
+fn board_pr_authors_round_trip_and_validate() {
+    let f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    let set = |v: Vec<&str>| {
+        f.store.update_board(
+            "rocky",
+            &BoardPatch {
+                pr_authors: Some(v.into_iter().map(String::from).collect()),
+                ..Default::default()
+            },
+            "tester",
+        )
+    };
+    let b = set(vec!["@me", "octo-cat"]).unwrap();
+    assert_eq!(
+        b.pr_authors,
+        vec!["@me".to_string(), "octo-cat".to_string()]
+    );
+    assert!(set(vec!["bad name"]).is_err());
+    assert!(set(vec![]).unwrap().pr_authors.is_empty());
+}
+
+/// 업그레이드(마이그레이션 12) — 이미 보던 레포(PR 기록이 있거나 보드에 붙은 레포)는 기준선을 잡은 것으로
+/// 채운다. 안 그러면 올린 직후 첫 tick 이 그 사이의 진짜 변화(새 PR·머지 후보)를 기준선으로 삼켜 버린다.
+/// (negative control: 시딩 두 줄을 빼면 두 단언이 실패한다 — 작성 때 확인.)
+#[test]
+fn upgrading_seeds_baselines_for_repos_already_watched() {
+    let mut f = fx();
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    f.store.ensure_board("quiet", None, "tester").unwrap();
+    f.store
+        .set_board_repo("quiet", "o/empty", "tester")
+        .unwrap();
+    baseline(&f.store, "o/r");
+    f.store
+        .apply_pr_snapshot("o/r", &[pr_snap(1, "OPEN", false, "CLEAN")], "rocky", ALL)
+        .unwrap();
+    // 11 버전 DB 처럼 — 기준선 표시가 없다.
+    {
+        let raw = f.raw();
+        raw.execute_batch("DELETE FROM pr_watch_repos; PRAGMA user_version = 11;")
+            .unwrap();
+    }
+    f.reload();
+    let with_rows = f
+        .store
+        .apply_pr_snapshot(
+            "o/r",
+            &[
+                pr_snap(1, "OPEN", false, "CLEAN"),
+                pr_snap(2, "OPEN", true, "CLEAN"),
+            ],
+            "rocky",
+            ALL,
+        )
+        .unwrap();
+    assert!(
+        with_rows.iter().any(|e| e.number == 2),
+        "PR 기록이 있던 레포: {with_rows:?}"
+    );
+    let empty = f
+        .store
+        .apply_pr_snapshot(
+            "o/empty",
+            &[pr_snap(3, "OPEN", true, "CLEAN")],
+            "rocky",
+            ALL,
+        )
+        .unwrap();
+    assert!(
+        !empty.is_empty(),
+        "보드에 붙어 있던 레포(PR 기록 없음)도 이미 보던 레포다"
+    );
 }

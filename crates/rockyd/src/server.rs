@@ -131,6 +131,8 @@ pub struct ServerState {
     note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
     /// PR 감시 잡의 마지막 결과 — health 가 낸다.
     pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
+    /// PR 감시가 마지막으로 본 gh 로그인 계정 — 보드 `prAuthors` 의 `@me`.
+    gh_viewer: Mutex<Option<String>>,
     /// 세션 받은편지함 등록부 — 훅이 `session_id → 소켓` 을 알려 준다(`rocky_core::peer_inbox`).
     /// 데몬 수명 상태다: 훅이 턴마다 다시 등록하므로 재기동 뒤 첫 턴에 다시 채워진다.
     inboxes: Mutex<HashMap<String, rocky_core::peer_inbox::InboxRegistration>>,
@@ -162,6 +164,16 @@ impl ServerState {
 
     /// 노트의 문서 스트림 — 없으면 만든다. 테스트가 구독해 방송을 본다.
     /// PR 감시 상태 — 잡이 tick 마다 갱신한다.
+    pub fn set_gh_viewer(&self, viewer: Option<String>) {
+        if viewer.is_some() {
+            *self.gh_viewer.lock().expect("gh_viewer poisoned") = viewer;
+        }
+    }
+
+    pub fn gh_viewer(&self) -> Option<String> {
+        self.gh_viewer.lock().expect("gh_viewer poisoned").clone()
+    }
+
     pub fn set_pr_watch(&self, status: crate::prwatch::PrWatchStatus) {
         *self.pr_watch.lock().expect("pr_watch poisoned") = status;
     }
@@ -362,6 +374,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
+        gh_viewer: Mutex::new(None),
         inboxes: Mutex::new(HashMap::new()),
         deliveries: Mutex::new(std::collections::VecDeque::new()),
         muted: Mutex::new(std::collections::HashSet::new()),
@@ -1102,7 +1115,8 @@ async fn dispatch(
             // 켜면 데몬이 세션에 일을 시키므로 보드 쓰기가 세션 조종으로 넓어지는 지점이다.
             if (body.contains_key("path")
                 || body.contains_key("repo")
-                || body.contains_key("autoResolve"))
+                || body.contains_key("autoResolve")
+                || body.contains_key("prAuthors"))
                 && !local
             {
                 return Ok(error_response(
@@ -1121,6 +1135,26 @@ async fn dispatch(
                     ));
                 };
                 patch.auto_resolve = Some(on);
+                any = true;
+            }
+            // 알릴 PR 작성자 — 배열(`@me`·login), `null`·빈 배열은 지우기(전부 알림). 모양은 스토어가 검증한다.
+            if let Some(value) = body.get("prAuthors") {
+                let authors = if value.is_null() {
+                    Some(Vec::new())
+                } else {
+                    value.as_array().and_then(|a| {
+                        a.iter()
+                            .map(|v| v.as_str().map(|s| s.trim().to_string()))
+                            .collect::<Option<Vec<_>>>()
+                    })
+                };
+                let Some(authors) = authors else {
+                    return Ok(error_response(
+                        "prAuthors 는 문자열 배열(@me 또는 GitHub login) 또는 null 이어야 한다",
+                        StatusCode::BAD_REQUEST,
+                    ));
+                };
+                patch.pr_authors = Some(authors);
                 any = true;
             }
             for name in ["key", "title", "description", "repo", "path"] {
@@ -1162,7 +1196,7 @@ async fn dispatch(
             }
             if !any {
                 return Ok(error_response(
-                    "key, title, description, repo, path or autoResolve is required",
+                    "key, title, description, repo, path, autoResolve or prAuthors is required",
                     StatusCode::BAD_REQUEST,
                 ));
             }

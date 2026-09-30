@@ -541,9 +541,10 @@ pub fn cmd_board(
     ctx: &CliContext,
     rest: &[String],
     board: &str,
+    clear: bool,
     printer: &Printer,
 ) -> Result<(), String> {
-    const USAGE: &str = "usage: rocky board ls | board show [KEY] | board add KEY [제목] | board rename NEWKEY | board title \"제목\" | board desc [\"설명\"] | board repo [OWNER/NAME] | board path [절대경로] | board auto-resolve on|off\n  show 를 뺀 수정 명령은 모두 cwd 로 유추한 보드를 고친다 — 다른 보드는 --board KEY 로 지정한다";
+    const USAGE: &str = "usage: rocky board ls | board show [KEY] | board add KEY [제목] | board rename NEWKEY | board title \"제목\" | board desc [\"설명\"] | board repo [OWNER/NAME] | board path [절대경로] | board auto-resolve on|off | board pr-authors @me|LOGIN... | board pr-authors --clear\n  show 를 뺀 수정 명령은 모두 cwd 로 유추한 보드를 고친다 — 다른 보드는 --board KEY 로 지정한다";
     let sub = rest.first().map(String::as_str).unwrap_or("ls");
     let arg = rest.get(1).map(String::as_str);
 
@@ -711,6 +712,29 @@ pub fn cmd_board(
                     ""
                 };
                 format!("✓ {} autoResolve {state}{hint}", updated.key)
+            });
+            Ok(())
+        }
+        "pr-authors" => {
+            // PR 감시가 **알릴** 작성자 — 기록(히스토리·rocky pr)은 필터와 무관하게 전부 남는다.
+            let authors: Vec<String> = rest.iter().skip(1).map(|s| s.trim().to_string()).collect();
+            // 둘 다 주면 무엇을 원했는지 모른다 — 필터를 건 줄 알았는데 지워지는 일이 없게 거부한다.
+            if authors.is_empty() != clear {
+            } else {
+                return Err(USAGE.into());
+            }
+            let value = if clear { Value::Null } else { json!(authors) };
+            let (raw, updated) = patch("prAuthors", value)?;
+            printer.emit(&raw, || {
+                if updated.pr_authors.is_empty() {
+                    format!("✓ {} PR 작성자 필터 없음 — 모든 PR 을 알린다", updated.key)
+                } else {
+                    format!(
+                        "✓ {} PR 작성자 {} 의 PR 만 알린다(기록은 전부)",
+                        updated.key,
+                        updated.pr_authors.join(", ")
+                    )
+                }
             });
             Ok(())
         }

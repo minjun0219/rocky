@@ -64,6 +64,7 @@ fn board(key: &str, path: Option<&str>) -> Board {
         previous_keys: None,
         auto_resolve: false,
         archived_at: None,
+        pr_authors: Vec::new(),
     }
 }
 

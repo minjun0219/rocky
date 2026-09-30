@@ -30,7 +30,7 @@ const PR_FIELDS: &str = r#"fragment prFields on PullRequest {
 /// 상태 조각 — 목록 쿼리는 이것만 받는다(열린 것도). 닫힌 PR 은 이걸로 스냅숏이 완성된다
 /// (`is_ready` 가 OPEN 을 요구하므로 스레드·CI 가 필요 없다).
 const PR_STATE_FIELDS: &str = r#"fragment prState on PullRequest {
-  number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt
+  number title url state isDraft headRefOid mergeStateStatus baseRefName updatedAt author { login }
 }"#;
 
 /// 응답마다 실어 오는 잔여 예산 — 데몬이 tick 을 쉴지 정하는 재료.
@@ -41,6 +41,7 @@ const RATE_LIMIT_FIELDS: &str = "rateLimit { cost remaining resetAt }";
 /// `parse_pr_list` 가 읽는 모양과 한 파일에서 맞추기 위해서다(변수: `owner`, `name`).
 pub const PR_LIST_QUERY: &str = r#"query($owner:String!, $name:String!) {
   rateLimit { cost remaining resetAt }
+  viewer { login }
   repository(owner:$owner, name:$name) {
     defaultBranchRef { name }
     open: pullRequests(first:50, states:[OPEN], orderBy:{field:UPDATED_AT, direction:DESC}) { pageInfo { hasNextPage } nodes { ...prState } }
@@ -201,6 +202,9 @@ pub struct PrSnapshot {
     pub decision: i64,
     pub ready: bool,
     pub updated_at: String,
+    /// PR 작성자 login — 보드의 `prAuthors` 필터가 본다. 이 필드 전의 스냅숏·삭제된 계정은 None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 /// "확인·머지해도 되는가" — 열려 있고, draft 가 아니고, 기본 브랜치를 향하고(스택의 맨 아래),
@@ -396,6 +400,10 @@ fn parse_pr_node(node: &Value, repo: &str, default_branch: &str) -> Result<PrSna
         decision,
         ready,
         updated_at: str_of("updatedAt"),
+        author: node
+            .pointer("/author/login")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -458,6 +466,13 @@ pub struct PrEvent {
     pub number: i64,
     pub title: String,
     pub url: String,
+    /// PR 작성자 login(모르면 None).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// 알리지 않는 전이 — 보드의 `prAuthors` 필터에 걸렸다. 히스토리·`rocky pr` 에는 남고 세션·배너·
+    /// 브릿지·훅 주입은 건너뛴다("보기는 넓게, 깨우기는 좁게").
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
 }
 
 /// 직전 스냅숏(레포 단위)과 새 스냅숏의 차이. 직전에 없던 PR 은 `Opened`(열려 있을 때만) 과,
@@ -471,6 +486,8 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
             number: p.number,
             title: p.title.clone(),
             url: p.url.clone(),
+            author: p.author.clone(),
+            quiet: false,
         };
         let was = prev
             .iter()
@@ -585,7 +602,72 @@ pub fn event_changes(event: &PrEvent) -> serde_json::Map<String, Value> {
     m.insert("title".into(), Value::from(event.title.clone()));
     m.insert("url".into(), Value::from(event.url.clone()));
     m.insert("repo".into(), Value::from(event.repo.clone()));
+    if let Some(author) = &event.author {
+        m.insert("author".into(), Value::from(author.clone()));
+    }
+    // 알리지 않는 전이 — 훅 주입·채널이 이 표시로 건너뛴다(기록은 남는다).
+    if event.quiet {
+        m.insert("quiet".into(), Value::from(true));
+    }
     m
+}
+
+/// PR 작성자 필터 — `filter` 가 비면 전부 통과(하위 호환). `@me` 는 `viewer`(gh 로그인 계정)로 풀고,
+/// 이름은 대소문자를 가리지 않는다(GitHub 과 같다). 작성자를 모르면(삭제된 계정 등) 필터가 있을 때 통과하지 않는다.
+pub fn author_matches(filter: &[String], author: Option<&str>, viewer: Option<&str>) -> bool {
+    if filter.is_empty() {
+        return true;
+    }
+    let Some(author) = author else {
+        return false;
+    };
+    filter.iter().any(|f| {
+        let want = if f == "@me" {
+            viewer
+        } else {
+            Some(f.trim_start_matches('@'))
+        };
+        want.is_some_and(|w| w.eq_ignore_ascii_case(author))
+    })
+}
+
+/// 이 전이를 알릴지. `board_id` 가 있으면 그 보드의 필터만(세션 훅 주입·받은편지함 — 보드 속성), 없으면 그
+/// 레포를 둔 보드 중 하나라도 통과시키면 알린다(배너·브릿지 — 보드와 무관한 경로). 레포 이름은 대소문자를
+/// 가리지 않는다.
+pub fn author_allowed(
+    boards: &[crate::types::Board],
+    repo: &str,
+    board_id: Option<&str>,
+    author: Option<&str>,
+    viewer: Option<&str>,
+) -> bool {
+    if let Some(id) = board_id {
+        return boards
+            .iter()
+            .find(|b| b.id == id)
+            .is_none_or(|b| author_matches(&b.pr_authors, author, viewer));
+    }
+    let mut any = false;
+    for b in boards.iter().filter(|b| {
+        b.repo
+            .as_deref()
+            .is_some_and(|r| r.eq_ignore_ascii_case(repo))
+    }) {
+        any = true;
+        if author_matches(&b.pr_authors, author, viewer) {
+            return true;
+        }
+    }
+    !any
+}
+
+/// 보드 `prAuthors` 값 하나가 쓸 수 있는 모양인가 — `@me` 또는 GitHub login(영숫자·`-`, 39자까지).
+pub fn is_pr_author(value: &str) -> bool {
+    let v = value.trim_start_matches('@');
+    value == "@me"
+        || (!v.is_empty()
+            && v.len() <= 39
+            && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
 }
 
 /// 알림 브릿지(`pr.notifiers[]`)의 stdin 에 주는 JSON — 전이 한 건. `heading`·`text` 는 macOS

@@ -236,7 +236,30 @@ fn add_inbox_subscriptions(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 11] = [
+/// 마이그레이션 12: 보드별 PR 작성자 필터(`boards.pr_authors`)와 PR 감시 기준선 표시(`pr_watch_repos`).
+/// 이미 보고 있던 레포(PR 기록이 있거나 보드에 붙은 레포)는 기준선을 잡은 것으로 채운다 — 올린 직후의 진짜
+/// 변화를 첫 tick 이 삼키지 않게.
+fn add_pr_authors_and_baseline(db: &Connection) -> rusqlite::Result<()> {
+    if !table_columns(db, "boards")?
+        .iter()
+        .any(|c| c == "pr_authors")
+    {
+        db.execute_batch("ALTER TABLE boards ADD COLUMN pr_authors TEXT NOT NULL DEFAULT '[]'")?;
+    }
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pr_watch_repos (\n\
+           repo         TEXT PRIMARY KEY,\n\
+           baselined_at TEXT NOT NULL\n\
+         );\n\
+         INSERT OR IGNORE INTO pr_watch_repos (repo, baselined_at)\n\
+           SELECT DISTINCT repo, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM pr_watch;\n\
+         INSERT OR IGNORE INTO pr_watch_repos (repo, baselined_at)\n\
+           SELECT DISTINCT repo, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM boards\n\
+           WHERE repo IS NOT NULL",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 12] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -248,6 +271,7 @@ pub const MIGRATIONS: [MigrationFn; 11] = [
     add_board_auto_resolve,
     add_board_inbox_sources,
     add_inbox_subscriptions,
+    add_pr_authors_and_baseline,
 ];
 
 #[derive(Default)]
