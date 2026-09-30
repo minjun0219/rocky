@@ -583,6 +583,8 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
 - `id`·`title` 필수(`id` 는 숫자여도 문자열로 받는다). `url`·`note`·`due`(`YYYY-MM-DD`)·
   `createdAt`(RFC 3339) 옵션. 형식이 틀리면 **그 소스 전체가 실패**다 — 반쯤 통과시키지 않는다.
 - 완료된 항목은 내지 않는다. 정렬은 어댑터 몫.
+- (선택) `--describe` 를 받으면 입력 칸 목록 `{"title", "params":[{"flag","label","placeholder","required"}]}`
+  만 내고 끝난다 — 보드 설정 화면이 이걸로 폼을 그리고 이 플래그들로만 값을 넘긴다.
 - exit ≠ 0 이면 stderr 첫 줄이 사유가 된다. 참조 구현: [`bridges/file/inbox.sh`](../bridges/file/inbox.sh)
   (JSON 파일을 그대로 낸다 — 테스트·수동 확인용). 실제 앱: [`bridges/todoist/inbox.py`](../bridges/todoist/inbox.py)
   — Todoist API v1 활성 작업(`--filter` 로 Todoist 필터 문법), 토큰은 1Password Agent Vault 에서 `op read`
@@ -593,7 +595,9 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
   좁힌 뒤 이슈마다 이 보드의 항목에서 필드를 본다 — 보드가 수천 개여도 결과가 같고 비용은 한 페이지에 약 6
   포인트다. `--limit`(기본 100)은 검색 한 페이지 크기이고 결과는 끝까지 넘긴다. 결과가 잘리면(검색 1,000건 초과 ·
   보드 5개 넘게 걸린 이슈 · 필드 50개 초과) 실패로 알린다. 범위는 보드 주인이 가진 레포의 이슈다. 인증은
-  로그인된 `gh`(`read:project`), 예산은 PR 감시와 같은 GraphQL 한도다.
+  로그인된 `gh`(`read:project`), 예산은 PR 감시와 같은 GraphQL 한도다. 조건은 인자 대신
+  `--filter "assignee:@me type:Bug component/s:Web"` 로 보드 화면의 필터 문자열을 그대로 줄 수 있다(부정·여러
+  값·검색어는 실패로 알린다; 필드 이름의 `-` 는 공백과 같다).
 
 **`GET /api/inbox?refresh=true`** — 소스를 **동시에** 실행하고 소스별 60초 캐시(실패도 캐시된다 —
 죽은 어댑터를 매 요청마다 때리지 않는다). `refresh=true` 는 캐시를 우회한다. 설정된 소스가 없으면

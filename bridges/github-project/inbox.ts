@@ -18,6 +18,9 @@
  * - `--type NAME` — 이슈 타입(`type:`). 보드 주인이 **개인 계정**이면 이슈 타입이 없으므로 같은 이름의
  *   **라벨**(`label:`)로 대신한다.
  * - `--field "이름=값"` — 보드의 사용자 정의 필드(단일 선택·텍스트·반복·숫자). 여러 번 줄 수 있다.
+ * - `--filter "assignee:@me type:Bug component/s:Web"` — 보드 화면의 필터 문자열을 그대로. 위 셋으로
+ *   풀린다(`applyFilter`). 부정·여러 값·검색어는 지원하지 않고 실패한다.
+ * - `--describe` — 입력 칸 목록(JSON)만 내고 끝난다. 보드 설정 화면이 폼을 그릴 때 쓴다.
  *
  * 인증은 로그인된 `gh` 를 그대로 쓴다(`read:project` 권한 필요). 토큰을 따로 읽지 않는다.
  * 범위는 **보드 주인이 가진 레포**의 이슈다 — 다른 주인의 레포에서 보드에 올린 이슈는 검색에 안 잡힌다.
@@ -42,17 +45,98 @@ export type Filters = {
   fields: { name: string; value: string }[];
 };
 
-type Args = Filters & { project?: string; limit: number; from?: string };
+type Args = Filters & { project?: string; limit: number; from?: string; describe?: boolean };
 
 function fail(message: string): never {
   process.stderr.write(`github-project: ${message}\n`);
   process.exit(1);
 }
 
+/**
+ * 이 어댑터가 받는 입력 칸 — `--describe` 가 낸다. 보드 설정 화면이 이걸로 폼을 그리고, 사용자가 채운
+ * 값을 이 플래그들로만 넘긴다(`--from` 같은 테스트 인자는 목록에 없으니 화면에서 넘길 수 없다).
+ */
+export const DESCRIBE = {
+  title: 'GitHub 프로젝트 보드',
+  params: [
+    { flag: '--project', label: '보드', placeholder: 'OWNER/번호 (예: acme/7)', required: true },
+    {
+      flag: '--filter',
+      label: '보드 필터',
+      placeholder: 'assignee:@me type:Bug component/s:Web',
+      required: false,
+    },
+  ],
+};
+
+/** 필터 문자열을 토큰으로 — 공백으로 가르되 따옴표 안의 공백은 값에 남긴다(`type:"Feature request"`). */
+function tokens(raw: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (const ch of raw) {
+    if (ch === '"') {
+      quoted = !quoted;
+    } else if (/\s/.test(ch) && !quoted) {
+      if (cur) {
+        out.push(cur);
+      }
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (quoted) {
+    fail(`--filter 의 따옴표가 닫히지 않았다: ${raw}`);
+  }
+  if (cur) {
+    out.push(cur);
+  }
+  return out;
+}
+
+/**
+ * 프로젝트 보드의 필터 문자열(`assignee:@me type:Bug component/s:Web`)을 조건으로 — 보드 화면의 필터를
+ * 그대로 붙여 넣으려고. `assignee:`·`type:` 은 그 조건, 나머지 `이름:값` 은 사용자 정의 필드.
+ * `is:open`·`is:issue` 는 이미 전제라 넘긴다. 이 어댑터가 못 하는 문법(부정 `-`, 여러 값 `a,b`,
+ * 비교 `>`, 이름 없는 검색어)은 조용히 버리지 않고 실패한다 — 버리면 조건이 넓어진 줄 모른다.
+ */
+export function applyFilter(out: Filters, raw: string): void {
+  for (const token of tokens(raw)) {
+    const at = token.indexOf(':');
+    if (token.startsWith('-') || at <= 0) {
+      fail(`--filter 에서 지원하지 않는 조건: ${token} (이름:값 만, 부정·검색어 없이)`);
+    }
+    const key = token.slice(0, at).trim();
+    const value = token.slice(at + 1).trim();
+    if (!value || /[,<>]/.test(value)) {
+      fail(`--filter 의 값은 하나여야 한다: ${token}`);
+    }
+    const lower = key.toLowerCase();
+    if (lower === 'is') {
+      if (!['open', 'issue'].includes(value.toLowerCase())) {
+        fail(`--filter 에서 지원하지 않는 조건: ${token} (열린 이슈만 본다)`);
+      }
+    } else if (lower === 'assignee' || lower === 'type') {
+      const key = lower;
+      if (out[key] !== undefined) {
+        fail(`${key} 조건이 두 번 나왔다: ${token}`);
+      }
+      out[key] = value;
+    } else {
+      out.fields.push({ name: key, value });
+    }
+  }
+}
+
 export function parseArgs(argv: string[]): Args {
   const out: Args = { fields: [], limit: 100 };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === '--describe') {
+      out.describe = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined && arg.startsWith('--')) {
       fail(`${arg} 에 값이 없다`);
@@ -63,6 +147,8 @@ export function parseArgs(argv: string[]): Args {
       out.assignee = value;
     } else if (arg === '--type') {
       out.type = value;
+    } else if (arg === '--filter') {
+      applyFilter(out, value);
     } else if (arg === '--field') {
       const at = value.indexOf('=');
       if (at <= 0) {
@@ -188,6 +274,9 @@ export type SearchPage = {
 const same = (a: string, b: string) =>
   a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0;
 
+/** 필드 이름 비교 — 대소문자 무시에 더해, 보드 필터가 공백을 `-` 로 쓰는 것(`due-date` ↔ `Due date`)도 같게. */
+const sameField = (a: string, b: string) => same(a.replaceAll('-', ' '), b.replaceAll('-', ' '));
+
 /** 필드 값 하나를 글자로 — 단일 선택은 옵션 이름, 반복은 제목, 숫자는 그대로. */
 function fieldText(v: FieldValue): string | undefined {
   if (typeof v.name === 'string') {
@@ -264,7 +353,7 @@ export function toItems(
     const values = item.fieldValues?.nodes ?? [];
     const valuesCut = item.fieldValues?.pageInfo?.hasNextPage === true;
     const fieldsOk = filters.fields.every(({ name, value }) => {
-      const hit = values.find((v) => v?.field?.name && same(v.field.name, name));
+      const hit = values.find((v) => v?.field?.name && sameField(v.field.name, name));
       if (!hit && valuesCut) {
         fail(`${ref} 의 필드 값이 ${values.length}개를 넘어 "${name}" 을 판정하지 못했다`);
       }
@@ -351,6 +440,10 @@ async function fetchAll(owner: string, filters: Filters, limit: number): Promise
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.describe) {
+    process.stdout.write(`${JSON.stringify(DESCRIBE)}\n`);
+    return;
+  }
   if (!args.project) {
     fail('--project OWNER/NUMBER 가 필요하다');
   }
