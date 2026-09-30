@@ -133,7 +133,8 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
   1. **무엇을·왜** — 1~2줄.
   2. **변경 사항** — **파일별 나열이 아니다.** 리뷰어가 실제로 읽어야 할 1~3곳만 고른다:
      위험한 변경 · 판단이 갈린 곳 · 확신 없는 곳. 항목마다 **`###` 제목 → 설명 →
-     (코드 스니펫) → 링크** 순으로 쓰고, 스니펫은 선택이다.
+     코드 스니펫 → 링크** 순으로 쓴다. 스니펫은 **기본으로 붙인다** — 본문만 읽어도 무엇이 바뀌었는지
+     보이게, 링크는 더 볼 때만 누르게.
 
      ````markdown
      ## 변경 사항
@@ -155,10 +156,10 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 
      - **제목**: 그 자리에서 무엇이 바뀌었는지 한 줄. 목록만 훑어도 변경의 지형이 잡혀야 한다.
      - **설명**: 무엇이 걸리는지(위험한 이유 · 갈린 판단 · 확신 없는 부분) 한두 줄.
-     - **코드 스니펫**(선택): 설명과 링크 사이에 짧은 코드 블록을 넣는다. **항상은 아니다** —
-       링크만으로 안 되는 때에만 쓴다: 떨어져 있는 줄을 나란히 보여야 할 때, before / after 를
-       대비시킬 때, 본문에서 대안 코드를 제안할 때. 10줄 안쪽으로 자르고, 그냥 읽으라고 붙이는
-       덤프는 만들지 않는다.
+     - **코드 스니펫**: 링크가 가리키는 바로 그 줄을 `permalink.ts --snippet` 이 뽑아 준다(같은 커밋 ·
+       같은 줄, 공통 들여쓰기 제거, 12줄 넘으면 앞부분 + `…`). 그래서 **줄 범위를 좁게** 잡는다 — 핵심
+       5~12줄. 떨어진 두 곳을 대비해야 하면 포인터를 둘 준다. 문서만 바뀐 곳이나 스니펫이 설명을 덮는
+       곳(긴 표·설정 덩어리)은 `--snippet` 없이 링크만.
      - **링크**: `[경로:줄](URL)` 형태로, 보이는 것은 경로와 줄뿐이고 URL 은 뒤에 숨긴다.
        URL 은 **그 PR 의 Files changed 위치**(`…/pull/<번호>/files#diff-<해시>R<줄>`)로 건다 —
        리뷰어가 누르면 어차피 보던 리뷰 화면에서 그 줄로 간다. blob permalink 로 걸면 PR 밖
@@ -173,9 +174,10 @@ gh pr edit "$NUM" --body "<링크까지 채운 본문>"
      (`--url` 이면 날 URL).
 
      ```bash
-     # PR 번호를 주면 Files changed 위치로, 안 주면 blob permalink 로 건다
-     bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr 127 \
-       src/core/handlers.ts:handleOpenapiSearch commands/review-request.md:12-18
+     # PR 번호를 주면 Files changed 위치로, 안 주면 blob permalink 로 건다.
+     # --snippet 이면 포인터마다 "코드 블록 + 링크" 를 낸다 — 본문의 설명 아래에 그대로 붙인다.
+     bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr 127 --snippet \
+       crates/rockyd/src/inbox_exec.rs:72-82 plugin/commands/review-fix.md:409-420
      ```
 
      현재 `HEAD` 의 SHA 로 고정해 준다 (브랜치명으로 걸면 머지 후 브랜치가 지워질 때 깨지고,

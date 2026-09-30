@@ -9,6 +9,9 @@
  * bun scripts/permalink.ts --pr 127 commands/review-request.md:12-18
  * # → [commands/review-request.md:12-18](https://github.com/…/pull/127/files#diff-<해시>R12-R18)
  *
+ * bun scripts/permalink.ts --pr 127 --snippet crates/x.rs:40-48
+ * # → ```rust … ``` 코드 블록 + 링크 (같은 커밋·같은 줄)
+ *
  * bun scripts/permalink.ts src/core/handlers.ts:handleOpenapiSearch
  * # → [src/core/handlers.ts:118](https://github.com/…/blob/<sha>/src/core/handlers.ts#L118)
  * ```
@@ -204,6 +207,61 @@ export function buildPermalink(input: {
   return line.end > line.start ? `${base}#L${line.start}-L${line.end}` : `${base}#L${line.start}`;
 }
 
+/** 확장자 → 코드 블록 언어. 모르면 빈 문자열(언어 없이). */
+const FENCE_LANG: Record<string, string> = {
+  rs: 'rust',
+  ts: 'ts',
+  tsx: 'tsx',
+  js: 'js',
+  md: 'markdown',
+  json: 'json',
+  toml: 'toml',
+  yml: 'yaml',
+  yaml: 'yaml',
+  sh: 'sh',
+  py: 'python',
+  css: 'css',
+  html: 'html',
+};
+
+/** 스니펫 줄 수 상한 — PR 본문에서 코드가 설명을 덮지 않게. 넘치면 앞부분만 싣고 `…` 한 줄. */
+export const SNIPPET_MAX_LINES = 12;
+
+/**
+ * 파일 내용에서 포인터가 가리키는 줄을 코드 블록으로 — PR 본문의 "확인할 곳" 에 링크와 같은 줄을
+ * 붙인다. 줄 범위가 없으면(파일 전체) 스니펫을 만들지 않는다. 내용은 링크와 같은 커밋의 것이어야
+ * 줄이 어긋나지 않는다(호출자가 `git show <sha>:<경로>` 로 넘긴다). 내용에 ``` 가 있으면 울타리를
+ * 한 겹 더 길게 친다.
+ */
+export function formatSnippet(
+  content: string,
+  path: string,
+  line: { start: number; end: number } | undefined,
+  max = SNIPPET_MAX_LINES,
+): string | undefined {
+  if (!line) {
+    return undefined;
+  }
+  const lines = content.split('\n');
+  if (line.start < 1 || line.end > lines.length) {
+    throw new Error(
+      `줄 범위가 파일 밖이다 — ${path}:${line.start}-${line.end} (파일 ${lines.length}줄)`,
+    );
+  }
+  const picked = lines.slice(line.start - 1, line.end);
+  const shown = picked.length > max ? [...picked.slice(0, max), '…'] : picked;
+  // 공통 들여쓰기는 걷는다 — 깊은 블록 안의 코드가 오른쪽으로 밀려 읽기 힘들지 않게.
+  const indent = Math.min(
+    ...shown.filter((l) => l.trim() !== '').map((l) => l.length - l.trimStart().length),
+  );
+  const body = shown.map((l) =>
+    l.trim() === '' ? '' : l.slice(Number.isFinite(indent) ? indent : 0),
+  );
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  const fence = body.some((l) => l.includes('```')) ? '````' : '```';
+  return [`${fence}${FENCE_LANG[ext] ?? ''}`, ...body, fence].join('\n');
+}
+
 function git(args: string[]): string {
   const result = Bun.spawnSync(['git', ...args]);
   if (result.exitCode !== 0) {
@@ -216,6 +274,7 @@ function git(args: string[]): string {
 
 async function main(argv: string[]): Promise<number> {
   const urlOnly = argv.includes('--url');
+  const snippet = argv.includes('--snippet');
   const prIndex = argv.indexOf('--pr');
   const prNumber = prIndex === -1 ? undefined : Number(argv[prIndex + 1]);
   if (prIndex !== -1 && (!prNumber || !Number.isInteger(prNumber))) {
@@ -223,13 +282,14 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const skip = prIndex === -1 ? new Set<number>() : new Set([prIndex, prIndex + 1]);
-  const pointers = argv.filter((arg, i) => arg !== '--url' && !skip.has(i));
+  const pointers = argv.filter((arg, i) => arg !== '--url' && arg !== '--snippet' && !skip.has(i));
   if (pointers.length === 0) {
     console.error(
-      '사용법: bun scripts/permalink.ts [--pr <번호>] [--url] <경로[:심볼|:줄|:시작-끝]> ...\n' +
+      '사용법: bun scripts/permalink.ts [--pr <번호>] [--url] [--snippet] <경로[:심볼|:줄|:시작-끝]> ...\n' +
         '예: bun scripts/permalink.ts --pr 127 commands/review-request.md:12-18\n' +
         '--pr 이면 그 PR 의 Files changed 위치로, 없으면 blob permalink 로 건다.\n' +
-        '기본 출력은 `[경로:줄](URL)` 마크다운 링크. --url 이면 날 URL 만 출력한다.',
+        '기본 출력은 `[경로:줄](URL)` 마크다운 링크. --url 이면 날 URL 만 출력한다.\n' +
+        '--snippet 이면 링크 앞에 같은 커밋·같은 줄의 코드 블록을 붙인다(12줄까지).',
     );
     return 2;
   }
@@ -262,8 +322,18 @@ async function main(argv: string[]): Promise<number> {
       const url = prNumber
         ? buildDiffLink({ slug, prNumber, path: pointer.path, line })
         : buildPermalink({ slug, sha, path: pointer.path, line });
+      if (snippet) {
+        // 링크와 같은 커밋의 내용 — 작업 트리를 읽으면 커밋 안 된 수정 때문에 줄이 어긋난다.
+        const block = formatSnippet(git(['show', `${sha}:${pointer.path}`]), pointer.path, line);
+        if (block) {
+          console.log(block);
+        }
+      }
       // 기본은 마크다운 링크 — PR 본문에 그대로 붙여 쓰는 형태다. 날 URL 이 필요하면 --url.
       console.log(urlOnly ? url : `[${formatPointerLabel(pointer.path, line)}](${url})`);
+      if (snippet) {
+        console.log('');
+      }
     } catch (error) {
       failed = true;
       console.error(`${raw} → ${error instanceof Error ? error.message : String(error)}`);

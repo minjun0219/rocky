@@ -3,6 +3,7 @@ import {
   buildDiffLink,
   buildPermalink,
   formatPointerLabel,
+  formatSnippet,
   parsePointer,
   parseRepoSlug,
   resolveSymbolLine,
@@ -174,5 +175,37 @@ describe('buildDiffLink', () => {
         line: { start: 25, end: 32 },
       }),
     ).toBe(`https://github.com/minjun0219/rocky/pull/127/files#diff-${HASH}R25-R32`);
+  });
+});
+
+describe('formatSnippet', () => {
+  const content = [
+    'fn a() {',
+    '    let x = 1;',
+    '    if x > 0 {',
+    '        run();',
+    '    }',
+    '}',
+  ].join('\n');
+
+  it('가리킨 줄만, 공통 들여쓰기를 걷어 언어가 붙은 코드 블록으로', () => {
+    expect(formatSnippet(content, 'src/lib.rs', { start: 2, end: 5 })).toBe(
+      ['```rust', 'let x = 1;', 'if x > 0 {', '    run();', '}', '```'].join('\n'),
+    );
+  });
+
+  it('줄 범위가 없으면(파일 전체) 만들지 않는다', () => {
+    expect(formatSnippet(content, 'src/lib.rs', undefined)).toBeUndefined();
+  });
+
+  it('상한을 넘으면 앞부분만 싣고 … 한 줄', () => {
+    const out = formatSnippet(content, 'x.ts', { start: 1, end: 6 }, 2) ?? '';
+    expect(out.split('\n')).toEqual(['```ts', 'fn a() {', '    let x = 1;', '…', '```']);
+  });
+
+  it('내용에 ``` 가 있으면 울타리를 한 겹 길게, 파일 밖 범위는 실패', () => {
+    const md = ['예시', '```bash', 'ls', '```'].join('\n');
+    expect(formatSnippet(md, 'a.md', { start: 2, end: 4 })?.startsWith('````markdown')).toBe(true);
+    expect(() => formatSnippet(content, 'a.rs', { start: 5, end: 9 })).toThrow('파일 밖');
   });
 });
