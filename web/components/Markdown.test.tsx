@@ -16,6 +16,14 @@ describe('Markdown — 예전 줄 단위 정규식이 깨뜨리던 것', () => {
   // 알려진 한계: `**findBy* 로 …**` 처럼 굵게 안에 짝 없는 `*` 가 있으면 CommonMark 규칙대로
   // 기울임으로 읽힌다(mdwire 는 고쳐 읽는다). 편집기 하이라이트도 같은 규칙이라 둘은 어긋나지 않는다.
 
+  test('인라인 코드 뒤 공백을 지킨다', () => {
+    expect(html('`MilestoneInput` 을 쓴다')).toBe('<p><code>MilestoneInput</code> 을 쓴다</p>');
+    expect(html('**`as never` 캐스트 제거**')).toBe(
+      '<p><strong><code>as never</code> 캐스트 제거</strong></p>',
+    );
+    expect(html('`a` `b`')).toBe('<p><code>a</code> <code>b</code></p>');
+  });
+
   test('[글자](주소) — 닫는 괄호가 주소에 붙지 않는다', () => {
     expect(html('[문서](https://x.y/a) 끝')).toBe(
       '<p><a href="https://x.y/a" target="_blank" rel="noreferrer">문서</a> 끝</p>',

@@ -92,7 +92,16 @@ class Inline {
       if (child.from > pos) {
         this.text(this.src.slice(pos, child.from), out);
       }
+      const before = out.length;
       this.node(child, out);
+      // 무언가 그렸으면(코드·강조·링크 …) 줄 첫머리가 아니다 — 뒤 글의 앞 공백을 지킨다.
+      // 표지(`#`·`>`·`**`)만 건너뛴 경우와 줄바꿈은 그대로 둔다.
+      const last = out[out.length - 1];
+      const isBreak =
+        typeof last === 'object' && last !== null && (last as { type?: unknown }).type === 'br';
+      if (out.length > before && !isBreak) {
+        this.afterBreak = false;
+      }
       pos = child.to;
     }
     if (to > pos) {
