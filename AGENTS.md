@@ -262,6 +262,9 @@ typecheck or tests — pre-push and CI already cover it.*
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`
   (1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). 주기를 바꾸기 전에 `rateLimit { cost }` 를 잰다. *EN: GraphQL cost is the nodes requested, not returned —
   measure `rateLimit { cost }` before changing the cadence; the budget is shared with every session's `gh`.*
+- **수집함 "이미 올라감"** 은 데몬 한 곳에서 판정한다(`mark_promoted`): 항목 url 이 **어느 보드든**(보관 포함)
+  todo 링크에 있으면 `promoted`. 요약·TUI ✓·`rocky inbox` 가 이 값을 본다 — 소비자마다 다시 판정하지 않는다.
+  세션 시작 요약은 수집함 캐시만 본다(어댑터를 기다리지 않는다); 📥 제목은 외부 글이라 한 줄로 펴서 자른다.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다.
 - **세션 띄우기**(`boards.path` 에서 `claude --bg --worktree todo-<n>`, `rockyd::spawnctl`)는 그 워크트리에
