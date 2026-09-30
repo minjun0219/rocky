@@ -158,6 +158,12 @@ pub async fn run_daemon(
         std::time::Duration::from_secs(60),
         std::time::Duration::from_secs(600),
     );
+    // 수집함 구독 감시 — 세션이 구독한 소스만 5분마다 읽어 새 항목을 그 세션에 알린다(기동 1분 뒤부터).
+    crate::inbox_watch::spawn_inbox_watcher(
+        state.clone(),
+        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(300),
+    );
     // PR 감시 — repo 가 설정된 보드의 PR 을 주기적으로 보고 ready·충돌을 알린다. 기동 90초 뒤 처음.
     if pr_watch.enabled != Some(false) {
         let runner = crate::runner::default_runner();

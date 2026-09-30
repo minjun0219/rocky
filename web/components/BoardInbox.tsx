@@ -16,6 +16,8 @@ export function BoardInbox({ board }: { board: string }) {
   const [sources, setSources] = useState<InboxSourceResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState(false);
+  // 소스 이름 → 구독한 세션 수. 세션이 `rocky inbox subscribe` 로 구독하면 새 항목이 그 세션에 간다.
+  const [subscribed, setSubscribed] = useState<Record<string, number>>({});
 
   const load = useCallback(
     async (refresh: boolean) => {
@@ -24,6 +26,16 @@ export function BoardInbox({ board }: { board: string }) {
         const query = `board=${encodeURIComponent(board)}${refresh ? '&refresh=true' : ''}`;
         const res = await api<{ sources: InboxSourceResult[] }>(`/api/inbox?${query}`, actor);
         setSources(res.sources);
+        const subs = await api<{ source: string }[]>('/api/inbox/subscriptions', actor).catch(
+          () => [],
+        );
+        // 이 보드에 보이는 소스의 구독만 센다 — 다른 보드 전용 소스의 구독은 여기 이야기가 아니다.
+        const here = new Set(res.sources.map((s) => s.name));
+        const counts: Record<string, number> = {};
+        for (const s of subs.filter((s) => here.has(s.source))) {
+          counts[s.source] = (counts[s.source] ?? 0) + 1;
+        }
+        setSubscribed(counts);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -64,6 +76,13 @@ export function BoardInbox({ board }: { board: string }) {
       {error && (
         <p className="m-0 text-sm text-dead" role="alert">
           수집함을 읽지 못했다 — {error}
+        </p>
+      )}
+      {Object.keys(subscribed).length > 0 && (
+        <p className="m-0 mb-1 text-meta text-faint">
+          {Object.entries(subscribed)
+            .map(([name, n]) => `${name} — 세션 ${n}곳이 구독 중(새 항목을 알림)`)
+            .join(' · ')}
         </p>
       )}
       {failed.map((s) => (

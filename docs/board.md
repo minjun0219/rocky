@@ -615,6 +615,14 @@ rocky 는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(
 `POST /api/inbox/sources {board, name, adapter, params:{플래그: 값}}`(로컬 전용) ·
 `DELETE /api/inbox/sources/:id`(로컬 전용). 값이 실행 인자가 되므로 쓰기는 노출된 표면에서 막는다.
 
+**구독 — 새 항목을 세션에 알린다.** 세션이 `rocky inbox subscribe <소스>` 를 부르면(Claude Code 가 Bash 에 주는
+`CLAUDE_CODE_SESSION_ID`·`CLAUDE_CODE_MESSAGING_SOCKET` 으로) 데몬이 그 세션을 구독자로 적는다. 구독 시점의 항목은
+"본 것"(기준선)이라 몰려오지 않고, 데몬이 **구독된 소스만** 5분마다 읽어 처음 보는 항목(이미 보드에 올라간 것 제외)을
+그 세션 받은편지함에 한 줄씩 보낸다 — PR 알림과 같은 소켓이다. 메시지는 **알리기만** 하라고 적는다(착수·보드에
+올리기는 사람이 정한다). 받은편지함에 못 쓴 세션(끝난 세션)은 구독을 걷는다. 구독·해지는 로컬 요청 전용이고, 소켓은
+Claude Code 받은편지함 모양만 받는다. 라우트: `GET/POST/DELETE /api/inbox/subscriptions`. 웹 보드의 수집함 머리에
+구독 중인 목록이 보인다.
+
 **`GET /api/inbox?refresh=true`** — 소스를 **동시에** 실행하고 소스별 60초 캐시(실패도 캐시된다 —
 죽은 어댑터를 매 요청마다 때리지 않는다). `refresh=true` 는 캐시를 우회한다. 설정된 소스가 없으면
 `{ "sources": [] }`.
@@ -752,6 +760,7 @@ rocky next [--board K|--all] [--limit N] [--json]   # 착수 후보 랭킹 (다�
 rocky tui [--board K]                              # 보드를 터미널 화면으로 (위 "TUI")
 rocky today [--json]                               # 보드 요약 몇 줄 — 마감·진행중·핸드오프·수집함 제목 (아래 "요약")
 rocky inbox [--json]                               # 수집함 소스별 항목 — ✓ 올라감 · 실패 사유 한 줄
+rocky inbox subscribe <소스> | unsubscribe [소스]   # 이 세션이 소스를 구독 — 새 항목을 세션에 알린다
 rocky add "제목" [--section S] [--parent REF] [--desc MD] [--due YYYY-MM-DD]
                      [--priority p1..p4] [--label a,b] [--link URL]
 rocky show|start|stop|done|reopen|archive|unarchive|update REF

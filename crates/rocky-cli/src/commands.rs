@@ -1297,11 +1297,66 @@ pub fn cmd_today(ctx: &CliContext, printer: &Printer) -> Result<(), String> {
 /// `inbox [--json]` — 수집함 소스별 항목. `GET /api/inbox` 를 그대로 읽는다(캐시가 비었으면 어댑터를
 /// 실제로 돌리므로 몇 초 걸릴 수 있다). ✓ 는 이미 보드에 올라간 것(전 보드·보관 포함의 링크로 데몬이
 /// 판정 — `rocky today` 와 같은 값).
-pub fn cmd_inbox(ctx: &CliContext, printer: &Printer) -> Result<(), String> {
-    let inbox: rocky_core::inbox::InboxResponse = request(ctx, "GET", "/api/inbox", None)?;
-    let raw = serde_json::to_value(&inbox).unwrap_or(Value::Null);
-    printer.emit(&raw, || rocky_core::inbox::render_inbox(&inbox));
-    Ok(())
+pub fn cmd_inbox(ctx: &CliContext, rest: &[String], printer: &Printer) -> Result<(), String> {
+    match rest.first().map(String::as_str) {
+        None => {
+            let inbox: rocky_core::inbox::InboxResponse = request(ctx, "GET", "/api/inbox", None)?;
+            let raw = serde_json::to_value(&inbox).unwrap_or(Value::Null);
+            printer.emit(&raw, || rocky_core::inbox::render_inbox(&inbox));
+            Ok(())
+        }
+        Some("subscribe") => {
+            let source = rest
+                .get(1)
+                .ok_or("usage: rocky inbox subscribe <소스 이름>")?;
+            let (session_id, socket) = this_session()?;
+            let res: Value = request(
+                ctx,
+                "POST",
+                "/api/inbox/subscriptions",
+                Some(&json!({
+                    "source": source,
+                    "sessionId": session_id,
+                    "socket": socket,
+                    "cwd": std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                })),
+            )?;
+            printer.emit(&res, || {
+                format!(
+                    "✓ {source} 구독 — 지금 있는 {}건은 본 것으로 두고, 새 항목부터 이 세션에 알린다(5분마다 확인)",
+                    res["baseline"].as_i64().unwrap_or(0)
+                )
+            });
+            Ok(())
+        }
+        Some("unsubscribe") => {
+            let (session_id, _) = this_session()?;
+            let mut path = format!(
+                "/api/inbox/subscriptions?sessionId={}",
+                encode_query(&session_id)
+            );
+            if let Some(source) = rest.get(1) {
+                path.push_str(&format!("&source={}", encode_query(source)));
+            }
+            let res: Value = request(ctx, "DELETE", &path, None)?;
+            printer.emit(&res, || {
+                format!("✓ 구독 해지 {}건", res["removed"].as_i64().unwrap_or(0))
+            });
+            Ok(())
+        }
+        Some(other) => Err(format!(
+            "usage: rocky inbox [subscribe <소스>|unsubscribe [소스]] — 모르는 하위 명령: {other}"
+        )),
+    }
+}
+
+/// 이 명령을 부른 Claude Code 세션 — 세션 id 와 받은편지함 소켓. Claude Code 가 Bash 에 export 한다.
+fn this_session() -> Result<(String, String), String> {
+    let get = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    match (get("CLAUDE_CODE_SESSION_ID"), get("CLAUDE_CODE_MESSAGING_SOCKET")) {
+        (Some(id), Some(socket)) => Ok((id, socket)),
+        _ => Err("Claude Code 세션 안에서만 구독할 수 있다 — CLAUDE_CODE_SESSION_ID·CLAUDE_CODE_MESSAGING_SOCKET 이 없다".into()),
+    }
 }
 
 /// 쿼리 값 인코딩 — 경로에 공백·한글이 올 수 있다.
