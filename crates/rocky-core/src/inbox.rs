@@ -31,6 +31,10 @@ pub struct InboxItem {
     /// RFC 3339.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// 이미 보드에 올라갔나 — 데몬이 **모든 보드**(보관 포함)의 링크로 판정해 채운다. 어댑터가 준 값은
+    /// 덮어쓴다(`mark_promoted`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub promoted: bool,
 }
 
 /// 소스 하나의 조회 결과 — 실패해도 이 모양으로 돌아온다(`available:false` + `reason`).
@@ -43,6 +47,48 @@ pub struct InboxSourceResult {
     pub reason: Option<String>,
     pub fetched_at: String,
     pub items: Vec<InboxItem>,
+}
+
+/// 수집함 항목에 "이미 올라감" 을 표시한다 — url 이 `promoted` 에 있으면. url 없는 항목은 판정할 수
+/// 없어 늘 미올림이다. 판정은 이 함수 한 곳이고 요약·TUI·CLI 가 같은 값을 본다.
+pub fn mark_promoted(inbox: &mut InboxResponse, promoted: &std::collections::HashSet<String>) {
+    for item in inbox.sources.iter_mut().flat_map(|s| s.items.iter_mut()) {
+        item.promoted = item.url.as_deref().is_some_and(|u| promoted.contains(u));
+    }
+}
+
+/// `rocky inbox` 의 사람용 출력 — 소스마다 머리줄(이름 · 미올림/전체, 실패면 사유 한 줄) 아래 항목.
+/// 항목은 `✓`(올라감)/`·`(미올림) + 제목, 다음 줄에 url. 소스가 없으면 설정 안내 한 줄.
+pub fn render_inbox(inbox: &InboxResponse) -> String {
+    if inbox.sources.is_empty() {
+        return "수집함 소스 없음 — rocky.json 의 todo.inbox[] 에 어댑터를 등록한다".to_string();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for source in &inbox.sources {
+        if !source.available {
+            let reason = source.reason.as_deref().unwrap_or("사유 없음");
+            let reason = reason.lines().next().unwrap_or_default();
+            lines.push(format!("{} — 실패: {reason}", source.name));
+            continue;
+        }
+        let open = source.items.iter().filter(|i| !i.promoted).count();
+        lines.push(format!(
+            "{} — 미올림 {open} / {}",
+            source.name,
+            source.items.len()
+        ));
+        for item in &source.items {
+            let mark = if item.promoted { "✓" } else { "·" };
+            lines.push(format!(
+                "  {mark} {}",
+                crate::summary::one_line(&item.title, 80)
+            ));
+            if let Some(url) = &item.url {
+                lines.push(format!("    {url}"));
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 /// `GET /api/inbox` 응답.
@@ -113,6 +159,8 @@ pub fn parse_inbox_output(stdout: &str) -> Result<Vec<InboxItem>, String> {
             note: item.note,
             due: item.due,
             created_at: item.created_at,
+            // 어댑터는 모른다 — 데몬이 `mark_promoted` 로 채운다.
+            promoted: false,
         });
     }
     Ok(items)

@@ -265,6 +265,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky ls"),
     (UsageSource::Cli, "rocky next"),
     (UsageSource::Cli, "rocky today"),
+    (UsageSource::Cli, "rocky inbox"),
     (UsageSource::Cli, "rocky add"),
     (UsageSource::Cli, "rocky show"),
     (UsageSource::Cli, "rocky update"),

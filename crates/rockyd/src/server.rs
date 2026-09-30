@@ -17,6 +17,7 @@ use rocky_core::handoff::{
     build_handoff_poke, build_handoff_prompt_from, HandoffPokeInput, HandoffPromptInput,
 };
 use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
+use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
     is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
     NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
@@ -669,7 +670,7 @@ async fn dispatch(
         } else {
             InboxFetch::Normal
         };
-        let response = (state.inbox)(mode).await;
+        let response = marked_inbox(state, mode).await?;
         // 실패 사유의 stderr·출력 조각은 로컬 요청에만 — 원격에는 exit code 만.
         let response = if local { response } else { response.redacted() };
         return Ok(ok_json(&response));
@@ -1863,12 +1864,8 @@ async fn statusline_inner(
                     .is_some()
             })
             .count() as i64;
-        let views: Vec<TodoView> = todos
-            .into_iter()
-            .map(|t| with_ref_todo(store, t))
-            .collect::<StoreResult<_>>()?;
-        let inbox = (state.inbox)(InboxFetch::CachedOnly).await;
-        (due, count_unpromoted(&inbox, &views))
+        let inbox = marked_inbox(state, InboxFetch::CachedOnly).await?;
+        (due, count_unpromoted(&inbox))
     };
     // 보여줄 게 없으면 **세션 조회 전에** 빈 문자열 — 초당 도는 최빈 경로의 비용 절감.
     if doing.is_empty() && pending.is_empty() && due == 0 && collect == 0 {
@@ -2025,6 +2022,16 @@ fn today_local() -> String {
 }
 
 /// GET /api/summary?cwd=&cached= — 보드 요약 JSON. 렌더는 소비자(CLI·훅)가 core 로 한다.
+/// 수집함 조회 + "이미 올라감" 표시 — 판정 근거는 전 보드(보관 포함)의 링크다(`Store::linked_urls`).
+/// 항목이 하나도 없으면 스토어를 읽지 않는다(statusline 은 초 단위로 부른다).
+async fn marked_inbox(state: &Arc<ServerState>, mode: InboxFetch) -> StoreResult<InboxResponse> {
+    let mut inbox = (state.inbox)(mode).await;
+    if inbox.sources.iter().any(|s| !s.items.is_empty()) {
+        mark_promoted(&mut inbox, &state.store.linked_urls()?);
+    }
+    Ok(inbox)
+}
+
 async fn summary_of(
     state: &Arc<ServerState>,
     query: &HashMap<String, String>,
@@ -2071,7 +2078,7 @@ async fn summary_of(
             HandoffStatus::Cancelled => false,
         })
         .count() as i64;
-    let inbox = (state.inbox)(inbox_mode).await;
+    let inbox = marked_inbox(state, inbox_mode).await?;
     // CachedOnly 로 비어 온 건 "모름" — collect 를 None 으로.
     let inbox_ref =
         (!inbox.sources.is_empty() || inbox_mode != InboxFetch::CachedOnly).then_some(&inbox);

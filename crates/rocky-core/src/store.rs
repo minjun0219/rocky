@@ -1764,6 +1764,21 @@ impl TodoStore {
         Ok(todo)
     }
 
+    /// 모든 todo(보관 포함, 전 보드)의 링크 url — 수집함 항목이 이미 올라갔는지의 판정 근거.
+    /// 수집함은 전역이라 어느 보드에 올렸든, 끝내고 보관했든 "받아 두었다" 로 본다.
+    pub fn linked_urls(&self) -> StoreResult<std::collections::HashSet<String>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("SELECT links FROM todos WHERE links != '[]'")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut urls = std::collections::HashSet::new();
+        for raw in rows {
+            let links: Vec<crate::types::TodoLink> =
+                serde_json::from_str(&raw?).map_err(|e| StoreError::new(e.to_string()))?;
+            urls.extend(links.into_iter().map(|l| l.url));
+        }
+        Ok(urls)
+    }
+
     pub fn list_todos(&self, filter: &ListTodosFilter) -> StoreResult<Vec<Todo>> {
         let conn = self.lock();
         let mut wheres: Vec<&str> = Vec::new();

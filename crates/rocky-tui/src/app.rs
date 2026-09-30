@@ -163,7 +163,8 @@ pub struct App {
     /// `rows` 의 인덱스 — 항상 `Row::Todo` 를 가리키거나 None.
     pub selected: Option<usize>,
     pub detail: Option<TodoDetail>,
-    /// 현재 보드 todos 의 `links[].url` — 수집함 항목이 이미 올라갔는지 판정.
+    /// 현재 보드 todos 의 `links[].url` — 방금 올린 항목을 다음 수집함 조회 전에도 ✓ 로 보이게.
+    /// 판정의 정본은 데몬이 전 보드의 링크로 채운 `InboxItem::promoted` 다.
     pub promoted_urls: HashSet<String>,
     /// 열린 핸드오프(`GET /api/handoffs?open=true&board=`) — todo_id 별 대기 표시용.
     pub handoffs: Vec<Value>,
@@ -317,11 +318,15 @@ impl App {
         }
     }
 
-    /// 이미 보드에 올라간 항목인가 — url 이 현재 보드 todos 의 링크에 있으면. url 없으면 판정 불가.
+    /// 이미 보드에 올라간 항목인가 — 데몬 판정(전 보드·보관 포함의 링크, `rocky today` 요약과 같은 값)이
+    /// 먼저고, 현재 보드 todos 의 링크는 방금 올린 것을 캐시가 돌기 전에 보이게 하는 보충이다.
+    /// url 없으면 판정 불가.
     pub fn is_promoted(&self, item: &InboxItem) -> bool {
-        item.url
-            .as_deref()
-            .is_some_and(|u| self.promoted_urls.contains(u))
+        item.promoted
+            || item
+                .url
+                .as_deref()
+                .is_some_and(|u| self.promoted_urls.contains(u))
     }
 
     // ── 핸드오프 ──

@@ -173,6 +173,7 @@ fn inbox_tab_and_picker_overlay() {
                     note: Some("본문 메모".into()),
                     due: Some("2026-10-02".into()),
                     created_at: None,
+                    promoted: false,
                 }],
             },
             InboxSourceResult {

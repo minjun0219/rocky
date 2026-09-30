@@ -253,6 +253,7 @@ fn item(id: &str, title: &str, url: Option<&str>) -> InboxItem {
         note: Some("메모".into()),
         due: Some("2026-10-01".into()),
         created_at: None,
+        promoted: false,
     }
 }
 

@@ -12,6 +12,13 @@ use crate::types::TodoStatus;
 /// 요약에 실리는 항목 수 상한 — 세션 컨텍스트에 들어가는 글이라 짧아야 한다.
 pub const SUMMARY_ITEM_MAX: usize = 4;
 
+/// 요약에 실리는 수집함 항목 수 상한 — 보드 항목과 따로 센다. 합쳐 나눠 쓰면 진행 중인 일이 많을 때
+/// 수집함이 통째로 가려진다.
+pub const SUMMARY_INBOX_MAX: usize = 3;
+
+/// 요약 속 수집함 제목의 글자 수 상한.
+pub const SUMMARY_TITLE_MAX: usize = 60;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DueBucket {
     Overdue,
@@ -31,20 +38,46 @@ pub fn due_bucket(due: &str, today: &str) -> Option<DueBucket> {
     }
 }
 
-/// 수집함 항목 중 이 보드에 아직 안 올라간 것 — url 이 보드 todos 의 links 에 없는 것.
-/// url 없는 항목은 판정 불가라 "미올림" 으로 센다(TUI 의 ✓ 판정과 같은 기준).
-pub fn count_unpromoted(inbox: &InboxResponse, todos: &[TodoView]) -> i64 {
-    let promoted: std::collections::HashSet<&str> = todos
-        .iter()
-        .flat_map(|t| t.todo.links.iter().map(|l| l.url.as_str()))
-        .collect();
+/// 수집함 항목 중 아직 보드에 안 올라간 것(`InboxItem::promoted` 가 false — 데몬이 `mark_promoted` 로
+/// 전 보드의 링크를 보고 채운다). 사용할 수 없는 소스는 세지 않는다.
+fn unpromoted(inbox: &InboxResponse) -> impl Iterator<Item = (&str, &crate::inbox::InboxItem)> {
     inbox
         .sources
         .iter()
         .filter(|s| s.available)
-        .flat_map(|s| s.items.iter())
-        .filter(|i| !i.url.as_deref().is_some_and(|u| promoted.contains(u)))
-        .count() as i64
+        .flat_map(|s| s.items.iter().map(move |i| (s.name.as_str(), i)))
+        .filter(|(_, i)| !i.promoted)
+}
+
+/// 아직 안 올라간 수집함 항목 수.
+pub fn count_unpromoted(inbox: &InboxResponse) -> i64 {
+    unpromoted(inbox).count() as i64
+}
+
+/// 외부 제목을 요약 한 줄에 싣는 모양으로 — 줄바꿈·제어문자를 공백으로, 연속 공백은 하나로,
+/// `max` 자를 넘으면 자르고 `…`. 수집함 제목은 남이 쓴 글이라 세션 컨텍스트에 여러 줄로 들어가면
+/// 요약의 모양을 흉내 낼 수 있다.
+pub fn one_line(raw: &str, max: usize) -> String {
+    let flat: String = raw
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let joined = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    if joined.chars().count() <= max {
+        return joined;
+    }
+    let cut: String = joined.chars().take(max.saturating_sub(1)).collect();
+    format!("{}…", cut.trim_end())
+}
+
+/// 요약에 실리는 수집함 항목 하나.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectItem {
+    pub source: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +114,9 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collect: Option<i64>,
     pub items: Vec<SummaryItem>,
+    /// 미올림 수집함 항목 — 어댑터 순서 그대로, 최대 `SUMMARY_INBOX_MAX`. 넘친 수는 `collect` 로 안다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collect_items: Vec<CollectItem>,
 }
 
 /// 요약 조립. `todos` 는 보드의 미보관 항목 전부, `today` 는 `YYYY-MM-DD`.
@@ -133,12 +169,25 @@ pub fn build_summary(
         overdue,
         today: today_count,
         handoffs_open,
-        collect: inbox.map(|i| count_unpromoted(i, todos)),
+        collect: inbox.map(count_unpromoted),
         items,
+        collect_items: inbox
+            .map(|i| {
+                unpromoted(i)
+                    .take(SUMMARY_INBOX_MAX)
+                    .map(|(source, item)| CollectItem {
+                        source: source.to_string(),
+                        title: one_line(&item.title, SUMMARY_TITLE_MAX),
+                        url: item.url.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
-/// 사람이 읽는 몇 줄. 첫 줄은 개수, 그 뒤 항목(최대 `SUMMARY_ITEM_MAX`). 전부 0 이면 한 줄뿐.
+/// 사람이 읽는 몇 줄. 첫 줄은 개수, 그 뒤 보드 항목(최대 `SUMMARY_ITEM_MAX`)과 미올림 수집함 항목
+/// (최대 `SUMMARY_INBOX_MAX`, 넘치면 `… 외 N건`). 전부 0 이면 한 줄뿐.
 pub fn render_summary(s: &Summary) -> String {
     let board = s.board.as_deref().unwrap_or("전체");
     let mut head = format!("rocky · {board}");
@@ -177,6 +226,18 @@ pub fn render_summary(s: &Summary) -> String {
             .map(|d| format!(" ({d})"))
             .unwrap_or_default();
         lines.push(format!("  {glyph} {} {}{due}", item.r#ref, item.title));
+    }
+    for item in &s.collect_items {
+        // 소스 이름은 설정 파일에서 오지만 제목과 같은 규칙으로 — 한 줄이 한 항목이어야 한다.
+        lines.push(format!(
+            "  📥 {}: {}",
+            one_line(&item.source, 20),
+            one_line(&item.title, SUMMARY_TITLE_MAX)
+        ));
+    }
+    let rest = s.collect.unwrap_or(0) - s.collect_items.len() as i64;
+    if !s.collect_items.is_empty() && rest > 0 {
+        lines.push(format!("  … 외 {rest}건"));
     }
     lines.join("\n")
 }

@@ -1294,6 +1294,16 @@ pub fn cmd_today(ctx: &CliContext, printer: &Printer) -> Result<(), String> {
     Ok(())
 }
 
+/// `inbox [--json]` — 수집함 소스별 항목. `GET /api/inbox` 를 그대로 읽는다(캐시가 비었으면 어댑터를
+/// 실제로 돌리므로 몇 초 걸릴 수 있다). ✓ 는 이미 보드에 올라간 것(전 보드·보관 포함의 링크로 데몬이
+/// 판정 — `rocky today` 와 같은 값).
+pub fn cmd_inbox(ctx: &CliContext, printer: &Printer) -> Result<(), String> {
+    let inbox: rocky_core::inbox::InboxResponse = request(ctx, "GET", "/api/inbox", None)?;
+    let raw = serde_json::to_value(&inbox).unwrap_or(Value::Null);
+    printer.emit(&raw, || rocky_core::inbox::render_inbox(&inbox));
+    Ok(())
+}
+
 /// 쿼리 값 인코딩 — 경로에 공백·한글이 올 수 있다.
 fn encode_query(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

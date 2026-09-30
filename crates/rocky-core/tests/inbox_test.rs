@@ -18,6 +18,7 @@ fn parses_full_and_minimal_items() {
             note: Some("평문".into()),
             due: Some("2026-10-01".into()),
             created_at: Some("2026-09-27T01:02:03Z".into()),
+            promoted: false,
         }
     );
     // 숫자 id 는 문자열로, title 은 trim.
@@ -105,6 +106,7 @@ fn redact_keeps_only_exit_code() {
             note: None,
             due: None,
             created_at: None,
+            promoted: false,
         }],
     };
     let response = InboxResponse {
@@ -114,4 +116,51 @@ fn redact_keeps_only_exit_code() {
     assert_eq!(response.sources[0].reason.as_deref(), Some("exit 1"));
     assert_eq!(response.sources[1].reason, None);
     assert_eq!(response.sources[1].items.len(), 1);
+}
+
+#[test]
+fn render_inbox_marks_promoted_items_and_shows_failures_in_one_line() {
+    use rocky_core::inbox::{render_inbox, InboxResponse, InboxSourceResult};
+    let inbox = InboxResponse {
+        sources: vec![
+            InboxSourceResult {
+                name: "gh-bugs".into(),
+                available: true,
+                reason: None,
+                fetched_at: "t".into(),
+                items: vec![
+                    InboxItem {
+                        id: "a".into(),
+                        title: "올라간 것".into(),
+                        url: Some("https://x/a".into()),
+                        note: None,
+                        due: None,
+                        created_at: None,
+                        promoted: true,
+                    },
+                    InboxItem {
+                        id: "b".into(),
+                        title: "새\n버그".into(),
+                        url: None,
+                        note: None,
+                        due: None,
+                        created_at: None,
+                        promoted: false,
+                    },
+                ],
+            },
+            InboxSourceResult {
+                name: "todoist".into(),
+                available: false,
+                reason: Some("exit 1: 토큰 없음\n자세한 로그".into()),
+                fetched_at: "t".into(),
+                items: vec![],
+            },
+        ],
+    };
+    assert_eq!(
+        render_inbox(&inbox),
+        "gh-bugs — 미올림 1 / 2\n  ✓ 올라간 것\n    https://x/a\n  · 새 버그\ntodoist — 실패: exit 1: 토큰 없음"
+    );
+    assert!(render_inbox(&InboxResponse { sources: vec![] }).starts_with("수집함 소스 없음"));
 }
