@@ -903,6 +903,13 @@ async fn dispatch(
             &crate::inbox_exec::cache_key(&source),
             &baseline,
         )?;
+        // 감시는 살아 있는 등록으로만 보낸다 — 구독한 지금부터 보낼 수 있게 등록도 갱신한다(훅과 같은 등록).
+        state.register_inbox(rocky_core::peer_inbox::InboxRegistration {
+            session_id: session_id.clone(),
+            socket: socket.clone(),
+            cwd: str_field(&body, "cwd").unwrap_or("").to_string(),
+            seen_at: chrono::Utc::now().timestamp(),
+        });
         return Ok(ok_json(&json!({
             "source": source_name,
             "sessionId": session_id,

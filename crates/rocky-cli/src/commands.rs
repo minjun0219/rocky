@@ -1314,7 +1314,12 @@ pub fn cmd_inbox(ctx: &CliContext, rest: &[String], printer: &Printer) -> Result
                 ctx,
                 "POST",
                 "/api/inbox/subscriptions",
-                Some(&json!({ "source": source, "sessionId": session_id, "socket": socket })),
+                Some(&json!({
+                    "source": source,
+                    "sessionId": session_id,
+                    "socket": socket,
+                    "cwd": std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                })),
             )?;
             printer.emit(&res, || {
                 format!(

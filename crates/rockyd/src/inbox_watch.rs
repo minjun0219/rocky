@@ -40,10 +40,13 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
     }
     let sources = (state.inbox_sources)();
     let linked = state.store.linked_urls().unwrap_or_default();
-    // 훅이 턴마다 갱신하는 세션 등록 — 세션이 이어 열려(resume) 소켓이 바뀌었으면 그쪽이 맞다.
+    // 보낼 곳은 **살아 있는 등록**(훅이 턴마다 갱신, TTL 안)의 소켓뿐이다. 구독 때 적은 소켓으로 보내지
+    // 않는다 — 소켓 이름이 숫자라, 끝난 세션의 경로를 다른 세션이 다시 쓰고 있으면 엉뚱한 세션에 간다.
+    let now = chrono::Utc::now().timestamp();
     let live: HashMap<String, String> = state
         .inboxes()
         .into_iter()
+        .filter(|r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS)
         .map(|r| (r.session_id, r.socket))
         .collect();
     let mut sent = 0;
@@ -60,12 +63,13 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
         let ids: Vec<String> = result.items.iter().map(|i| i.id.clone()).collect();
         for sub in subs {
             if sub.fingerprint != fingerprint {
-                let socket = live.get(&sub.session_id).unwrap_or(&sub.socket);
-                if let Err(error) =
-                    state
-                        .store
-                        .subscribe_inbox(&name, &sub.session_id, socket, &fingerprint, &ids)
-                {
+                if let Err(error) = state.store.subscribe_inbox(
+                    &name,
+                    &sub.session_id,
+                    &sub.socket,
+                    &fingerprint,
+                    &ids,
+                ) {
                     eprintln!("rocky: 수집함 {name} 기준선을 다시 못 잡았다 — {error}");
                 }
                 continue;
@@ -88,15 +92,19 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
                 .filter(|i| !i.url.as_deref().is_some_and(|u| linked.contains(u)))
                 .collect();
             if !new.is_empty() {
-                let socket = live
-                    .get(&sub.session_id)
-                    .cloned()
-                    .unwrap_or(sub.socket.clone());
-                if socket != sub.socket {
-                    let _ = state
-                        .store
-                        .update_inbox_subscription_socket(&sub.session_id, &socket);
-                }
+                let Some(socket) = live.get(&sub.session_id).cloned() else {
+                    // 살아 있는 등록이 없다 — 보내지 않고 미룬다(본 것으로 적지 않는다). 등록 없이 TTL 이
+                    // 지난 구독은 끝난 세션의 것이라 걷는다.
+                    let stale = chrono::DateTime::parse_from_rfc3339(&sub.created_at)
+                        .map(|t| {
+                            now - t.timestamp() > rocky_core::peer_inbox::REGISTRATION_TTL_SECS
+                        })
+                        .unwrap_or(false);
+                    if stale {
+                        let _ = state.store.unsubscribe_inbox(None, &sub.session_id);
+                    }
+                    continue;
+                };
                 let line = rocky_core::peer_inbox::inbox_line(
                     &rocky_core::peer_inbox::inbox_item_message(&name, &new),
                 );

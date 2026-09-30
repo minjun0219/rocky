@@ -1996,7 +1996,7 @@ impl TodoStore {
     pub fn inbox_subscriptions(&self) -> StoreResult<Vec<crate::inbox::InboxSubscription>> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT source, session_id, socket, fingerprint FROM inbox_subscriptions ORDER BY source, created_at",
+            "SELECT source, session_id, socket, fingerprint, created_at FROM inbox_subscriptions ORDER BY source, created_at",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(crate::inbox::InboxSubscription {
@@ -2004,6 +2004,7 @@ impl TodoStore {
                 session_id: r.get(1)?,
                 socket: r.get(2)?,
                 fingerprint: r.get(3)?,
+                created_at: r.get(4)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -2046,20 +2047,6 @@ impl TodoStore {
                 params![source, session_id, id, at],
             )?;
         }
-        Ok(())
-    }
-
-    /// 구독의 소켓을 갱신한다 — 세션이 새 프로세스로 이어 열리면(resume) 소켓이 바뀐다.
-    pub fn update_inbox_subscription_socket(
-        &self,
-        session_id: &str,
-        socket: &str,
-    ) -> StoreResult<()> {
-        let conn = self.lock();
-        conn.execute(
-            "UPDATE inbox_subscriptions SET socket = ?1 WHERE session_id = ?2",
-            params![socket, session_id],
-        )?;
         Ok(())
     }
 

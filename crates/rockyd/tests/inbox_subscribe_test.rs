@@ -211,6 +211,13 @@ async fn a_source_whose_command_changed_is_rebaselined_not_flooded() {
             timeout_ms: None,
         }];
     });
+    // 재시작한 데몬은 세션 등록이 비어 있다 — 다음 턴의 훅처럼 다시 등록한다.
+    post(
+        &state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s1", "socket": socket, "cwd": "/w/x" }),
+    )
+    .await;
     assert_eq!(
         rockyd::inbox_watch::tick(&state).await,
         0,
@@ -273,4 +280,35 @@ async fn a_resumed_session_is_reached_on_its_new_socket() {
     assert_eq!(drain(&new).len(), 1);
     let (_, list) = get(&f.state, "/api/inbox/subscriptions").await;
     assert_eq!(list.as_array().unwrap().len(), 1, "구독은 그대로");
+}
+
+/// 살아 있는 등록이 없으면 구독 때 적은 소켓으로 보내지 않는다 — 끝난 세션의 숫자 소켓 경로를 다른
+/// 세션이 다시 쓰고 있으면 엉뚱한 세션에 간다(Codex 지적). 본 것으로 적지 않고 미뤘다가 등록이 돌아오면 보낸다.
+#[tokio::test]
+async fn without_a_live_registration_nothing_is_sent_to_the_stored_socket() {
+    let f = fx_sub(Arc::default());
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, socket) = inbox_socket(dir.path());
+    post(
+        &f.state,
+        "/api/inbox/subscriptions",
+        json!({ "source": "gh-bugs", "sessionId": "s1", "socket": socket }),
+    )
+    .await;
+    f.state.forget_inbox("s1"); // 등록이 사라졌다(TTL·끝난 세션)
+    assert_eq!(rockyd::inbox_watch::tick(&f.state).await, 0);
+    assert!(
+        drain(&listener).is_empty(),
+        "저장된 소켓으로 폴백하지 않는다"
+    );
+    // 등록이 돌아오면(다음 턴의 훅) 미뤘던 항목까지 보낸다.
+    post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s1", "socket": socket, "cwd": "/w/x" }),
+    )
+    .await;
+    assert_eq!(rockyd::inbox_watch::tick(&f.state).await, 1);
+    let got = drain(&listener).join("");
+    assert!(got.contains("버그 3") && got.contains("버그 4"), "{got}");
 }

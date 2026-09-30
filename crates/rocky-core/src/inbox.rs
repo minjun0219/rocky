@@ -212,6 +212,8 @@ pub struct InboxSubscription {
     pub session_id: String,
     pub socket: String,
     pub fingerprint: String,
+    /// 구독한 시각(RFC 3339) — 살아 있는 등록 없이 오래 남은 구독을 걷는 기준.
+    pub created_at: String,
 }
 
 /// `GET /api/inbox` 응답.
