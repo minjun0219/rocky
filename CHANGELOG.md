@@ -1,5 +1,31 @@
 # @minjun0219/rocky
 
+## 0.36.0
+
+### Minor Changes
+
+- [#241](https://github.com/minjun0219/rocky/pull/241) [`3fe0478`](https://github.com/minjun0219/rocky/commit/3fe0478e3d84ce6df26a5438222518161fd4d5f6) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline` — statusline 에 끼우는 rocky 한 줄(cc-usage `extra_commands` 나 `statusLine.command` 에 그대로). `rocky upgrade [--check]` — 마켓플레이스 갱신·플러그인 올리기·데몬 교체를 한 번에.
+
+- [#249](https://github.com/minjun0219/rocky/pull/249) [`503a969`](https://github.com/minjun0219/rocky/commit/503a9693e1ef027bb9302ae50fbac37e2fb36f96) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 노트 탭을 게시판처럼 바꾼다 — 목록 한 줄 → 상세(전체 높이 편집기, `/{board}/notes/{n}`), 고정한 노트는 위에 접을 수 있는 카드로. 편집기는 CodeMirror 하나로 통일하고 마크다운 꾸밈·서식 툴바(⌘B·⌘I·⌘K)를 붙인다.
+
+- [#248](https://github.com/minjun0219/rocky/pull/248) [`c0876f1`](https://github.com/minjun0219/rocky/commit/c0876f167542bdb52d2ec10b1693fd89b5f39bb9) Thanks [@minjun0219](https://github.com/minjun0219)! - 노트를 고정할 수 있다 — `POST /api/notes/:ref/(pin|unpin)`, `rocky note pin|unpin REF`. 고정 시각(`pinnedAt`)이 노트에 실린다.
+
+- [#246](https://github.com/minjun0219/rocky/pull/246) [`bc5df77`](https://github.com/minjun0219/rocky/commit/bc5df779a7672eedff46040fb5b521af8be50021) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드마다 알릴 PR 작성자를 정한다(`rocky board pr-authors @me`, 웹 보드 편집의 "PR 알림") — 그 작성자의 PR 전이만 세션·배너·브릿지로 가고, 기록과 `rocky pr` 에는 전부 남는다. 보드에 레포를 처음 붙인 첫 조회는 기준선만 잡고 기존 PR 을 한꺼번에 알리지 않는다.
+
+- [#242](https://github.com/minjun0219/rocky/pull/242) [`6073c33`](https://github.com/minjun0219/rocky/commit/6073c33375519ef6e03c7f86743eee934b293d9b) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드에 GitHub 탭을 둔다 — PR 상태판과 수집함(이슈)을 할 일 화면에서 옮겼다. 움직일 PR 수는 탭 옆 숫자로, 행마다 숨기기(PR 은 상태가 바뀌면 다시 보인다), ⋯ 메뉴에서 탭 끄기.
+
+- [#243](https://github.com/minjun0219/rocky/pull/243) [`ce872c9`](https://github.com/minjun0219/rocky/commit/ce872c945c9324582835d2050d56da7fd13b794e) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 GitHub 탭에 "세션 전달" 칸 — PR·수집함 알림을 어느 세션이 받는지와 최근 보낸 알림을 보고, 세션별로 "보내지 않기"(그 보드의 다음 세션이 받는다)와 수집함 구독 해지를 한다. 로컬에서 연 화면에서만.
+
+### Patch Changes
+
+- [#252](https://github.com/minjun0219/rocky/pull/252) [`39e440d`](https://github.com/minjun0219/rocky/commit/39e440d23bf2a8813fb2b17b2844a1e009641503) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 마크다운을 GFM 파서로 그린다 — 할 일 설명·댓글·노트가 한 렌더러를 쓰고, 굵게 안의 코드·`[글자](주소)` 링크·제목·목록·표·코드 블록이 깨지지 않는다.
+
+- [#254](https://github.com/minjun0219/rocky/pull/254) [`5f98668`](https://github.com/minjun0219/rocky/commit/5f98668c5ac0e98ced7552a61ecda628724534c7) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-fix` 13단계 — 다른 작업 도중에 리뷰·충돌·CI 실패 메시지가 오면 워크트리 서브에이전트에 맡기고 하던 일을 계속한다(판단이 필요한 건만 메인이 묻는다). 데몬의 세션 메시지도 그렇게 안내한다.
+
+- [#251](https://github.com/minjun0219/rocky/pull/251) [`e621739`](https://github.com/minjun0219/rocky/commit/e621739f6f1d1842b527e05f6f62cbd371dae20b) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 머리(보드 전환·보기 탭)와 맨 아래 버전 줄을 스크롤해도 늘 보이게 고정한다. 노트 편집기 툴바도 머리 밑에 붙는다.
+
+- [#253](https://github.com/minjun0219/rocky/pull/253) [`cb45137`](https://github.com/minjun0219/rocky/commit/cb451371abf44573a8150db85c5124acddacc86d) Thanks [@minjun0219](https://github.com/minjun0219)! - 텔레그램 알림 브릿지가 굵은 머리 + PR 링크로 보낸다 — mdwire `telegram-html` 로 PR 제목의 코드·`<`·`&` 가 깨지지 않는다.
+
 ## 0.35.0
 
 ### Minor Changes
