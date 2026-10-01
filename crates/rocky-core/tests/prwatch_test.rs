@@ -449,11 +449,11 @@ fn a_reopened_pr_with_unhandled_threads_is_a_review() {
     assert_eq!(kinds, vec![PrEventKind::Opened, PrEventKind::Review]);
 }
 
-/// 리뷰를 세션에 처리시킬지는 그 레포를 둔 보드의 autoResolve 로 정한다(대소문자 무시). 레포가 같아도
+/// 리뷰를 세션에 처리시킬지는 그 레포를 둔 보드의 reviewFix 로 정한다(대소문자 무시). 레포가 같아도
 /// 켠 보드가 없으면 끔, 켠 보드라도 레포가 다르면 끔.
 #[test]
-fn auto_resolve_follows_the_board_that_holds_the_repo() {
-    use rocky_core::prwatch::auto_resolve_enabled;
+fn review_fix_follows_the_board_that_holds_the_repo() {
+    use rocky_core::prwatch::review_fix_enabled;
     use rocky_core::types::Board;
     let board = |repo: Option<&str>, on: bool| Board {
         id: "b".into(),
@@ -463,22 +463,19 @@ fn auto_resolve_follows_the_board_that_holds_the_repo() {
         repo: repo.map(str::to_string),
         path: None,
         previous_keys: None,
-        auto_resolve: on,
+        review_fix: on,
         created_at: "2026-09-29T00:00:00Z".into(),
         archived_at: None,
         pr_authors: Vec::new(),
     };
-    assert!(auto_resolve_enabled(
+    assert!(review_fix_enabled(
         &[board(Some("Minjun0219/Mdwire"), true)],
         "minjun0219/mdwire"
     ));
-    assert!(!auto_resolve_enabled(&[board(Some("o/r"), false)], "o/r"));
-    assert!(!auto_resolve_enabled(
-        &[board(Some("o/other"), true)],
-        "o/r"
-    ));
-    assert!(!auto_resolve_enabled(&[board(None, true)], "o/r"));
-    assert!(auto_resolve_enabled(
+    assert!(!review_fix_enabled(&[board(Some("o/r"), false)], "o/r"));
+    assert!(!review_fix_enabled(&[board(Some("o/other"), true)], "o/r"));
+    assert!(!review_fix_enabled(&[board(None, true)], "o/r"));
+    assert!(review_fix_enabled(
         &[board(Some("o/r"), false), board(Some("o/r"), true)],
         "o/r"
     ));

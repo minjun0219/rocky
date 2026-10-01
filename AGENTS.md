@@ -230,7 +230,7 @@ typecheck or tests — pre-push and CI already cover it.*
 - **tailscale serve 자동 확보는 남의 노출을 빼앗지 않는다.** `decide_serve_action`: `claim`(빈 자리),
   `keep`(내 것), `yield`(살아 있는 다른 rocky 데몬), `reclaim`(죽은 포트). 수동 `rocky tailscale on` 은 가드하지
   않는다.
-- **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 보드의 `path` / `repo` / `autoResolve` / `prAuthors` 변경, 보드 수집함 설정(`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다)은
+- **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 보드의 `path` / `repo` / `reviewFix` / `prAuthors` 변경, 보드 수집함 설정(`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다)은
   `is_local_request` 가 필요하다: 루프백 peer **이고** 프록시 헤더(`x-forwarded-*`, `forwarded`,
   `tailscale-user-*`, `cf-*`)가 없어야 한다; peer 주소가 없으면 거부(fail-closed). *EN: Anything that writes to GitHub, spawns processes or steers
   sessions is local-only: loopback peer and no proxy headers; fail closed.*
@@ -238,7 +238,7 @@ typecheck or tests — pre-push and CI already cover it.*
   `Origin` 으로 판단)인 변경 메서드는 REST 와 `/mcp` 에서 403; 헤더가 둘 다 없으면 비브라우저 클라이언트로 보고
   통과시킨다. 읽기는 막지 않는다. *EN: Block cross-site mutations before routing (`Sec-Fetch-Site` first); never
   block reads.*
-- **보드 메타**(`update_board`)는 key/title/description/repo/path/autoResolve/prAuthors 를 한 트랜잭션으로 고친다;
+- **보드 메타**(`update_board`)는 key/title/description/repo/path/reviewFix/prAuthors 를 한 트랜잭션으로 고친다;
   `null` 은 지우기, 빈 문자열은 400. key 를 바꾸면 옛 key 를 `board_aliases` 에 남긴다(입력 전용 — 출력은 늘
   새 key, 쓴 key 는 은퇴). `match_board` 는 현재 key 만 본다.
 - **노트는 CRDT 문서다**(`rocky_core::note_doc`, `yrs`): 데몬이 CRDT 피어라 에이전트와 CLI 는 Yjs 를 모른다 —
@@ -266,7 +266,7 @@ typecheck or tests — pre-push and CI already cover it.*
   구독한 PR 은 빼앗지 않고, 필터를 해지하면 그 필터로 들어온 구독도 걷힌다(직접 구독하면 필터 출처가 지워진다). GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
   받은편지함(`pr.sessionNotify` — 훅이 `CLAUDE_CODE_MESSAGING_SOCKET` 을 `POST /api/sessions/inbox` 로
   등록하고, 데몬이 **그 PR 을 구독한 세션**에만 JSON 한 줄을 쓴다 — 그 세션이 끝났거나 "보내지 않기" 면 보내지 않고 다른 세션으로 넘기지 않는다), 브릿지(`pr.notifiers[]`, 코드는
-  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리) 로 보이고, `POST /api/deliveries/mute` 로 세션별 "보내지 않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI 가 실패로 바뀜 — 같은 head 에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). 리뷰·충돌·CI 실패 메시지를 받은 세션이 다른 작업 중이면 워크트리 서브에이전트에 맡긴다(13단계, 판단이 필요한 👀 는 메인이 묻는다). 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게). 구독은 그 레포를 기준선이 잡힌 레포로 표시해, 구독한 뒤 첫 tick 이 지금 상태(머지 후보·CI 실패 등)를 알린다. `ready` 는 **머지
+  `bridges/<name>/` 에만). `pr-review` 는 보드의 `reviewFix` 가 켜졌을 때만 세션에 간다. 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리) 로 보이고, `POST /api/deliveries/mute` 로 세션별 "보내지 않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI 가 실패로 바뀜 — 같은 head 에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). 리뷰·충돌·CI 실패 메시지를 받은 세션이 다른 작업 중이면 워크트리 서브에이전트에 맡긴다(13단계, 판단이 필요한 👀 는 메인이 묻는다). 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게). 구독은 그 레포를 기준선이 잡힌 레포로 표시해, 구독한 뒤 첫 tick 이 지금 상태(머지 후보·CI 실패 등)를 알린다. `ready` 는 **머지
   후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:review-fix` 8단계); 머지 뒤에 붙은 리뷰는
   다음 PR 로 간다(`after-merge`). **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 요청한 노드 수다 —
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`

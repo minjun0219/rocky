@@ -215,8 +215,8 @@
   `session_id → CLAUDE_CODE_MESSAGING_SOCKET · cwd` 를 `POST /api/sessions/inbox`(로컬 전용, 경로 모양 검증)로
   등록하고, 데몬이 그 레포 보드에서 일하는 가장 최근 세션 하나의 소켓에 JSON 한 줄
   `{"type":"user","message":{…}}` 을 쓴다 — 쉬던 세션도 턴이 열린다; 순수 판정은 `rocky_core::peer_inbox`,
-  등록부는 데몬 수명 상태; 그 레포 보드의 `autoResolve`(보드 속성 · user_version 9 · 기본 끔 — 설정 파일이
-  아니라 보드에 두는 이유는 그 레포의 세션이 `rocky board auto-resolve on` 으로 자기 보드를 켜게 하려는 것,
+  등록부는 데몬 수명 상태; 그 레포 보드의 `reviewFix`(보드 속성 · user_version 9 · 기본 끔 — 설정 파일이
+  아니라 보드에 두는 이유는 그 레포의 세션이 `rocky board review-fix on` 으로 자기 보드를 켜게 하려는 것,
   변경은 로컬 전용)가 켜졌으면 처음 보는 처리 안 된 리뷰 스레드가 생긴 전이
   `pr-review` 때 그 세션에 `/rocky:review-fix N` 처리를 시킨다 — 배너·브릿지는 `pr-review` 를 안 쓴다)과
   **알림 브릿지**(`pr.notifiers[]` — `todo.inbox[]` 와 같은

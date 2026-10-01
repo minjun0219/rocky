@@ -521,21 +521,69 @@ async fn patch_board_null_clears_path() {
     assert!(board.get("path").is_none() || board["path"].is_null());
 }
 
-/// 보드별 autoResolve — 켠 보드만 응답에 `autoResolve: true` 가 실리고, 끄면 다시 빠진다. 불리언이
+/// 보드별 reviewFix — 켠 보드만 응답에 `reviewFix: true` 가 실리고, 끄면 다시 빠진다. 불리언이
 /// 아니면 400, 원격 요청은 403(켜면 데몬이 세션에 일을 시킨다).
 #[tokio::test]
-async fn patch_board_toggles_auto_resolve_locally_only() {
+async fn patch_board_toggles_review_fix_locally_only() {
+    let f = fx();
+    post(&f.state, "/api/boards", json!({"key":"rocky"})).await;
+    let (status, board) = patch(&f.state, "/api/boards/rocky", json!({"reviewFix": true})).await;
+    assert_eq!(status, 200);
+    assert_eq!(board["reviewFix"], true);
+    let (_, board) = patch(&f.state, "/api/boards/rocky", json!({"reviewFix": false})).await;
+    assert!(
+        board.get("reviewFix").is_none(),
+        "끈 보드의 응답 모양은 그대로: {board}"
+    );
+    let (status, _) = patch(&f.state, "/api/boards/rocky", json!({"reviewFix": "yes"})).await;
+    assert_eq!(status, 400);
+    let (status, _) = call(
+        &f.state,
+        "PATCH",
+        "/api/boards/rocky",
+        Some(json!({"reviewFix": true})),
+        ReqOptions {
+            peer: Some("192.168.1.20"),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 403);
+}
+
+/// 옛 이름 `autoResolve` 는 한 릴리스 동안 입력 별칭이다 — 받아서 `reviewFix` 로 고치고, 응답에는 새
+/// 이름만 실린다. 둘 다 오면 `reviewFix` 가 이긴다. 원격 요청은 옛 이름으로도 403.
+#[tokio::test]
+async fn patch_board_accepts_legacy_auto_resolve_alias() {
     let f = fx();
     post(&f.state, "/api/boards", json!({"key":"rocky"})).await;
     let (status, board) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": true})).await;
     assert_eq!(status, 200);
-    assert_eq!(board["autoResolve"], true);
-    let (_, board) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": false})).await;
+    assert_eq!(board["reviewFix"], true);
     assert!(
         board.get("autoResolve").is_none(),
-        "끈 보드의 응답 모양은 그대로: {board}"
+        "응답은 새 이름만: {board}"
     );
-    let (status, _) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": "yes"})).await;
+    let (_, listed) = get(&f.state, "/api/boards").await;
+    let row = listed
+        .as_array()
+        .and_then(|a| a.iter().find(|b| b["key"] == "rocky"))
+        .cloned()
+        .expect("보드 목록에 rocky");
+    assert_eq!(row["reviewFix"], true);
+    assert!(row.get("autoResolve").is_none(), "목록도 새 이름만: {row}");
+    let (status, board) = patch(
+        &f.state,
+        "/api/boards/rocky",
+        json!({"autoResolve": true, "reviewFix": false}),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(
+        board.get("reviewFix").is_none(),
+        "reviewFix 가 이긴다: {board}"
+    );
+    let (status, _) = patch(&f.state, "/api/boards/rocky", json!({"autoResolve": 1})).await;
     assert_eq!(status, 400);
     let (status, _) = call(
         &f.state,

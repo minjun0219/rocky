@@ -274,7 +274,7 @@ jq '.result[-1].message.chat.id'` 로 chat id → 위처럼 등록 → 데몬 �
   실측). Claude Code 가 문서로 약속한 건 소켓과 인증 줄까지라, 본문 형식이 바뀌면 이 알림만 조용히
   멈춘다.
 
-**리뷰가 붙으면 세션이 처리한다(보드의 `autoResolve`, 기본 끔).** 처음 보는 처리 안 된 리뷰 스레드가
+**리뷰가 붙으면 세션이 반영한다(보드의 리뷰 반영 `reviewFix`, 기본 끔).** 처음 보는 처리 안 된 리뷰 스레드가
 생기면(봇·사람 리뷰가 새로 붙으면) 데몬이 "리뷰 도착" 전이(`pr-review`)를 남기고, 그 레포를 둔 보드가
 켜져 있으면 그 레포에서 일하는 세션에 "`/rocky:review-fix N` 절차대로 처리하라" 는 메시지를
 받은편지함으로 보낸다. 배너는 띄우지 않는다. 받은 세션이 다른 작업 중이면 끝날 때까지 미루지 않고 **워크트리
@@ -310,14 +310,17 @@ REST 는 `PATCH /api/boards/:key {"prAuthors": ["@me"]}`(로컬 전용, `null` �
 데몬이 전이를 남기고 그 레포에서 일하는 세션에 "로그를 보고, 테스트 전에 죽은 인프라 문제면 한 번 재실행,
 코드 문제면 고쳐 푸시" 하라는 메시지를 보낸다(`/rocky:review-fix` 12단계). 같은 커밋에서 실패가 이어지는
 동안은 다시 보내지 않고, 재실행이 또 실패하면 또 보낸다. 배너는 띄우지 않는다 — 세션이 못 풀면 그때 채팅으로
-올라온다. `autoResolve` 와 무관하게 간다.
+올라온다. `reviewFix` 와 무관하게 간다.
 
 켜고 끄는 것은 **그 레포의 세션**이 한다 — 설정 파일이 아니라 보드 속성이라, 세션이 cwd 로 자기
-보드를 고른다(`PATCH /api/boards/:key {"autoResolve": true}`, 로컬 요청 전용).
+보드를 고른다(`PATCH /api/boards/:key {"reviewFix": true}`, 로컬 요청 전용).
 
 ```bash
-rocky board auto-resolve on    # 이 레포의 보드 — 끄려면 off
+rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 ```
+
+옛 이름(`rocky board auto-resolve`, REST 의 `autoResolve`)은 한 릴리스 동안 입력으로만 받는다 — CLI 는 새 이름을
+한 줄로 알린다.
 
 받는 세션은 그 PR 을 만든 곳이면 절차를 한 번 돈다(분류 → 명백한 오류만 고쳐 푸시 → 🚀/👀 → 채팅 보고).
 코멘트·resolve·머지는 여전히 하지 않는다 — 메시지는 "다른 세션이 보낸 것" 이라 사용자 승인도 아니다.
@@ -478,7 +481,7 @@ GitHub 링크 · 레포 경로), 오른쪽 `편집` 으로 그 자리에서 고�
 - `rocky board show` 가 옛 이름(`previousKeys`)을 함께 보여준다 — 그 참조가 아직
   살아 있다는 걸 아는 자리다.
 
-REST 로는 `PATCH /api/boards/:key` 하나가 다섯 필드(+ `autoResolve`·`prAuthors`)를 **함께** 받는다(한 트랜잭션이라
+REST 로는 `PATCH /api/boards/:key` 하나가 다섯 필드(+ `reviewFix`·`prAuthors`)를 **함께** 받는다(한 트랜잭션이라
 부분 적용이 없다). `null` 은 "지운다"이고 빈 문자열은 400 — 폼이 실수로 비워 보낸 값이
 설정을 날리지 않게 하려는 구분이다.
 

@@ -74,7 +74,7 @@ pub fn board_fixture() -> Board {
         repo: None,
         path: None,
         previous_keys: None,
-        auto_resolve: false,
+        review_fix: false,
         created_at: "2026-08-01T00:00:00.000Z".into(),
         archived_at: None,
         pr_authors: Vec::new(),

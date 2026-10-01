@@ -155,7 +155,7 @@ fn review_message_asks_the_pr_session_to_run_resolve_reviews() {
     assert!(msg.contains("/rocky:review-fix 7"));
     assert!(msg.contains("코멘트·resolve·머지는 하지 않는다"));
     // 켜고 끄는 곳은 보드다 — 걷어낸 설정 키(`pr.autoResolve`)를 가리키면 세션이 없는 설정을 찾는다.
-    assert!(msg.contains("rocky board auto-resolve off"), "{msg}");
+    assert!(msg.contains("rocky board review-fix off"), "{msg}");
     assert!(!msg.contains("pr.autoResolve"), "{msg}");
     assert!(review_session_message(&event(PrEventKind::Ready)).is_none());
     // 바쁜 세션은 미루지 않고 워크트리 서브에이전트에 맡긴다 — 결정 필요 건은 메인이 묻는다.

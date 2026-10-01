@@ -215,9 +215,9 @@ pub struct Board {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_keys: Option<Vec<String>>,
     /// 리뷰가 붙으면 그 레포에서 일하는 세션에 review-fix 를 시킨다(기본 끔). 켠 보드만
-    /// `autoResolve: true` 로 실린다 — 끈 보드의 응답 모양은 그대로다.
+    /// `reviewFix: true` 로 실린다 — 끈 보드의 응답 모양은 그대로다.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub auto_resolve: bool,
+    pub review_fix: bool,
     /// PR 감시가 **알릴** PR 작성자 — `@me` 또는 login. 비면 전부(기본). 기록은 필터와 무관하게 전부 남는다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pr_authors: Vec<String>,
@@ -235,7 +235,7 @@ pub struct BoardPatch {
     pub description: Option<Option<String>>,
     pub repo: Option<Option<String>>,
     pub path: Option<Option<String>>,
-    pub auto_resolve: Option<bool>,
+    pub review_fix: Option<bool>,
     /// `Some(vec![])` 은 지우기(전부 알림).
     pub pr_authors: Option<Vec<String>>,
 }
@@ -549,7 +549,7 @@ mod tests {
             repo: None,
             path: None,
             previous_keys: None,
-            auto_resolve: false,
+            review_fix: false,
             pr_authors: Vec::new(),
             created_at: "2026-01-01T00:00:00.000Z".into(),
             archived_at: None,
