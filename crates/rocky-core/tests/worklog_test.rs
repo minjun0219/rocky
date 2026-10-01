@@ -422,12 +422,14 @@ fn real_git_worktree_folds_onto_repo_root() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("main-repo");
     std::fs::create_dir_all(&repo).unwrap();
+    // git 이 넘긴 환경(`GIT_DIR` 등)을 지운다 — pre-push 훅 안에서 돌면 훅의 `GIT_DIR` 이 남아 아래 init·config·
+    // commit·worktree add 가 **실제 레포**에 적용된다(2026-10-01: core.bare=true · user=T · 레포를 지우는 커밋).
     let run = |args: &[&str], cwd: &Path| {
-        std::process::Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .unwrap()
+        let mut cmd = std::process::Command::new("git");
+        for var in rocky_core::worklog::GIT_ENV_VARS {
+            cmd.env_remove(var);
+        }
+        cmd.args(args).current_dir(cwd).output().unwrap()
     };
     run(&["init", "-q", "-b", "main"], &repo);
     run(&["config", "user.email", "t@example.com"], &repo);
