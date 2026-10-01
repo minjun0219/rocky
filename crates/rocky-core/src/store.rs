@@ -398,6 +398,16 @@ impl TodoStore {
         })
     }
 
+    /// `PRAGMA quick_check` — 정상이면 "ok", 아니면 첫 문제들(줄바꿈으로 이어 붙임).
+    pub fn quick_check(&self) -> StoreResult<String> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("PRAGMA quick_check(5)")?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows.join("\n"))
+    }
+
     /// 테스트용 — 메모리 DB. 프로덕션 경로는 `open`.
     pub fn open_in_memory() -> StoreResult<Self> {
         let conn = Connection::open_in_memory()?;

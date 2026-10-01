@@ -43,3 +43,31 @@ async fn a_server_that_finishes_returns_its_own_result() {
     .await;
     assert_eq!(out, Err("bind"));
 }
+
+/// 업그레이드 때 새 데몬은 옛 데몬이 끝난 뒤에만 DB 를 연다 — pid 파일의 rockyd 가 살아 있으면 기다린다. 남의
+/// 프로세스가 같은 번호를 받았거나(이름이 rockyd 가 아님) 내 pid 면 기다리지 않는다.
+#[test]
+fn previous_daemon_alive_only_for_another_live_rockyd() {
+    use rockyd::daemon::previous_daemon_alive;
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("daemon.pid");
+    assert_eq!(
+        previous_daemon_alive(&pid_file, 10, |_| true),
+        None,
+        "파일 없음"
+    );
+    std::fs::write(&pid_file, "42\n").unwrap();
+    assert_eq!(previous_daemon_alive(&pid_file, 10, |p| p == 42), Some(42));
+    assert_eq!(
+        previous_daemon_alive(&pid_file, 10, |_| false),
+        None,
+        "rockyd 가 아니다"
+    );
+    assert_eq!(
+        previous_daemon_alive(&pid_file, 42, |_| true),
+        None,
+        "내 pid"
+    );
+    std::fs::write(&pid_file, "garbage").unwrap();
+    assert_eq!(previous_daemon_alive(&pid_file, 10, |_| true), None);
+}

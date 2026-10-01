@@ -63,7 +63,7 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 
 | 메서드 경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| GET `/api/health` | — | `{ok:true, name:'rocky-todo', version, pid, issueCreateAllowed, spawnAllowed}` | version 은 stale 데몬 판별 근거 |
+| GET `/api/health` | — | `{ok:true, name:'rocky-todo', version, pid, issueCreateAllowed, spawnAllowed, dbIntegrity?}` | version 은 stale 데몬 판별 근거. `dbIntegrity` — 기동 때 `PRAGMA quick_check` 결과(`"ok"` 아니면 문제 요약) |
 | GET `/api/statusline` | `?cwd=&session=` | `text/plain` 완성 한 줄 | 실패·빈 상태 = 빈 문자열. 아래 절 |
 | GET `/api/events` | — | SSE | 아래 절 |
 | GET `/api/boards` | `?includeArchived=true` | `Board[]` | |
