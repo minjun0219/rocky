@@ -18,7 +18,9 @@ use crate::actors::is_agent_actor;
 use crate::ids::{new_id, ID_LENGTH};
 use crate::migrations::{run_migrations, RunMigrationsOptions};
 use crate::note_doc::NoteDoc;
-use crate::prwatch::{diff as pr_diff, event_changes, PrEvent, PrSnapshot, PrSubscription};
+use crate::prwatch::{
+    diff as pr_diff, event_changes, PrEvent, PrFilterSubscription, PrSnapshot, PrSubscription,
+};
 use crate::refs::GLOBAL_NOTE_PREFIX;
 use crate::types::*;
 
@@ -619,7 +621,8 @@ impl TodoStore {
         Ok(removed)
     }
 
-    /// PR 을 구독한다 — 이미 있으면 맡은 세션만 바꾼다(다른 세션이 넘겨받기). 레포는 대소문자를 가리지
+    /// PR 을 구독한다 — 이미 있으면 맡은 세션만 바꾼다(다른 세션이 넘겨받기). 직접 구독은 필터 출처를 지운다 —
+    /// 필터를 해지해도 직접 맡은 PR 은 남는다. 레포는 대소문자를 가리지
     /// 않고 한 줄로 본다. 그 레포를 처음 보더라도 기준선으로 삼키지 않는다 — 구독은 "지금 상태부터 알려 달라" 다.
     pub fn subscribe_pr(
         &self,
@@ -643,7 +646,7 @@ impl TodoStore {
         let key = existing.unwrap_or_else(|| repo.to_string());
         conn.execute(
             "INSERT INTO pr_subscriptions (repo, number, session_id, created_at) VALUES (?1, ?2, ?3, ?4)\n\
-             ON CONFLICT (repo, number) DO UPDATE SET session_id = excluded.session_id",
+             ON CONFLICT (repo, number) DO UPDATE SET session_id = excluded.session_id, filter_id = NULL",
             params![key, number, session_id, now_iso()],
         )?;
         conn.execute(
@@ -653,6 +656,96 @@ impl TodoStore {
         get_pr_subscription_conn(&conn, &key, number)?.ok_or_else(|| {
             StoreError::new(format!("구독을 넣었는데 다시 읽지 못했다: {key}#{number}"))
         })
+    }
+
+    /// 필터로 걸린 PR 을 구독한다 — 이미 누가(직접이든 다른 필터든) 구독한 PR 은 건드리지 않는다(빼앗지 않는다).
+    /// 새로 넣었으면 true.
+    pub fn subscribe_pr_via_filter(
+        &self,
+        repo: &str,
+        number: i64,
+        session_id: Option<&str>,
+        filter_id: &str,
+    ) -> StoreResult<bool> {
+        if !crate::prwatch::is_repo_slug(repo) || number <= 0 {
+            return Ok(false);
+        }
+        let conn = self.lock();
+        if get_pr_subscription_conn(&conn, repo, number)?.is_some() {
+            return Ok(false);
+        }
+        conn.execute(
+            "INSERT INTO pr_subscriptions (repo, number, session_id, created_at, filter_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![repo, number, session_id, now_iso(), filter_id],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO pr_watch_repos (repo, baselined_at) VALUES (?1, ?2)",
+            params![repo, now_iso()],
+        )?;
+        Ok(true)
+    }
+
+    /// 필터를 구독한다 — 같은 세션이 같은 조건을 또 구독하면 있던 것을 돌려준다.
+    pub fn subscribe_pr_filter(
+        &self,
+        query: &str,
+        session_id: Option<&str>,
+    ) -> StoreResult<PrFilterSubscription> {
+        if !crate::prwatch::is_filter_query(query) {
+            return Err(StoreError::new(format!(
+                "구독할 검색 조건이 이상하다: {query:?} (한 줄, 256자 안)"
+            )));
+        }
+        let query = query.trim();
+        let conn = self.lock();
+        let existing = conn
+            .query_row(
+                "SELECT id, query, session_id, created_at FROM pr_filter_subscriptions \
+                 WHERE query = ?1 AND session_id IS ?2",
+                params![query, session_id],
+                pr_filter_from_row,
+            )
+            .optional()?;
+        if let Some(found) = existing {
+            return Ok(found);
+        }
+        let id = new_id();
+        conn.execute(
+            "INSERT INTO pr_filter_subscriptions (id, query, session_id, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, query, session_id, now_iso()],
+        )?;
+        Ok(conn.query_row(
+            "SELECT id, query, session_id, created_at FROM pr_filter_subscriptions WHERE id = ?1",
+            params![id],
+            pr_filter_from_row,
+        )?)
+    }
+
+    /// 필터를 해지한다 — 그 필터로 들어온 PR 구독도 같이 걷는다. 걷힌 PR 구독 수, 필터가 없었으면 None.
+    pub fn unsubscribe_pr_filter(&self, id: &str) -> StoreResult<Option<usize>> {
+        let conn = self.lock();
+        let removed = conn.execute(
+            "DELETE FROM pr_filter_subscriptions WHERE id = ?1",
+            params![id],
+        )?;
+        if removed == 0 {
+            return Ok(None);
+        }
+        Ok(Some(conn.execute(
+            "DELETE FROM pr_subscriptions WHERE filter_id = ?1",
+            params![id],
+        )?))
+    }
+
+    pub fn pr_filter_subscriptions(&self) -> StoreResult<Vec<PrFilterSubscription>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, query, session_id, created_at FROM pr_filter_subscriptions ORDER BY created_at",
+        )?;
+        let rows = stmt
+            .query_map([], pr_filter_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     /// 구독을 걷는다 — 있었으면 true.
@@ -668,7 +761,7 @@ impl TodoStore {
     pub fn pr_subscriptions(&self) -> StoreResult<Vec<PrSubscription>> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT repo, number, session_id, created_at FROM pr_subscriptions ORDER BY repo, number",
+            "SELECT repo, number, session_id, created_at, filter_id FROM pr_subscriptions ORDER BY repo, number",
         )?;
         let rows = stmt
             .query_map([], pr_subscription_from_row)?
@@ -708,6 +801,16 @@ fn pr_subscription_from_row(row: &Row) -> rusqlite::Result<PrSubscription> {
         number: row.get(1)?,
         session_id: row.get(2)?,
         created_at: row.get(3)?,
+        filter_id: row.get(4)?,
+    })
+}
+
+fn pr_filter_from_row(row: &Row) -> rusqlite::Result<PrFilterSubscription> {
+    Ok(PrFilterSubscription {
+        id: row.get(0)?,
+        query: row.get(1)?,
+        session_id: row.get(2)?,
+        created_at: row.get(3)?,
     })
 }
 
@@ -718,7 +821,7 @@ fn get_pr_subscription_conn(
 ) -> StoreResult<Option<PrSubscription>> {
     Ok(conn
         .query_row(
-            "SELECT repo, number, session_id, created_at FROM pr_subscriptions \
+            "SELECT repo, number, session_id, created_at, filter_id FROM pr_subscriptions \
              WHERE lower(repo) = lower(?1) AND number = ?2",
             params![repo, number],
             pr_subscription_from_row,

@@ -184,6 +184,60 @@ pub struct PrSubscription {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub created_at: String,
+    /// 필터 구독으로 들어왔으면 그 필터 id — 필터를 해지하면 같이 걷힌다. 직접 구독이면 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter_id: Option<String>,
+}
+
+/// 필터 구독 — GitHub 검색 조건(`repo:o/r author:@me label:review`, `project:org/5` …). 데몬이 tick 마다 열린 PR 을
+/// 그 조건으로 검색해 걸린 것을 이 세션의 PR 구독으로 넣는다(`is:pr is:open` 은 데몬이 붙인다).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrFilterSubscription {
+    pub id: String,
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub created_at: String,
+}
+
+/// 필터 검색 쿼리(변수 `q`) — 걸린 열린 PR 의 레포·번호만 묻는다. `first:30` — 비용은 요청한 노드 수라(위
+/// "예산") 작게 둔다. 넘치면 최근 갱신 순 앞쪽만.
+pub const FILTER_SEARCH_QUERY: &str = r#"query($q:String!) {
+  rateLimit { cost remaining resetAt }
+  search(type:ISSUE, query:$q, first:30) { nodes { ... on PullRequest { number repository { nameWithOwner } } } }
+}
+"#;
+
+/// 구독한 조건을 검색어로 — 열린 PR 만, 최근 갱신 순. 조건은 사람이 쓴 그대로 뒤에 붙는다(변수로 넘기므로 주입은 없다).
+pub fn filter_search_query(query: &str) -> String {
+    format!("is:pr is:open sort:updated-desc {}", query.trim())
+}
+
+/// 검색 결과에서 (레포, 번호)를 뽑는다. PR 이 아닌 노드(빈 객체)는 건너뛴다.
+pub fn parse_filter_search(data: &Value) -> Vec<(String, i64)> {
+    data.pointer("/search/nodes")
+        .and_then(Value::as_array)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|n| {
+                    let repo = n
+                        .pointer("/repository/nameWithOwner")?
+                        .as_str()?
+                        .to_string();
+                    let number = n.get("number")?.as_i64()?;
+                    Some((repo, number))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 구독할 수 있는 조건인가 — 비지 않고, 한 줄이고, 256자 안.
+pub fn is_filter_query(query: &str) -> bool {
+    let q = query.trim();
+    !q.is_empty() && q.chars().count() <= 256 && !q.contains(['\n', '\r'])
 }
 
 /// `owner/name` 모양인가 — 구독의 레포는 `gh` 에 그대로 넘어간다.

@@ -192,7 +192,10 @@ POST /api/notes/:ref/presence {client,state}  누가 보고 있는지 — 저장
 **구독한 PR** 을 데몬이 3분마다 본다(`gh api graphql`, 레포마다 구독한 번호를 상세 쿼리 한 번). PR 을 만든 세션이
 `/rocky:review-request` 에서, 리뷰를 처리하는 세션이 `/rocky:review-fix` 에서 구독한다(`rocky pr subscribe N` — 세션
 밖에서 부르면 세션 없이 지켜보기만). 알림(리뷰·충돌·CI 실패·머지 후보·머지)은 **구독한 세션에만** 가고, 머지·닫힘에서
-구독이 풀린다. 레포 목록은 보지 않으니 구독하지 않은 PR 은 상시로 보이지 않는다 — 그만큼 비용이 구독한 PR 수에만
+구독이 풀린다. PR 하나씩이 아니라 **조건으로도** 구독한다 — `rocky pr subscribe --filter "repo:o/r author:@me"`(GitHub 검색
+조건 그대로 — `label:`·`project:org/5`·`review-requested:@me` …). 데몬이 3분마다 그 조건으로 검색해(1포인트) 걸린 열린 PR
+을 그 세션의 구독으로 넣는다. 다른 세션이 이미 맡은 PR 은 건드리지 않고, `rocky pr unsubscribe --filter ID` 로 해지하면 그
+필터로 들어온 구독도 걷힌다. 목록은 `rocky pr subscriptions`. 레포 목록은 보지 않으니 구독하지 않은 PR 은 상시로 보이지 않는다 — 그만큼 비용이 구독한 PR 수에만
 비례한다(설계 `docs/design/specs/2026-10-01-pr-subscriptions-design.md`). 열려 있고
 draft 가 아니고 main 을 향하고(스택의 맨 아래) 충돌이 없고 CI 가 통과했고 리뷰 스레드가 전부
 처리(🚀)됐거나 결정 대기(👀)가 없으면 **머지 후보**다 — 기계 판정이라 후보까지만 말한다. 리뷰는 머지

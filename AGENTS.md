@@ -260,7 +260,10 @@ typecheck or tests — pre-push and CI already cover it.*
 - **PR 감시**(`rockyd::prwatch`)는 **구독한 PR 만**(`pr_subscriptions` — `rocky pr subscribe N`, `/rocky:review-request`·
   `review-fix` 가 구독한다, 머지·닫힘에서 풀린다) `pr.intervalMinutes` 마다 상세 쿼리로 보고 `pr-*` 전이(actor `rocky`)를
   그 레포를 둔 보드 히스토리에 남긴다. 레포 목록은 보지 않는다 — 보드의 `repo` 는 감시 대상을 정하지 않는다. 구독은
-  `POST/DELETE /api/prs/subscriptions`(로컬 전용) · `GET` 은 열려 있다. GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
+  `POST/DELETE /api/prs/subscriptions`(로컬 전용) · `GET` 은 열려 있다. **필터 구독**(`rocky pr subscribe --filter
+  "repo:o/r author:@me"`, `/api/prs/filters`)은 GitHub 검색 조건이다 — tick 마다 검색 한 번(`is:pr is:open` 을 데몬이
+  붙인다, `gh` 에는 `-f` 로 — `-F` 는 `@me` 를 파일로 읽는다)으로 걸린 열린 PR 을 그 세션 구독으로 넣는다. 이미 누가
+  구독한 PR 은 빼앗지 않고, 필터를 해지하면 그 필터로 들어온 구독도 걷힌다(직접 구독하면 필터 출처가 지워진다). GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
   받은편지함(`pr.sessionNotify` — 훅이 `CLAUDE_CODE_MESSAGING_SOCKET` 을 `POST /api/sessions/inbox` 로
   등록하고, 데몬이 **그 PR 을 구독한 세션**에만 JSON 한 줄을 쓴다 — 그 세션이 끝났거나 "보내지 않기" 면 보내지 않고 다른 세션으로 넘기지 않는다), 브릿지(`pr.notifiers[]`, 코드는
   `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리) 로 보이고, `POST /api/deliveries/mute` 로 세션별 "보내지 않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI 가 실패로 바뀜 — 같은 head 에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). 리뷰·충돌·CI 실패 메시지를 받은 세션이 다른 작업 중이면 워크트리 서브에이전트에 맡긴다(13단계, 판단이 필요한 👀 는 메인이 묻는다). 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게). 구독은 그 레포를 기준선이 잡힌 레포로 표시해, 구독한 뒤 첫 tick 이 지금 상태(머지 후보·CI 실패 등)를 알린다. `ready` 는 **머지

@@ -39,6 +39,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky pr [--board K|--all] [--json]      구독한 열린 PR — 확인·머지 가능 / 충돌 / 대기
   rocky pr subscribe|unsubscribe N [--repo OWNER/NAME] · pr subscriptions
                                           데몬이 이 PR 을 보고 전이를 이 세션에 보낸다(세션 밖이면 지켜보기만)
+  rocky pr subscribe --filter "repo:o/r author:@me" · pr unsubscribe --filter ID
+                                          GitHub 검색 조건에 걸리는 열린 PR 을 이 세션이 받는다
   rocky move REF --to BOARD | --before REF2 | --last   보드 이동 / 순서 이동
   rocky start|stop|done|reopen|archive|unarchive REF
   rocky section add|archive "이름" [--board K] · section ls [--board K]

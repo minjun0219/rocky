@@ -237,8 +237,9 @@ async fn graphql(
         "-f".into(),
         format!("query={query}"),
     ];
+    // `-f` — 값을 문자열 그대로. `-F` 는 `@` 로 시작하는 값을 파일 경로로 읽는다(검색 조건의 `@me`).
     for (k, v) in fields {
-        cmd.push("-F".into());
+        cmd.push("-f".into());
         cmd.push(format!("{k}={v}"));
     }
     let out = runner(cmd, String::new(), QUERY_TIMEOUT).await;
@@ -363,21 +364,83 @@ async fn tick_repo(
 /// 한 번 훑는다 — 레포마다 독립(하나가 실패해도 나머지는 돈다). 더는 보지 않는 레포의 스냅숏은
 /// 걷는다. 예산이 바닥이면(한도 에러, 또는 잔여 < `RATE_LIMIT_FLOOR`) 남은 레포는 건너뛰고
 /// 리셋까지 쉬라고 돌려준다. 결과는 health 에 반영.
+/// 필터 구독마다 GitHub 검색 한 번 — 걸린 열린 PR 을 그 세션의 PR 구독으로 넣는다(이미 누가 구독한 PR 은 그대로).
+/// 그 뒤의 감시·알림은 PR 구독과 같다. 한도에 걸리면 `Err` 로 tick 을 멈추게 한다.
+async fn sync_filters(
+    state: &Arc<ServerState>,
+    runner: &Runner,
+    limit: &mut Option<RateLimit>,
+    failures: &mut Vec<String>,
+) -> Result<(), ()> {
+    for filter in state.store.pr_filter_subscriptions().unwrap_or_default() {
+        let q = rocky_core::prwatch::filter_search_query(&filter.query);
+        match graphql(
+            runner,
+            rocky_core::prwatch::FILTER_SEARCH_QUERY.to_string(),
+            &[("q".to_string(), q)],
+        )
+        .await
+        {
+            Ok((data, seen)) => {
+                accumulate(limit, seen);
+                for (repo, number) in rocky_core::prwatch::parse_filter_search(&data) {
+                    let _ = state.store.subscribe_pr_via_filter(
+                        &repo,
+                        number,
+                        filter.session_id.as_deref(),
+                        &filter.id,
+                    );
+                }
+                if limit.as_ref().is_some_and(RateLimit::exhausted) {
+                    return Err(());
+                }
+            }
+            Err(QueryError::RateLimited) => return Err(()),
+            Err(QueryError::Other(reason)) => {
+                failures.push(format!("필터 {:?}: {reason}", filter.query));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn tick(
     state: &Arc<ServerState>,
     runner: &Runner,
     notifier: &Notifier,
     notify: bool,
 ) -> TickOutcome {
+    let mut failures = Vec::new();
+    let mut limit: Option<RateLimit> = None;
+    let now = chrono::Utc::now();
+    if sync_filters(state, runner, &mut limit, &mut failures)
+        .await
+        .is_err()
+    {
+        let d = pause_for(limit.as_ref(), now);
+        failures.push(format!(
+            "필터 검색 중 GitHub GraphQL 한도 — {} 까지 쉼",
+            local_clock(now + chrono::Duration::from_std(d).unwrap_or_default())
+        ));
+        state.set_pr_watch(PrWatchStatus {
+            available: false,
+            reason: Some(failures.join("; ")),
+            last_tick: Some(iso(now)),
+            repos: watched(state).keys().cloned().collect(),
+            rate_limit: limit,
+            paused_until: Some(iso(now + chrono::Duration::from_std(d).unwrap_or_default())),
+        });
+        return TickOutcome {
+            events: Vec::new(),
+            pause: Some(d),
+        };
+    }
     let watched = watched(state);
     let repos: Vec<String> = watched.keys().cloned().collect();
     let _ = state.store.retain_pr_repos(&repos);
     let _ = state.store.retain_subscribed_prs();
     let mut events = Vec::new();
-    let mut failures = Vec::new();
-    let mut limit: Option<RateLimit> = None;
     let mut pause = None;
-    let now = chrono::Utc::now();
     for (repo, numbers) in &watched {
         match tick_repo(state, runner, notifier, notify, repo, numbers).await {
             Ok(mut out) => {
