@@ -4,6 +4,13 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+/// 테스트가 띄우는 바이너리를 사용자 환경에서 떼어 낸다 — 사용 로그(`~/.config/rocky/usage`)와 홈을 임시
+/// 디렉터리로. 안 그러면 테스트 실행이 실제 `rocky usage` 숫자에 섞인다(한때 `board pr-authors` 오류 177건).
+fn isolate<'a>(cmd: &'a mut Command, dir: &std::path::Path) -> &'a mut Command {
+    cmd.env("HOME", dir)
+        .env("ROCKY_USAGE_DIR", dir.join("usage"))
+}
+
 fn run(args: &[&str], stdin: &str) -> (i32, String, String) {
     let dir = tempfile::tempdir().unwrap();
     // 아무도 안 듣는 포트 — 데몬 없음.
@@ -13,7 +20,9 @@ fn run(args: &[&str], stdin: &str) -> (i32, String, String) {
         r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"}}"#,
     )
     .unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_rocky"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+    isolate(&mut cmd, dir.path());
+    let mut child = cmd
         .args(args)
         .env("ROCKY_CONFIG", &config)
         .stdin(Stdio::piped())
@@ -90,7 +99,9 @@ fn old_todo_update_form_is_refused_with_a_pointer_to_edit() {
         )
         .unwrap();
         // PATH 를 비워 둔다 — 만에 하나 안내 대신 업데이트로 빠져도 `gh`·`claude` 를 못 찾아 아무것도 바꾸지 못한다.
-        let out = Command::new(env!("CARGO_BIN_EXE_rocky"))
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+        isolate(&mut cmd, dir.path());
+        let out = cmd
             .args(args)
             .env("ROCKY_CONFIG", &config)
             .env("PATH", dir.path())
@@ -106,4 +117,30 @@ fn old_todo_update_form_is_refused_with_a_pointer_to_edit() {
             "{args:?}: 업데이트로 빠졌다 — {stdout}{err}"
         );
     }
+}
+
+/// 격리가 실제로 먹는지 — 사용 로그가 임시 디렉터리에 쓰인다(= 사용자 로그에는 안 쓰인다).
+#[test]
+fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("rocky.json");
+    std::fs::write(
+        &config,
+        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"}}"#,
+    )
+    .unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+    isolate(&mut cmd, dir.path());
+    let _ = cmd
+        .args(["edit"])
+        .env("ROCKY_CONFIG", &config)
+        .output()
+        .unwrap();
+    let logged = std::fs::read_dir(dir.path().join("usage"))
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert!(
+        logged > 0,
+        "사용 로그가 임시 디렉터리에 없다 — 격리가 안 먹었다"
+    );
 }
