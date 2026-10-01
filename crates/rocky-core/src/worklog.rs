@@ -99,10 +99,26 @@ pub fn default_worklog_root() -> PathBuf {
 /// `git rev-parse --git-common-dir` 실행기 — 테스트가 갈아끼운다. 레포가 아니면 `None`.
 pub type GitCommonDir<'a> = &'a dyn Fn(&Path) -> Option<String>;
 
+/// git 이 하위 명령·훅에 넘기는 레포 지정 변수 — `cwd` 를 정해 물을 때는 지운다. 물려받으면 `cwd` 가 아니라 그 변수가
+/// 가리키는 레포를 답한다(pre-push 훅 안에서 돈 테스트가 실제 레포를 망가뜨린 2026-10-01 사고의 길).
+pub const GIT_ENV_VARS: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+];
+
 /// 실제 `git` 을 호출하는 기본 구현. git 이 없거나 레포가 아니면 `None` — 어떤 경우에도
 /// 실패하지 않는다(워크로그 기록이 git 유무로 죽으면 안 된다).
 pub fn git_common_dir(cwd: &Path) -> Option<String> {
-    let output = std::process::Command::new("git")
+    let mut cmd = std::process::Command::new("git");
+    for var in GIT_ENV_VARS {
+        cmd.env_remove(var);
+    }
+    let output = cmd
         .args(["rev-parse", "--git-common-dir"])
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
