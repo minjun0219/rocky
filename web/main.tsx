@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DetailDrawer } from './components/DetailDrawer';
+import { AlertsPane } from './components/AlertsPane';
 import { GithubPane } from './components/GithubPane';
 import { ViewSwitch } from './components/ViewSwitch';
 import { NotesRail } from './components/NotesRail';
@@ -149,7 +150,15 @@ function App() {
           노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
       {view === 'todos' ? <NowTable /> : null}
       <div className="layout flex min-h-0 flex-1 flex-col">
-        {view === 'todos' ? <TodoPane /> : view === 'notes' ? <NotesRail /> : <GithubPane />}
+        {view === 'todos' ? (
+          <TodoPane />
+        ) : view === 'alerts' ? (
+          <AlertsPane />
+        ) : view === 'notes' ? (
+          <NotesRail />
+        ) : (
+          <GithubPane />
+        )}
       </div>
       <VersionFooter />
       <DetailDrawer />

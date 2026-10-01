@@ -338,6 +338,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:theme"),
     (UsageSource::Web, "web:archived-toggle"),
     (UsageSource::Web, "web:quick-add"),
+    (UsageSource::Web, "web:alert-open"),
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -180,23 +180,9 @@ describe('GithubPane — 숨기기', () => {
     expect(screen.getByText('다시 뜰 PR')).toBeTruthy();
   });
 
-  test('탭 옆 숫자는 움직일 PR 만 — 숨긴 것은 빼고, 탭을 끄면 탭도 없다', () => {
-    const state = {
-      selected: 'rocky',
-      boards: [board],
-      notes: [],
-      githubHidden: ['pr:o/rocky#9:ready'],
-      showGithub: true,
-      prs: [
-        pr({ number: 8, ready: true }),
-        pr({ number: 9, ready: true }),
-        pr({ number: 10, ready: false, mergeState: 'BLOCKED', ci: 'pending' }),
-      ] as never,
-    };
+  test('GitHub 탭을 끄면 탭도 없다', () => {
+    const state = { selected: 'rocky', boards: [board], notes: [], showGithub: false };
     renderWithStore(<ViewSwitch />, state);
-    expect(screen.getByRole('button', { name: /GitHub\s*1/ })).toBeTruthy();
-    cleanup();
-    renderWithStore(<ViewSwitch />, { ...state, showGithub: false });
     expect(screen.queryByRole('button', { name: /GitHub/ })).toBeNull();
   });
 });

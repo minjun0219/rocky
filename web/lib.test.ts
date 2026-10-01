@@ -4,6 +4,7 @@ import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
 import type { NowRow } from './lib';
 import {
+  alertRows,
   prRows,
   prStatus,
   advanceSeen,
@@ -852,5 +853,98 @@ describe('prRows — PR 현황', () => {
     expect(rows[1]?.detail).toBe('확인·머지');
     // 전체 보기(null)면 레포와 무관하게.
     expect(prRows(prs, null).map((r) => r.number)).toContain(6);
+  });
+});
+
+function todoFixture(over: Partial<TodoView>): TodoView {
+  return {
+    id: 't',
+    number: 1,
+    boardId: 'b',
+    title: 't',
+    description: '',
+    status: 'todo',
+    priority: 'p4',
+    labels: [],
+    links: [],
+    position: 0,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    ref: 'rocky-1',
+    commentCount: 0,
+    ...over,
+  };
+}
+
+describe('alertRows — 알림 탭', () => {
+  const now = Date.parse('2026-10-01T12:00:00Z');
+  const pr = (over: Record<string, unknown>) =>
+    ({
+      repo: 'o/rocky',
+      number: 1,
+      title: 'PR',
+      url: 'https://github.com/o/rocky/pull/1',
+      state: 'OPEN',
+      isDraft: false,
+      base: 'main',
+      head: 'abc',
+      mergeState: 'BLOCKED',
+      ci: 'pending',
+      unhandled: 0,
+      decision: 0,
+      ready: false,
+      updatedAt: '2026-10-01T11:50:00Z',
+      ...over,
+    }) as never;
+  const old = '2026-10-01T11:00:00Z';
+
+  test('결정 필요·머지 후보는 바로, 충돌·CI 실패는 30분 넘게 그대로일 때만', () => {
+    const rows = alertRows(
+      [
+        pr({ number: 1, ready: true }),
+        pr({ number: 2, decision: 1, unhandled: 1 }),
+        pr({ number: 3, mergeState: 'DIRTY' }),
+        pr({ number: 4, mergeState: 'DIRTY', updatedAt: old }),
+        pr({ number: 5, ci: 'fail' }),
+        pr({ number: 6, ci: 'fail', updatedAt: old }),
+        pr({ number: 7 }),
+      ],
+      [],
+      [],
+      [],
+      now,
+    );
+    expect(rows.map((r) => [r.kind, r.detail])).toEqual([
+      ['decide', 'rocky #2'],
+      ['merge', 'rocky #1'],
+      ['conflict', 'rocky #4'],
+      ['ci', 'rocky #6'],
+    ]);
+  });
+
+  test('세션이 사라진 진행 중 할 일 — 보드 ref 로, 숨긴 것은 빠진다', () => {
+    const todo = todoFixture({
+      id: 't1',
+      number: 7,
+      status: 'doing',
+      doingState: 'gone',
+      boardId: 'b1',
+    });
+    const live = todoFixture({ id: 't2', status: 'doing', doingState: 'live', boardId: 'b1' });
+    const rows = alertRows([], [todo, live], [{ id: 'b1', key: 'rocky' }], [], now);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.detail).toBe('rocky-7');
+    expect(rows[0]?.todoId).toBe('t1');
+    expect(
+      alertRows([], [todo], [{ id: 'b1', key: 'rocky' }], ['alert:abandoned:t1'], now),
+    ).toEqual([]);
+  });
+
+  test('숨기기는 종류별 — 같은 PR 의 충돌을 숨겨도 머지 후보가 되면 다시 보인다', () => {
+    const hidden = ['alert:conflict:o/rocky#4'];
+    expect(
+      alertRows([pr({ number: 4, mergeState: 'DIRTY', updatedAt: old })], [], [], hidden, now),
+    ).toEqual([]);
+    expect(alertRows([pr({ number: 4, ready: true })], [], [], hidden, now)).toHaveLength(1);
   });
 });
