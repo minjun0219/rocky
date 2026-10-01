@@ -117,14 +117,14 @@ pub fn pr_session_message(event: &PrEvent) -> Option<String> {
     ))
 }
 
-/// 리뷰가 붙은 PR 을 세션에 처리시키는 본문 — 그 레포의 보드가 autoResolve 를 켰을 때만 보낸다. 받는
+/// 리뷰가 붙은 PR 을 세션에 처리시키는 본문 — 그 레포의 보드가 reviewFix 를 켰을 때만 보낸다. 받는
 /// Claude 가 할 일을 명시한다: 그 PR 의 세션이면 review-fix 절차를 한 번 돈다.
 pub fn review_session_message(event: &PrEvent) -> Option<String> {
     if event.kind != PrEventKind::Review {
         return None;
     }
     Some(format!(
-        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:review-fix {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 🚀/👀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 작업 중이면 워크트리 서브에이전트에 맡기고(13단계 — 결정 필요 건은 메인이 묻는다) 하던 일을 계속한다. 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포의 보드는 자동 처리가 켜져 있다 — 끄려면 `rocky board auto-resolve off`.)",
+        "rocky: {} #{} 에 리뷰가 붙었다 — {}\n{}\n\n이 세션이 그 PR 을 만든 곳이면 `/rocky:review-fix {}` 절차대로 한 번 처리한다(스레드 분류 → 명백한 오류만 고쳐 푸시 → 🚀/👀 → 채팅 보고; 코멘트·resolve·머지는 하지 않는다). 다른 작업 중이면 워크트리 서브에이전트에 맡기고(13단계 — 결정 필요 건은 메인이 묻는다) 하던 일을 계속한다. 이 PR 과 무관한 세션이면 사용자에게 알리기만 한다.\n(rocky 데몬의 PR 감시가 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다. 이 레포의 보드는 리뷰 반영(reviewFix)이 켜져 있다 — 끄려면 `rocky board review-fix off`.)",
         event.repo, event.number, event.title, event.url, event.number
     ))
 }

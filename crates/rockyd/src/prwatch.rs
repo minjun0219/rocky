@@ -84,16 +84,16 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
     })
 }
 
-/// 세션 알림 — ready·conflict·merged·ci-failed(와 autoResolve 가 켜진 보드의 리뷰 도착)를 **그 PR 을 구독한 세션**의
+/// 세션 알림 — ready·conflict·merged·ci-failed(와 reviewFix 가 켜진 보드의 리뷰 도착)를 **그 PR 을 구독한 세션**의
 /// 받은편지함 소켓에 한 줄로 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 구독 세션이 끝났거나
 /// "보내지 않기" 면 보내지 않는다(다른 세션으로 넘기지 않는다) — 못 보낸 것은 전달 기록에 남는다.
 pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
     Arc::new(move |event| {
         let boards = state.store.list_boards(false).unwrap_or_default();
-        // 리뷰 도착은 그 레포를 둔 보드 중 하나라도 autoResolve 를 켰을 때만 세션에 처리를 시킨다
-        // (`rocky board auto-resolve on` — 그 레포의 세션이 자기 보드를 켠다).
+        // 리뷰 도착은 그 레포를 둔 보드 중 하나라도 reviewFix 를 켰을 때만 세션에 처리를 시킨다
+        // (`rocky board review-fix on` — 그 레포의 세션이 자기 보드를 켠다).
         let text = if event.kind == PrEventKind::Review {
-            if !rocky_core::prwatch::auto_resolve_enabled(&boards, &event.repo) {
+            if !rocky_core::prwatch::review_fix_enabled(&boards, &event.repo) {
                 return;
             }
             rocky_core::peer_inbox::review_session_message(event)

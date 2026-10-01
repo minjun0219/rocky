@@ -205,7 +205,7 @@ fn board_from_row(row: &Row) -> rusqlite::Result<Board> {
         repo: row.get("repo")?,
         path: row.get("path")?,
         previous_keys: None,
-        auto_resolve: row.get::<_, i64>("auto_resolve")? != 0,
+        review_fix: row.get::<_, i64>("auto_resolve")? != 0,
         pr_authors: serde_json::from_str(&row.get::<_, String>("pr_authors")?).unwrap_or_default(),
         created_at: row.get("created_at")?,
         archived_at: row.get("archived_at")?,
@@ -1428,13 +1428,10 @@ impl TodoStore {
                     blank_to_null(value.as_deref()),
                 );
             }
-            if let Some(next) = patch.auto_resolve {
-                if next != existing.auto_resolve {
+            if let Some(next) = patch.review_fix {
+                if next != existing.review_fix {
                     // 히스토리엔 참/거짓으로 남긴다(문자열 "0"/"1" 이 아니라).
-                    changes.insert(
-                        "autoResolve".to_string(),
-                        json!([existing.auto_resolve, next]),
-                    );
+                    changes.insert("reviewFix".to_string(), json!([existing.review_fix, next]));
                     sets.push("auto_resolve = ?".to_string());
                     vals.push(Some(if next { "1" } else { "0" }.to_string()));
                 }
@@ -1699,7 +1696,7 @@ fn ensure_board_conn(
         repo: None,
         path: None,
         previous_keys: None,
-        auto_resolve: false,
+        review_fix: false,
         pr_authors: Vec::new(),
         created_at: now_iso(),
         archived_at: None,

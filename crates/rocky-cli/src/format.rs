@@ -421,8 +421,8 @@ pub fn render_board(board: &Board) -> String {
             board.pr_authors.join(", ")
         ));
     }
-    if board.auto_resolve {
-        lines.push("  autoResolve  켬 (리뷰가 붙으면 이 레포의 세션이 review-fix)".to_string());
+    if board.review_fix {
+        lines.push("  reviewFix  켬 (리뷰가 붙으면 이 레포의 세션이 review-fix)".to_string());
     }
     if let Some(previous) = board.previous_keys.as_ref().filter(|k| !k.is_empty()) {
         // 옛 참조가 아직 살아 있다는 사실을 여기서만 알 수 있다 — 다른 표면은 새 key 만 낸다.

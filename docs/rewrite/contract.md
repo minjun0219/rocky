@@ -118,10 +118,12 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 - 지우기는 `null` 로만(description/repo/path). 빈 문자열은 400 — 폼이 실수로 비워 보낸
   값이 설정을 날리지 않게. key/title 은 null 도 400.
 - `repo` 는 `isRepoSlug`(OWNER/NAME) 검증. 값은 `trim()` 후 저장.
-- `autoResolve` 는 불리언만(아니면 400). 응답의 `Board` 에는 켰을 때만 `autoResolve: true` 가 실린다.
-- patch 가 비면 400 `key, title, description, repo, path, autoResolve or prAuthors is required`.
+- `reviewFix` 는 불리언만(아니면 400). 응답의 `Board` 에는 켰을 때만 `reviewFix: true` 가 실린다.
+  옛 이름 `autoResolve` 는 한 릴리스 동안 입력 별칭으로만 받는다(둘 다 오면 `reviewFix` 가 이긴다; 응답·히스토리는 새 이름).
+  DB 열 이름은 `boards.auto_resolve` 그대로다.
+- patch 가 비면 400 `key, title, description, repo, path, reviewFix or prAuthors is required`.
 - `prAuthors` 는 문자열 배열(`@me` 또는 GitHub login — 모양이 틀리면 400) 또는 `null`(지우기, 빈 배열과 같다). 응답의 `Board` 에는 비어 있지 않을 때만 실린다.
-- `repo`/`path`/`autoResolve`/`prAuthors` 변경은 로컬 전용(403), title/description/key 는 원격 허용.
+- `repo`/`path`/`reviewFix`/`prAuthors` 변경은 로컬 전용(403), title/description/key 는 원격 허용.
 
 ### 핸드오프 (POST /api/todos/:ref/handoff)
 

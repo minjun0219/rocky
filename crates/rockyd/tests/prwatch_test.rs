@@ -712,10 +712,10 @@ async fn no_live_subscriber_means_nobody_is_woken() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 리뷰 도착 — 그 레포 보드의 autoResolve 가 켜졌을 때만 세션에 review-fix 를 시킨다. 꺼진 보드는 조용하다.
+/// 리뷰 도착 — 그 레포 보드의 reviewFix 가 켜졌을 때만 세션에 review-fix 를 시킨다. 꺼진 보드는 조용하다.
 #[cfg(unix)]
 #[tokio::test]
-async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
+async fn review_events_reach_the_session_only_when_review_fix_is_on() {
     use rockyd::prwatch::session_notifier;
     use std::io::Read;
     use std::os::unix::net::UnixListener;
@@ -749,14 +749,9 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
     // 꺼진 보드(기본) — 아무것도 안 간다.
     session_notifier(f.state.clone())(&review);
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(listener.accept().is_err(), "autoResolve 가 꺼진 레포");
+    assert!(listener.accept().is_err(), "reviewFix 가 꺼진 레포");
     // 그 레포의 세션이 자기 보드를 켰다 — review-fix 를 시킨다.
-    let (status, _) = patch(
-        &f.state,
-        "/api/boards/rocky",
-        json!({ "autoResolve": true }),
-    )
-    .await;
+    let (status, _) = patch(&f.state, "/api/boards/rocky", json!({ "reviewFix": true })).await;
     assert_eq!(status, 200);
     listener.set_nonblocking(false).unwrap();
     session_notifier(f.state.clone())(&review);

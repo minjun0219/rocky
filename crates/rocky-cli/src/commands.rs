@@ -707,7 +707,7 @@ pub fn cmd_board(
     clear: bool,
     printer: &Printer,
 ) -> Result<(), String> {
-    const USAGE: &str = "usage: rocky board ls | board show [KEY] | board add KEY [제목] | board rename NEWKEY | board title \"제목\" | board desc [\"설명\"] | board repo [OWNER/NAME] | board path [절대경로] | board auto-resolve on|off | board pr-authors @me|LOGIN... | board pr-authors --clear\n  show 를 뺀 수정 명령은 모두 cwd 로 유추한 보드를 고친다 — 다른 보드는 --board KEY 로 지정한다";
+    const USAGE: &str = "usage: rocky board ls | board show [KEY] | board add KEY [제목] | board rename NEWKEY | board title \"제목\" | board desc [\"설명\"] | board repo [OWNER/NAME] | board path [절대경로] | board review-fix on|off | board pr-authors @me|LOGIN... | board pr-authors --clear\n  show 를 뺀 수정 명령은 모두 cwd 로 유추한 보드를 고친다 — 다른 보드는 --board KEY 로 지정한다";
     let sub = rest.first().map(String::as_str).unwrap_or("ls");
     let arg = rest.get(1).map(String::as_str);
 
@@ -858,23 +858,27 @@ pub fn cmd_board(
             });
             Ok(())
         }
-        "auto-resolve" => {
+        "review-fix" | "auto-resolve" => {
             // 그 레포의 세션이 자기 보드를 켠다 — 리뷰가 붙으면 데몬이 이 레포의 세션에
             // review-fix 를 시킨다. 설정 파일이 아니라 보드에 두는 이유가 이것이다.
+            // 옛 이름 `auto-resolve` 는 한 릴리스 동안 받되 새 이름을 알린다(stderr — --json 출력을 더럽히지 않게).
+            if sub == "auto-resolve" {
+                eprintln!("rocky board auto-resolve 는 rocky board review-fix 로 이름이 바뀌었다 — 다음 릴리스에서 옛 이름은 빠진다");
+            }
             let on = match arg {
                 Some("on") => true,
                 Some("off") => false,
                 _ => return Err(USAGE.into()),
             };
-            let (raw, updated) = patch("autoResolve", json!(on))?;
+            let (raw, updated) = patch("reviewFix", json!(on))?;
             printer.emit(&raw, || {
-                let state = if updated.auto_resolve { "켬" } else { "끔" };
-                let hint = if updated.auto_resolve && updated.repo.is_none() {
+                let state = if updated.review_fix { "켬" } else { "끔" };
+                let hint = if updated.review_fix && updated.repo.is_none() {
                     " — repo 가 없어 감시하지 않는다: rocky board repo"
                 } else {
                     ""
                 };
-                format!("✓ {} autoResolve {state}{hint}", updated.key)
+                format!("✓ {} reviewFix {state}{hint}", updated.key)
             });
             Ok(())
         }

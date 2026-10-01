@@ -447,7 +447,7 @@ fn board(key: &str, previous: Option<Vec<&str>>, path: Option<&str>) -> Board {
         repo: None,
         path: path.map(str::to_string),
         previous_keys: previous.map(|v| v.into_iter().map(str::to_string).collect()),
-        auto_resolve: false,
+        review_fix: false,
         created_at: String::new(),
         archived_at: None,
         pr_authors: Vec::new(),

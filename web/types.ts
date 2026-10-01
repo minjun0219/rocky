@@ -33,7 +33,7 @@ export interface Board {
   /** PR 감시가 알릴 작성자(`@me`·login). 없으면 전부 알린다. */
   prAuthors?: string[];
   /** 리뷰가 붙으면 이 레포의 세션이 review-fix 를 돈다 — 켰을 때만 실린다. */
-  autoResolve?: boolean;
+  reviewFix?: boolean;
   createdAt: string;
   archivedAt?: string;
 }

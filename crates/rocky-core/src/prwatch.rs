@@ -495,7 +495,7 @@ pub enum PrEventKind {
     Merged,
     Closed,
     /// 처리 안 된 리뷰 스레드가 늘었다 — 봇·사람 리뷰가 새로 붙었다. 사람에게는 알리지 않고(배너
-    /// 없음), 그 레포 보드가 켰으면 세션에 리뷰 처리를 시킨다(보드의 `autoResolve`).
+    /// 없음), 그 레포 보드가 켰으면 세션에 리뷰 처리를 시킨다(보드의 `reviewFix`).
     Review,
     /// CI 가 실패로 바뀌었다(통과·진행 중 → 실패, 또는 새 head 가 실패). 같은 head 에서 실패가 이어지는
     /// 동안은 다시 내지 않는다 — 재실행이 다시 실패하면(진행 중을 거치므로) 또 낸다. 사람에게는 알리지
@@ -645,11 +645,11 @@ fn has_new_review(was: &PrSnapshot, cur: &PrSnapshot) -> bool {
         || overflow(cur) > overflow(was)
 }
 
-/// 이 레포의 리뷰를 세션에 처리시킬지 — 그 레포를 둔 보드 중 하나라도 `auto_resolve` 가 켜졌으면.
+/// 이 레포의 리뷰를 세션에 처리시킬지 — 그 레포를 둔 보드 중 하나라도 `review_fix` 가 켜졌으면.
 /// 레포 이름은 대소문자를 가리지 않는다(GitHub 과 같다).
-pub fn auto_resolve_enabled(boards: &[crate::types::Board], repo: &str) -> bool {
+pub fn review_fix_enabled(boards: &[crate::types::Board], repo: &str) -> bool {
     boards.iter().any(|b| {
-        b.auto_resolve
+        b.review_fix
             && b.repo
                 .as_deref()
                 .is_some_and(|r| r.eq_ignore_ascii_case(repo))

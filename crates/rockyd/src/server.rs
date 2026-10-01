@@ -294,6 +294,9 @@ impl ServerState {
 /// 노트 스트림 채널 크기 — 이만큼 밀린 연결은 끊는다(`sse_from`, `on_lag`).
 const NOTE_STREAM_CAPACITY: usize = 256;
 
+/// `reviewFix` 의 옛 이름 — 한 릴리스 동안 `PATCH /api/boards/:key` 입력 별칭으로만 받는다(응답은 늘 `reviewFix`).
+const LEGACY_REVIEW_FIX_KEY: &str = "autoResolve";
+
 /// 서버 상태를 만든다 — 스토어 change 이벤트를 SSE 브로드캐스트로 잇는다.
 pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
     let (events, _) = broadcast::channel::<String>(256);
@@ -1119,11 +1122,12 @@ async fn dispatch(
     if *method == Method::PATCH {
         if let Some(key) = seg_match(path, "/api/boards/", "") {
             let body = read_body(headers, body).await?;
-            // path/repo 는 소비 지점이 로컬 전용인 값 — 변경도 로컬 전용이다. autoResolve 도 같다:
+            // path/repo 는 소비 지점이 로컬 전용인 값 — 변경도 로컬 전용이다. reviewFix 도 같다:
             // 켜면 데몬이 세션에 일을 시키므로 보드 쓰기가 세션 조종으로 넓어지는 지점이다.
             if (body.contains_key("path")
                 || body.contains_key("repo")
-                || body.contains_key("autoResolve")
+                || body.contains_key("reviewFix")
+                || body.contains_key(LEGACY_REVIEW_FIX_KEY)
                 || body.contains_key("prAuthors"))
                 && !local
             {
@@ -1135,14 +1139,19 @@ async fn dispatch(
             // 어느 필드를 고치려던 요청인지는 **키 존재 여부**로 가른다.
             let mut patch = BoardPatch::default();
             let mut any = false;
-            if let Some(value) = body.get("autoResolve") {
+            // 옛 이름 `autoResolve` 는 한 릴리스 동안 입력 별칭으로 받는다 — 둘 다 오면 `reviewFix` 가 이긴다.
+            let review_fix = body.get("reviewFix").map(|v| ("reviewFix", v)).or_else(|| {
+                body.get(LEGACY_REVIEW_FIX_KEY)
+                    .map(|v| (LEGACY_REVIEW_FIX_KEY, v))
+            });
+            if let Some((name, value)) = review_fix {
                 let Some(on) = value.as_bool() else {
                     return Ok(error_response(
-                        "autoResolve must be true or false",
+                        &format!("{name} must be true or false"),
                         StatusCode::BAD_REQUEST,
                     ));
                 };
-                patch.auto_resolve = Some(on);
+                patch.review_fix = Some(on);
                 any = true;
             }
             // 알릴 PR 작성자 — 배열(`@me`·login), `null`·빈 배열은 지우기(전부 알림). 모양은 스토어가 검증한다.
@@ -1204,7 +1213,7 @@ async fn dispatch(
             }
             if !any {
                 return Ok(error_response(
-                    "key, title, description, repo, path, autoResolve or prAuthors is required",
+                    "key, title, description, repo, path, reviewFix or prAuthors is required",
                     StatusCode::BAD_REQUEST,
                 ));
             }
