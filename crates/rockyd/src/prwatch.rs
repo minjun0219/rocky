@@ -364,6 +364,21 @@ async fn tick_repo(
 /// 한 번 훑는다 — 레포마다 독립(하나가 실패해도 나머지는 돈다). 더는 보지 않는 레포의 스냅숏은
 /// 걷는다. 예산이 바닥이면(한도 에러, 또는 잔여 < `RATE_LIMIT_FLOOR`) 남은 레포는 건너뛰고
 /// 리셋까지 쉬라고 돌려준다. 결과는 health 에 반영.
+/// GitHub GraphQL 한 번 — 데이터만(예산은 버린다). 화면이 필요할 때 부르는 조회용.
+pub async fn query_github(
+    runner: &Runner,
+    query: &str,
+    fields: &[(String, String)],
+) -> Result<serde_json::Value, String> {
+    match graphql(runner, query.to_string(), fields).await {
+        Ok((data, _)) => Ok(data),
+        Err(QueryError::RateLimited) => {
+            Err("GitHub GraphQL 한도에 걸렸다 — 잠시 뒤 다시".to_string())
+        }
+        Err(QueryError::Other(reason)) => Err(reason),
+    }
+}
+
 /// 필터 구독마다 GitHub 검색 한 번 — 걸린 열린 PR 을 그 세션의 PR 구독으로 넣는다(이미 누가 구독한 PR 은 그대로).
 /// 그 뒤의 감시·알림은 PR 구독과 같다. 한도에 걸리면 `Err` 로 tick 을 멈추게 한다.
 async fn sync_filters(

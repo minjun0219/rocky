@@ -292,3 +292,14 @@ export interface DeliveryStatus {
     ok: boolean;
   }[];
 }
+
+/** 레포의 열린 PR 한 줄 — `GET /api/prs/open?repo=`(GitHub 탭이 레포를 펼칠 때만). */
+export interface OpenPr {
+  number: number;
+  title: string;
+  url: string;
+  isDraft: boolean;
+  updatedAt: string;
+  author?: string;
+  subscribed: boolean;
+}

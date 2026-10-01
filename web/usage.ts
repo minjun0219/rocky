@@ -9,6 +9,8 @@ export type WebUsageEvent =
   | 'web:todo-open'
   | 'web:view'
   | 'web:note-live'
+  | 'web:open-prs'
+  | 'web:watch-pr'
   | 'web:note-open'
   | 'web:note-pin'
   | 'web:note-format'
