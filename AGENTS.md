@@ -257,11 +257,13 @@ typecheck or tests — pre-push and CI already cover it.*
   귀속시킨다; `done` 이 완료하고 비운다; 사람이 누른 `start` 는 귀속하지 않는다. `resolve_doing_state` →
   `live` / `idle` / `gone` / `unknown`. `rockyd::sweep` 는 에이전트가 든 `gone` doing 중 24시간 지난 것만
   자동으로 멈추고 이유를 댓글로 남긴다(`should_auto_release`); 사람이 든 것·`idle`·`unknown` 은 건드리지 않는다.
-- **PR 감시**(`rockyd::prwatch`)는 `repo` 가 있는 보드의 레포를 `pr.intervalMinutes` 마다 보고 `pr-*`
-  전이(actor `rocky`)를 보드 히스토리에 남긴다. GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
+- **PR 감시**(`rockyd::prwatch`)는 **구독한 PR 만**(`pr_subscriptions` — `rocky pr subscribe N`, `/rocky:review-request`·
+  `review-fix` 가 구독한다, 머지·닫힘에서 풀린다) `pr.intervalMinutes` 마다 상세 쿼리로 보고 `pr-*` 전이(actor `rocky`)를
+  그 레포를 둔 보드 히스토리에 남긴다. 레포 목록은 보지 않는다 — 보드의 `repo` 는 감시 대상을 정하지 않는다. 구독은
+  `POST/DELETE /api/prs/subscriptions`(로컬 전용) · `GET` 은 열려 있다. GitHub 은 읽기만 한다(*EN: the daemon never writes to GitHub*). 전달: macOS 배너(`pr.notify`), 세션
   받은편지함(`pr.sessionNotify` — 훅이 `CLAUDE_CODE_MESSAGING_SOCKET` 을 `POST /api/sessions/inbox` 로
-  등록하고, 데몬이 그 보드의 가장 최근 세션에 JSON 한 줄을 쓴다), 브릿지(`pr.notifiers[]`, 코드는
-  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리) 로 보이고, `POST /api/deliveries/mute` 로 세션별 "보내지 않기"(PR·수집함 알림을 건너뛰어 그 보드의 다음 세션이 받는다, 메모리) — 둘 다 로컬 전용. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI 가 실패로 바뀜 — 같은 head 에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). 리뷰·충돌·CI 실패 메시지를 받은 세션이 다른 작업 중이면 워크트리 서브에이전트에 맡긴다(13단계, 판단이 필요한 👀 는 메인이 묻는다). 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게). 처음 보는 레포(`pr_watch_repos` 에 없음)의 첫 tick 은 기준선만 적고 전이를 내지 않는다. `ready` 는 **머지
+  등록하고, 데몬이 **그 PR 을 구독한 세션**에만 JSON 한 줄을 쓴다 — 그 세션이 끝났거나 "보내지 않기" 면 보내지 않고 다른 세션으로 넘기지 않는다), 브릿지(`pr.notifiers[]`, 코드는
+  `bridges/<name>/` 에만). `pr-review` 는 보드의 `autoResolve` 가 켜졌을 때만 세션에 간다. 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리) 로 보이고, `POST /api/deliveries/mute` 로 세션별 "보내지 않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용. `pr-merged` 는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI 가 실패로 바뀜 — 같은 head 에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). 리뷰·충돌·CI 실패 메시지를 받은 세션이 다른 작업 중이면 워크트리 서브에이전트에 맡긴다(13단계, 판단이 필요한 👀 는 메인이 묻는다). 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게). 구독은 그 레포를 기준선이 잡힌 레포로 표시해, 구독한 뒤 첫 tick 이 지금 상태(머지 후보·CI 실패 등)를 알린다. `ready` 는 **머지
   후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:review-fix` 8단계); 머지 뒤에 붙은 리뷰는
   다음 PR 로 간다(`after-merge`). **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 요청한 노드 수다 —
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`

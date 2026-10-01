@@ -20,7 +20,8 @@ use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
 use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
     is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
-    NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
+    NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE,
+    NON_LOCAL_SPAWN_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -1007,22 +1008,14 @@ async fn dispatch(
             .collect();
         let now = chrono::Utc::now().timestamp();
         let registrations = state.inboxes();
-        // PR 알림을 지금 받는 세션 — repo 가 있는 보드마다 보내지 않기가 아닌 가장 최근 세션(알림기와 같은 규칙).
+        // PR 알림을 받는 세션 — 그 세션이 구독한 PR 들(`repo#N`). 알림기와 같은 규칙: 구독한 세션에만 간다.
         let mut receives: HashMap<String, Vec<String>> = HashMap::new();
-        for board in boards.iter().filter(|b| b.repo.is_some()) {
-            if let Some(top) = rocky_core::peer_inbox::session_candidates(
-                &registrations,
-                &locations,
-                &board.key,
-                now,
-            )
-            .into_iter()
-            .find(|r| !state.is_muted(&r.session_id))
-            {
+        for sub in state.store.pr_subscriptions()? {
+            if let Some(id) = sub.session_id {
                 receives
-                    .entry(top.session_id.clone())
+                    .entry(id)
                     .or_default()
-                    .push(board.key.clone());
+                    .push(format!("{}#{}", sub.repo, sub.number));
             }
         }
         let mut sessions: Vec<Value> = registrations
@@ -1692,6 +1685,45 @@ async fn dispatch(
                 .body(Body::empty())
                 .unwrap(),
         });
+    }
+
+    // ── PR 구독 — 데몬은 구독한 PR 만 보고 그 세션에만 알린다(docs/design/specs/2026-10-01-pr-subscriptions-design.md) ──
+    if *method == Method::GET && path == "/api/prs/subscriptions" {
+        return Ok(ok_json(&store.pr_subscriptions()?));
+    }
+    if path == "/api/prs/subscriptions" && (*method == Method::POST || *method == Method::DELETE) {
+        // 세션을 깨울 곳을 정한다 — 세션을 조종하는 다른 동작처럼 로컬 전용.
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_PR_SUBSCRIPTION_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        if *method == Method::DELETE {
+            let repo = query.get("repo").map(String::as_str).unwrap_or("");
+            let Some(number) = query.get("number").and_then(|n| n.parse::<i64>().ok()) else {
+                return Ok(error_response(
+                    "repo 와 number 가 필요하다",
+                    StatusCode::BAD_REQUEST,
+                ));
+            };
+            let removed = store.unsubscribe_pr(repo, number)?;
+            return Ok(ok_json(&json!({ "removed": removed })));
+        }
+        let body = read_body(headers, body).await?;
+        let repo = str_field(&body, "repo").unwrap_or("").trim().to_string();
+        let number = body.get("number").and_then(Value::as_i64).unwrap_or(0);
+        if !rocky_core::prwatch::is_repo_slug(&repo) || number <= 0 {
+            return Ok(error_response(
+                &format!("repo(owner/name)와 양수 number 가 필요하다: {repo}#{number}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let session_id = str_field(&body, "sessionId")
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let sub = store.subscribe_pr(&repo, number, session_id)?;
+        return Ok(json_response(&sub, StatusCode::CREATED));
     }
 
     // ── PR 감시 — 기억하고 있는 스냅숏 (읽기 전용) ──

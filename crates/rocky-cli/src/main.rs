@@ -68,12 +68,11 @@ fn run(argv: &[String]) -> Result<(), String> {
     // 도구 단위로 자기가 기록하므로 여기서는 뺀다.
     let started = std::time::Instant::now();
     let usage_name = match command {
-        "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" | "inbox" => {
-            match rest.first() {
-                Some(sub) => format!("rocky {command} {sub}"),
-                None => format!("rocky {command}"),
-            }
-        }
+        "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" | "inbox"
+        | "pr" => match rest.first() {
+            Some(sub) => format!("rocky {command} {sub}"),
+            None => format!("rocky {command}"),
+        },
         _ => format!("rocky {command}"),
     };
     let result = match command {
@@ -87,7 +86,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "comment" => commands::cmd_comment(&ctx, &rest, &board, &printer),
         "move" => commands::cmd_move(&ctx, &rest, &parsed, &board, &printer),
         "sessions" => commands::cmd_sessions(&ctx, &board, &printer),
-        "pr" => commands::cmd_pr(&ctx, &parsed, &board, &printer),
+        "pr" => commands::cmd_pr(&ctx, &rest, &parsed, &board, &printer),
         "spawn" => commands::cmd_spawn(&ctx, &rest, &parsed, &board, &printer),
         "section" => commands::cmd_section(&ctx, &rest, &board, &printer),
         "handoff" => commands::cmd_handoff(&ctx, &rest, &parsed, &board, &printer),

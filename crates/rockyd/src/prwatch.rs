@@ -10,14 +10,13 @@
 //! `rateLimit` 을 읽어 잔여가 `RATE_LIMIT_FLOOR` 밑이면 그 tick 을 멈추고 리셋까지 쉬며, 한도
 //! 에러를 받아도 같다. 쉬는 동안은 health 가 `pausedUntil` 로 말한다.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use rocky_core::prwatch::{
-    bridge_payload, default_branch_of, detail_query, is_rate_limit_error, list_query,
-    notification_text, osascript_args, parse_pr_details, parse_pr_list, pause_for, PrEvent,
-    PrEventKind, PrSnapshot, RateLimit,
+    bridge_payload, default_branch_of, detail_query, is_rate_limit_error, notification_text,
+    osascript_args, parse_pr_details, pause_for, PrEvent, PrEventKind, RateLimit,
 };
 use serde::Serialize;
 
@@ -85,9 +84,9 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
     })
 }
 
-/// 세션 알림 — ready·conflict·merged·ci-failed(와 autoResolve 가 켜진 보드의 리뷰 도착)를 그 레포 보드에서 일하는 Claude Code 세션의 받은편지함 소켓에 한 줄로
-/// 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 가장 최근 세션부터 시도해
-/// **처음 성공한 한 곳**에서 멈추고, 실패한 등록(끝난 세션)은 걷는다. 등록된 세션이 없으면 조용하다.
+/// 세션 알림 — ready·conflict·merged·ci-failed(와 autoResolve 가 켜진 보드의 리뷰 도착)를 **그 PR 을 구독한 세션**의
+/// 받은편지함 소켓에 한 줄로 쓴다(`rocky_core::peer_inbox`). 쉬던 세션은 그 자리에서 턴이 열린다. 구독 세션이 끝났거나
+/// "보내지 않기" 면 보내지 않는다(다른 세션으로 넘기지 않는다) — 못 보낸 것은 전달 기록에 남는다.
 pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
     Arc::new(move |event| {
         let boards = state.store.list_boards(false).unwrap_or_default();
@@ -104,81 +103,54 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
         let Some(text) = text else {
             return;
         };
-        let locations: Vec<rocky_core::statusline::BoardLocation> = boards
-            .iter()
-            .map(|b| rocky_core::statusline::BoardLocation {
-                key: b.key.clone(),
-                path: b.path.clone(),
-            })
-            .collect();
-        let registrations = state.inboxes();
-        let now = chrono::Utc::now().timestamp();
-        // 보드마다 후보를 최근 순으로 — 레포가 여러 보드에 걸려도 같은 세션에 두 번 보내지 않는다.
-        let mut groups: Vec<Vec<rocky_core::peer_inbox::InboxRegistration>> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        let viewer = state.gh_viewer();
-        for board in boards
-            .iter()
-            .filter(|b| b.repo.as_deref() == Some(event.repo.as_str()))
-            // 보드 속성 — 이 보드의 prAuthors 에 걸린 PR 이면 이 보드의 세션은 깨우지 않는다.
-            .filter(|b| {
-                rocky_core::prwatch::author_matches(
-                    &b.pr_authors,
-                    event.author.as_deref(),
-                    viewer.as_deref(),
-                )
-            })
-        {
-            let group: Vec<_> = rocky_core::peer_inbox::session_candidates(
-                &registrations,
-                &locations,
-                &board.key,
-                now,
-            )
-            .into_iter()
-            // "보내지 않기" 를 켠 세션은 건너뛴다 — 그 보드의 다음 세션이 받는다.
-            .filter(|r| !state.is_muted(&r.session_id))
-            .filter(|r| seen.insert(r.session_id.clone()))
-            .cloned()
-            .collect();
-            if !group.is_empty() {
-                groups.push(group);
-            }
+        // 받는 곳은 그 PR 을 구독한 세션 하나다 — 보드의 다른 세션으로 넘기지 않는다(엉뚱한 세션에 레포의 PR 이
+        // 전부 쏟아졌다). 세션 없이 지켜보기만 하는 구독이면 아무도 깨우지 않는다.
+        let Some(session_id) = state
+            .store
+            .pr_subscription(&event.repo, event.number)
+            .ok()
+            .flatten()
+            .and_then(|sub| sub.session_id)
+        else {
+            return;
+        };
+        // "보내지 않기" 를 켠 세션 — 보내지 않는다(다른 세션으로 넘기지도 않는다).
+        if state.is_muted(&session_id) {
+            return;
         }
         let line = rocky_core::peer_inbox::inbox_line(&text);
         let subject = format!("{}#{} {}", event.repo, event.number, event.title);
-        for group in groups {
-            let state = state.clone();
-            let line = line.clone();
-            let (kind, subject, url) = (
-                event.kind.action().to_string(),
-                subject.clone(),
-                event.url.clone(),
-            );
-            // 가장 최근 세션부터 — 처음 성공한 한 곳에서 멈추고, 실패한 등록(끝난 세션)은 걷는다.
-            tokio::task::spawn_blocking(move || {
-                for target in group {
-                    let ok = write_inbox(&target.socket, &line);
-                    state.record_delivery(rocky_core::peer_inbox::Delivery {
-                        at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                        kind: kind.clone(),
-                        subject: subject.clone(),
-                        url: Some(url.clone()),
-                        session_id: target.session_id.clone(),
-                        ok: ok.is_ok(),
-                    });
-                    match ok {
-                        Ok(()) => return,
-                        Err(e) => {
-                            eprintln!(
-                                "rocky: 세션 알림 — 받은편지함에 못 썼다({e}), 다음 세션으로"
-                            );
-                            state.forget_inbox(&target.session_id);
-                        }
-                    }
-                }
+        let kind = event.kind.action().to_string();
+        let url = event.url.clone();
+        let now = chrono::Utc::now().timestamp();
+        let target = state.inboxes().into_iter().find(|r| {
+            r.session_id == session_id
+                && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
+        });
+        let record = move |state: &ServerState, ok: bool| {
+            state.record_delivery(rocky_core::peer_inbox::Delivery {
+                at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                kind: kind.clone(),
+                subject: subject.clone(),
+                url: Some(url.clone()),
+                session_id: session_id.clone(),
+                ok,
             });
-        }
+        };
+        let Some(target) = target else {
+            // 구독한 세션이 끝났다(등록이 없거나 오래됐다) — 못 보냈다는 사실만 전달 기록에 남긴다.
+            record(&state, false);
+            return;
+        };
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || {
+            let ok = write_inbox(&target.socket, &line);
+            record(&state, ok.is_ok());
+            if let Err(e) = ok {
+                eprintln!("rocky: 세션 알림 — 구독한 세션의 받은편지함에 못 썼다({e})");
+                state.forget_inbox(&target.session_id);
+            }
+        });
     })
 }
 
@@ -237,16 +209,13 @@ pub struct TickOutcome {
 }
 
 /// 보드에 설정된 레포 목록 — 중복 없이, 정렬.
-fn watched_repos(state: &ServerState) -> Vec<String> {
-    state
-        .store
-        .list_boards(false)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|b| b.repo)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+/// 구독한 PR 을 레포별로 — 감시는 구독한 PR 만 한다(보드의 `repo` 는 감시 대상을 정하지 않는다).
+fn watched(state: &ServerState) -> BTreeMap<String, Vec<i64>> {
+    let mut out: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+    for sub in state.store.pr_subscriptions().unwrap_or_default() {
+        out.entry(sub.repo).or_default().push(sub.number);
+    }
+    out
 }
 
 /// 쿼리 실패 — 한도는 따로 가른다(그 뒤의 레포는 물어봐야 똑같이 실패한다).
@@ -319,6 +288,7 @@ async fn tick_repo(
     notifier: &Notifier,
     notify: bool,
     repo: &str,
+    numbers: &[i64],
 ) -> Result<RepoOutcome, QueryError> {
     let Some((owner, name)) = repo.split_once('/') else {
         return Err(QueryError::Other(format!(
@@ -329,29 +299,17 @@ async fn tick_repo(
         ("owner".to_string(), owner.to_string()),
         ("name".to_string(), name.to_string()),
     ];
-    let (data, mut limit) = graphql(runner, list_query(), &repo_vars).await?;
+    // 구독한 번호만 상세로 묻는다 — 레포 목록은 보지 않는다(비용이 구독한 PR 수에 비례). 머지·닫힘도 상세가 알려 준다.
+    let Some(query) = detail_query(numbers) else {
+        return Ok(RepoOutcome {
+            events: Vec::new(),
+            limit: None,
+        });
+    };
+    let (data, limit) = graphql(runner, query, &repo_vars).await?;
     let default_branch = default_branch_of(&data);
-    let list = parse_pr_list(&data, repo, &default_branch).map_err(QueryError::Other)?;
-    // 직전엔 OPEN 이었는데 이번 목록(열린 50 + 최근 닫힌 30)에 없는 PR — 열린 창을 넘쳤거나
-    // 닫힌 지 오래돼 창 밖으로 밀린 것이다. 상세에 끼워 전이(merged/closed)를 잃지 않는다.
-    let prev_open: Vec<PrSnapshot> = state
-        .store
-        .list_prs(Some(repo), true)
-        .map_err(|e| QueryError::Other(e.to_string()))?;
-    let mut numbers = list.open.clone();
-    for p in &prev_open {
-        if !numbers.contains(&p.number) && !list.closed.iter().any(|c| c.number == p.number) {
-            numbers.push(p.number);
-        }
-    }
-    let mut snapshots = list.closed;
-    if let Some(query) = detail_query(&numbers) {
-        let (detail, seen) = graphql(runner, query, &repo_vars).await?;
-        accumulate(&mut limit, seen);
-        snapshots
-            .extend(parse_pr_details(&detail, repo, &default_branch).map_err(QueryError::Other)?);
-    }
-    // 알릴지는 보드의 PR 작성자 필터(`prAuthors`)가 정한다 — `@me` 는 gh 로그인 계정(목록 쿼리의 viewer).
+    let snapshots = parse_pr_details(&data, repo, &default_branch).map_err(QueryError::Other)?;
+    // 알릴지는 보드의 PR 작성자 필터(`prAuthors`)가 정한다 — `@me` 는 gh 로그인 계정(응답의 viewer).
     // 걸린 전이도 히스토리·스냅숏에는 남는다(보기는 넓게, 깨우기는 좁게).
     let viewer = data
         .pointer("/viewer/login")
@@ -392,6 +350,13 @@ async fn tick_repo(
             notifier(event);
         }
     }
+    // 머지·닫힘은 끝이다 — 알린 뒤 구독을 걷는다(스냅숏은 아래 `retain_subscribed_prs` 가 걷는다).
+    for event in events
+        .iter()
+        .filter(|e| matches!(e.kind, PrEventKind::Merged | PrEventKind::Closed))
+    {
+        let _ = state.store.unsubscribe_pr(&event.repo, event.number);
+    }
     Ok(RepoOutcome { events, limit })
 }
 
@@ -404,15 +369,17 @@ pub async fn tick(
     notifier: &Notifier,
     notify: bool,
 ) -> TickOutcome {
-    let repos = watched_repos(state);
+    let watched = watched(state);
+    let repos: Vec<String> = watched.keys().cloned().collect();
     let _ = state.store.retain_pr_repos(&repos);
+    let _ = state.store.retain_subscribed_prs();
     let mut events = Vec::new();
     let mut failures = Vec::new();
     let mut limit: Option<RateLimit> = None;
     let mut pause = None;
     let now = chrono::Utc::now();
-    for repo in &repos {
-        match tick_repo(state, runner, notifier, notify, repo).await {
+    for (repo, numbers) in &watched {
+        match tick_repo(state, runner, notifier, notify, repo, numbers).await {
             Ok(mut out) => {
                 events.append(&mut out.events);
                 accumulate(&mut limit, out.limit);

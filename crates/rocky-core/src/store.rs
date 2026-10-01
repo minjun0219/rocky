@@ -18,7 +18,7 @@ use crate::actors::is_agent_actor;
 use crate::ids::{new_id, ID_LENGTH};
 use crate::migrations::{run_migrations, RunMigrationsOptions};
 use crate::note_doc::NoteDoc;
-use crate::prwatch::{diff as pr_diff, event_changes, PrEvent, PrSnapshot};
+use crate::prwatch::{diff as pr_diff, event_changes, PrEvent, PrSnapshot, PrSubscription};
 use crate::refs::GLOBAL_NOTE_PREFIX;
 use crate::types::*;
 
@@ -619,6 +619,78 @@ impl TodoStore {
         Ok(removed)
     }
 
+    /// PR 을 구독한다 — 이미 있으면 맡은 세션만 바꾼다(다른 세션이 넘겨받기). 레포는 대소문자를 가리지
+    /// 않고 한 줄로 본다. 그 레포를 처음 보더라도 기준선으로 삼키지 않는다 — 구독은 "지금 상태부터 알려 달라" 다.
+    pub fn subscribe_pr(
+        &self,
+        repo: &str,
+        number: i64,
+        session_id: Option<&str>,
+    ) -> StoreResult<PrSubscription> {
+        if !crate::prwatch::is_repo_slug(repo) || number <= 0 {
+            return Err(StoreError::new(format!(
+                "구독할 PR 이 이상하다: {repo}#{number} (owner/name 과 양수 번호)"
+            )));
+        }
+        let conn = self.lock();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT repo FROM pr_subscriptions WHERE lower(repo) = lower(?1) AND number = ?2",
+                params![repo, number],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let key = existing.unwrap_or_else(|| repo.to_string());
+        conn.execute(
+            "INSERT INTO pr_subscriptions (repo, number, session_id, created_at) VALUES (?1, ?2, ?3, ?4)\n\
+             ON CONFLICT (repo, number) DO UPDATE SET session_id = excluded.session_id",
+            params![key, number, session_id, now_iso()],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO pr_watch_repos (repo, baselined_at) VALUES (?1, ?2)",
+            params![key, now_iso()],
+        )?;
+        get_pr_subscription_conn(&conn, &key, number)?.ok_or_else(|| {
+            StoreError::new(format!("구독을 넣었는데 다시 읽지 못했다: {key}#{number}"))
+        })
+    }
+
+    /// 구독을 걷는다 — 있었으면 true.
+    pub fn unsubscribe_pr(&self, repo: &str, number: i64) -> StoreResult<bool> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "DELETE FROM pr_subscriptions WHERE lower(repo) = lower(?1) AND number = ?2",
+            params![repo, number],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn pr_subscriptions(&self) -> StoreResult<Vec<PrSubscription>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT repo, number, session_id, created_at FROM pr_subscriptions ORDER BY repo, number",
+        )?;
+        let rows = stmt
+            .query_map([], pr_subscription_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn pr_subscription(&self, repo: &str, number: i64) -> StoreResult<Option<PrSubscription>> {
+        let conn = self.lock();
+        get_pr_subscription_conn(&conn, repo, number)
+    }
+
+    /// 구독하지 않은 PR 의 스냅숏을 걷는다 — "지금" 표·GitHub 탭은 구독한 PR 만 보인다. 지운 행 수.
+    pub fn retain_subscribed_prs(&self) -> StoreResult<usize> {
+        let conn = self.lock();
+        Ok(conn.execute(
+            "DELETE FROM pr_watch WHERE NOT EXISTS (SELECT 1 FROM pr_subscriptions s \
+             WHERE lower(s.repo) = lower(pr_watch.repo) AND s.number = pr_watch.number)",
+            [],
+        )?)
+    }
+
     /// 기억하고 있는 PR 들 — `repo` 로 좁히거나 전부. `open_only` 면 OPEN 만.
     pub fn list_prs(&self, repo: Option<&str>, open_only: bool) -> StoreResult<Vec<PrSnapshot>> {
         let conn = self.lock();
@@ -628,6 +700,30 @@ impl TodoStore {
         }
         Ok(prs)
     }
+}
+
+fn pr_subscription_from_row(row: &Row) -> rusqlite::Result<PrSubscription> {
+    Ok(PrSubscription {
+        repo: row.get(0)?,
+        number: row.get(1)?,
+        session_id: row.get(2)?,
+        created_at: row.get(3)?,
+    })
+}
+
+fn get_pr_subscription_conn(
+    conn: &Connection,
+    repo: &str,
+    number: i64,
+) -> StoreResult<Option<PrSubscription>> {
+    Ok(conn
+        .query_row(
+            "SELECT repo, number, session_id, created_at FROM pr_subscriptions \
+             WHERE lower(repo) = lower(?1) AND number = ?2",
+            params![repo, number],
+            pr_subscription_from_row,
+        )
+        .optional()?)
 }
 
 fn list_prs_conn(conn: &Connection, repo: Option<&str>) -> StoreResult<Vec<PrSnapshot>> {

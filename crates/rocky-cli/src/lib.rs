@@ -36,7 +36,9 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky handoff REF --cancel               대기 중인 요청 취소
   rocky spawn REF [--message "본문"]        그 todo 전용 워크트리에 새 세션 띄우기
   rocky sessions                           실행 중인 Claude Code 세션 (* = 이 보드)
-  rocky pr [--board K|--all] [--json]      데몬이 감시하는 열린 PR — 확인·머지 가능 / 충돌 / 대기
+  rocky pr [--board K|--all] [--json]      구독한 열린 PR — 확인·머지 가능 / 충돌 / 대기
+  rocky pr subscribe|unsubscribe N [--repo OWNER/NAME] · pr subscriptions
+                                          데몬이 이 PR 을 보고 전이를 이 세션에 보낸다(세션 밖이면 지켜보기만)
   rocky move REF --to BOARD | --before REF2 | --last   보드 이동 / 순서 이동
   rocky start|stop|done|reopen|archive|unarchive REF
   rocky section add|archive "이름" [--board K] · section ls [--board K]
