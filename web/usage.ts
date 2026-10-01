@@ -14,7 +14,8 @@ export type WebUsageEvent =
   | 'web:note-format'
   | 'web:theme'
   | 'web:archived-toggle'
-  | 'web:quick-add';
+  | 'web:quick-add'
+  | 'web:alert-open';
 
 let actorHeader = 'unknown';
 

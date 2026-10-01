@@ -929,12 +929,98 @@ export function githubHideKey(
   return item.kind === 'pr' ? `pr:${item.key}:${item.status}` : `inbox:${item.source}:${item.id}`;
 }
 
-/** 사람이 움직일 PR 수(충돌·머지 가능·CI 실패·결정 필요) — GitHub 탭 옆 숫자. 숨긴 것은 빼고 센다. */
-export function githubAttention(rows: PrRow[], hidden: readonly string[]): number {
-  const loud: PrStatus[] = ['conflict', 'ready', 'failing', 'decide'];
-  return rows.filter(
-    (r) =>
-      loud.includes(r.status) &&
-      !hidden.includes(githubHideKey({ kind: 'pr', key: r.key, status: r.status })),
-  ).length;
+/** 알림 탭의 항목 종류 — 오너가 손댈 것만. 순서가 곧 화면 순서(위가 급하다). */
+export type AlertKind = 'decide' | 'merge' | 'conflict' | 'ci' | 'abandoned';
+
+export const ALERT_LABEL: Record<AlertKind, string> = {
+  decide: '결정 필요',
+  merge: '머지 후보',
+  conflict: '충돌',
+  ci: 'CI 실패',
+  abandoned: '세션이 사라진 작업',
+};
+
+const ALERT_ORDER: AlertKind[] = ['decide', 'merge', 'conflict', 'ci', 'abandoned'];
+
+/** 충돌·CI 실패는 세션이 먼저 푼다 — 이만큼 그대로면 오너 몫으로 올린다. */
+export const STUCK_AFTER_MS = 30 * 60 * 1000;
+
+export interface AlertRow {
+  /** 화면 키(종류 + 대상). */
+  key: string;
+  /** 숨기기 키 — 종류까지 넣는다: 같은 PR 이라도 "충돌" 을 숨긴 뒤 "머지 후보" 가 되면 다시 보인다. */
+  hideKey: string;
+  kind: AlertKind;
+  title: string;
+  /** 둘째 줄 — 어디의 무엇인지(`rocky #12`, `rocky-7`). */
+  detail: string;
+  /** PR 이면 GitHub 주소, 할 일이면 없음(누르면 상세). */
+  url?: string;
+  todoId?: string;
+  at: string;
+}
+
+/**
+ * 알림 탭 — 오너가 손댈 것. 구독한 열린 PR 중 결정 필요(👀)·머지 후보, 30분 넘게 그대로인 충돌·CI 실패,
+ * 에이전트가 들었는데 세션이 사라진 진행 중 할 일. 숨긴 것은 뺀다.
+ */
+export function alertRows(
+  prs: PrSnapshot[],
+  todos: TodoView[],
+  boards: readonly { id: string; key: string }[],
+  hidden: readonly string[],
+  now: number,
+): AlertRow[] {
+  const rows: AlertRow[] = [];
+  for (const p of prs) {
+    if (p.state !== 'OPEN') {
+      continue;
+    }
+    const status = prStatus(p);
+    const stale = now - Date.parse(p.updatedAt) > STUCK_AFTER_MS;
+    const kind: AlertKind | null =
+      status === 'decide'
+        ? 'decide'
+        : status === 'ready'
+          ? 'merge'
+          : status === 'conflict' && stale
+            ? 'conflict'
+            : status === 'failing' && stale
+              ? 'ci'
+              : null;
+    if (kind === null) {
+      continue;
+    }
+    const key = `${p.repo}#${p.number}`;
+    rows.push({
+      key: `${kind}:${key}`,
+      hideKey: `alert:${kind}:${key}`,
+      kind,
+      title: p.title,
+      detail: `${p.repo.split('/')[1] ?? p.repo} #${p.number}`,
+      url: p.url,
+      at: p.updatedAt,
+    });
+  }
+  for (const t of todos) {
+    if (t.status !== 'doing' || t.doingState !== 'gone' || t.archivedAt) {
+      continue;
+    }
+    const board = boards.find((b) => b.id === t.boardId);
+    rows.push({
+      key: `abandoned:${t.id}`,
+      hideKey: `alert:abandoned:${t.id}`,
+      kind: 'abandoned',
+      title: t.title,
+      detail: board ? `${board.key}-${t.number}` : t.ref,
+      todoId: t.id,
+      at: t.updatedAt,
+    });
+  }
+  return rows
+    .filter((r) => !hidden.includes(r.hideKey))
+    .sort(
+      (a, b) =>
+        ALERT_ORDER.indexOf(a.kind) - ALERT_ORDER.indexOf(b.kind) || b.at.localeCompare(a.at),
+    );
 }

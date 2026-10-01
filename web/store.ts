@@ -336,8 +336,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   ),
   view: (() => {
     const stored = readStored(VIEW_KEY);
-    if (stored === 'notes') {
-      return 'notes';
+    if (stored === 'notes' || stored === 'alerts') {
+      return stored;
     }
     // GitHub 탭을 꺼 둔 채 GitHub 화면이 기억돼 있으면 할 일로 연다.
     return stored === 'github' && readStored(GITHUB_TAB_KEY) !== 'off' ? 'github' : 'todos';
