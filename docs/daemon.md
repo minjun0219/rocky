@@ -204,8 +204,9 @@
   `/api/handoffs?open=true`(대기 중 + 미완료 배달 — **보관된 todo 의 것은 제외**, 요약의
   `handoffsOpen` 도 같은 규칙).
 - **PR 감시(`rockyd::prwatch`, 설계 `docs/design/specs/2026-09-28-pr-watch-design.md`, 오너 결정
-  2026-09-28)**: `repo` 가 설정된 보드의 레포마다 `pr.intervalMinutes`(기본 3분)에 한 번 `gh api
-  graphql`(레포당 목록 `PR_LIST_QUERY` + 열린 PR 상세 `detail_query`, 아래 "예산")을 돌려 스냅숏을 `pr_watch`
+  2026-09-28, 2026-10-01 구독으로 좁힘 — `docs/design/specs/2026-10-01-pr-subscriptions-design.md`)**: 구독한 PR 이 있는
+  레포마다 `pr.intervalMinutes`(기본 3분)에 한 번 `gh api graphql`(구독한 번호만 상세 `detail_query` — 레포 목록
+  `PR_LIST_QUERY` 는 주기적으로 돌리지 않는다, 아래 "예산")을 돌려 스냅숏을 `pr_watch`
   (user_version 8)에 기억하고, 직전과의 전이를 그 레포를 둔 보드의 히스토리에 actor `rocky`·
   action `pr-*` 로 남긴다 — 그래서 SSE·`/api/changes`·`notify-todo` 훅 주입(`build_pr_context` — ready·conflict 만, merged/closed 는 히스토리에만)
   이 그대로 탄다. 판정은 전부 순수(`is_ready`: OPEN·draft 아님·base 가 기본 브랜치·DIRTY 아님·

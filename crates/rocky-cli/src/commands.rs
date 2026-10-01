@@ -307,10 +307,42 @@ pub fn cmd_sessions(ctx: &CliContext, board: &str, printer: &Printer) -> Result<
 /// `pr [--all] [--json]` — 데몬이 기억하는 PR 스냅숏(열린 것만). 기본은 현재 보드의 레포.
 pub fn cmd_pr(
     ctx: &CliContext,
+    rest: &[String],
     flags: &ParsedFlags,
     board: &str,
     printer: &Printer,
 ) -> Result<(), String> {
+    match rest.first().map(String::as_str) {
+        Some("subscribe") | Some("unsubscribe") => return cmd_pr_subscribe(ctx, rest, flags, printer),
+        Some("subscriptions") => {
+            let raw = request_value(ctx, "GET", "/api/prs/subscriptions", None)?;
+            let subs: Vec<rocky_core::prwatch::PrSubscription> = serde_json::from_value(raw.clone())
+                .map_err(|e| format!("응답을 읽지 못했다: {e}"))?;
+            printer.emit(&raw, || {
+                if subs.is_empty() {
+                    return "구독한 PR 없음 — rocky pr subscribe N".to_string();
+                }
+                subs.iter()
+                    .map(|s| {
+                        let who = s
+                            .session_id
+                            .as_deref()
+                            .map(|id| format!("세션 {}", &id[..id.len().min(8)]))
+                            .unwrap_or_else(|| "지켜보기만".to_string());
+                        format!("{}#{}  {who}", s.repo, s.number)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
+            return Ok(());
+        }
+        Some(other) => {
+            return Err(format!(
+                "usage: rocky pr [--board K|--all] | subscribe|unsubscribe N [--repo OWNER/NAME] | subscriptions ({other}?)"
+            ))
+        }
+        None => {}
+    }
     let path = if flags.bool_flag("all") {
         "/api/prs?open=true".to_string()
     } else {
@@ -323,9 +355,87 @@ pub fn cmd_pr(
     Ok(())
 }
 
+/// `pr subscribe|unsubscribe N [--repo OWNER/NAME]` — 데몬이 이 PR 을 보고 전이를 이 세션에 보내게 한다(구독) /
+/// 그만 본다. 레포는 `--repo`, 없으면 지금 디렉터리의 `gh repo view`. 세션은 `CLAUDE_CODE_SESSION_ID` — 세션 밖
+/// (터미널)에서 구독하면 세션 없이 지켜보기만 한다(알림 탭에는 뜨고 아무 세션도 깨우지 않는다).
+fn cmd_pr_subscribe(
+    ctx: &CliContext,
+    rest: &[String],
+    flags: &ParsedFlags,
+    printer: &Printer,
+) -> Result<(), String> {
+    let sub = rest.first().map(String::as_str).unwrap_or("");
+    let number: i64 = rest
+        .get(1)
+        .map(|n| n.trim_start_matches('#'))
+        .and_then(|n| n.parse().ok())
+        .filter(|n| *n > 0)
+        .ok_or_else(|| format!("usage: rocky pr {sub} N [--repo OWNER/NAME]"))?;
+    let repo = match flags.str_flag("repo") {
+        Some(r) => r.to_string(),
+        None => current_repo()?,
+    };
+    if sub == "unsubscribe" {
+        let path = format!(
+            "/api/prs/subscriptions?repo={}&number={number}",
+            encode_query(&repo)
+        );
+        let raw = request_value(ctx, "DELETE", &path, None)?;
+        let removed = raw.get("removed").and_then(Value::as_bool).unwrap_or(false);
+        printer.emit(&raw, || {
+            if removed {
+                format!("✓ {repo}#{number} 구독 해지")
+            } else {
+                format!("{repo}#{number} 은 구독하고 있지 않았다")
+            }
+        });
+        return Ok(());
+    }
+    let session = std::env::var("CLAUDE_CODE_SESSION_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let mut body = json!({ "repo": repo, "number": number });
+    if let Some(id) = &session {
+        body["sessionId"] = json!(id);
+    }
+    let raw = request_value(ctx, "POST", "/api/prs/subscriptions", Some(&body))?;
+    printer.emit(&raw, || match &session {
+        Some(_) => {
+            format!("✓ {repo}#{number} 구독 — 리뷰·충돌·CI 실패·머지 후보·머지를 이 세션에 보낸다")
+        }
+        None => format!("✓ {repo}#{number} 지켜보기 — 세션 밖이라 깨울 세션 없이 보기만 한다"),
+    });
+    Ok(())
+}
+
+/// 지금 디렉터리의 GitHub 레포(`owner/name`) — `gh repo view`.
+fn current_repo() -> Result<String, String> {
+    let out = std::process::Command::new("gh")
+        .args([
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "-q",
+            ".nameWithOwner",
+        ])
+        .output()
+        .map_err(|e| {
+            format!("gh 를 실행하지 못했다 — --repo OWNER/NAME 으로 주거나 gh 를 설치한다: {e}")
+        })?;
+    let repo = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || repo.is_empty() {
+        return Err(format!(
+            "지금 디렉터리의 레포를 모른다 — --repo OWNER/NAME 으로 준다 ({})",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(repo)
+}
+
 fn format_prs(prs: &[rocky_core::prwatch::PrSnapshot]) -> String {
     if prs.is_empty() {
-        return "열린 PR 없음 (또는 보드에 repo 미설정 · 데몬이 아직 안 봄)".to_string();
+        return "구독한 열린 PR 없음 — rocky pr subscribe N (또는 데몬이 아직 안 봄)".to_string();
     }
     prs.iter()
         .map(|p| {

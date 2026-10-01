@@ -101,10 +101,16 @@ git push -u origin <현재 브랜치>
 NUM=$(gh pr create --base main --head <브랜치> \
   --title "<Conventional 한국어 제목>" --body "<본문 초안>" | grep -o '[0-9]*$')
 
-# 2) 그 번호로 링크를 만들어 본문을 갱신
+# 2) 이 세션이 그 PR 을 구독한다 — 데몬은 구독한 PR 만 보고, 리뷰·충돌·CI 실패·머지 후보·머지를 이 세션에만 보낸다
+rocky pr subscribe "$NUM"
+
+# 3) 그 번호로 링크를 만들어 본문을 갱신
 bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/permalink.ts" --pr "$NUM" <포인터> ...
 gh pr edit "$NUM" --body "<링크까지 채운 본문>"
 ```
+
+**구독은 빠뜨리지 않는다.** 구독하지 않은 PR 은 데몬이 보지 않는다 — 알림도, 보드의 PR 상태도 없다. 스택이면
+`gh stack submit` 이 만든 PR 마다 구독한다. 구독은 머지·닫힘에서 저절로 풀린다.
 
 **draft 로 만들지 않는다** (`--draft` 금지). 이 레포의 봇 리뷰(Codex / Copilot)는 ready 상태에만
 붙는다 — draft 로 만들었으면 `gh pr ready "$NUM"` 으로 바로 푼다.

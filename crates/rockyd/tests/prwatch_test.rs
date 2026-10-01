@@ -11,12 +11,9 @@ use rockyd::prwatch::{tick, Notifier};
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::{json, Value};
 
-/// 레포의 기준선을 먼저 잡는다 — 처음 보는 레포의 첫 tick 은 전이를 내지 않으므로, 전이를 보려는 테스트는
-/// 이미 보던 레포처럼 시작한다.
-fn baseline(f: &Fx, repo: &str) {
-    f.store
-        .apply_pr_snapshot(repo, &[], "rocky", &|_, _| true)
-        .unwrap();
+/// PR 을 구독한다 — 감시는 구독한 PR 만 한다. 구독은 그 레포를 "이미 보던 레포" 로 표시하므로 기준선이 필요 없다.
+fn sub(f: &Fx, repo: &str, number: i64, session: Option<&str>) {
+    f.store.subscribe_pr(repo, number, session).unwrap();
 }
 
 fn pr(number: i64, state: &str, rollup: &str, merge_state: &str, base: &str) -> Value {
@@ -27,12 +24,6 @@ fn pr(number: i64, state: &str, rollup: &str, merge_state: &str, base: &str) -> 
         "commits": { "nodes": [ { "commit": { "statusCheckRollup": { "state": rollup } } } ] },
         "reviewThreads": { "nodes": [] }
     })
-}
-
-/// 목록 창 밖으로 밀린 PR — 목록에는 안 나오고 상세로 물으면 나온다.
-fn hidden(mut pr: Value) -> Value {
-    pr["__hidden"] = json!(true);
-    pr
 }
 
 fn rate_limit(remaining: i64, cost: i64) -> Value {
@@ -88,7 +79,7 @@ fn fake_gh(responses: Arc<Mutex<Value>>, calls: Arc<Mutex<Vec<Vec<String>>>>) ->
                     let found = pool.iter().find(|p| p["number"] == n).cloned();
                     repository.insert(format!("p{n}"), found.unwrap_or(Value::Null));
                 }
-                json!({ "rateLimit": rate_limit(remaining - 3, 3), "repository": repository })
+                json!({ "rateLimit": rate_limit(remaining - 3, 3), "viewer": { "login": "me" }, "repository": repository })
             } else {
                 let visible = pool.iter().filter(|p| p["__hidden"] != true);
                 let (open, recent): (Vec<_>, Vec<_>) = visible.partition(|p| p["state"] == "OPEN");
@@ -145,25 +136,29 @@ fn detail_calls_for(calls: &Arc<Mutex<Vec<Vec<String>>>>, number: i64) -> usize 
 }
 
 #[tokio::test]
-async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_on() {
+async fn a_tick_queries_only_subscribed_prs_and_passes_ready_conflict_and_merged_on() {
     let f = fx();
     f.store.ensure_board("rocky", None, "tester").unwrap();
     f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
-    baseline(&f, "o/r");
     f.store.ensure_board("norepo", None, "tester").unwrap();
+    sub(&f, "o/r", 1, None);
+    sub(&f, "o/r", 2, None);
+    // 3 은 레포에 있지만 구독하지 않았다 — 묻지도, 남기지도 않는다.
     let responses = Arc::new(Mutex::new(json!({
-        "r": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main"), pr(2, "OPEN", "PENDING", "CLEAN", "main")]
+        "r": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main"), pr(2, "OPEN", "PENDING", "CLEAN", "main"),
+              pr(3, "OPEN", "SUCCESS", "CLEAN", "main")]
     })));
     let calls = Arc::new(Mutex::new(Vec::new()));
     let runner = fake_gh(responses.clone(), calls.clone());
     let (notifier, seen) = capture();
 
     let events = tick(&f.state, &runner, &notifier, true).await.events;
-    assert_eq!(list_calls(&calls), 1, "repo 있는 보드만, 레포당 목록 한 번");
+    assert_eq!(list_calls(&calls), 0, "레포 목록은 보지 않는다");
+    assert_eq!(calls.lock().unwrap().len(), 1, "구독한 둘을 상세 한 번에");
     assert_eq!(
-        calls.lock().unwrap().len(),
-        2,
-        "열린 PR 둘의 상세는 별칭 배치 한 번"
+        detail_calls_for(&calls, 3),
+        0,
+        "구독하지 않은 PR 은 묻지 않는다"
     );
     assert!(calls.lock().unwrap()[0].iter().any(|a| a == "owner=o"));
     assert_eq!(
@@ -182,14 +177,13 @@ async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_o
     let status = f.state.pr_watch();
     assert!(status.available && status.repos == vec!["o/r".to_string()]);
 
-    // 다음 tick: 1 은 머지, 2 는 충돌 → 알림기에는 둘 다 간다(머지는 세션 정리용 — 배너·브릿지는
-    // 자기 안에서 `notifies` 로 거른다).
+    // 다음 tick: 1 은 머지, 2 는 충돌 → 알림기에는 둘 다 간다. 머지된 1 은 구독이 걷힌다.
     *responses.lock().unwrap() = json!({
         "r": [pr(1, "MERGED", "SUCCESS", "UNKNOWN", "main"), pr(2, "OPEN", "SUCCESS", "DIRTY", "main")]
     });
     let events = tick(&f.state, &runner, &notifier, true).await.events;
     let mut kinds: Vec<(i64, PrEventKind)> = events.iter().map(|e| (e.number, e.kind)).collect();
-    kinds.sort_by_key(|(n, _)| *n); // 열린 것이 먼저, 닫힌 것이 뒤 — 순서는 계약이 아니다
+    kinds.sort_by_key(|(n, _)| *n);
     assert_eq!(
         kinds,
         vec![(1, PrEventKind::Merged), (2, PrEventKind::Conflict)]
@@ -200,6 +194,11 @@ async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_o
         .collect();
     texts.sort();
     assert_eq!(texts, vec!["#1 머지됨 — PR 1", "#2 충돌 — PR 2"]);
+    assert!(
+        f.store.pr_subscription("o/r", 1).unwrap().is_none(),
+        "머지되면 구독을 걷는다"
+    );
+    assert!(f.store.pr_subscription("o/r", 2).unwrap().is_some());
 
     // 전이는 보드 히스토리에, 그리고 /api/prs 로 읽힌다.
     let (status, body) = get(&f.state, "/api/prs?board=rocky&open=true").await;
@@ -207,8 +206,6 @@ async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_o
     assert_eq!(body.as_array().unwrap().len(), 1);
     assert_eq!(body[0]["number"], 2);
     assert_eq!(body[0]["mergeState"], "DIRTY");
-    let (_, all) = get(&f.state, "/api/prs").await;
-    assert_eq!(all.as_array().unwrap().len(), 2);
     let (_, none) = get(&f.state, "/api/prs?board=norepo").await;
     assert_eq!(
         none.as_array().unwrap().len(),
@@ -220,25 +217,28 @@ async fn a_tick_queries_each_watched_repo_and_passes_ready_conflict_and_merged_o
     let (_, health) = get(&f.state, "/api/health").await;
     assert_eq!(health["prWatch"]["available"], true);
     assert_eq!(health["prWatch"]["repos"][0], "o/r");
-    assert_eq!(
-        health["prWatch"]["rateLimit"]["cost"], 10,
-        "tick 누계 — 목록 7 + 상세 3"
-    );
-    assert_eq!(
-        health["prWatch"]["rateLimit"]["remaining"], 4797,
-        "마지막 응답의 잔여"
-    );
+    assert_eq!(health["prWatch"]["rateLimit"]["cost"], 3, "상세 한 번뿐");
+    assert_eq!(health["prWatch"]["rateLimit"]["remaining"], 4797);
     assert!(health["prWatch"].get("pausedUntil").is_none());
+
+    // 다음 tick 에 구독이 걷힌 1 의 스냅숏도 걷힌다 — 남는 건 구독한 2 뿐.
+    tick(&f.state, &runner, &notifier, true).await;
+    let (_, all) = get(&f.state, "/api/prs").await;
+    assert_eq!(
+        all.as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["number"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
 }
 
 #[tokio::test]
 async fn a_failing_repo_is_reported_in_health_and_does_not_break_others() {
     let f = fx();
-    f.store.ensure_board("a", None, "tester").unwrap();
-    f.store.set_board_repo("a", "o/gone", "tester").unwrap();
-    f.store.ensure_board("b", None, "tester").unwrap();
-    f.store.set_board_repo("b", "o/r", "tester").unwrap();
-    baseline(&f, "o/r");
+    sub(&f, "o/gone", 1, None);
+    sub(&f, "o/r", 5, None);
     let responses = Arc::new(Mutex::new(
         json!({ "r": [pr(5, "OPEN", "SUCCESS", "CLEAN", "main")] }),
     ));
@@ -258,7 +258,7 @@ async fn a_failing_repo_is_reported_in_health_and_does_not_break_others() {
 }
 
 #[tokio::test]
-async fn no_repo_boards_means_a_quiet_tick() {
+async fn no_subscriptions_means_a_quiet_tick() {
     let f = fx();
     let runner: Runner =
         Arc::new(|_, _, _| Box::pin(async { CmdOutput::failure("should not run") }));
@@ -269,30 +269,87 @@ async fn no_repo_boards_means_a_quiet_tick() {
     assert!(status.available && status.repos.is_empty() && status.last_tick.is_some());
 }
 
-/// 열린 PR 이 없는 레포는 목록 한 번으로 끝난다 — 상세 쿼리를 부르지 않는다(비용).
+/// 구독 — REST 는 로컬 전용·모양 검증, 같은 PR 을 다시 구독하면 맡은 세션만 바뀐다(넘겨받기), 해지하면
+/// 다음 tick 부터 묻지도 남기지도 않는다.
 #[tokio::test]
-async fn a_repo_without_open_prs_costs_one_list_query() {
+async fn subscriptions_are_local_validated_and_unsubscribing_stops_watching() {
     let f = fx();
-    f.store.ensure_board("rocky", None, "tester").unwrap();
-    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    let (status, body) = post(
+        &f.state,
+        "/api/prs/subscriptions",
+        json!({ "repo": "o/r", "number": 4, "sessionId": "a" }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["sessionId"], "a");
+    let (_, body) = post(
+        &f.state,
+        "/api/prs/subscriptions",
+        json!({ "repo": "O/R", "number": 4, "sessionId": "b" }),
+    )
+    .await;
+    assert_eq!(body["sessionId"], "b", "다른 세션이 넘겨받는다");
+    assert_eq!(
+        body["repo"], "o/r",
+        "레포 표기는 처음 것을 지킨다(대소문자 무시)"
+    );
+    let (_, list) = get(&f.state, "/api/prs/subscriptions").await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    for bad in [
+        json!({ "repo": "nope", "number": 1 }),
+        json!({ "repo": "o/r", "number": 0 }),
+        json!({ "repo": "o/r/x", "number": 1 }),
+    ] {
+        let (status, _) = post(&f.state, "/api/prs/subscriptions", bad).await;
+        assert_eq!(status, 400);
+    }
+    let remote = ReqOptions {
+        headers: vec![("x-forwarded-for", "10.0.0.2")],
+        ..ReqOptions::default()
+    };
+    let (status, _) = call(
+        &f.state,
+        "POST",
+        "/api/prs/subscriptions",
+        Some(json!({ "repo": "o/r", "number": 5 })),
+        remote,
+    )
+    .await;
+    assert_eq!(status, 403);
+
     let responses = Arc::new(Mutex::new(
-        json!({ "r": [pr(3, "MERGED", "SUCCESS", "UNKNOWN", "main")] }),
+        json!({ "r": [pr(4, "OPEN", "SUCCESS", "CLEAN", "main")] }),
     ));
     let calls = Arc::new(Mutex::new(Vec::new()));
     let runner = fake_gh(responses, calls.clone());
     let (notifier, _) = capture();
-    let events = tick(&f.state, &runner, &notifier, false).await.events;
-    assert!(events.is_empty(), "처음 보는 닫힌 PR 은 전이가 아니다");
-    assert_eq!(calls.lock().unwrap().len(), 1);
-    assert_eq!(f.state.pr_watch().rate_limit.unwrap().cost, 7);
+    tick(&f.state, &runner, &notifier, false).await;
+    assert_eq!(f.store.list_prs(Some("o/r"), false).unwrap().len(), 1);
+    let (status, body) = call(
+        &f.state,
+        "DELETE",
+        "/api/prs/subscriptions?repo=o/r&number=4",
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["removed"], true);
+    let before = calls.lock().unwrap().len();
+    tick(&f.state, &runner, &notifier, false).await;
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        before,
+        "구독이 없으면 묻지 않는다"
+    );
+    assert!(f.store.list_prs(Some("o/r"), false).unwrap().is_empty());
 }
 
-/// 닫힌 지 오래돼 최근 창(30건) 밖으로 밀린 옛 열린 PR — 상세에 끼워 머지 전이를 잃지 않는다.
+/// 닫힘도 끝이다 — 알린 뒤 구독을 걷고, 그다음부터는 묻지 않는다.
 #[tokio::test]
-async fn an_open_pr_that_fell_out_of_the_window_is_queried_in_the_detail_batch() {
+async fn a_closed_pr_is_unsubscribed_after_the_transition() {
     let f = fx();
-    f.store.ensure_board("rocky", None, "tester").unwrap();
-    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    sub(&f, "o/r", 7, None);
     let responses = Arc::new(Mutex::new(
         json!({ "r": [pr(7, "OPEN", "SUCCESS", "CLEAN", "main")] }),
     ));
@@ -300,64 +357,38 @@ async fn an_open_pr_that_fell_out_of_the_window_is_queried_in_the_detail_batch()
     let runner = fake_gh(responses.clone(), calls.clone());
     let (notifier, _) = capture();
     tick(&f.state, &runner, &notifier, false).await;
-    assert_eq!(detail_calls_for(&calls, 7), 1);
-    // 다음 tick: 목록에 7 이 없다(열린 것도 최근 닫힌 것도 아님) → 상세로 → MERGED.
-    *responses.lock().unwrap() = json!({
-        "r": [hidden(pr(7, "MERGED", "SUCCESS", "UNKNOWN", "main"))]
-    });
+    *responses.lock().unwrap() = json!({ "r": [pr(7, "CLOSED", "SUCCESS", "UNKNOWN", "main")] });
     let events = tick(&f.state, &runner, &notifier, false).await.events;
     assert_eq!(
         events
             .iter()
             .map(|e| (e.number, e.kind))
             .collect::<Vec<_>>(),
-        vec![(7, PrEventKind::Merged)]
+        vec![(7, PrEventKind::Closed)]
     );
-    assert_eq!(detail_calls_for(&calls, 7), 2);
-    assert!(f.state.pr_watch().available);
-    // 이제 OPEN 이 아니니 다시 묻지 않는다.
+    assert!(f.store.pr_subscriptions().unwrap().is_empty());
     let before = calls.lock().unwrap().len();
     tick(&f.state, &runner, &notifier, false).await;
-    assert_eq!(calls.lock().unwrap().len(), before + 1, "목록 쿼리 하나뿐");
+    assert_eq!(calls.lock().unwrap().len(), before);
 }
 
-/// 보드에서 repo 를 떼면 그 레포의 스냅숏은 걷히고, 전역 목록에도 보이지 않는다.
+/// 보드의 `repo` 는 감시 대상을 정하지 않는다 — 보드에 레포를 붙여도 구독이 없으면 묻지 않는다.
 #[tokio::test]
-async fn snapshots_of_a_repo_no_longer_on_any_board_disappear() {
+async fn a_board_repo_alone_does_not_start_watching() {
     let f = fx();
     f.store.ensure_board("rocky", None, "tester").unwrap();
     f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
-    let responses = Arc::new(Mutex::new(
-        json!({ "r": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main")] }),
-    ));
-    let runner = fake_gh(responses, Arc::new(Mutex::new(Vec::new())));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let runner = fake_gh(
+        Arc::new(Mutex::new(
+            json!({ "r": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main")] }),
+        )),
+        calls.clone(),
+    );
     let (notifier, _) = capture();
     tick(&f.state, &runner, &notifier, false).await;
-    assert_eq!(
-        get(&f.state, "/api/prs?open=true")
-            .await
-            .1
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    // repo 를 다른 것으로 바꿈 — 다음 tick 전에도 전역 목록은 비고, tick 이 돌면 행도 걷힌다.
-    f.store
-        .set_board_repo("rocky", "o/other", "tester")
-        .unwrap();
-    assert_eq!(
-        get(&f.state, "/api/prs?open=true")
-            .await
-            .1
-            .as_array()
-            .unwrap()
-            .len(),
-        0
-    );
-    assert_eq!(f.store.list_prs(Some("o/r"), false).unwrap().len(), 1);
-    tick(&f.state, &runner, &notifier, false).await;
-    assert_eq!(f.store.list_prs(Some("o/r"), false).unwrap().len(), 0);
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(f.state.pr_watch().repos.is_empty());
 }
 
 /// 한도에 걸리면 남은 레포는 묻지 않고(똑같이 실패한다) 리셋까지 쉬라고 돌려준다 — 데몬이
@@ -365,10 +396,8 @@ async fn snapshots_of_a_repo_no_longer_on_any_board_disappear() {
 #[tokio::test]
 async fn a_rate_limit_error_stops_the_tick_and_pauses_until_reset() {
     let f = fx();
-    f.store.ensure_board("a", None, "tester").unwrap();
-    f.store.set_board_repo("a", "o/a", "tester").unwrap();
-    f.store.ensure_board("b", None, "tester").unwrap();
-    f.store.set_board_repo("b", "o/b", "tester").unwrap();
+    sub(&f, "o/a", 1, None);
+    sub(&f, "o/b", 1, None);
     let responses = Arc::new(Mutex::new(json!({
         "a": "RATE_LIMIT",
         "b": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main")]
@@ -402,12 +431,8 @@ async fn a_rate_limit_error_stops_the_tick_and_pauses_until_reset() {
 #[tokio::test]
 async fn a_low_budget_stops_the_tick_before_the_limit() {
     let f = fx();
-    f.store.ensure_board("a", None, "tester").unwrap();
-    f.store.set_board_repo("a", "o/a", "tester").unwrap();
-    baseline(&f, "o/a");
-    f.store.ensure_board("b", None, "tester").unwrap();
-    f.store.set_board_repo("b", "o/b", "tester").unwrap();
-    baseline(&f, "o/b");
+    sub(&f, "o/a", 1, None);
+    sub(&f, "o/b", 2, None);
     let responses = Arc::new(Mutex::new(json!({
         "a": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main")],
         "a:remaining": 903,
@@ -422,7 +447,7 @@ async fn a_low_budget_stops_the_tick_before_the_limit() {
         vec![1, 1],
         "o/a 의 스냅숏은 정상 반영(opened·ready)"
     );
-    assert_eq!(list_calls(&calls), 1, "o/b 는 다음으로 미룬다");
+    assert_eq!(calls.lock().unwrap().len(), 1, "o/b 는 다음으로 미룬다");
     let pause = outcome.pause.expect("쉰다");
     assert_eq!(
         pause,
@@ -507,11 +532,11 @@ async fn bridge_notifier_runs_the_command_with_the_transition_on_stdin() {
     assert_eq!(seen.lock().unwrap().len(), 1, "다른 알림기도 받는다");
 }
 
-/// 세션 알림 — 훅이 등록한 받은편지함 소켓에, 그 레포 보드에서 일하는 가장 최근 세션 하나에만
-/// 한 줄을 쓴다. 실제 유닉스 소켓으로 끝까지 본다. 등록 라우트는 로컬 전용·경로 검증.
+/// 세션 알림 — 훅이 등록한 받은편지함 소켓 중 **그 PR 을 구독한 세션** 하나에만 한 줄을 쓴다(더 최근 세션이
+/// 있어도). 실제 유닉스 소켓으로 끝까지 본다. 등록 라우트는 로컬 전용·경로 검증.
 #[cfg(unix)]
 #[tokio::test]
-async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
+async fn session_notifier_writes_one_line_to_the_subscribed_session_only() {
     use rockyd::prwatch::session_notifier;
     use std::io::Read;
     use std::os::unix::net::UnixListener;
@@ -560,6 +585,10 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
         tokio::time::sleep(Duration::from_millis(1100)).await;
     }
 
+    // 옛 세션이 이 PR 을 만들어 구독했다 — 더 최근 세션(new)이 있어도 옛 세션이 받는다.
+    sub(&f, "o/r", 7, Some("old"));
+    old_listener.set_nonblocking(false).unwrap();
+    new_listener.set_nonblocking(true).unwrap();
     let notify = session_notifier(f.state.clone());
     let snap = PrSnapshot {
         repo: "o/r".into(),
@@ -587,7 +616,7 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
     notify(ready);
 
     let received = tokio::task::spawn_blocking(move || {
-        let (mut conn, _) = new_listener.accept().unwrap();
+        let (mut conn, _) = old_listener.accept().unwrap();
         let mut text = String::new();
         conn.read_to_string(&mut text).unwrap();
         text
@@ -600,26 +629,28 @@ async fn session_notifier_writes_one_line_to_the_latest_session_inbox() {
         .as_str()
         .unwrap()
         .starts_with("rocky: o/r #7 머지 후보"));
-    // 옛 세션에는 보내지 않는다 — 한 곳에만.
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(old_listener.accept().is_err(), "가장 최근 세션 하나에만");
+    assert!(
+        new_listener.accept().is_err(),
+        "구독하지 않은 세션에는 가지 않는다"
+    );
 
-    // 받는 이가 사라지면(소켓 없음) 등록을 걷는다.
-    drop(old_listener);
-    std::fs::remove_file(&new_sock).unwrap();
+    // 구독한 세션이 사라지면(소켓 없음) 등록을 걷고, 다른 세션으로 넘기지 않는다.
+    std::fs::remove_file(&old_sock).unwrap();
     notify(ready);
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!f.state.inboxes().iter().any(|r| r.session_id == "new"));
+    assert!(!f.state.inboxes().iter().any(|r| r.session_id == "old"));
+    assert!(new_listener.accept().is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Codex 지적 회귀 — 가장 최근 세션이 이미 끝났으면(소켓 없음) 그다음 세션이 받는다. 전이는 한 번만
-/// 나므로 여기서 놓치면 살아 있는 세션은 영영 모른다.
+/// 구독한 세션이 등록돼 있지 않으면(끝났다) 아무에게도 보내지 않고 "못 보냄" 을 전달 기록에 남긴다. 구독이
+/// 없는 PR · 세션 없이 지켜보기만 하는 구독은 아무도 깨우지 않는다 — 예전엔 보드의 가장 최근 세션에 레포의
+/// PR 이 전부 쏟아졌다.
 #[cfg(unix)]
 #[tokio::test]
-async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
+async fn no_live_subscriber_means_nobody_is_woken() {
     use rockyd::prwatch::session_notifier;
-    use std::io::Read;
     use std::os::unix::net::UnixListener;
 
     let f = fx();
@@ -629,49 +660,44 @@ async fn session_notifier_falls_back_when_the_newest_session_is_gone() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let live = dir.join("300.sock");
-    let gone = dir.join("400.sock"); // 만들지 않는다 — 세션이 끝났다
     let listener = UnixListener::bind(&live).unwrap();
-    for (id, sock) in [("live", &live), ("gone", &gone)] {
-        let (status, _) = post(
-            &f.state,
-            "/api/sessions/inbox",
-            json!({ "sessionId": id, "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
-        )
-        .await;
-        assert_eq!(status, 204);
-        tokio::time::sleep(Duration::from_millis(1100)).await;
-    }
-    let conflict = rocky_core::prwatch::PrEvent {
+    listener.set_nonblocking(true).unwrap();
+    let (status, _) = post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "live", "socket": live.to_str().unwrap(), "cwd": "/w/rocky" }),
+    )
+    .await;
+    assert_eq!(status, 204);
+    sub(&f, "o/r", 8, Some("gone"));
+    sub(&f, "o/r", 11, None);
+    let event = |number: i64| rocky_core::prwatch::PrEvent {
         kind: PrEventKind::Conflict,
         repo: "o/r".into(),
-        number: 8,
-        title: "PR 8".into(),
-        url: "https://github.com/o/r/pull/8".into(),
+        number,
+        title: format!("PR {number}"),
+        url: format!("https://github.com/o/r/pull/{number}"),
         quiet: false,
         author: None,
     };
-    session_notifier(f.state.clone())(&conflict);
-    let received = tokio::task::spawn_blocking(move || {
-        let (mut conn, _) = listener.accept().unwrap();
-        let mut text = String::new();
-        conn.read_to_string(&mut text).unwrap();
-        text
-    })
-    .await
-    .unwrap();
-    assert!(received.contains("#8 충돌"));
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    let ids: Vec<String> = f
-        .state
-        .inboxes()
-        .into_iter()
-        .map(|r| r.session_id)
-        .collect();
+    let notify = session_notifier(f.state.clone());
+    for n in [8, 10, 11] {
+        notify(&event(n));
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(
-        !ids.contains(&"gone".to_string()),
-        "끝난 세션의 등록은 걷는다"
+        listener.accept().is_err(),
+        "살아 있는 다른 세션에 넘기지 않는다"
     );
-    assert!(ids.contains(&"live".to_string()));
+    let (_, deliveries) = get(&f.state, "/api/deliveries").await;
+    let recent = deliveries["recent"].as_array().unwrap();
+    assert_eq!(
+        recent.len(),
+        1,
+        "구독 세션이 끝난 #8 만 기록 — 구독 없는 #10·지켜보기 #11 은 조용하다"
+    );
+    assert_eq!(recent[0]["sessionId"], "gone");
+    assert_eq!(recent[0]["ok"], false);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -699,6 +725,7 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
     )
     .await;
     assert_eq!(status, 204);
+    sub(&f, "o/r", 9, Some("s"));
     let review = rocky_core::prwatch::PrEvent {
         kind: PrEventKind::Review,
         repo: "o/r".into(),
@@ -734,8 +761,8 @@ async fn review_events_reach_the_session_only_when_auto_resolve_is_on() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 세션 전달 현황 — 받는 세션·최근 보낸 기록이 보이고, "보내지 않기" 를 켠 세션은 건너뛰어 그 보드의 다음
-/// 세션이 받는다. 다시 켜면 돌아온다. 현황·조작은 로컬 전용.
+/// 세션 전달 현황 — 세션마다 구독한 PR(`repo#N`)과 최근 보낸 기록이 보이고, "보내지 않기" 를 켠 세션에는
+/// 보내지 않는다(다른 세션으로 넘기지도 않는다). 다시 켜면 받는다. 현황·조작은 로컬 전용.
 #[cfg(unix)]
 #[tokio::test]
 async fn muting_a_session_skips_it_and_the_delivery_log_shows_it() {
@@ -744,40 +771,40 @@ async fn muting_a_session_skips_it_and_the_delivery_log_shows_it() {
     use std::os::unix::net::UnixListener;
 
     let f = fx();
-    f.store.ensure_board("rocky", None, "tester").unwrap();
-    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
     let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockymute-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let older = dir.join("500.sock");
-    let newer = dir.join("600.sock");
-    let older_l = UnixListener::bind(&older).unwrap();
-    let newer_l = UnixListener::bind(&newer).unwrap();
-    newer_l.set_nonblocking(true).unwrap();
-    for (id, sock) in [("older", &older), ("newer", &newer)] {
+    let mine = dir.join("500.sock");
+    let other = dir.join("600.sock");
+    let mine_l = UnixListener::bind(&mine).unwrap();
+    let other_l = UnixListener::bind(&other).unwrap();
+    mine_l.set_nonblocking(true).unwrap();
+    other_l.set_nonblocking(true).unwrap();
+    for (id, sock) in [("mine", &mine), ("other", &other)] {
         post(
             &f.state,
             "/api/sessions/inbox",
             json!({ "sessionId": id, "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
         )
         .await;
-        tokio::time::sleep(Duration::from_millis(1100)).await;
     }
+    sub(&f, "o/r", 9, Some("mine"));
     let (_, before) = get(&f.state, "/api/deliveries").await;
-    let receiver = |v: &Value| {
+    let receives = |v: &Value, id: &str| {
         v["sessions"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|s| !s["receivesPrFor"].as_array().unwrap().is_empty())
-            .map(|s| s["sessionId"].as_str().unwrap().to_string())
+            .find(|s| s["sessionId"] == id)
+            .map(|s| s["receivesPrFor"].clone())
     };
-    assert_eq!(receiver(&before).as_deref(), Some("newer"));
+    assert_eq!(receives(&before, "mine"), Some(json!(["o/r#9"])));
+    assert_eq!(receives(&before, "other"), Some(json!([])));
 
     let (status, _) = post(
         &f.state,
         "/api/deliveries/mute",
-        json!({ "sessionId": "newer", "muted": true }),
+        json!({ "sessionId": "mine", "muted": true }),
     )
     .await;
     assert_eq!(status, 200);
@@ -791,25 +818,36 @@ async fn muting_a_session_skips_it_and_the_delivery_log_shows_it() {
         author: None,
     };
     session_notifier(f.state.clone())(&conflict);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        mine_l.accept().is_err(),
+        "보내지 않기인 세션에는 보내지 않는다"
+    );
+    assert!(other_l.accept().is_err(), "다른 세션으로 넘기지도 않는다");
+
+    // 다시 받기로 — 이제 간다.
+    post(
+        &f.state,
+        "/api/deliveries/mute",
+        json!({ "sessionId": "mine", "muted": false }),
+    )
+    .await;
+    mine_l.set_nonblocking(false).unwrap();
+    session_notifier(f.state.clone())(&conflict);
     let got = tokio::task::spawn_blocking(move || {
-        let (mut conn, _) = older_l.accept().unwrap();
+        let (mut conn, _) = mine_l.accept().unwrap();
         let mut text = String::new();
         conn.read_to_string(&mut text).unwrap();
         text
     })
     .await
     .unwrap();
-    assert!(
-        got.contains("#9"),
-        "보내지 않기인 세션을 건너뛰고 다음 세션이 받는다"
-    );
-    assert!(newer_l.accept().is_err());
-
+    assert!(got.contains("#9"));
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let (_, after) = get(&f.state, "/api/deliveries").await;
-    assert_eq!(receiver(&after).as_deref(), Some("older"));
     let recent = &after["recent"][0];
     assert_eq!(recent["kind"], "pr-conflict");
-    assert_eq!(recent["sessionId"], "older");
+    assert_eq!(recent["sessionId"], "mine");
     assert_eq!(recent["ok"], true);
 
     // 로컬 전용 — 원격에는 현황도 조작도 없다.
@@ -839,7 +877,8 @@ async fn pr_author_filter_wakes_only_for_my_prs() {
             "tester",
         )
         .unwrap();
-    baseline(&f, "o/r");
+    sub(&f, "o/r", 1, None);
+    sub(&f, "o/r", 2, None);
     let mut mine = pr(1, "OPEN", "SUCCESS", "CLEAN", "main");
     mine["author"] = json!({ "login": "Me" }); // 대소문자는 가리지 않는다
     let mut theirs = pr(2, "OPEN", "SUCCESS", "CLEAN", "main");
@@ -928,7 +967,7 @@ async fn pr_author_filter_is_per_board() {
             "tester",
         )
         .unwrap();
-    baseline(&f, "o/r");
+    sub(&f, "o/r", 2, None);
     let mut theirs = pr(2, "OPEN", "SUCCESS", "CLEAN", "main");
     theirs["author"] = json!({ "login": "other" });
     let responses = Arc::new(Mutex::new(json!({ "r": [theirs] })));

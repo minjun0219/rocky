@@ -3588,3 +3588,60 @@ fn upgrading_seeds_baselines_for_repos_already_watched() {
         "보드에 붙어 있던 레포(PR 기록 없음)도 이미 보던 레포다"
     );
 }
+
+#[test]
+fn pr_subscriptions_round_trip_and_hand_over() {
+    let f = fx();
+    let a = f.store.subscribe_pr("o/r", 3, Some("s1")).unwrap();
+    assert_eq!(a.session_id.as_deref(), Some("s1"));
+    // 다른 세션이 다시 구독하면 넘겨받는다 — 레포 대소문자는 가리지 않고 처음 표기를 지킨다.
+    let b = f.store.subscribe_pr("O/R", 3, Some("s2")).unwrap();
+    assert_eq!(
+        (b.repo.as_str(), b.session_id.as_deref()),
+        ("o/r", Some("s2"))
+    );
+    f.store.subscribe_pr("o/r", 4, None).unwrap();
+    assert_eq!(f.store.pr_subscriptions().unwrap().len(), 2);
+    assert!(f.store.subscribe_pr("nope", 1, None).is_err());
+    assert!(f.store.subscribe_pr("o/r", 0, None).is_err());
+    assert!(f.store.unsubscribe_pr("O/r", 3).unwrap());
+    assert!(!f.store.unsubscribe_pr("o/r", 3).unwrap());
+    assert!(f.store.pr_subscription("o/r", 3).unwrap().is_none());
+}
+
+#[test]
+fn snapshots_of_unsubscribed_prs_are_dropped() {
+    let f = fx();
+    f.store.subscribe_pr("o/r", 1, None).unwrap();
+    let snap = |n: i64| rocky_core::prwatch::PrSnapshot {
+        repo: "o/r".into(),
+        number: n,
+        title: format!("PR {n}"),
+        url: format!("https://github.com/o/r/pull/{n}"),
+        state: "OPEN".into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "abc".into(),
+        merge_state: "CLEAN".into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        unhandled_ids: vec![],
+        decision: 0,
+        ready: false,
+        updated_at: "2026-10-01T00:00:00Z".into(),
+        author: None,
+    };
+    f.store
+        .apply_pr_snapshot("o/r", &[snap(1), snap(2)], "rocky", &|_, _| true)
+        .unwrap();
+    assert_eq!(f.store.list_prs(Some("o/r"), false).unwrap().len(), 2);
+    assert_eq!(f.store.retain_subscribed_prs().unwrap(), 1);
+    let left: Vec<i64> = f
+        .store
+        .list_prs(Some("o/r"), false)
+        .unwrap()
+        .iter()
+        .map(|p| p.number)
+        .collect();
+    assert_eq!(left, vec![1]);
+}

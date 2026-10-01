@@ -71,7 +71,7 @@ pub fn detail_query(numbers: &[i64]) -> Option<String> {
         .map(|n| format!("    p{n}: pullRequest(number:{n}) {{ ...prFields }}"))
         .collect();
     Some(format!(
-        "query($owner:String!, $name:String!) {{\n  {RATE_LIMIT_FIELDS}\n  repository(owner:$owner, name:$name) {{\n    defaultBranchRef {{ name }}\n{}\n  }}\n}}\n{PR_FIELDS}\n{PR_STATE_FIELDS}",
+        "query($owner:String!, $name:String!) {{\n  {RATE_LIMIT_FIELDS}\n  viewer {{ login }}\n  repository(owner:$owner, name:$name) {{\n    defaultBranchRef {{ name }}\n{}\n  }}\n}}\n{PR_FIELDS}\n{PR_STATE_FIELDS}",
         fields.join("\n")
     ))
 }
@@ -172,6 +172,29 @@ impl CiState {
             _ => CiState::Pass,
         }
     }
+}
+
+/// PR 구독 — 데몬이 이 PR 을 보고, 전이를 `session_id` 의 세션에 보낸다. 세션이 없으면 보기만 한다
+/// (웹에서 "지켜보기" — 알림 탭에 뜨고 세션은 깨우지 않는다). `docs/design/specs/2026-10-01-pr-subscriptions-design.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrSubscription {
+    pub repo: String,
+    pub number: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub created_at: String,
+}
+
+/// `owner/name` 모양인가 — 구독의 레포는 `gh` 에 그대로 넘어간다.
+pub fn is_repo_slug(value: &str) -> bool {
+    let ok = |s: &str| {
+        !s.is_empty()
+            && s.len() <= 100
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    matches!(value.split_once('/'), Some((o, n)) if ok(o) && ok(n) && !n.contains('/'))
 }
 
 /// PR 하나의 마지막으로 본 모습. `ready` 는 파생값이지만 저장한다 — 전이 판정이 직전 값을 본다.

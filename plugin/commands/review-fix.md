@@ -52,6 +52,7 @@ diff 를 PR 전에 검토하는 것은 기본 `/code-review`(버그)와 `/rocky:
 gh auth status
 gh pr view $ARGUMENTS --json number,url,headRefName,baseRefName
 git branch --show-current
+rocky pr subscribe <번호>   # 이 PR 의 알림을 이 세션이 받는다 — 다른 세션이 맡던 PR 이면 넘겨받는다
 ```
 
 - `gh` 미인증 → 중단.
@@ -59,6 +60,8 @@ git branch --show-current
 - 현재 브랜치가 PR 의 `headRefName` 과 다르면 **중단**하고 체크아웃을 안내한다. `main` 에서는
   실행하지 않는다.
 - `owner` / `repo` 는 `gh repo view --json owner,name` 으로 얻는다.
+- 구독은 데몬에게 "이 PR 은 이 세션이 맡는다" 를 알리는 것이다. 데몬은 구독한 PR 만 보고 그 세션에만 알린다 —
+  같은 레포의 다른 PR 알림은 오지 않는다.
 
 ### 1. 리뷰 수집
 
@@ -321,7 +324,7 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 
 ### 9. "확인·머지해도 되면 알려줘" — 데몬이 본다, 세션은 확인만
 
-**PR 감시는 데몬 몫이다**(`rockyd::prwatch`, `repo` 가 설정된 보드의 레포를 3분마다). "확인·머지해도
+**PR 감시는 데몬 몫이다**(`rockyd::prwatch`, **구독한 PR** 을 3분마다 — 0단계·`/rocky:review-request` 가 구독한다). "확인·머지해도
 된다"(CI 초록 + 처리 안 된/결정 필요 스레드 0 + 충돌 없음 + base 가 기본 브랜치)와 충돌이 되면
 데몬이 macOS 알림을 쏘고, 보드 "지금" 표에 행이 뜨며, 다음 턴의 `notify-todo` 훅이 같은 사실을
 additionalContext 로 넣는다. 그러니 **이 세션에서 Monitor 를 걸거나 `watch` 를 반복하지 않는다.**
@@ -344,7 +347,7 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" ready "$NUM"
 - 알림 문구는 8단계의 것 그대로. 스택이면 맨 아래 PR 만 알린다(데몬도 base 가 기본 브랜치인
   PR 만 ready 로 친다).
 - **맡기기 전에 데몬이 정말 보고 있는지 확인한다** — 켜져 있어도 `pr.enabled: false` 면 잡이 없고,
-  `gh` 가 실패하면 `available: false` 다. 이 레포가 `repos` 에 있고 `available` 이 true 일 때만
+  `gh` 가 실패하면 `available: false` 다. 이 PR 을 구독했고(`rocky pr subscriptions`) `available` 이 true 일 때만
   맡긴다:
 
   ```bash
@@ -352,11 +355,10 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" ready "$NUM"
   # → { "available": true, "lastTick": "…", "repos": ["minjun0219/rocky", …] }
   ```
 
-- **폴백** — 위 확인이 실패하는 경우 전부(`repo` 미설정 보드, `prWatch.available: false`,
-  `pr.enabled: false`, 이 레포가 `repos` 에 없음, 데몬 없음)는 세션이 직접 본다:
-  `pr-threads.ts transitions --interval 60` 을 Monitor 에 물리고(30분마다 만료), `DIRTY`/
-  `CONFLICTING` 이 오면 충돌을 풀고, `MERGED` 가 오면 다음 PR 을 같은 기준으로. `repo` 가 없는
-  것이 이유면 `rocky board repo OWNER/NAME` 을 설정하는 편이 낫다 — 다음 tick 부터 데몬이 본다.
+- **폴백** — 위 확인이 실패하는 경우 전부(`prWatch.available: false`, `pr.enabled: false`, 데몬 없음)는
+  세션이 직접 본다: `pr-threads.ts transitions --interval 60` 을 Monitor 에 물리고(30분마다 만료), `DIRTY`/
+  `CONFLICTING` 이 오면 충돌을 풀고, `MERGED` 가 오면 다음 PR 을 같은 기준으로. 구독을 안 한 것이 이유면
+  `rocky pr subscribe N` 이 낫다 — 다음 tick 부터 데몬이 본다.
   `available: false` 면 그 사유(`reason`)를 호출자에게 알린다(대개 `gh` 인증).
 - **스택이면 맨 아래 PR 만 판정 대상이다.** 위 PR 은 base 가 아직 안 머지된 브랜치라 지금 머지할
   수 없다 — 알림에 순서를 같이 적는다(예: "아래 PR → 그다음 → 맨 위 순"). 아래가 머지되면 **GitHub 이

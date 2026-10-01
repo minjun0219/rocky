@@ -268,7 +268,21 @@ fn add_note_pinned(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("ALTER TABLE notes ADD COLUMN pinned_at TEXT")
 }
 
-pub const MIGRATIONS: [MigrationFn; 13] = [
+/// 마이그레이션 14: PR 구독(`pr_subscriptions`) — 데몬은 구독한 PR 만 보고, 그 전이를 맡은 세션에만 보낸다.
+/// 세션 없이(웹에서 지켜보기만) 구독할 수 있어 `session_id` 는 빈 값을 허락한다. 한 PR 에 하나.
+fn add_pr_subscriptions(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pr_subscriptions (\n\
+           repo       TEXT NOT NULL,\n\
+           number     INTEGER NOT NULL,\n\
+           session_id TEXT,\n\
+           created_at TEXT NOT NULL,\n\
+           PRIMARY KEY (repo, number)\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 14] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -282,6 +296,7 @@ pub const MIGRATIONS: [MigrationFn; 13] = [
     add_inbox_subscriptions,
     add_pr_authors_and_baseline,
     add_note_pinned,
+    add_pr_subscriptions,
 ];
 
 #[derive(Default)]
