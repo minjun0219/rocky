@@ -1080,3 +1080,47 @@ async fn a_filter_subscription_pulls_matching_prs_into_watch() {
     assert!(f.store.pr_subscription("o/r", 1).unwrap().is_none());
     assert!(f.store.pr_subscription("o/r", 2).unwrap().is_some());
 }
+
+/// GitHub 탭이 레포를 펼칠 때 — 그 레포의 열린 PR 을 한 번 묻고(60초 캐시) 구독 여부를 붙인다. 보드·구독에 없는
+/// 레포는 묻지 않는다(아무 레포나 물어 예산을 쓰지 못하게).
+#[tokio::test]
+async fn open_prs_are_fetched_on_demand_cached_and_marked() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let seen = calls.clone();
+    let runner: Runner = Arc::new(move |_cmd, _stdin, _timeout| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            *seen.lock().unwrap() += 1;
+            CmdOutput {
+                code: 0,
+                stdout: json!({ "data": {
+                    "rateLimit": rate_limit(4800, 1),
+                    "repository": { "pullRequests": { "nodes": [
+                        { "number": 3, "title": "셋", "url": "https://github.com/o/r/pull/3",
+                          "isDraft": false, "updatedAt": "2026-10-01T00:00:00Z", "author": { "login": "me" } },
+                        { "number": 4, "title": "넷", "url": "https://github.com/o/r/pull/4",
+                          "isDraft": true, "updatedAt": "2026-10-01T00:00:00Z", "author": null }
+                    ] } }
+                } })
+                .to_string(),
+                stderr: String::new(),
+            }
+        })
+    });
+    let f = fx_with(|o| o.gh_runner = Some(runner));
+    let (status, _) = get(&f.state, "/api/prs/open?repo=o/r").await;
+    assert_eq!(status, 400, "보드·구독에 없는 레포");
+    assert_eq!(*calls.lock().unwrap(), 0);
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store.set_board_repo("rocky", "o/r", "tester").unwrap();
+    f.store.subscribe_pr("o/r", 4, None).unwrap();
+    let (status, body) = get(&f.state, "/api/prs/open?repo=o/r").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body[0]["number"], 3);
+    assert_eq!(body[0]["author"], "me");
+    assert_eq!(body[0]["subscribed"], false);
+    assert_eq!(body[1]["isDraft"], true);
+    assert_eq!(body[1]["subscribed"], true);
+    let (_, _) = get(&f.state, "/api/prs/open?repo=O/R").await;
+    assert_eq!(*calls.lock().unwrap(), 1, "60초 안에는 캐시");
+}

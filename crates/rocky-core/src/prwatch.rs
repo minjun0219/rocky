@@ -201,6 +201,62 @@ pub struct PrFilterSubscription {
     pub created_at: String,
 }
 
+/// 레포의 열린 PR 목록 — GitHub 탭에서 레포를 펼칠 때만 부른다(주기 조회가 아니다). 변수 `owner`·`name`.
+/// `first:50` — 비용은 요청한 노드 수라 1포인트.
+pub const OPEN_PRS_QUERY: &str = r#"query($owner:String!, $name:String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner:$owner, name:$name) {
+    pullRequests(first:50, states:[OPEN], orderBy:{field:UPDATED_AT, direction:DESC}) {
+      nodes { number title url isDraft updatedAt author { login } }
+    }
+  }
+}
+"#;
+
+/// 열린 PR 한 줄 — GitHub 탭의 "그 밖의 열린 PR". `subscribed` 는 응답을 만들 때 스토어에서 채운다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenPr {
+    pub number: i64,
+    pub title: String,
+    pub url: String,
+    pub is_draft: bool,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub subscribed: bool,
+}
+
+/// `OPEN_PRS_QUERY` 응답 → 열린 PR 들. 모양이 틀리면 에러(빈 목록과 "못 읽음" 을 가른다).
+pub fn parse_open_prs(data: &Value) -> Result<Vec<OpenPr>, String> {
+    let nodes = data
+        .pointer("/repository/pullRequests/nodes")
+        .and_then(Value::as_array)
+        .ok_or("repository.pullRequests.nodes 없음")?;
+    Ok(nodes
+        .iter()
+        .filter_map(|n| {
+            Some(OpenPr {
+                number: n.get("number")?.as_i64()?,
+                title: n.get("title")?.as_str()?.to_string(),
+                url: n.get("url")?.as_str()?.to_string(),
+                is_draft: n.get("isDraft").and_then(Value::as_bool).unwrap_or(false),
+                updated_at: n
+                    .get("updatedAt")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                author: n
+                    .pointer("/author/login")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                subscribed: false,
+            })
+        })
+        .collect())
+}
+
 /// 필터 검색 쿼리(변수 `q`) — 걸린 열린 PR 의 레포·번호만 묻는다. `first:30` — 비용은 요청한 노드 수라(위
 /// "예산") 작게 둔다. 넘치면 최근 갱신 순 앞쪽만.
 pub const FILTER_SEARCH_QUERY: &str = r#"query($q:String!) {

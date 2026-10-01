@@ -186,3 +186,81 @@ describe('GithubPane — 숨기기', () => {
     expect(screen.queryByRole('button', { name: /GitHub/ })).toBeNull();
   });
 });
+
+describe('GithubPane — 레포별 · 그 밖의 열린 PR', () => {
+  const board = (key: string, repo: string) =>
+    ({
+      id: key,
+      key,
+      title: key,
+      repo,
+      createdAt: '2026-09-01T00:00:00Z',
+      updatedAt: '2026-09-01T00:00:00Z',
+    }) as never;
+
+  test('전체 보기는 레포마다 묶고, 펼칠 때만 그 레포의 열린 PR 을 묻고, 지켜보기는 구독을 보낸다', async () => {
+    const calls: { url: string; method: string; body?: string }[] = [];
+    globalThis.fetch = (async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method ?? 'GET', body: init?.body as string | undefined });
+      if (url.startsWith('/api/prs/open')) {
+        return new Response(
+          JSON.stringify([
+            {
+              number: 7,
+              title: '남의 PR',
+              url: 'https://github.com/o/a/pull/7',
+              isDraft: false,
+              updatedAt: '2026-09-28T10:00:00Z',
+              author: 'kim',
+              subscribed: false,
+            },
+            {
+              number: 8,
+              title: '이미 구독',
+              url: 'https://github.com/o/a/pull/8',
+              isDraft: false,
+              updatedAt: '2026-09-28T10:00:00Z',
+              subscribed: true,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith('/api/prs/subscriptions')) {
+        return new Response(JSON.stringify({ repo: 'o/a', number: 7 }), { status: 201 });
+      }
+      const body = url.startsWith('/api/deliveries')
+        ? { sessions: [], subscriptions: [], recent: [] }
+        : { sources: [] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+    renderWithStore(<GithubPane />, {
+      nowTodos: [],
+      nowHandoffs: [],
+      collect: null,
+      githubHidden: [],
+      selected: 'all',
+      boards: [board('a', 'o/a'), board('b', 'o/b')],
+      prs: [],
+    });
+    expect(screen.getByRole('region', { name: 'o/a' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'o/b' })).toBeTruthy();
+    expect(
+      calls.some((c) => c.url.startsWith('/api/prs/open')),
+      '펼치기 전에는 묻지 않는다',
+    ).toBe(false);
+
+    const section = screen.getByRole('region', { name: 'o/a' });
+    await userEvent.click(section.querySelector('button[aria-expanded]') as HTMLButtonElement);
+    expect(await screen.findByText('남의 PR')).toBeTruthy();
+    expect(screen.queryByText('이미 구독')).toBeNull();
+    expect(calls.filter((c) => c.url === '/api/prs/open?repo=o%2Fa')).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: '지켜보기' }));
+    const post = calls.find((c) => c.url === '/api/prs/subscriptions');
+    expect(post?.method).toBe('POST');
+    expect(JSON.parse(post?.body ?? '{}')).toEqual({ repo: 'o/a', number: 7 });
+    expect(await screen.findByRole('button', { name: '지켜보는 중' })).toBeTruthy();
+  });
+});

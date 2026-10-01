@@ -132,6 +132,8 @@ pub struct ServerState {
     note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
     /// PR 감시 잡의 마지막 결과 — health 가 낸다.
     pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
+    /// 레포별 열린 PR 목록 캐시 — (가져온 시각 unix 초, 목록). GitHub 탭이 레포를 펼칠 때만 채운다.
+    open_prs: Mutex<HashMap<String, (i64, Vec<rocky_core::prwatch::OpenPr>)>>,
     /// 기동 때 `PRAGMA quick_check` 결과 — "ok" 아니면 health 로 드러낸다. 테스트 상태는 None.
     db_integrity: Mutex<Option<String>>,
     /// PR 감시가 마지막으로 본 gh 로그인 계정 — 보드 `prAuthors` 의 `@me`.
@@ -392,6 +394,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
         db_integrity: Mutex::new(None),
+        open_prs: Mutex::new(HashMap::new()),
         gh_viewer: Mutex::new(None),
         inboxes: Mutex::new(HashMap::new()),
         deliveries: Mutex::new(std::collections::VecDeque::new()),
@@ -1786,6 +1789,84 @@ async fn dispatch(
             .filter(|s| !s.is_empty());
         let filter = store.subscribe_pr_filter(&query_text, session_id)?;
         return Ok(json_response(&filter, StatusCode::CREATED));
+    }
+
+    // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──
+    if *method == Method::GET && path == "/api/prs/open" {
+        let repo = query.get("repo").map(String::as_str).unwrap_or("").trim();
+        if !rocky_core::prwatch::is_repo_slug(repo) {
+            return Ok(error_response(
+                &format!("repo(owner/name)가 필요하다: {repo:?}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        // 아무 레포나 물어 GitHub 예산을 쓰지 못하게 — 보드에 붙은 레포이거나 구독한 레포만.
+        let lower = repo.to_lowercase();
+        let known = store
+            .list_boards(false)?
+            .into_iter()
+            .filter_map(|b| b.repo)
+            .chain(store.pr_subscriptions()?.into_iter().map(|s| s.repo))
+            .any(|r| r.to_lowercase() == lower);
+        if !known {
+            return Ok(error_response(
+                &format!(
+                    "보드나 구독에 없는 레포다: {repo} — 보드에 GitHub 을 붙이거나 PR 을 구독한다"
+                ),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let now = chrono::Utc::now().timestamp();
+        let cached = state
+            .open_prs
+            .lock()
+            .expect("open_prs poisoned")
+            .get(&lower)
+            .filter(|(at, _)| now - at < 60)
+            .map(|(_, prs)| prs.clone());
+        let mut prs = match cached {
+            Some(prs) => prs,
+            None => {
+                let (owner, name) = repo.split_once('/').unwrap_or_default();
+                let data = match crate::prwatch::query_github(
+                    &state.runner(),
+                    rocky_core::prwatch::OPEN_PRS_QUERY,
+                    &[
+                        ("owner".to_string(), owner.to_string()),
+                        ("name".to_string(), name.to_string()),
+                    ],
+                )
+                .await
+                {
+                    Ok(data) => data,
+                    Err(reason) => {
+                        return Ok(error_response(
+                            &format!("{repo} 의 열린 PR 을 못 읽었다: {reason}"),
+                            StatusCode::BAD_GATEWAY,
+                        ))
+                    }
+                };
+                let prs = match rocky_core::prwatch::parse_open_prs(&data) {
+                    Ok(prs) => prs,
+                    Err(reason) => {
+                        return Ok(error_response(
+                            &format!("{repo} 응답을 못 읽었다: {reason}"),
+                            StatusCode::BAD_GATEWAY,
+                        ))
+                    }
+                };
+                state
+                    .open_prs
+                    .lock()
+                    .expect("open_prs poisoned")
+                    .insert(lower, (now, prs.clone()));
+                prs
+            }
+        };
+        for pr in &mut prs {
+            pr.subscribed = store.pr_subscription(repo, pr.number)?.is_some();
+        }
+        return Ok(ok_json(&prs));
     }
 
     // ── PR 감시 — 기억하고 있는 스냅숏 (읽기 전용) ──

@@ -89,6 +89,7 @@ const LITERAL_THIRD: &[&str] = &[
     "subscriptions",
     "mute",
     "filters",
+    "open",
 ];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
@@ -250,6 +251,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "POST /api/prs/subscriptions"),
     (UsageSource::Rest, "DELETE /api/prs/subscriptions"),
     (UsageSource::Rest, "GET /api/prs/filters"),
+    (UsageSource::Rest, "GET /api/prs/open"),
     (UsageSource::Rest, "POST /api/prs/filters"),
     (UsageSource::Rest, "DELETE /api/prs/filters"),
     (UsageSource::Rest, "PATCH /api/notes/:ref"),
@@ -332,6 +334,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:todo-open"),
     (UsageSource::Web, "web:view"),
     (UsageSource::Web, "web:note-live"),
+    (UsageSource::Web, "web:open-prs"),
+    (UsageSource::Web, "web:watch-pr"),
     (UsageSource::Web, "web:note-open"),
     (UsageSource::Web, "web:note-pin"),
     (UsageSource::Web, "web:note-format"),
