@@ -132,6 +132,8 @@ pub struct ServerState {
     note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
     /// PR 감시 잡의 마지막 결과 — health 가 낸다.
     pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
+    /// 기동 때 `PRAGMA quick_check` 결과 — "ok" 아니면 health 로 드러낸다. 테스트 상태는 None.
+    db_integrity: Mutex<Option<String>>,
     /// PR 감시가 마지막으로 본 gh 로그인 계정 — 보드 `prAuthors` 의 `@me`.
     gh_viewer: Mutex<Option<String>>,
     /// 세션 받은편지함 등록부 — 훅이 `session_id → 소켓` 을 알려 준다(`rocky_core::peer_inbox`).
@@ -181,6 +183,17 @@ impl ServerState {
 
     pub fn pr_watch(&self) -> crate::prwatch::PrWatchStatus {
         self.pr_watch.lock().expect("pr_watch poisoned").clone()
+    }
+
+    pub fn set_db_integrity(&self, result: String) {
+        *self.db_integrity.lock().expect("db_integrity poisoned") = Some(result);
+    }
+
+    pub fn db_integrity(&self) -> Option<String> {
+        self.db_integrity
+            .lock()
+            .expect("db_integrity poisoned")
+            .clone()
     }
 
     /// 세션 받은편지함 등록 — 같은 세션이면 덮어쓴다(cwd·소켓이 바뀌었을 수 있다).
@@ -375,6 +388,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
+        db_integrity: Mutex::new(None),
         gh_viewer: Mutex::new(None),
         inboxes: Mutex::new(HashMap::new()),
         deliveries: Mutex::new(std::collections::VecDeque::new()),
@@ -737,6 +751,7 @@ async fn dispatch(
             "issueCreateAllowed": local,
             "spawnAllowed": local,
             "prWatch": state.pr_watch(),
+            "dbIntegrity": state.db_integrity(),
         })));
     }
 

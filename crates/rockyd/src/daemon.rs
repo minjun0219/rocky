@@ -121,6 +121,83 @@ async fn mcp_handler(
     }
 }
 
+/// 포트를 잡는다 — 이미 쓰이고 있으면(종료 중인 옛 데몬) `wait` 동안 다시 시도한다.
+async fn bind_when_free(
+    addr: SocketAddr,
+    wait: std::time::Duration,
+) -> std::io::Result<tokio::net::TcpListener> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => return Ok(listener),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::AddrInUse
+                    && std::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// `daemon.pid` 의 옛 데몬이 아직 살아 있나 — 내 pid 가 아니고, 그 pid 가 rockyd 일 때만(남의 프로세스가 같은
+/// 번호를 받았으면 무시한다).
+pub fn previous_daemon_alive(
+    pid_file: &Path,
+    own: u32,
+    is_rockyd: impl Fn(u32) -> bool,
+) -> Option<u32> {
+    let pid: u32 = std::fs::read_to_string(pid_file)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    (pid != own && is_rockyd(pid)).then_some(pid)
+}
+
+/// 그 pid 가 지금 살아 있는 rockyd 인가 — `ps` 로 본다(새 의존성 없이).
+fn pid_is_rockyd(pid: u32) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .ends_with("rockyd")
+        })
+        .unwrap_or(false)
+}
+
+/// 옛 데몬이 끝날 때까지 기다린다. `wait` 안에 안 끝나면 DB 를 열지 않고 실패한다 — 두 데몬이 같은 DB 에 동시에
+/// 스키마를 바꾸는 것보다 기동 실패가 낫다(훅이 다음 턴에 다시 띄운다).
+async fn wait_for_previous_daemon(
+    pid_file: &Path,
+    wait: std::time::Duration,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let own = std::process::id();
+    let deadline = std::time::Instant::now() + wait;
+    let mut announced = false;
+    while let Some(pid) = previous_daemon_alive(pid_file, own, pid_is_rockyd) {
+        if !announced {
+            eprintln!("rocky: 옛 데몬(pid {pid})이 끝나기를 기다린 뒤 DB 를 연다");
+            announced = true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!(
+                "옛 데몬(pid {pid})이 {}초 안에 끝나지 않았다 — DB 를 열지 않고 멈춘다",
+                wait.as_secs()
+            )
+            .into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    if announced {
+        eprintln!("rocky: 옛 데몬이 끝났다 — DB 를 연다");
+    }
+    Ok(())
+}
+
 /// 데몬을 기동해 리슨한다 — TS `startDaemon` 대응. 반환하지 않는다(서버 수명).
 pub async fn run_daemon(
     runtime: TodoRuntimeConfig,
@@ -144,7 +221,22 @@ pub async fn run_daemon(
     }
 
     std::fs::create_dir_all(&runtime.dir)?;
+    // 포트를 **DB 를 열기 전에** 잡는다 — 포트가 단일 인스턴스 락이고, 마이그레이션은 락을 쥔 뒤에만 돈다.
+    // 예전엔 DB 를 열어 마이그레이션까지 한 뒤에 bind 했다: 업그레이드 때 종료 중인 옛 데몬이 아직 쓰는 사이 새
+    // 데몬이 스키마를 바꿨고, 2026-09-30 실제 DB 가 손상됐다(history 와 새 표가 같은 페이지를 가리킴).
+    let addr: SocketAddr = format!("{}:{}", runtime.host, runtime.port).parse()?;
+    let listener = bind_when_free(addr, std::time::Duration::from_secs(10)).await?;
+    // 포트를 놓은 뒤에도 옛 프로세스는 하던 쓰기를 몇 초 마무리한다 — 끝날 때까지 기다린다.
+    let pid_path = runtime.dir.join("daemon.pid");
+    wait_for_previous_daemon(&pid_path, std::time::Duration::from_secs(15)).await?;
     let store = Arc::new(TodoStore::open(&runtime.dir.join("todo.db"))?);
+    // 기동 때 한 번 — 깨진 DB 를 모르고 열흘 넘게 쓰지 않게 health 에 싣는다.
+    let integrity = store
+        .quick_check()
+        .unwrap_or_else(|e| format!("quick_check 실패: {e}"));
+    if integrity != "ok" {
+        eprintln!("rocky: ⚠ DB 무결성 이상 — {integrity}");
+    }
     let state = build_server(ServerOptions {
         statusline_template: Some(runtime.statusline_template.clone()),
         inbox_sources: runtime.inbox.clone(),
@@ -152,6 +244,7 @@ pub async fn run_daemon(
         usage,
         ..ServerOptions::new(store)
     });
+    state.set_db_integrity(integrity);
     // 죽은 세션이 쥔 doing 자동 해제 — 기동 1분 뒤부터 10분마다.
     crate::sweep::spawn_sweeper(
         state.clone(),
@@ -190,10 +283,6 @@ pub async fn run_daemon(
     }
     let router = build_router(state, ui_dist.as_deref());
 
-    let addr: SocketAddr = format!("{}:{}", runtime.host, runtime.port).parse()?;
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-
-    let pid_path = runtime.dir.join("daemon.pid");
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
     println!(

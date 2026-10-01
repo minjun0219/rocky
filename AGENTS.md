@@ -224,7 +224,10 @@ typecheck or tests — pre-push and CI already cover it.*
   사라지고 말았으면 launchd 밖에서라도 띄우고 `⚠ rocky 데몬: …` 경고를 주입한다.
 - **첫 세션 순서**(SessionStart ↔ http MCP 초기화)는 보장되지 않는다 — 첫 세션의 MCP `failed` 는 `/mcp`
   재시도, 다음 세션, launchd 로 풀린다.
-- **전역 단일 인스턴스.** 포트가 락이다; 사용자 `rocky.json` 의 `todo` 블록만 적용된다.
+- **전역 단일 인스턴스.** 포트가 락이다; 사용자 `rocky.json` 의 `todo` 블록만 적용된다. 새 데몬은 **포트를 먼저 잡고**
+  `daemon.pid` 의 옛 rockyd 가 끝난 뒤에야 DB 를 연다(마이그레이션 포함, 15초 넘게 안 끝나면 DB 를 열지 않고 멈춘다) —
+  업그레이드 때 종료 중인 옛 데몬과 새 데몬의 마이그레이션이 겹쳐 실제 DB 가 손상된 적이 있다(2026-09-30). 기동 때
+  `quick_check` 결과는 `/api/health` 의 `dbIntegrity`.
 - **데모·개발 데몬**은 `ROCKY_CONFIG=<전용 파일> cargo run -p rockyd` 로 띄운다(자기 포트·`dir`·
   `expose: "off"`) — 전역 `expose` 를 물려받지 않게.
 - **tailscale serve 자동 확보는 남의 노출을 빼앗지 않는다.** `decide_serve_action`: `claim`(빈 자리),

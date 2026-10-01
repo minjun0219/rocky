@@ -47,6 +47,15 @@
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed` 는 `/mcp` retry / 다음 세션 / launchd 로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json 의 todo 블록만.
+- **기동 순서 — 포트 → 옛 데몬 종료 확인 → DB(마이그레이션)**: 2026-09-30 0.35→0.37 업그레이드에서 실제 DB 가
+  손상됐다 — `history` 트리와 마이그레이션 12 가 만든 `pr_watch_repos` 가 같은 페이지(281)를 가리켰고, 그 페이지를
+  읽는 `/api/changes` 가 400 을 내 채널·훅의 PR 전이가 열흘 가까이 끊겼다(사용 로그의 실패 989건). 손상 시각이
+  마이그레이션 시각과 같았다. 그때 새 데몬은 health 가 없으면 곧장 DB 를 열어 마이그레이션하고 **그 뒤에** 포트를
+  잡았다 — 종료 중(SSE 유예 3초)인 옛 데몬이 아직 쓰는 사이 스키마가 바뀐 것이 유일하게 겹치는 경로다(SQLite 는
+  다중 프로세스를 견뎌야 하므로 확정 원인은 아니다). 지금은 포트를 먼저 잡고(쓰이고 있으면 10초 재시도),
+  `daemon.pid` 의 rockyd 가 끝날 때까지(15초, 넘으면 DB 를 열지 않고 실패) 기다린 뒤 연다. 기동 때 `quick_check` 를
+  돌려 `/api/health` 의 `dbIntegrity` 로 드러낸다. 복구는 정상 행만 새 DB 로 옮겼다(`INSERT … SELECT * … WHERE 1` —
+  조건 없는 `SELECT *` 는 SQLite 가 깨진 인덱스까지 통째로 옮기는 최적화를 탄다).
 - **데모/개발 인스턴스는 전역 설정을 상속하지 않게 띄운다** — `ROCKY_CONFIG=<전용 파일>
   cargo run -p rockyd` 로 데몬이 user `rocky.json` 을 **아예 안 읽게** 만든다(그 파일에 전용
   포트·`dir`·`expose: "off"` 를 적는다). 예전 TS 판의 `bun run demo` 가 이 모양이었다.

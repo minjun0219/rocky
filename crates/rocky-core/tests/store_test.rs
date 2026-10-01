@@ -3690,3 +3690,9 @@ fn filter_subscriptions_feed_pr_subscriptions_without_stealing() {
     assert_eq!(left, vec![1, 3], "필터로 들어온 2 만 걷힌다");
     assert_eq!(f.store.unsubscribe_pr_filter(&filter.id).unwrap(), None);
 }
+
+#[test]
+fn quick_check_is_ok_on_a_healthy_db() {
+    let f = fx();
+    assert_eq!(f.store.quick_check().unwrap(), "ok");
+}
