@@ -1,5 +1,25 @@
 # @minjun0219/rocky
 
+## 0.38.0
+
+### Minor Changes
+
+- [#265](https://github.com/minjun0219/rocky/pull/265) [`c4297ee`](https://github.com/minjun0219/rocky/commit/c4297eef934752299cb3de323c709c1b7678139d) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드에 **알림** 탭을 더한다 — 오너가 손댈 것만 모은다: 결정 필요·머지 후보 PR, 30분 넘게 그대로인 충돌·CI 실패, 세션이 사라진 진행 중 할 일. 탭 옆 숫자는 GitHub 탭에서 이쪽으로 옮겼다.
+
+- [#264](https://github.com/minjun0219/rocky/pull/264) [`2f40f3c`](https://github.com/minjun0219/rocky/commit/2f40f3c9e534d33bf40d34089753cd347819d529) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 GitHub 탭이 구독한 PR 을 레포별로 보이고, 레포의 "열린 PR" 을 펼치면 그때만 그 레포의 열린 PR 을 불러와 "지켜보기"(세션 없는 구독)로 구독한다 — `GET /api/prs/open?repo=`(1포인트, 60초 캐시, 보드·구독에 있는 레포만).
+
+- [#260](https://github.com/minjun0219/rocky/pull/260) [`10c1f45`](https://github.com/minjun0219/rocky/commit/10c1f452626a6a10cf6e5100585e8dbe92f25907) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 을 GitHub 검색 조건으로도 구독한다 — `rocky pr subscribe --filter "repo:o/r author:@me"`(라벨·`project:org/5`·`review-requested:@me` 등 검색 조건 그대로). 데몬이 3분마다 검색해 걸린 열린 PR 을 그 세션이 받는다. `rocky pr unsubscribe --filter ID` 로 해지하면 그 필터로 들어온 구독도 걷힌다.
+
+- [#258](https://github.com/minjun0219/rocky/pull/258) [`492733f`](https://github.com/minjun0219/rocky/commit/492733f94c3731ef49f8e7139ddaf31926bdb8ed) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 감시를 구독한 PR 만으로 좁힌다 — `rocky pr subscribe|unsubscribe N`·`rocky pr subscriptions`, `/rocky:review-request`·`/rocky:review-fix` 가 그 세션으로 구독한다. 알림은 구독한 세션에만 가고(같은 레포의 다른 PR 이 한 세션에 쏟아지지 않는다), 레포 목록 조회를 없애 GitHub API 비용이 구독한 PR 수에만 비례한다. 구독은 머지·닫힘에서 풀린다.
+
+- [#263](https://github.com/minjun0219/rocky/pull/263) [`f3d3369`](https://github.com/minjun0219/rocky/commit/f3d3369aeca8a7d8d31b84594d746a68516eacb5) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드 옵션 `autoResolve` 를 `reviewFix`(CLI `rocky board review-fix on|off`)로 바꾼다 — 옛 이름은 한 릴리스 동안 입력으로 받는다.
+
+### Patch Changes
+
+- [#261](https://github.com/minjun0219/rocky/pull/261) [`bfd2add`](https://github.com/minjun0219/rocky/commit/bfd2addcfcdcbe57b865aa4bd726b43f0d397475) Thanks [@minjun0219](https://github.com/minjun0219)! - 업그레이드 때 새 데몬이 포트를 먼저 잡고 옛 데몬이 완전히 끝난 뒤에야 DB 를 연다(마이그레이션 포함) — 종료 중인 옛 데몬과 겹쳐 DB 가 손상된 일을 막는다. 기동 때 DB 무결성을 확인해 `/api/health` 의 `dbIntegrity` 로 보인다.
+
+- [#262](https://github.com/minjun0219/rocky/pull/262) [`508e03f`](https://github.com/minjun0219/rocky/commit/508e03f3c0591377d7d293f1824e17c149ab2b6a) Thanks [@minjun0219](https://github.com/minjun0219)! - 워크로그가 레포를 찾을 때 물려받은 `GIT_DIR` 등을 무시하고 그 폴더의 레포를 본다. pre-push 훅도 테스트 전에 git 환경을 지운다.
+
 ## 0.37.0
 
 ### Minor Changes
