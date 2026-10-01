@@ -514,3 +514,25 @@ fn ci_failure_is_sent_to_the_session_once_per_failing_run() {
     assert!(!PrEventKind::CiFailed.notifies() && PrEventKind::CiFailed.reaches_session());
     assert_eq!(PrEventKind::CiFailed.action(), "pr-ci-failed");
 }
+
+#[test]
+fn filter_search_query_and_parsing() {
+    use rocky_core::prwatch::{filter_search_query, is_filter_query, parse_filter_search};
+    assert_eq!(
+        filter_search_query("  project:org/5 author:@me "),
+        "is:pr is:open sort:updated-desc project:org/5 author:@me"
+    );
+    assert!(is_filter_query("repo:o/r label:\"needs review\""));
+    assert!(!is_filter_query("   "));
+    assert!(!is_filter_query("a\nb"));
+    assert!(!is_filter_query(&"x".repeat(257)));
+    let data = serde_json::json!({ "search": { "nodes": [
+        { "number": 3, "repository": { "nameWithOwner": "o/r" } },
+        {},
+        { "number": 9, "repository": { "nameWithOwner": "o/other" } }
+    ] } });
+    assert_eq!(
+        parse_filter_search(&data),
+        vec![("o/r".to_string(), 3), ("o/other".to_string(), 9)]
+    );
+}

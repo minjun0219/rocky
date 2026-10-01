@@ -50,6 +50,17 @@ fn fake_gh(responses: Arc<Mutex<Value>>, calls: Arc<Mutex<Vec<Vec<String>>>>) ->
                 .unwrap_or("")
                 .to_string();
             let responses = responses.lock().unwrap();
+            if query.contains("search(type:ISSUE") {
+                let nodes = responses.get("search").cloned().unwrap_or(json!([]));
+                return CmdOutput {
+                    code: 0,
+                    stdout: json!({ "data": {
+                        "rateLimit": rate_limit(4800, 1), "search": { "nodes": nodes }
+                    } })
+                    .to_string(),
+                    stderr: String::new(),
+                };
+            }
             let pool = match responses.get(&name) {
                 // 한도 — gh 는 실패해도 응답 JSON 을 stdout 에 낸다.
                 Some(Value::String(s)) if s == "RATE_LIMIT" => return CmdOutput {
@@ -993,4 +1004,84 @@ async fn pr_author_filter_is_per_board() {
     };
     assert!(quiet_on("mine"), "@me 보드에는 남의 PR 이 조용히 기록된다");
     assert!(!quiet_on("team"), "필터 없는 보드에는 그대로");
+}
+
+/// 필터 구독 — 데몬이 tick 마다 검색해 걸린 열린 PR 을 그 세션 구독으로 넣고, 같은 tick 에 감시한다. 이미 다른 세션이
+/// 직접 구독한 PR 은 빼앗지 않는다. 검색어는 `-f` 로 넘긴다(`-F` 는 `@me` 를 파일로 읽는다). 해지하면 같이 걷힌다.
+#[tokio::test]
+async fn a_filter_subscription_pulls_matching_prs_into_watch() {
+    let f = fx();
+    sub(&f, "o/r", 2, Some("other"));
+    let (status, filter) = post(
+        &f.state,
+        "/api/prs/filters",
+        json!({ "query": "@me repo:o/r", "sessionId": "s1" }),
+    )
+    .await;
+    assert_eq!(status, 201, "{filter}");
+    let responses = Arc::new(Mutex::new(json!({
+        "search": [
+            { "number": 1, "repository": { "nameWithOwner": "o/r" } },
+            { "number": 2, "repository": { "nameWithOwner": "o/r" } }
+        ],
+        "r": [pr(1, "OPEN", "SUCCESS", "CLEAN", "main"), pr(2, "OPEN", "SUCCESS", "CLEAN", "main")]
+    })));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let runner = fake_gh(responses, calls.clone());
+    let (notifier, _) = capture();
+    let events = tick(&f.state, &runner, &notifier, false).await.events;
+    assert!(
+        events.iter().any(|e| e.number == 1),
+        "같은 tick 에 감시까지"
+    );
+    let search_call = calls.lock().unwrap()[0].clone();
+    let at = search_call
+        .iter()
+        .position(|a| a.starts_with("q="))
+        .unwrap();
+    assert_eq!(search_call[at - 1], "-f");
+    assert_eq!(
+        search_call[at],
+        "q=is:pr is:open sort:updated-desc @me repo:o/r"
+    );
+    let s1 = f.store.pr_subscription("o/r", 1).unwrap().unwrap();
+    assert_eq!(s1.session_id.as_deref(), Some("s1"));
+    assert_eq!(
+        f.store
+            .pr_subscription("o/r", 2)
+            .unwrap()
+            .unwrap()
+            .session_id
+            .as_deref(),
+        Some("other"),
+        "직접 구독은 빼앗지 않는다"
+    );
+    let (status, _) = post(&f.state, "/api/prs/filters", json!({ "query": "" })).await;
+    assert_eq!(status, 400);
+    let remote = ReqOptions {
+        headers: vec![("x-forwarded-for", "10.0.0.2")],
+        ..ReqOptions::default()
+    };
+    let (status, _) = call(
+        &f.state,
+        "POST",
+        "/api/prs/filters",
+        Some(json!({ "query": "repo:o/r" })),
+        remote,
+    )
+    .await;
+    assert_eq!(status, 403);
+    let id = filter["id"].as_str().unwrap();
+    let (status, body) = call(
+        &f.state,
+        "DELETE",
+        &format!("/api/prs/filters?id={id}"),
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["prs"], 1);
+    assert!(f.store.pr_subscription("o/r", 1).unwrap().is_none());
+    assert!(f.store.pr_subscription("o/r", 2).unwrap().is_some());
 }

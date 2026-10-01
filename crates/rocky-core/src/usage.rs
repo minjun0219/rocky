@@ -82,7 +82,14 @@ pub fn now_iso() -> String {
 }
 
 /// 셋째 세그먼트가 id 가 아니라 동작인 라우트.
-const LITERAL_THIRD: &[&str] = &["claim", "adapters", "sources", "subscriptions", "mute"];
+const LITERAL_THIRD: &[&str] = &[
+    "claim",
+    "adapters",
+    "sources",
+    "subscriptions",
+    "mute",
+    "filters",
+];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
 const SKIPPED_ROUTES: &[&str] = &[
@@ -242,6 +249,9 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/prs/subscriptions"),
     (UsageSource::Rest, "POST /api/prs/subscriptions"),
     (UsageSource::Rest, "DELETE /api/prs/subscriptions"),
+    (UsageSource::Rest, "GET /api/prs/filters"),
+    (UsageSource::Rest, "POST /api/prs/filters"),
+    (UsageSource::Rest, "DELETE /api/prs/filters"),
     (UsageSource::Rest, "PATCH /api/notes/:ref"),
     (UsageSource::Rest, "POST /api/notes/:ref/archive"),
     (UsageSource::Rest, "POST /api/notes/:ref/unarchive"),

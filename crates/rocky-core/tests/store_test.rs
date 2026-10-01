@@ -3645,3 +3645,48 @@ fn snapshots_of_unsubscribed_prs_are_dropped() {
         .collect();
     assert_eq!(left, vec![1]);
 }
+
+#[test]
+fn filter_subscriptions_feed_pr_subscriptions_without_stealing() {
+    let f = fx();
+    let filter = f
+        .store
+        .subscribe_pr_filter("repo:o/r author:@me", Some("s1"))
+        .unwrap();
+    // 같은 세션·같은 조건은 하나.
+    assert_eq!(
+        f.store
+            .subscribe_pr_filter(" repo:o/r author:@me ", Some("s1"))
+            .unwrap()
+            .id,
+        filter.id
+    );
+    assert!(f.store.subscribe_pr_filter("", None).is_err());
+    assert!(f.store.subscribe_pr_filter("a\nb", None).is_err());
+    // 다른 세션이 직접 구독한 PR 은 빼앗지 않는다.
+    f.store.subscribe_pr("o/r", 1, Some("other")).unwrap();
+    assert!(!f
+        .store
+        .subscribe_pr_via_filter("o/r", 1, Some("s1"), &filter.id)
+        .unwrap());
+    assert!(f
+        .store
+        .subscribe_pr_via_filter("o/r", 2, Some("s1"), &filter.id)
+        .unwrap());
+    assert!(f
+        .store
+        .subscribe_pr_via_filter("o/r", 3, Some("s1"), &filter.id)
+        .unwrap());
+    // 세션이 3 을 직접 맡으면 필터 출처가 지워진다 — 필터를 해지해도 남는다.
+    f.store.subscribe_pr("o/r", 3, Some("s1")).unwrap();
+    assert_eq!(f.store.unsubscribe_pr_filter(&filter.id).unwrap(), Some(1));
+    let left: Vec<i64> = f
+        .store
+        .pr_subscriptions()
+        .unwrap()
+        .iter()
+        .map(|s| s.number)
+        .collect();
+    assert_eq!(left, vec![1, 3], "필터로 들어온 2 만 걷힌다");
+    assert_eq!(f.store.unsubscribe_pr_filter(&filter.id).unwrap(), None);
+}

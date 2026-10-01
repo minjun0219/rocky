@@ -1726,6 +1726,44 @@ async fn dispatch(
         return Ok(json_response(&sub, StatusCode::CREATED));
     }
 
+    // ── 필터 구독 — GitHub 검색 조건에 걸린 열린 PR 을 그 세션의 구독으로 넣는다 ──
+    if *method == Method::GET && path == "/api/prs/filters" {
+        return Ok(ok_json(&store.pr_filter_subscriptions()?));
+    }
+    if path == "/api/prs/filters" && (*method == Method::POST || *method == Method::DELETE) {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_PR_SUBSCRIPTION_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        if *method == Method::DELETE {
+            let Some(id) = query.get("id").filter(|s| !s.is_empty()) else {
+                return Ok(error_response("id 가 필요하다", StatusCode::BAD_REQUEST));
+            };
+            return match store.unsubscribe_pr_filter(id)? {
+                Some(prs) => Ok(ok_json(&json!({ "removed": true, "prs": prs }))),
+                None => Ok(error_response(
+                    &format!("필터 구독이 없다: {id}"),
+                    StatusCode::NOT_FOUND,
+                )),
+            };
+        }
+        let body = read_body(headers, body).await?;
+        let query_text = str_field(&body, "query").unwrap_or("").to_string();
+        if !rocky_core::prwatch::is_filter_query(&query_text) {
+            return Ok(error_response(
+                &format!("query(한 줄, 256자 안의 GitHub 검색 조건)가 필요하다: {query_text:?}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let session_id = str_field(&body, "sessionId")
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let filter = store.subscribe_pr_filter(&query_text, session_id)?;
+        return Ok(json_response(&filter, StatusCode::CREATED));
+    }
+
     // ── PR 감시 — 기억하고 있는 스냅숏 (읽기 전용) ──
     if *method == Method::GET && path == "/api/prs" {
         let repo = match query.get("board").filter(|k| !k.is_empty()) {

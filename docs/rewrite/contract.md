@@ -83,6 +83,9 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/prs/subscriptions` | — | `PrSubscription[]` (`{repo, number, sessionId?, createdAt}`) | **포팅 후 추가(0.38)** — 데몬이 보는 PR. `docs/design/specs/2026-10-01-pr-subscriptions-design.md` |
 | POST `/api/prs/subscriptions` | `{repo!, number!, sessionId?}` | 201 `PrSubscription` | **로컬 전용**. 있으면 맡은 세션만 바꾼다(넘겨받기). `repo` 는 `owner/name`, 아니면 400 |
 | DELETE `/api/prs/subscriptions` | `?repo=&number=` | `{removed}` | **로컬 전용** |
+| GET `/api/prs/filters` | — | `PrFilterSubscription[]` (`{id, query, sessionId?, createdAt}`) | 필터 구독 — GitHub 검색 조건 |
+| POST `/api/prs/filters` | `{query!, sessionId?}` | 201 `PrFilterSubscription` | **로컬 전용**. 한 줄·256자 안이 아니면 400. 같은 세션·같은 조건은 있던 것 |
+| DELETE `/api/prs/filters` | `?id=` | `{removed, prs}` | **로컬 전용**. 그 필터로 들어온 PR 구독도 걷는다(`prs` = 걷힌 수). 없으면 404 |
 | GET `/api/summary` | `?cwd=&cached=true` | `Summary` | **포팅 후 추가(0.26)** — 보드 요약 JSON(마감·진행중·핸드오프·수집함 미올림 + 항목 ≤4). `rocky today` · SessionStart 훅 · statusline 이 쓴다 |
 
 ### 동적 (`:ref` 는 URL 디코드 후 ref 문법 해석)

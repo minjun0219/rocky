@@ -282,7 +282,27 @@ fn add_pr_subscriptions(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 14] = [
+/// 마이그레이션 15: 필터 구독(`pr_filter_subscriptions`) — 세션이 GitHub 검색 조건을 구독하면 데몬이 걸린 PR 을 그
+/// 세션의 PR 구독으로 넣는다. 그렇게 들어온 구독은 `pr_subscriptions.filter_id` 로 출처를 남겨, 필터를 해지하면 같이 걷는다.
+fn add_pr_filter_subscriptions(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pr_filter_subscriptions (\n\
+           id         TEXT PRIMARY KEY,\n\
+           query      TEXT NOT NULL,\n\
+           session_id TEXT,\n\
+           created_at TEXT NOT NULL\n\
+         )",
+    )?;
+    if !table_columns(db, "pr_subscriptions")?
+        .iter()
+        .any(|c| c == "filter_id")
+    {
+        db.execute_batch("ALTER TABLE pr_subscriptions ADD COLUMN filter_id TEXT")?;
+    }
+    Ok(())
+}
+
+pub const MIGRATIONS: [MigrationFn; 15] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -297,6 +317,7 @@ pub const MIGRATIONS: [MigrationFn; 14] = [
     add_pr_authors_and_baseline,
     add_note_pinned,
     add_pr_subscriptions,
+    add_pr_filter_subscriptions,
 ];
 
 #[derive(Default)]

@@ -315,30 +315,39 @@ pub fn cmd_pr(
     match rest.first().map(String::as_str) {
         Some("subscribe") | Some("unsubscribe") => return cmd_pr_subscribe(ctx, rest, flags, printer),
         Some("subscriptions") => {
-            let raw = request_value(ctx, "GET", "/api/prs/subscriptions", None)?;
-            let subs: Vec<rocky_core::prwatch::PrSubscription> = serde_json::from_value(raw.clone())
-                .map_err(|e| format!("응답을 읽지 못했다: {e}"))?;
+            let raw_prs = request_value(ctx, "GET", "/api/prs/subscriptions", None)?;
+            let raw_filters = request_value(ctx, "GET", "/api/prs/filters", None)?;
+            let subs: Vec<rocky_core::prwatch::PrSubscription> =
+                serde_json::from_value(raw_prs.clone())
+                    .map_err(|e| format!("응답을 읽지 못했다: {e}"))?;
+            let filters: Vec<rocky_core::prwatch::PrFilterSubscription> =
+                serde_json::from_value(raw_filters.clone())
+                    .map_err(|e| format!("응답을 읽지 못했다: {e}"))?;
+            let raw = json!({ "prs": raw_prs, "filters": raw_filters });
+            let who = |id: Option<&str>| {
+                id.map(|id| format!("세션 {}", &id[..id.len().min(8)]))
+                    .unwrap_or_else(|| "지켜보기만".to_string())
+            };
             printer.emit(&raw, || {
-                if subs.is_empty() {
-                    return "구독한 PR 없음 — rocky pr subscribe N".to_string();
+                if subs.is_empty() && filters.is_empty() {
+                    return "구독 없음 — rocky pr subscribe N · rocky pr subscribe --filter \"조건\""
+                        .to_string();
                 }
-                subs.iter()
-                    .map(|s| {
-                        let who = s
-                            .session_id
-                            .as_deref()
-                            .map(|id| format!("세션 {}", &id[..id.len().min(8)]))
-                            .unwrap_or_else(|| "지켜보기만".to_string());
-                        format!("{}#{}  {who}", s.repo, s.number)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                let mut lines: Vec<String> = filters
+                    .iter()
+                    .map(|f| format!("필터 {}  \"{}\"  {}", f.id, f.query, who(f.session_id.as_deref())))
+                    .collect();
+                lines.extend(subs.iter().map(|s| {
+                    let via = if s.filter_id.is_some() { " (필터)" } else { "" };
+                    format!("{}#{}  {}{via}", s.repo, s.number, who(s.session_id.as_deref()))
+                }));
+                lines.join("\n")
             });
             return Ok(());
         }
         Some(other) => {
             return Err(format!(
-                "usage: rocky pr [--board K|--all] | subscribe|unsubscribe N [--repo OWNER/NAME] | subscriptions ({other}?)"
+                "usage: rocky pr [--board K|--all] | subscribe|unsubscribe N [--repo OWNER/NAME] | subscribe|unsubscribe --filter Q|ID | subscriptions ({other}?)"
             ))
         }
         None => {}
@@ -365,6 +374,9 @@ fn cmd_pr_subscribe(
     printer: &Printer,
 ) -> Result<(), String> {
     let sub = rest.first().map(String::as_str).unwrap_or("");
+    if let Some(filter) = flags.str_flag("filter") {
+        return cmd_pr_filter(ctx, sub, filter, printer);
+    }
     let number: i64 = rest
         .get(1)
         .map(|n| n.trim_start_matches('#'))
@@ -404,6 +416,46 @@ fn cmd_pr_subscribe(
             format!("✓ {repo}#{number} 구독 — 리뷰·충돌·CI 실패·머지 후보·머지를 이 세션에 보낸다")
         }
         None => format!("✓ {repo}#{number} 지켜보기 — 세션 밖이라 깨울 세션 없이 보기만 한다"),
+    });
+    Ok(())
+}
+
+/// `pr subscribe --filter "조건"` / `pr unsubscribe --filter ID` — GitHub 검색 조건을 구독한다. 데몬이 3분마다 열린 PR 을
+/// 그 조건으로 검색해 걸린 것을 이 세션의 PR 구독으로 넣는다(이미 누가 구독한 PR 은 빼앗지 않는다). 해지하면 그 필터로
+/// 들어온 PR 구독도 걷힌다.
+fn cmd_pr_filter(
+    ctx: &CliContext,
+    sub: &str,
+    filter: &str,
+    printer: &Printer,
+) -> Result<(), String> {
+    if sub == "unsubscribe" {
+        let path = format!("/api/prs/filters?id={}", encode_query(filter));
+        let raw = request_value(ctx, "DELETE", &path, None)?;
+        let prs = raw.get("prs").and_then(Value::as_u64).unwrap_or(0);
+        printer.emit(&raw, || {
+            format!("✓ 필터 {filter} 해지 — 그 필터로 들어온 PR 구독 {prs}건도 걷었다")
+        });
+        return Ok(());
+    }
+    let session = std::env::var("CLAUDE_CODE_SESSION_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let mut body = json!({ "query": filter });
+    if let Some(id) = &session {
+        body["sessionId"] = json!(id);
+    }
+    let raw = request_value(ctx, "POST", "/api/prs/filters", Some(&body))?;
+    let id = raw
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("?")
+        .to_string();
+    printer.emit(&raw, || {
+        format!(
+            "✓ 필터 구독 {id} — \"{filter}\" 에 걸리는 열린 PR 을 {} (해지: rocky pr unsubscribe --filter {id})",
+            if session.is_some() { "이 세션이 받는다" } else { "지켜보기만 한다" }
+        )
     });
     Ok(())
 }
