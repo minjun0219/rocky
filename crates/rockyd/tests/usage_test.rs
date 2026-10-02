@@ -23,11 +23,11 @@ async fn rest_calls_are_recorded_by_shape_with_actor_client_and_status() {
         .body(Body::empty())
         .unwrap();
     handle_api(&state, req, Some("127.0.0.1".into())).await;
-    // 실패(없는 todo) — TUI 헤더.
+    // 실패(없는 todo) — 클라이언트 헤더.
     let req = Request::builder()
         .method("GET")
         .uri("/api/todos/nope-99?board=rocky-todo")
-        .header("x-rocky-client", "tui")
+        .header("x-rocky-client", "mcp")
         .body(Body::empty())
         .unwrap();
     handle_api(&state, req, Some("127.0.0.1".into())).await;
@@ -48,7 +48,7 @@ async fn rest_calls_are_recorded_by_shape_with_actor_client_and_status() {
     assert_eq!(events[0].client.as_deref(), Some("web"));
     assert!(events[0].ok && events[0].ms.is_some());
     assert_eq!(events[1].name, "GET /api/todos/:ref");
-    assert_eq!(events[1].client.as_deref(), Some("tui"));
+    assert_eq!(events[1].client.as_deref(), Some("mcp"));
     assert!(!events[1].ok);
 }
 

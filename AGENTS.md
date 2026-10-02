@@ -20,10 +20,6 @@
 - **CLI `rocky`**(`crates/rocky-cli`) — 얇은 HTTP 클라이언트 + 훅 입구 네 개(`hook ensure-daemon` /
   `notify-todo` / `handoff-stop` / `log-turn`). `bin/rocky` 는 플러그인 버전에 맞는 릴리스 tarball 을 받아
   바이너리를 실행하는 sh 부트스트랩이다.
-- **TUI `rocky-tui`**(`crates/rocky-tui`) — 터미널 분할 창의 보드. REST/SSE 클라이언트일 뿐 DB·어댑터가
-  없다. 별도 바이너리라 `ratatui`/`crossterm` 이 훅·CLI 바이너리에 링크되지 않는다; `rocky tui` 가 옆
-  바이너리를 실행한다. 순수 상태와 키 매핑은 `app.rs`(터미널 없이 테스트), 렌더링은 `ui.rs`(`TestBackend`
-  로 테스트).
 - **worklog stdio MCP 서버**(`rocky mcp worklog`, `crates/rocky-cli/src/worklog_mcp.rs`) — 프로젝트별
   `worklog_*` 도구 4개. 워크로그는 호출자의 레포 루트가 키인데 데몬은 호출자의 cwd 를 모르므로 데몬이
   아니라 CLI 에 있다; 플러그인 stdio 서버가 세션의 프로젝트 디렉터리에서 뜬다. `hook log-turn`(Stop)이 같은
@@ -61,7 +57,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), Stop(handoff-stop → log-turn)
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, reviewer 서브에이전트
 │   └── scripts/permalink.ts    /rocky:review-request 가 쓴다 — 설치 후에도 있으려면 플러그인 안에 있어야 한다
-├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli · rocky-tui
+├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli
 ├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
@@ -98,7 +94,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 - `/rocky:codex` 와 `/rocky:issue` — v0.19 에서 제거. Codex 위임은 공식 `openai/codex-plugin-cc` 가 맡는다.
 - rocky-todo 의 **Tauri 앱**(`app/`, 그 루트 `DESIGN.md`) — 레포를 흡수할 때 rocky-todo 히스토리에 남겼다.
   (`web/DESIGN.md` 는 웹 UI 의 다른 현행 문서다.) (**웹 UI** 는 2026-09-28 오너 요청으로 `web/` 에 되살렸다 —
-  TUI 처럼 데몬의 클라이언트이지 런타임이 아니고, 테일넷 없이 Cloudflare Tunnel + Access 로 보드에 닿는 것이
+  데몬의 클라이언트이지 런타임이 아니고, 테일넷 없이 Cloudflare Tunnel + Access 로 보드에 닿는 것이
   목적이며 그게 다음 조각이다.)
 - 데몬의 TypeScript 참조 구현(rocky-todo 의 `src/*.ts`) — Rust 크레이트가 구현이고 계약은
   `docs/rewrite/contract.md`.
@@ -115,6 +111,8 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   5,216 턴) 결과 호출 0 이라 제거. 4,145 LOC 와 런타임 의존성 6개(`swagger-parser`, `swagger2openapi`,
   `js-yaml`, `openapi-types`, `pino`, `ogpeek`)가 같이 빠졌다. git 히스토리에서 되살리고, `ntn` CLI 위임
   형태는 `docs/architecture.md` 에 적혀 있다.
+- **TUI `rocky-tui`** — 2026-10-02 제거(90일 사용 0회, 오너 결정 "웹 UI 에 몰빵"). 보드 화면은 웹 UI 하나다;
+  git 히스토리에만 있다. `ratatui`/`crossterm` 도 같이 빠졌다.
 - npm publish 자동화(GitHub Release ≠ npm publish).
 
 ## 자주 쓰는 명령
@@ -280,7 +278,7 @@ typecheck or tests — pre-push and CI already cover it.*
   (1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). 주기를 바꾸기 전에 `rateLimit { cost }` 를 잰다. *EN: GraphQL cost is the nodes requested, not returned —
   measure `rateLimit { cost }` before changing the cadence; the budget is shared with every session's `gh`.*
 - **수집함 "이미 올라감"** 은 데몬 한 곳에서 판정한다(`mark_promoted`): 항목 url 이 **어느 보드든**(보관 포함)
-  todo 링크에 있으면 `promoted`. 요약·TUI ✓·`rocky inbox` 가 이 값을 본다 — 소비자마다 다시 판정하지 않는다.
+  todo 링크에 있으면 `promoted`. 요약·웹·`rocky inbox` 가 이 값을 본다 — 소비자마다 다시 판정하지 않는다.
   세션 시작 요약은 수집함 캐시만 본다(어댑터를 기다리지 않는다); 📥 제목은 외부 글이라 한 줄로 펴서 자른다.
   보드 수집함은 **실행할 명령은 설정 파일(`todo.inboxAdapters[]`), 값은 화면**이다 — 화면 값은 어댑터의
   `--describe` 칸으로만 검증해 받고(`rocky_core::inbox::validate_params`), 명령 자체를 화면이 바꾸게 하지 않는다.
