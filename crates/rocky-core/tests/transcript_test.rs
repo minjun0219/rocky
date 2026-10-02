@@ -165,3 +165,26 @@ fn reading_from_the_tail_without_a_prompt_is_none() {
         None
     );
 }
+
+/// 하네스가 넣은 메시지는 턴을 나누되 요청 칸엔 짧은 이름만 — 원문은 회고에서 잡음이다.
+#[test]
+fn injected_messages_keep_the_turn_boundary_but_get_a_short_label() {
+    let notification = [
+        json!({"type":"user","message":{"role":"user","content":"진짜 요청"}}),
+        json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"앞 턴"}]}}),
+        json!({"type":"user","message":{"role":"user","content":"<task-notification> <task-id>b1</task-id> ..."}}),
+        json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"알림 처리"}]}}),
+    ]
+    .iter()
+    .map(|v| v.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+    let turn = extract_turn(&notification).unwrap();
+    assert_eq!(turn.req, "(백그라운드 작업 알림)");
+    assert_eq!(turn.did, "알림 처리", "앞 턴과 겹치지 않는다");
+    assert_eq!(
+        label_injected("<bash-stdout>ok</bash-stdout>".into()),
+        "(셸 출력)"
+    );
+    assert_eq!(label_injected("평범한 요청".into()), "평범한 요청");
+}

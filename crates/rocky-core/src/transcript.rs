@@ -45,6 +45,20 @@ fn is_real_user_prompt(msg: &Value) -> bool {
     }
 }
 
+/// 사람이 쓴 요청이 아니라 하네스가 넣은 메시지 — 턴의 경계는 그대로 두되(나누지 않으면 다음 턴 기록이 앞 턴과
+/// 겹친다) 요청 칸에는 원문 대신 짧은 이름을 남긴다. 원문(`<task-notification>` 의 경로·id, 셸 출력)은 회고에서
+/// 잡음이다(실측: 레포 하나의 턴 기록에서 49건·6건).
+pub fn label_injected(req: String) -> String {
+    let head = req.trim_start();
+    if head.starts_with("<task-notification>") {
+        "(백그라운드 작업 알림)".to_string()
+    } else if head.starts_with("<bash-stdout>") || head.starts_with("<bash-stderr>") {
+        "(셸 출력)".to_string()
+    } else {
+        req
+    }
+}
+
 /// 마지막 실제 사용자 프롬프트부터 끝까지를 한 턴으로 본다. 프롬프트가 없거나 셋 다
 /// 비면 `None`. 손상/부분 라인은 건너뛴다.
 pub fn extract_turn(transcript: &str) -> Option<TurnParts> {
@@ -100,7 +114,9 @@ pub fn extract_turn_from_tail(path: &std::path::Path, first_window: u64) -> Opti
 }
 
 fn turn_from(entries: &[Value], start: usize) -> Option<TurnParts> {
-    let req = text_of(entries[start].get("message").and_then(|m| m.get("content")));
+    let req = label_injected(text_of(
+        entries[start].get("message").and_then(|m| m.get("content")),
+    ));
     // 도구 이름은 첫 등장 순서를 유지하면서 횟수를 센다 (JS Map 의 삽입 순서).
     let mut tool_names: Vec<String> = Vec::new();
     let mut tool_counts: Vec<usize> = Vec::new();

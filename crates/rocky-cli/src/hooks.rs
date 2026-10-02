@@ -573,7 +573,7 @@ pub fn hook_handoff_stop(ctx: &CliContext) {
 ///
 /// 저널 위치·키는 훅 입력의 `cwd`(세션 프로젝트) 기준 — `worklog_*` MCP 서버가 같은
 /// cwd 로 뜨므로 같은 앵커에 쌓인다.
-pub fn hook_log_turn() {
+pub fn hook_log_turn(ctx: &CliContext) {
     let input = read_stdin_json();
     let cwd = input
         .get("cwd")
@@ -598,10 +598,20 @@ pub fn hook_log_turn() {
     let content = build_turn_content(&parts, config.capture_max_chars.unwrap_or(800));
     let env_dir = std::env::var("ROCKY_WORKLOG_DIR").ok();
     let worklog = Worklog::from_env(env_dir.as_deref(), config.dir.as_deref(), Some(cwd));
+    // 이 세션이 든 진행 중 할 일을 태그로 — 보드의 할 일 상세가 그 작업 흐름을 이 태그로 모은다(로그 색인).
+    // 데몬이 없으면 태그 없이 남긴다(fail-open).
+    let mut tags = vec!["turn".to_string()];
+    if let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) {
+        tags.extend(
+            held_todos(&ctx.base_url, session_id)
+                .into_iter()
+                .map(|t| format!("todo:{}", t.todo_ref)),
+        );
+    }
     let _ = worklog.append(&WorklogAppendInput {
         content,
         kind: Some("turn".into()),
-        tags: Some(vec!["turn".into()]),
+        tags: Some(tags),
         page_id: None,
     });
 }
