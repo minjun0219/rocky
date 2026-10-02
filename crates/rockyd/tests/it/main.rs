@@ -4,6 +4,7 @@
 mod common;
 mod github_test;
 mod inbox_subscribe_test;
+mod logindex_test;
 mod mcp_test;
 mod note_doc_test;
 mod prwatch_test;

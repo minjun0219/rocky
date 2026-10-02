@@ -1,10 +1,8 @@
 //! 로그 색인 라우트 — 보드의 레포 작업로그만, 할 일·검색어로 거른다.
 
-mod common;
-
 use std::io::Write;
 
-use common::*;
+use crate::common::*;
 use rocky_core::logindex::LogIndex;
 use rocky_core::worklog::{default_project_key, git_common_dir};
 
