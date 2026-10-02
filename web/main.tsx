@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DetailDrawer } from './components/DetailDrawer';
-import { AlertsPane } from './components/AlertsPane';
+import { FeedPane } from './components/FeedPane';
 import { GithubPane } from './components/GithubPane';
 import { ViewSwitch } from './components/ViewSwitch';
 import { NotesRail } from './components/NotesRail';
@@ -146,14 +146,14 @@ function App() {
         <TopBar />
         <ViewSwitch />
       </div>
-      {/* 관제판 — 한 열. 머리줄(보드 스위처) 아래 할 일: "지금"(전 보드) → 그 보드의 목록.
+      {/* 관제판 — 한 열. 첫 화면은 피드(PR 알림 + 내 차례). 할 일: "돌고 있음"(전 보드) → 그 보드의 목록.
           노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
       {view === 'todos' ? <NowTable /> : null}
       <div className="layout flex min-h-0 flex-1 flex-col">
-        {view === 'todos' ? (
+        {view === 'feed' ? (
+          <FeedPane />
+        ) : view === 'todos' ? (
           <TodoPane />
-        ) : view === 'alerts' ? (
-          <AlertsPane />
         ) : view === 'notes' ? (
           <NotesRail />
         ) : (

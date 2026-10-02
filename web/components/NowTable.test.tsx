@@ -2,13 +2,19 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore, todoFixture } from '../test-support';
-import { NowTable } from './NowTable';
+import { MineSection, NowTable } from './NowTable';
 
 afterEach(cleanup);
 
 describe('NowTable', () => {
   test('아무것도 없으면 "내 차례 없음" 한 줄, 돌고 있음 묶음은 숨긴다', () => {
-    renderWithStore(<NowTable />, { nowTodos: [], nowHandoffs: [], collect: null });
+    renderWithStore(
+      <>
+        <MineSection />
+        <NowTable />
+      </>,
+      { nowTodos: [], nowHandoffs: [], collect: null },
+    );
     expect(screen.getByText('내 차례 없음')).toBeTruthy();
     expect(screen.queryByText('돌고 있음')).toBeNull();
     expect(document.querySelector('table')).toBeNull();
@@ -16,31 +22,38 @@ describe('NowTable', () => {
 
   test('내 차례와 돌고 있음을 나눠 싣는다 — 글리프로 상태, 누가는 글자, 눌러서 상세', async () => {
     const openTodoDetail = mock(async () => {});
-    renderWithStore(<NowTable />, {
-      nowTodos: [
-        todoFixture({
-          id: 'gone',
-          ref: 'acorn-server-28',
-          title: '검증 실패 응답 통일',
-          status: 'doing',
-          doingBy: 'claude-code',
-          doingSince: '2026-08-18T00:00:00.000Z',
-          doingState: 'gone',
-        }),
-        todoFixture({
-          id: 'live',
-          ref: 'tally-11',
-          title: '현대카드 수집',
-          status: 'doing',
-          doingBy: 'logan',
-          doingSince: '2026-09-28T02:00:00.000Z',
-          doingState: 'live',
-        }),
-      ],
-      nowHandoffs: [],
-      collect: 2,
-      openTodoDetail,
-    });
+    // 내 차례는 피드에, 돌고 있음은 할 일 화면 맨 위에 — 둘을 함께 그려 한 번에 본다.
+    renderWithStore(
+      <>
+        <MineSection />
+        <NowTable />
+      </>,
+      {
+        nowTodos: [
+          todoFixture({
+            id: 'gone',
+            ref: 'acorn-server-28',
+            title: '검증 실패 응답 통일',
+            status: 'doing',
+            doingBy: 'claude-code',
+            doingSince: '2026-08-18T00:00:00.000Z',
+            doingState: 'gone',
+          }),
+          todoFixture({
+            id: 'live',
+            ref: 'tally-11',
+            title: '현대카드 수집',
+            status: 'doing',
+            doingBy: 'logan',
+            doingSince: '2026-09-28T02:00:00.000Z',
+            doingState: 'live',
+          }),
+        ],
+        nowHandoffs: [],
+        collect: 2,
+        openTodoDetail,
+      },
+    );
     const [mine, run] = [...document.querySelectorAll('ul')];
     const mineRows = [...(mine?.querySelectorAll('li') ?? [])];
     expect(mineRows).toHaveLength(2);
@@ -75,7 +88,7 @@ describe('NowTable', () => {
         doingState: 'gone',
       }),
     );
-    renderWithStore(<NowTable />, { nowTodos, nowHandoffs: [], collect: null });
+    renderWithStore(<MineSection />, { nowTodos, nowHandoffs: [], collect: null });
     expect(screen.queryByText('멈춘 일 6')).toBeNull();
     // 머리의 개수는 접힘과 무관하게 전체 — 펼치기 전에도 7.
     expect(screen.getByRole('heading', { name: /내 차례\s*7/ })).toBeTruthy();
