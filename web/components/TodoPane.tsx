@@ -1,9 +1,30 @@
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { TodoView } from '../types';
 import { resolveDropBefore } from '../lib';
 import { useUiStore } from '../store';
 import { BoardHeader } from './BoardHeader';
 import { TodoItem } from './TodoItem';
+
+/** 전체 보기에서 접어 둔 보드 — 보는 사람마다 다르니 브라우저에만 둔다. */
+export const BOARD_COLLAPSED_KEY = 'rocky:todo-boards-collapsed';
+
+function readCollapsedBoards(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOARD_COLLAPSED_KEY) ?? '[]');
+    return new Set(Array.isArray(raw) ? raw.filter((v) => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedBoards(ids: Set<string>): void {
+  try {
+    localStorage.setItem(BOARD_COLLAPSED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // 저장 못 해도 이번 화면에서는 접힌다.
+  }
+}
 
 /**
  * 가운데 메인 — 선택된 보드의 섹션별 todo 트리 (전체 뷰에서는 보드별 그룹).
@@ -17,6 +38,18 @@ export function TodoPane() {
   const addTodo = useUiStore((s) => s.addTodo);
   const moveTodo = useUiStore((s) => s.moveTodo);
   const [draft, setDraft] = useState('');
+  /** 전체 보기에서 접은 보드(id) — 보드가 많으면 한 화면에 다 펼쳐 둘 이유가 없다. */
+  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsedBoards);
+  const toggleBoard = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) {
+        next.add(id);
+      }
+      writeCollapsedBoards(next);
+      return next;
+    });
+  };
   /** 드래그 중인 todo 와 시작 포인터 — 핸들 pointerdown 에서 세팅, 같은 포인터의
    * pointerup 에서만 해제한다 (멀티터치의 다른 손가락이 드래그를 끊지 않게). */
   const [drag, setDrag] = useState<{ todoId: string; pointerId: number } | null>(null);
@@ -185,14 +218,37 @@ export function TodoPane() {
         </div>
       )}
 
-      {groups.map((group) => (
-        <section key={group.key} className="mb-[26px]">
-          <div className="mb-1.5 border-b border-line pb-[5px] font-mono text-micro uppercase tracking-[0.22em] text-muted">
-            {group.title}
-          </div>
-          {renderTree(group.items, 0)}
-        </section>
-      ))}
+      {groups.map((group) => {
+        const label =
+          'mb-1.5 border-b border-line pb-[5px] font-mono text-micro uppercase tracking-[0.22em] text-muted';
+        // 전체 보기의 보드 묶음만 접는다 — 한 보드 안의 섹션은 그 보드를 보는 중이라 다 보여야 한다.
+        if (selected !== 'all') {
+          return (
+            <section key={group.key} className="mb-[26px]">
+              <div className={label}>{group.title}</div>
+              {renderTree(group.items, 0)}
+            </section>
+          );
+        }
+        const folded = collapsed.has(group.key);
+        const count = todos.filter((t) => t.boardId === group.key).length;
+        const Chevron = folded ? ChevronRight : ChevronDown;
+        return (
+          <section key={group.key} className={folded ? 'mb-3' : 'mb-[26px]'}>
+            <button
+              type="button"
+              className={`${label} flex w-full items-center gap-1.5 text-left hover:text-text`}
+              aria-expanded={!folded}
+              onClick={() => toggleBoard(group.key)}
+            >
+              <Chevron size={13} aria-hidden className="shrink-0" />
+              <span className="min-w-0 truncate">{group.title}</span>
+              <span className="ml-auto tracking-normal tabular-nums text-faint">{count}</span>
+            </button>
+            {!folded && renderTree(group.items, 0)}
+          </section>
+        );
+      })}
     </main>
   );
 }
