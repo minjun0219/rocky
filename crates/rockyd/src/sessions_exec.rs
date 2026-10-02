@@ -64,6 +64,58 @@ pub fn cached_sessions(runner: Runner, ttl: Duration) -> SessionsProvider {
     })
 }
 
+/// 오래된 값을 바로 주고 뒤에서 새로 받는 조회기(stale-while-revalidate). `fresh` 안이면 캐시, `stale` 안이면
+/// **기다리지 않고** 캐시를 주면서 뒤에서 한 번 새로 받는다, 그보다 오래됐거나 처음이면 받을 때까지 기다린다.
+///
+/// 할 일 목록이 진행 중 항목의 `doingState` 를 붙이려고 세션 목록을 묻는데, `claude agents` 가 수백 ms 라 TTL 이
+/// 지날 때마다 요청 하나가 그만큼 기다렸다(`GET /api/todos` p95 161ms, p50 19ms). 대가: live/gone 판정이 한 번
+/// 늦을 수 있다. 처음 받는 동안 몰린 호출은 한 번의 조회를 함께 기다린다.
+pub fn swr_sessions(runner: Runner, fresh: Duration, stale: Duration) -> SessionsProvider {
+    let cache: Arc<std::sync::Mutex<Option<(Instant, SessionsResult)>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let refreshing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gate = Arc::new(Mutex::new(()));
+    Arc::new(move || {
+        let runner = runner.clone();
+        let cache = cache.clone();
+        let refreshing = refreshing.clone();
+        let gate = gate.clone();
+        Box::pin(async move {
+            let cached = cache.lock().expect("sessions cache poisoned").clone();
+            if let Some((at, value)) = &cached {
+                let age = at.elapsed();
+                if age < fresh {
+                    return value.clone();
+                }
+                if age < stale {
+                    if !refreshing.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        let cache = cache.clone();
+                        let refreshing = refreshing.clone();
+                        tokio::spawn(async move {
+                            let result = list_sessions(&runner).await;
+                            *cache.lock().expect("sessions cache poisoned") =
+                                Some((Instant::now(), result));
+                            refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+                        });
+                    }
+                    return value.clone();
+                }
+            }
+            let _turn = gate.lock().await;
+            // 기다리는 사이 앞 사람이 받아 왔으면 그걸 쓴다.
+            if let Some((at, value)) = cache.lock().expect("sessions cache poisoned").as_ref() {
+                if at.elapsed() < fresh {
+                    return value.clone();
+                }
+            }
+            let result = list_sessions(&runner).await;
+            *cache.lock().expect("sessions cache poisoned") =
+                Some((Instant::now(), result.clone()));
+            result
+        })
+    })
+}
+
 /// 고정 결과 조회기 — 테스트 주입용.
 pub fn fixed_sessions(result: SessionsResult) -> SessionsProvider {
     Arc::new(move || {
