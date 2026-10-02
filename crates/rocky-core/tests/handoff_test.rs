@@ -1,8 +1,8 @@
 //! TS 원본 `src/handoff.test.ts` 포팅.
 
 use rocky_core::handoff::{
-    build_handoff_poke, build_handoff_prompt, build_handoff_prompt_from, HandoffPokeInput,
-    HandoffPromptInput,
+    build_handoff_poke, build_handoff_prompt, build_handoff_prompt_from, held_by_session,
+    held_todo_reminder, HandoffPokeInput, HandoffPromptInput, HeldTodo,
 };
 use rocky_core::types::*;
 
@@ -92,4 +92,51 @@ fn poke_shape() {
     // 본문(메모·착수 지시)은 싣지 않는다 — 같은 턴의 훅 주입과 겹친다
     assert!(!poke.message.contains("todo_status"));
     assert!(!poke.message.contains("메모:"));
+}
+
+/// 착수만 말하고 끝을 말하지 않으면 세션은 일을 마치고도 doing 으로 남겨 둔다.
+#[test]
+fn the_prompt_says_how_to_close_the_todo() {
+    let prompt = build_handoff_prompt(&base());
+    assert!(prompt.contains("action: \"done\""), "{prompt}");
+    assert!(prompt.contains("action: \"stop\""), "{prompt}");
+}
+
+#[test]
+fn held_todos_are_the_doing_ones_attributed_to_this_session() {
+    let todos = serde_json::json!([
+        { "ref": "rocky-1", "title": "내 것", "status": "doing", "doingSessionId": "s1" },
+        { "ref": "rocky-2", "title": "남의 것", "status": "doing", "doingSessionId": "s2" },
+        { "ref": "rocky-3", "title": "사람이 든 것", "status": "doing" },
+        { "ref": "rocky-4", "title": "끝난 것", "status": "done", "doingSessionId": "s1" },
+        { "ref": "rocky-5", "title": "보관", "status": "doing", "doingSessionId": "s1", "archivedAt": "2026-10-01T00:00:00Z" }
+    ]);
+    assert_eq!(
+        held_by_session(&todos, "s1"),
+        vec![HeldTodo {
+            todo_ref: "rocky-1".into(),
+            title: "내 것".into()
+        }]
+    );
+    assert!(held_by_session(&serde_json::json!({ "error": "x" }), "s1").is_empty());
+}
+
+#[test]
+fn the_stop_reminder_asks_once_and_never_loops() {
+    let held = vec![HeldTodo {
+        todo_ref: "rocky-1".into(),
+        title: "보드 피드".into(),
+    }];
+    let reminder = held_todo_reminder(&held, false).expect("들고 있으면 묻는다");
+    assert!(
+        reminder.contains("rocky-1") && reminder.contains("보드 피드"),
+        "{reminder}"
+    );
+    assert!(
+        reminder.contains("\"done\"") && reminder.contains("\"stop\""),
+        "{reminder}"
+    );
+    // 그 확인으로 이어진 턴에서 또 막으면 "아직 하는 중" 인 세션을 영영 못 멈춘다.
+    assert_eq!(held_todo_reminder(&held, true), None);
+    assert_eq!(held_todo_reminder(&[], false), None);
 }

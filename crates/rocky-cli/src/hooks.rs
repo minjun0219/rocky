@@ -51,6 +51,24 @@ fn claim_handoff(base_url: &str, session_id: &str, via: &str) -> Option<ClaimedH
     response.body_mut().read_json().ok()
 }
 
+/// 이 세션이 들고 있는 진행 중 할 일 — 데몬이 없거나 실패하면 빈 목록(fail-open: 턴을 막지 않는다).
+fn held_todos(base_url: &str, session_id: &str) -> Vec<rocky_core::handoff::HeldTodo> {
+    let Ok(mut response) = hook_agent()
+        .get(format!("{base_url}/api/todos?status=doing"))
+        .call()
+    else {
+        return Vec::new();
+    };
+    if response.status().as_u16() != 200 {
+        return Vec::new();
+    }
+    response
+        .body_mut()
+        .read_json::<serde_json::Value>()
+        .map(|todos| rocky_core::handoff::held_by_session(&todos, session_id))
+        .unwrap_or_default()
+}
+
 /// 이 세션이 일하는 보드 — 훅 입력의 cwd 를 보드 목록에 대 본다(statusline 과 같은 규칙: `boards.path`
 /// 하위 → key 세그먼트). 데몬이 없거나 어느 보드로도 안 풀리면 None.
 /// 세션 cwd 가 가리키는 보드. `/api/boards` 를 못 읽으면 `Failed` — cwd 가 없거나 매칭되는
@@ -526,6 +544,17 @@ pub fn hook_handoff_stop(ctx: &CliContext) {
             .and_then(|v| v.as_str())
             .is_some_and(|v| !v.is_empty());
     if is_subagent {
+        return;
+    }
+    // 들고 있는 할 일부터 — 끝냈으면 닫게 한 번 묻는다. 그 확인으로 이어진 턴(`stop_hook_active`)에서는 묻지
+    // 않고 아래로 내려가 다음 핸드오프를 집는다.
+    let stop_hook_active = input
+        .get("stop_hook_active")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let held = held_todos(&ctx.base_url, session_id);
+    if let Some(reason) = rocky_core::handoff::held_todo_reminder(&held, stop_hook_active) {
+        println!("{}", json!({ "decision": "block", "reason": reason }));
         return;
     }
     let Some(claimed) = claim_handoff(&ctx.base_url, session_id, "stop") else {
