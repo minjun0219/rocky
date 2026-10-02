@@ -9,6 +9,7 @@ import { NowTable } from './components/NowTable';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { VersionFooter } from './components/VersionFooter';
+import { slicesFor } from './lib';
 import { parseRoute } from './route';
 import { useUiStore } from './store';
 import { setUsageActor } from './usage';
@@ -108,10 +109,21 @@ function App() {
       opened = true;
     };
     source.onerror = () => setConnected(false);
-    source.onmessage = () => {
-      // 연속 mutation 을 한 번의 refetch 로 흡수
+    // 연속 mutation 을 한 번의 refetch 로 흡수하되, 이벤트가 건드린 묶음만 받는다(`slicesFor`) — 예전엔 이벤트마다
+    // 9개를 다 받았다. 묶음은 150ms 창 안의 이벤트를 합친다.
+    let pending: unknown[] = [];
+    source.onmessage = (message) => {
+      try {
+        pending.push(JSON.parse(message.data));
+      } catch {
+        pending.push(null); // 모르는 모양 → 전부
+      }
       clearTimeout(debounce.current);
-      debounce.current = setTimeout(sync, 150);
+      debounce.current = setTimeout(() => {
+        const slices = slicesFor(pending);
+        pending = [];
+        void refetch(slices).catch(onSyncError);
+      }, 150);
     };
     // doing 경과 표시 갱신용 주기 리렌더
     const tick = setInterval(sync, 60_000);
