@@ -78,34 +78,30 @@ export function StateIcon(props: { Icon: LucideIcon; className: string; label: s
 }
 
 /**
- * "지금" — 첫 화면이 답할 두 가지: 무엇이 내 차례인가, 무엇이 돌고 있나. 보고 있는 보드와
- * 무관하게 전 보드를 본다. 무엇을 어떤 순서로 싣는지는 `nowRows`(순수)가 정한다.
+ * 내 차례의 행 — 보고 있는 보드와 무관하게 전 보드를 본다. 무엇을 어떤 순서로 싣는지는 `nowRows`(순수)가
+ * 정한다. PR 은 피드의 PR 알림이 따로 맡는다 — 여기서는 할 일만(넘김·멈춘 진행·읽지 않은 댓글·수집함).
  */
-export function NowTable() {
+export function useNowRows(expanded = false): NowRow[] {
   const nowTodos = useUiStore((s) => s.nowTodos);
   const handoffs = useUiStore((s) => s.nowHandoffs);
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
-  const [expanded, setExpanded] = useState(false);
-  // PR 은 GitHub 탭으로 옮겼다 — 여기 섞이면 어지럽다(2026-09-30 오너). 할 일만 싣는다.
-  const rows = nowRows({
-    todos: nowTodos,
-    handoffs,
-    seen: seenComments,
-    collect,
-    expanded,
-  });
-  const mine = rows.filter((r) => r.group !== 'run');
-  const run = rows.filter((r) => r.group === 'run');
-  const now = useNow(rows, 0);
+  return nowRows({ todos: nowTodos, handoffs, seen: seenComments, collect, expanded });
+}
 
+/** 피드의 "내 차례" — 예전엔 할 일 화면 맨 위 "지금" 표에 있었다(2026-10-02 피드로 옮김). */
+export function MineSection() {
+  const [expanded, setExpanded] = useState(false);
+  const rows = useNowRows(expanded);
+  const mine = rows.filter((r) => r.group !== 'run');
+  const now = useNow(mine, 0);
   return (
-    <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="지금">
+    <section className="mb-[26px]" aria-label="내 차례">
       <NowGroupHead title="내 차례" count={mineCount(rows)} tone="mine" />
       {mine.length === 0 ? (
-        <p className="m-0 mb-2 text-meta text-muted">내 차례 없음</p>
+        <p className="m-0 text-meta text-muted">내 차례 없음</p>
       ) : (
-        <ul className="m-0 mb-3 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+        <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
           {mine.map((row) =>
             row.group === 'more' ? (
               <MoreLine
@@ -119,16 +115,29 @@ export function NowTable() {
           )}
         </ul>
       )}
-      {run.length > 0 ? (
-        <>
-          <NowGroupHead title="돌고 있음" count={run.length} tone="run" />
-          <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
-            {run.map((row) => (
-              <NowItem key={row.key} row={row} now={now} />
-            ))}
-          </ul>
-        </>
-      ) : null}
+    </section>
+  );
+}
+
+/**
+ * "돌고 있음" — 할 일 화면 맨 위. 세션이 붙어 진행 중인 일(전 보드). 없으면 자리를 차지하지 않는다.
+ * 손댈 것(내 차례)은 피드로 옮겼다.
+ */
+export function NowTable() {
+  const rows = useNowRows();
+  const run = rows.filter((r) => r.group === 'run');
+  const now = useNow(run, 0);
+  if (run.length === 0) {
+    return null;
+  }
+  return (
+    <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="돌고 있음">
+      <NowGroupHead title="돌고 있음" count={run.length} tone="run" />
+      <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+        {run.map((row) => (
+          <NowItem key={row.key} row={row} now={now} />
+        ))}
+      </ul>
     </section>
   );
 }

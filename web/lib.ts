@@ -929,18 +929,20 @@ export function githubHideKey(
   return item.kind === 'pr' ? `pr:${item.key}:${item.status}` : `inbox:${item.source}:${item.id}`;
 }
 
-/** 알림 탭의 항목 종류 — 오너가 손댈 것만. 순서가 곧 화면 순서(위가 급하다). */
-export type AlertKind = 'decide' | 'merge' | 'conflict' | 'ci' | 'abandoned';
+/**
+ * 피드의 PR 알림 종류 — 오너가 손댈 PR 만. 순서가 곧 화면 순서(위가 급하다). 할 일 쪽(넘김·멈춘 진행·
+ * 읽지 않은 댓글·수집함)은 `nowRows` 의 내 차례가 맡는다.
+ */
+export type AlertKind = 'decide' | 'merge' | 'conflict' | 'ci';
 
 export const ALERT_LABEL: Record<AlertKind, string> = {
   decide: '결정 필요',
   merge: '머지 후보',
   conflict: '충돌',
   ci: 'CI 실패',
-  abandoned: '세션이 사라진 작업',
 };
 
-const ALERT_ORDER: AlertKind[] = ['decide', 'merge', 'conflict', 'ci', 'abandoned'];
+const ALERT_ORDER: AlertKind[] = ['decide', 'merge', 'conflict', 'ci'];
 
 /** 충돌·CI 실패는 세션이 먼저 푼다 — 이만큼 그대로면 오너 몫으로 올린다. */
 export const STUCK_AFTER_MS = 30 * 60 * 1000;
@@ -952,25 +954,18 @@ export interface AlertRow {
   hideKey: string;
   kind: AlertKind;
   title: string;
-  /** 둘째 줄 — 어디의 무엇인지(`rocky #12`, `rocky-7`). */
+  /** 둘째 줄 — 어느 레포의 몇 번(`rocky #12`). */
   detail: string;
-  /** PR 이면 GitHub 주소, 할 일이면 없음(누르면 상세). */
-  url?: string;
-  todoId?: string;
+  /** GitHub 의 PR 주소 — 누르면 새 탭. */
+  url: string;
   at: string;
 }
 
 /**
- * 알림 탭 — 오너가 손댈 것. 구독한 열린 PR 중 결정 필요(👀)·머지 후보, 30분 넘게 그대로인 충돌·CI 실패,
- * 에이전트가 들었는데 세션이 사라진 진행 중 할 일. 숨긴 것은 뺀다.
+ * 피드의 PR 알림 — 구독한 열린 PR 중 결정 필요(👀)·머지 후보는 바로, 충돌·CI 실패는 30분 넘게 그대로일
+ * 때만(그 전엔 세션이 푼다). 숨긴 것은 뺀다.
  */
-export function alertRows(
-  prs: PrSnapshot[],
-  todos: TodoView[],
-  boards: readonly { id: string; key: string }[],
-  hidden: readonly string[],
-  now: number,
-): AlertRow[] {
+export function alertRows(prs: PrSnapshot[], hidden: readonly string[], now: number): AlertRow[] {
   const rows: AlertRow[] = [];
   for (const p of prs) {
     if (p.state !== 'OPEN') {
@@ -1000,21 +995,6 @@ export function alertRows(
       detail: `${p.repo.split('/')[1] ?? p.repo} #${p.number}`,
       url: p.url,
       at: p.updatedAt,
-    });
-  }
-  for (const t of todos) {
-    if (t.status !== 'doing' || t.doingState !== 'gone' || t.archivedAt) {
-      continue;
-    }
-    const board = boards.find((b) => b.id === t.boardId);
-    rows.push({
-      key: `abandoned:${t.id}`,
-      hideKey: `alert:abandoned:${t.id}`,
-      kind: 'abandoned',
-      title: t.title,
-      detail: board ? `${board.key}-${t.number}` : t.ref,
-      todoId: t.id,
-      at: t.updatedAt,
     });
   }
   return rows

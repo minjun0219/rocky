@@ -232,8 +232,8 @@ export interface PrSnapshot {
   updatedAt: string;
 }
 
-/** 보드 화면의 보기 — 할 일 목록 / 알림 / 노트 / GitHub. */
-export type BoardView = 'todos' | 'alerts' | 'notes' | 'github';
+/** 보드 화면의 보기 — 피드(첫 화면) / 할 일 목록 / 노트 / GitHub. */
+export type BoardView = 'feed' | 'todos' | 'notes' | 'github';
 
 /** `GET /api/inbox` — 수집함 항목 하나. `promoted` 는 데몬이 전 보드의 링크로 채운다. */
 export interface InboxItem {

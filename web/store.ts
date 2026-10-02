@@ -35,7 +35,6 @@ import {
 
 const ACTOR_KEY = 'rocky-actor';
 /** 할 일 / 노트 보기 — 새로고침·cmux 의 페이지 재로드 뒤에도 보던 쪽으로 돌아온다. */
-const VIEW_KEY = 'rocky:view';
 /** 노트 보기를 마지막으로 떠난(또는 연) 시각 — 그 뒤의 편집이 "노트 •" 표시가 된다. */
 const NOTES_SEEN_KEY = 'rocky:notes-seen';
 /** 숨긴 GitHub 항목(PR·수집함) 키 — 이 브라우저에만. `githubHideKey` 가 만든다. */
@@ -334,14 +333,9 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     })(),
   ),
-  view: (() => {
-    const stored = readStored(VIEW_KEY);
-    if (stored === 'notes' || stored === 'alerts') {
-      return stored;
-    }
-    // GitHub 탭을 꺼 둔 채 GitHub 화면이 기억돼 있으면 할 일로 연다.
-    return stored === 'github' && readStored(GITHUB_TAB_KEY) !== 'off' ? 'github' : 'todos';
-  })(),
+  // 첫 화면은 늘 피드다(2026-10-02 오너) — 지난번에 본 탭을 기억해 열지 않는다. 주소가 노트·할 일을 가리키면
+  // `applyRoute` 가 그쪽으로 옮긴다.
+  view: 'feed',
   notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
   openNoteId: null,
   connected: false,
@@ -384,7 +378,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     set(
       showGithub
         ? { showGithub }
-        : { showGithub, view: get().view === 'github' ? 'todos' : get().view },
+        : { showGithub, view: get().view === 'github' ? 'feed' : get().view },
     );
   },
   setShowArchived: (showArchived) => {
@@ -425,9 +419,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     // 기준은 브라우저 시계가 아니라 **서버가 찍은 노트 시각**이다(원격 브라우저의 시계 어긋남). 떠나는
     // 순간엔 아직 저장 중인 편집(제목 PATCH·편집기의 배치 flush)이 남아 있을 수 있어, 잠시 동안의
     // refetch 도 "본 것" 으로 올린다(`refetch` 의 `notesSettleUntil`).
-    notesSettleUntil = view === 'todos' ? Date.now() + NOTES_SETTLE_MS : 0;
+    notesSettleUntil = view !== 'notes' ? Date.now() + NOTES_SETTLE_MS : 0;
     set({ view, notesSeenAt: advanceSeen(get().notesSeenAt, get().notes) });
-    writeStored(VIEW_KEY, view);
     writeStored(NOTES_SEEN_KEY, get().notesSeenAt);
   },
   setConnected: (connected) => set({ connected }),
@@ -620,7 +613,6 @@ export const useUiStore = create<UiState>((set, get) => ({
           : route.note;
       const note = get().notes.find((n) => n.ref === wanted || n.id === wanted);
       set({ detail: null, view: 'notes', openNoteId: note?.id ?? null });
-      writeStored(VIEW_KEY, 'notes');
       replacePath(
         buildPath(note ? { board, note: note.ref } : { board }),
         note ? window.history.state : null,
@@ -749,7 +741,6 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     logUsage('web:note-open');
     set({ openNoteId: id, view: 'notes' });
-    writeStored(VIEW_KEY, 'notes');
     pushPath(buildPath({ board: get().selected, note: note.ref }), { rockyNote: true });
   },
 
