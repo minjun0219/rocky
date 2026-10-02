@@ -1,10 +1,9 @@
 //! 보드 수집함 설정 — 어댑터 칸 목록·등록·삭제, 등록한 소스가 재기동 없이 수집함에 나오는지.
 
-mod common;
 
 use std::sync::{Arc, Mutex};
 
-use common::*;
+use crate::common::*;
 use rocky_core::config::InboxSource;
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::json;

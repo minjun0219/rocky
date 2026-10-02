@@ -1,14 +1,13 @@
 //! TS `src/mcp.test.ts` 포팅 — InMemoryTransport 대신 **실제 HTTP JSON-RPC 표면**으로
 //! 검증한다(rmcp stateless 통합까지 함께 커버).
 
-mod common;
 
 use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::connect_info::ConnectInfo;
 use axum::http::Request;
-use common::{fx, rebuild, Fx};
+use crate::common::{fx, rebuild, Fx};
 use rockyd::daemon::build_router;
 use rockyd::runner::{CmdOutput, Runner};
 use rockyd::server::ServerState;
@@ -355,7 +354,7 @@ async fn scoped_and_id_refs_survive_unknown_board_arg() {
     .await;
     assert_eq!(detail["todo"]["id"], todo["id"]);
     // id prefix
-    let prefix = common::id_prefix(id);
+    let prefix = crate::common::id_prefix(id);
     let detail = ok_call(
         &f.state,
         "todo_list",

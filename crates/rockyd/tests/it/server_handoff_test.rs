@@ -1,11 +1,10 @@
 //! TS `src/server.test.ts` 포팅 3/4 — handoff routes + doingState + claim 게이트.
 
-mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use common::*;
+use crate::common::*;
 use rocky_core::sessions::SessionsResult;
 use rocky_core::types::*;
 use rockyd::sessions_exec::{fixed_sessions, SessionsProvider};

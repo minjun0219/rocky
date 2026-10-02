@@ -1,9 +1,8 @@
 //! 노트 CRDT 문서 라우트 — 상태 받기 · update 적용·방송 · 프레즌스 · 노트별 SSE.
 
-mod common;
 
 use base64::Engine;
-use common::*;
+use crate::common::*;
 use rocky_core::note_doc::NoteDoc;
 use serde_json::{json, Value};
 

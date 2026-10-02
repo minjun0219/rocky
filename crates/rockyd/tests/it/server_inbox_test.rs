@@ -1,12 +1,11 @@
 //! GET /api/inbox — 수집함 어댑터 실행·캐시·실패 격리.
 
-mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::*;
+use crate::common::*;
 use rocky_core::config::InboxSource;
 use rockyd::inbox_exec::cached_inbox;
 use rockyd::runner::{default_runner, CmdOutput, Runner};

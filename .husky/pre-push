@@ -5,4 +5,6 @@
 # git 이 훅에 넘긴 레포 지정 변수를 지운다 — 링크된 워크트리에서 푸시하면 GIT_DIR 이 절대경로라, 아래 테스트가
 # 임시 폴더에서 부르는 git(init·commit·worktree add)이 실제 레포에 적용된다(2026-10-01 core.bare=true 사고).
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
-bun run typecheck && bun run test && cargo fmt --all --check && cargo test --workspace
+# 빠른 검사만 — 전체 `cargo test --workspace` 는 CI 가 돈다(2026-10-02: 푸시마다 20~30분이라 그동안 SSH 가 끊겨 푸시가 실패했다).
+# clippy 는 테스트 코드까지 컴파일해서 깨진 테스트(타입·이름)는 여기서도 잡힌다 — 실행 결과만 CI 에 맡긴다.
+bun run typecheck && bun run test && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings

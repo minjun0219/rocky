@@ -1,9 +1,8 @@
 //! TS `src/server.test.ts` 포팅 1/4 — health·todos·notes·boards·sections·changes·
 //! ref 직렬화·SSE·comments·move·cross-site·CSRF 심층 방어.
 
-mod common;
 
-use common::*;
+use crate::common::*;
 use rocky_core::types::*;
 use serde_json::json;
 

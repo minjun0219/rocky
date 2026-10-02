@@ -150,7 +150,8 @@ plugin.json 동기화는 `bun run changeset:version` 안의 `scripts/sync-plugin
 
 **Git 훅(husky).** `bun install` 이 `prepare: "husky"` 로 `core.hooksPath` 를 `.husky/_` 에 건다.
 `.husky/pre-commit` 은 `lint-staged`(biome) + 비밀 스캔(`gitleaks protect --staged`, 없으면 내장 grep),
-`.husky/pre-push` 는 `typecheck` + `test` 를 돌린다. pre-push 는 전체 `cargo test` 까지 돌아 20~30분 걸린다 —
+`.husky/pre-push` 는 빠른 검사만 돈다 — `typecheck` + `test`(bun) + `cargo fmt --check` + `cargo clippy`(전체 `cargo test` 는 CI 몫,
+2026-10-02 — 푸시마다 20~30분 걸려 SSH 가 끊겼다). pre-push 는 전체 `cargo test` 까지 돌아 20~30분 걸린다 —
 `~/.cargo/bin` 이 PATH 에 있어야 하고, 도는 동안 체크아웃·파일 수정을 하지 않는다(훅의 테스트는 지금 작업 트리를 돈다).
 여러 브랜치는 `git push origin a b c` 한 번이면 훅도 한 번이다. `--no-verify` 로 건너뛸 수 있다. CI 는 같은 게이트에
 `gitleaks` 잡을 더해 다시 돌린다. 추적하는 것은 `.husky/pre-commit` 과 `.husky/pre-push` 뿐 — `.husky/_` 는
@@ -169,7 +170,7 @@ typecheck or tests — pre-push and CI already cover it.*
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
   edges (web, bridges, scripts reading logs.db).*
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings` 가 게이트다(clippy 는
-  테스트도 본다). 순수 판정 로직은 `rocky-core` 에, 통합 테스트는 `crates/*/tests/` 에; 데몬과 CLI 는 배선만
+  테스트도 본다). 순수 판정 로직은 `rocky-core` 에, 통합 테스트는 `crates/*/tests/it/` 에(크레이트당 실행 파일 하나 — 새 파일은 `tests/it/main.rs` 에 `mod` 로 단다); 데몬과 CLI 는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result` 를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
   *EN: Pure logic in `rocky-core`, wiring in the daemon/CLI; hooks fail open; errors carry the input, path or status.*
 - **의존성**: 추가하지 않는 쪽으로. 워크스페이스 의존성은 루트 `Cargo.toml` 에 한 번만 선언하고,
@@ -180,7 +181,7 @@ typecheck or tests — pre-push and CI already cover it.*
   테스트는 스크립트 옆 `*.test.ts`, 파일 시스템 격리는 `mkdtempSync`.
 - **계약 충실도**: 디스크의 워크로그(JSONL 모양, 키 순서, 프로젝트 키 `<basename>-<sha1[:8]>`)와 보드
   REST/MCP 표면(`docs/rewrite/contract.md`)은 옛 TypeScript 구현과의 호환 계약이다 — 골든 테스트가 고정한다
-  (`crates/rocky-core/tests/worklog_test.rs::project_key_matches_ts_golden`). *EN: The on-disk worklog and the
+  (`crates/rocky-core/tests/it/worklog_test.rs::project_key_matches_ts_golden`). *EN: The on-disk worklog and the
   board REST/MCP surface are compatibility contracts pinned by golden tests — do not change their shape.*
 
 ## 변경 체크리스트
@@ -194,8 +195,8 @@ typecheck or tests — pre-push and CI already cover it.*
 4. 도구 계약 변경 → `#[tool]` 정의(보드는 `crates/rockyd/src/mcp.rs`, 워크로그는
    `crates/rocky-cli/src/worklog_mcp.rs`)와 짝 테스트(`mcp_test.rs` / `worklog_mcp_test.rs`)를 갱신.
 5. `rocky.json` 모양 변경 → `rocky.schema.json` **과** `crates/rocky-core/src/config.rs` 를 함께.
-6. 도구 이름이 다시 나타남 → 표면 테스트가 도구 목록을 정확히 고정한다(`crates/rockyd/tests/mcp_test.rs`,
-   `crates/rocky-cli/tests/worklog_mcp_test.rs` 의 `TOOLS`); 제거한 이름(openapi / seo / notion / mysql /
+6. 도구 이름이 다시 나타남 → 표면 테스트가 도구 목록을 정확히 고정한다(`crates/rockyd/tests/it/mcp_test.rs`,
+   `crates/rocky-cli/tests/it/worklog_mcp_test.rs` 의 `TOOLS`); 제거한 이름(openapi / seo / notion / mysql /
    spec-pact / pr-watch)은 돌아오면 안 된다.
 7. 사용자 표면 변경 → `bunx changeset`. 도구 정비만 하는 잡일은 필요 없다.
 8. 표면을 빼거나 모양을 바꿈(도구·라우트·커맨드·훅·웹 동작) → PR 본문에 `rocky usage --since 90d`(횟수,
@@ -326,7 +327,7 @@ typecheck or tests — pre-push and CI already cover it.*
 테스트 파일 위치(소스 옆 `*.test.ts`), `mkdtempSync` 격리 누락.
 
 **보고하지 않는다** — `bun.lock` 과 `.gitignore` 된 모든 것; `cargo clippy` / `cargo test` / `bun run test` 가
-이미 잡는 타입 에러와 테스트 실패(예외: `crates/*/tests/` 에 테스트가 없는 새 `crates/*/src/` 모듈은 Nit);
+이미 잡는 타입 에러와 테스트 실패(예외: `crates/*/tests/it/` 에 테스트가 없는 새 `crates/*/src/` 모듈은 Nit);
 `docs/backlog.md` 항목을 들여오라고 *명시적으로 요청받은* PR 은 그것만으로 범위 위반이 아니다.
 
 **인용 기준** — 동작에 대한 주장("이 코드는 X 를 한다")에는 이름에서 추론한 것이 아니라 `path:line` 인용이

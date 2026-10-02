@@ -1,8 +1,7 @@
 //! 죽은 세션이 쥔 doing 의 자동 해제 — 데몬 스윕.
 
-mod common;
 
-use common::*;
+use crate::common::*;
 use rocky_core::doing::AUTO_RELEASE_GRACE_SECS;
 use rocky_core::sessions::SessionsResult;
 use rocky_core::types::*;

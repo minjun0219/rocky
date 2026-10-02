@@ -1,11 +1,10 @@
 //! TS `src/server.test.ts` 포팅 2/4 — github issue + 출처 게이트 + 보드 메타.
 
-mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use common::*;
+use crate::common::*;
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::json;
 
