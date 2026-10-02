@@ -2677,12 +2677,12 @@ enum OnLag {
 
 /// update 바이너리 ↔ JSON 문자열. 표준 base64(패딩 있음) — 쿼리에 실을 땐 클라이언트가
 /// percent-encode 한다.
-fn encode_b64(bytes: &[u8]) -> String {
+pub(crate) fn encode_b64(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-fn decode_b64(text: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_b64(text: &str) -> Result<Vec<u8>, String> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD
         .decode(text.trim())

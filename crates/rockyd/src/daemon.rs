@@ -64,6 +64,8 @@ pub fn build_router(state: Arc<ServerState>, ui_dist: Option<&Path>) -> Router {
     };
     let mut router = Router::new()
         .route("/mcp", any(mcp_handler))
+        // 노트 동시 편집 소켓 — `/api/{*rest}` 보다 먼저(구체 경로가 이긴다).
+        .route("/api/ws", axum::routing::get(ws_handler))
         .route("/api/{*rest}", any(api_handler))
         .route("/api", any(api_handler));
     // 웹 UI — 퍼머링크(`/rocky/12`) 새로고침은 index.html fallback 으로 돌아온다.
@@ -80,6 +82,39 @@ async fn api_handler(
     req: Request<Body>,
 ) -> Response {
     handle_api(&state.server, req, Some(peer.ip().to_string())).await
+}
+
+/// 노트 소켓 핸드셰이크 — REST 변경과 같은 cross-site 가드를 **업그레이드 전에** 건다(웹소켓은 CORS 밖이다).
+/// 브라우저는 소켓에 헤더를 못 붙이므로 actor 는 쿼리(`?actor=`)로 받는다.
+async fn ws_handler(
+    State(state): State<AppState>,
+    upgrade: axum::extract::ws::WebSocketUpgrade,
+    headers: axum::http::HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let get_header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let host = get_header("host").unwrap_or_else(|| "localhost".to_string());
+    if is_cross_site_request(get_header, &format!("http://{host}/api/ws")) {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({ "error": CROSS_SITE_MESSAGE }).to_string(),
+            ))
+            .unwrap();
+    }
+    let actor = query
+        .get("actor")
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let server = state.server.clone();
+    upgrade.on_upgrade(move |socket| crate::ws::serve_socket(socket, server, actor))
 }
 
 async fn mcp_handler(

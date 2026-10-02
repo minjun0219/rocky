@@ -11,6 +11,8 @@ import {
   shiftCursor,
   TEXT_KEY,
   toB64,
+  type NoteTransport,
+  WsTransport,
 } from './notedoc';
 
 describe('diffText', () => {
@@ -264,5 +266,117 @@ describe('NoteSync', () => {
     await sleep(200);
     expect(server.calls.length).toBe(before);
     sync.close();
+  });
+});
+
+// ── 소켓 판 — 열린 노트가 연결 하나를 같이 쓴다 ─────────────────────────────────────────
+
+class FakeSocket {
+  static last: FakeSocket | null = null;
+  readyState = 0;
+  sent: Record<string, unknown>[] = [];
+  onopen: ((e: Event) => void) | null = null;
+  onmessage: ((e: MessageEvent) => void) | null = null;
+  onclose: ((e: CloseEvent) => void) | null = null;
+  onerror: ((e: Event) => void) | null = null;
+  constructor(readonly url: string) {
+    FakeSocket.last = this;
+  }
+  send(data: string) {
+    this.sent.push(JSON.parse(data));
+  }
+  close() {}
+  open() {
+    this.readyState = 1;
+    this.onopen?.(new Event('open'));
+  }
+  receive(frame: unknown) {
+    this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent);
+  }
+  drop() {
+    this.readyState = 3;
+    this.onclose?.({} as CloseEvent);
+  }
+}
+
+/** HTTP 폴백이 불렸는지 세는 가짜. */
+function fakeHttp() {
+  const calls: string[] = [];
+  const transport: NoteTransport = {
+    getDoc: async (noteId) => {
+      calls.push(`doc:${noteId}`);
+      return { update: 'http' };
+    },
+    postUpdate: async (noteId) => {
+      calls.push(`update:${noteId}`);
+    },
+    postPresence: async () => {},
+    subscribe: (noteId) => {
+      calls.push(`sub:${noteId}`);
+      return () => {};
+    },
+  };
+  return { transport, calls };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe('WsTransport', () => {
+  test('요청은 id 로 답을 짝짓고, 구독은 붙을 때마다 다시 건다', async () => {
+    const http = fakeHttp();
+    const ws = new WsTransport('ws://x/api/ws', http.transport, FakeSocket as never);
+    const opens: string[] = [];
+    const events: unknown[] = [];
+    ws.subscribe('n1', { open: () => opens.push('n1'), event: (e) => events.push(e) });
+    const socket = FakeSocket.last as FakeSocket;
+    socket.open();
+    expect(socket.sent).toEqual([{ t: 'sub', note: 'n1' }]);
+    socket.receive({ t: 'subbed', note: 'n1' });
+    expect(opens).toEqual(['n1']);
+
+    const doc = ws.getDoc('n1', 'SV');
+    await tick();
+    const request = socket.sent[1] as { id: number };
+    expect(socket.sent[1]).toEqual({ t: 'doc', note: 'n1', sv: 'SV', id: request.id });
+    socket.receive({ t: 'ok', id: request.id, body: { update: 'U' } });
+    expect(await doc).toEqual({ update: 'U' });
+
+    socket.receive({ t: 'ev', note: 'n1', ev: { kind: 'update', update: 'X' } });
+    socket.receive({ t: 'lag', note: 'n1' });
+    expect(events).toEqual([{ kind: 'update', update: 'X' }]);
+    // 밀리면 차분을 다시 받는다
+    expect(opens).toEqual(['n1', 'n1']);
+    // HTTP 는 안 쓴다
+    expect(http.calls).toEqual([]);
+  });
+
+  test('한 번도 못 붙으면 HTTP 로 — 걸려 있던 구독도 옮긴다', async () => {
+    const http = fakeHttp();
+    const ws = new WsTransport('ws://x/api/ws', http.transport, FakeSocket as never);
+    ws.subscribe('n1', { open: () => {}, event: () => {} });
+    const update = ws.postUpdate('n1', 'U', 'c');
+    (FakeSocket.last as FakeSocket).drop();
+    await update;
+    expect(http.calls).toEqual(['sub:n1', 'update:n1']);
+    ws.subscribe('n2', { open: () => {}, event: () => {} });
+    expect(http.calls).toContain('sub:n2');
+  });
+
+  test('열렸다 끊기면 기다리던 요청은 실패하고, 다시 붙으면 구독을 건다', async () => {
+    const http = fakeHttp();
+    const ws = new WsTransport('ws://x/api/ws', http.transport, FakeSocket as never);
+    ws.subscribe('n1', { open: () => {}, event: () => {} });
+    const first = FakeSocket.last as FakeSocket;
+    first.open();
+    const pending = ws.postUpdate('n1', 'U', 'c');
+    await tick();
+    first.drop();
+    await expect(pending).rejects.toThrow('socket closed');
+    // 다시 붙는다(1초 뒤) — 새 소켓이 열리면 구독을 다시 건다
+    await new Promise((r) => setTimeout(r, 1_050));
+    const second = FakeSocket.last as FakeSocket;
+    expect(second).not.toBe(first);
+    second.open();
+    expect(second.sent).toEqual([{ t: 'sub', note: 'n1' }]);
   });
 });

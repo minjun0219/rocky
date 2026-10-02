@@ -23,6 +23,8 @@ tower = "0.5"
 [dev-dependencies]
 tempfile.workspace = true
 rusqlite.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [[bin]]
 name = "rockyd"
