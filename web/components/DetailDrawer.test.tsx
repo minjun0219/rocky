@@ -132,3 +132,54 @@ describe('DetailDrawer 미착수 핸드오프', () => {
     expect(fetchSessions).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('DetailDrawer 설명 편집', () => {
+  async function openEditor() {
+    const spies = mountDrawer();
+    await userEvent.click(screen.getByText(/설명 없음/));
+    const content = document.querySelector('.drawer-desc-cm .cm-content');
+    if (!content) {
+      throw new Error('편집기가 없다');
+    }
+    const { EditorView } = await import('@codemirror/view');
+    const view = EditorView.findFromDOM(content as HTMLElement);
+    if (!view) {
+      throw new Error('EditorView 가 없다');
+    }
+    return { ...spies, view };
+  }
+
+  // 고정 높이 textarea(rows=8)였을 땐 긴 설명이 작은 스크롤 상자에 갇혔다 — 노트와 같은 편집기로 바꿨다.
+  test('누르면 노트와 같은 마크다운 편집기와 서식 툴바가 뜬다', async () => {
+    await openEditor();
+    expect(document.querySelector('.drawer-desc-cm.note-cm .cm-editor')).not.toBeNull();
+    expect(screen.getByRole('toolbar', { name: '서식' })).toBeDefined();
+    expect(document.querySelector('textarea.drawer-desc-edit')).toBeNull();
+  });
+
+  test('저장은 편집기의 지금 글을 보낸다', async () => {
+    const { patchTodo, view } = await openEditor();
+    view.dispatch({ changes: { from: 0, insert: '## 할 것\n- [ ] 하나' } });
+    await userEvent.click(screen.getByRole('button', { name: /저장/ }));
+    expect(patchTodo.mock.calls[0]).toEqual([
+      'todo1',
+      { description: '## 할 것\n- [ ] 하나' },
+    ] as never);
+    expect(document.querySelector('.drawer-desc-cm')).toBeNull();
+  });
+
+  test('취소는 보내지 않고 편집기를 닫는다', async () => {
+    const { patchTodo, view } = await openEditor();
+    view.dispatch({ changes: { from: 0, insert: '버릴 글' } });
+    await userEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(patchTodo).not.toHaveBeenCalled();
+    expect(document.querySelector('.drawer-desc-cm')).toBeNull();
+  });
+
+  test('서식 버튼은 편집기 글에 적용된다', async () => {
+    const { view } = await openEditor();
+    view.dispatch({ changes: { from: 0, insert: '굵게' }, selection: { anchor: 0, head: 2 } });
+    await userEvent.click(screen.getByRole('button', { name: '굵게' }));
+    expect(view.state.doc.toString()).toBe('**굵게**');
+  });
+});

@@ -14,6 +14,7 @@ import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import * as Y from 'yjs';
 import {
   applyAwarenessUpdate,
   Awareness,
@@ -59,6 +60,74 @@ const formatKeymap = keymap.of([
   { key: 'Mod-i', run: (view) => applyFormat(view, (s) => toggleWrap(s, '*')) },
   { key: 'Mod-k', run: (view) => applyFormat(view, insertLink) },
 ]);
+
+/**
+ * 마크다운을 쓰는 자리의 공통 설정 — 노트 본문과 할 일 설명이 같은 손맛이어야 한다(서식 단축키·GFM·
+ * 꾸밈·줄바꿈·고정 머리 밑으로 숨지 않기). 문서를 어디에 두는지(Y.Text / 문자열)는 부르는 쪽이 정한다.
+ */
+function markdownEditing() {
+  return [
+    formatKeymap,
+    // GFM — 체크박스·취소선·표. 목록에서 Enter 는 다음 머리를 이어 준다(markdownKeymap).
+    markdown({ base: markdownLanguage }),
+    syntaxHighlighting(noteHighlight),
+    shellMargins,
+    placeholder('마크다운으로 적는다 — ⌘B 굵게 · ⌘K 링크 · "- [ ] " 체크박스'),
+    EditorView.lineWrapping,
+  ];
+}
+
+/**
+ * 문자열 하나를 편집하는 마크다운 편집기 — 할 일 설명처럼 실시간 문서(CRDT)가 아닌 자리. 저장은 부르는
+ * 쪽이 한다: `onChange` 로 지금 글을 받고, ⌘Enter 는 `onSave`, Esc 는 `onCancel`.
+ *
+ * 되돌리기(⌘Z)는 동기화하지 않는 로컬 `Y.Text` 의 UndoManager 로 한다 — 노트와 같은 키·같은 손맛이고,
+ * CodeMirror 의 history 를 쓰려면 `@codemirror/commands` 를 새로 들여야 해서.
+ */
+export function mountMarkdownEditor(
+  parent: HTMLElement,
+  options: {
+    doc: string;
+    onChange: (text: string) => void;
+    onSave?: () => void;
+    onCancel?: () => void;
+  },
+): EditorView {
+  const text = new Y.Doc().getText('body');
+  text.insert(0, options.doc);
+  return new EditorView({
+    parent,
+    state: EditorState.create({
+      doc: options.doc,
+      extensions: [
+        keymap.of([
+          {
+            key: 'Mod-Enter',
+            run: () => {
+              options.onSave?.();
+              return true;
+            },
+          },
+          {
+            key: 'Escape',
+            run: () => {
+              options.onCancel?.();
+              return true;
+            },
+          },
+          ...yUndoManagerKeymap,
+        ]),
+        ...markdownEditing(),
+        yCollab(text, null),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            options.onChange(update.state.doc.toString());
+          }
+        }),
+      ],
+    }),
+  });
+}
 
 /** 사람·에이전트별 커서 색 — 이름의 해시로 고정(같은 이름은 늘 같은 색). */
 const CURSOR_COLORS = ['#167a56', '#c2410c', '#1d5fb0', '#7a2e12', '#6d28d9', '#0f766e'];
@@ -185,13 +254,7 @@ export function mountNoteEditor(
       doc: sync.text.toString(),
       extensions: [
         keymap.of([...yUndoManagerKeymap]),
-        formatKeymap,
-        // GFM — 체크박스·취소선·표. 목록에서 Enter 는 다음 머리를 이어 준다(markdownKeymap).
-        markdown({ base: markdownLanguage }),
-        syntaxHighlighting(noteHighlight),
-        shellMargins,
-        placeholder('마크다운으로 적는다 — ⌘B 굵게 · ⌘K 링크 · "- [ ] " 체크박스'),
-        EditorView.lineWrapping,
+        ...markdownEditing(),
         yCollab(sync.text, awareness),
         EditorView.updateListener.of((update) => {
           if (update.focusChanged) {

@@ -36,7 +36,7 @@ export function DetailDrawer() {
           aria-describedby={undefined}
           onEscapeKeyDown={(e) => {
             // 입력 중인 Esc 는 그 입력의 취소지 드로어 닫기가 아니다 — 제목 편집뿐
-            // 아니라 설명 textarea 에서도 편집분이 날아가지 않게 걸러 낸다.
+            // 아니라 설명 편집기(CodeMirror — contenteditable)에서도 편집분이 날아가지 않게 걸러 낸다.
             if (isEditableTarget(e.target)) {
               e.preventDefault();
             }
