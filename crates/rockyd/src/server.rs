@@ -83,6 +83,8 @@ pub struct ServerOptions {
     pub inbox: Option<InboxProvider>,
     /// 사용 로그 싱크 — 없으면 안 남긴다(테스트·끈 설정).
     pub usage: Option<UsageSink>,
+    /// 로그 색인 DB(`logs.db`) — 색인 스레드가 쓰고 `/api/logs/*` 가 읽는다. 없으면 그 라우트는 빈 목록.
+    pub logs_db: Option<std::path::PathBuf>,
 }
 
 impl ServerOptions {
@@ -102,6 +104,7 @@ impl ServerOptions {
             inbox_adapters: Vec::new(),
             inbox: None,
             usage: None,
+            logs_db: None,
         }
     }
 }
@@ -124,6 +127,7 @@ pub struct ServerState {
     /// 설정 파일의 소스 이름 — 보드 수집함 이름이 겹치지 않게.
     inbox_config_names: Vec<String>,
     usage: UsageSink,
+    logs_db: Option<std::path::PathBuf>,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
     /// 노트별 문서 스트림(`GET /api/notes/:ref/doc/events`) — CRDT update 와 프레즌스만.
@@ -394,6 +398,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
             .map(|s| s.name.clone())
             .collect(),
         usage: options.usage.unwrap_or_else(noop_sink),
+        logs_db: options.logs_db,
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
@@ -1796,6 +1801,65 @@ async fn dispatch(
     }
 
     // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──
+    if *method == Method::GET && path == "/api/logs/worklog" {
+        // 보드를 고르면 그 보드 `path` 의 레포 작업로그만 — 키는 작업로그와 같은 함수로 계산한다(워크트리는 레포
+        // 루트로 접힌다). 보드에 path 가 없으면 고를 레포가 없다(`unlinked`).
+        let board = query
+            .get("board")
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty() && b != "all");
+        let board_path = match &board {
+            Some(key) => {
+                let Some(found) = store.list_boards(true)?.into_iter().find(|b| &b.key == key)
+                else {
+                    return Ok(error_response(
+                        &format!("보드가 없다: {key}"),
+                        StatusCode::NOT_FOUND,
+                    ));
+                };
+                match found.path {
+                    Some(path) => Some(path),
+                    None => return Ok(ok_json(&json!({ "entries": [], "unlinked": true }))),
+                }
+            }
+            None => None,
+        };
+        let text = |k: &str| {
+            query
+                .get(k)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
+        let limit = query
+            .get("limit")
+            .and_then(|l| l.parse::<usize>().ok())
+            .unwrap_or(50);
+        let mut worklog_query = rocky_core::logindex::WorklogQuery {
+            project_keys: None,
+            todo_ref: text("todo"),
+            kind: text("kind"),
+            text: text("q"),
+            before: text("before"),
+            limit,
+        };
+        let Some(db) = state.logs_db.clone() else {
+            return Ok(ok_json(&json!({ "entries": [] })));
+        };
+        let entries = tokio::task::spawn_blocking(move || {
+            if let Some(path) = board_path {
+                worklog_query.project_keys = Some(vec![rocky_core::worklog::default_project_key(
+                    std::path::Path::new(&path),
+                    &rocky_core::worklog::git_common_dir,
+                )]);
+            }
+            rocky_core::logindex::LogIndex::open(&db)
+                .and_then(|index| index.worklog(&worklog_query))
+        })
+        .await
+        .map_err(|e| StoreError::new(format!("작업로그 조회 스레드: {e}")))?
+        .map_err(|e| StoreError::new(format!("작업로그 조회: {e}")))?;
+        return Ok(ok_json(&json!({ "entries": entries })));
+    }
     if *method == Method::GET && path == "/api/prs/open" {
         let repo = query.get("repo").map(String::as_str).unwrap_or("").trim();
         if !rocky_core::prwatch::is_repo_slug(repo) {

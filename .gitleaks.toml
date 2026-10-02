@@ -1,0 +1,8 @@
+# gitleaks 설정 — 기본 규칙 위에 오탐만 걷는다.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "작업로그 프로젝트 키(<레포>-<sha1 8자>) — 비밀이 아니다"
+# 값으로 거른다: .gitleaksignore 의 지문은 커밋 SHA 를 담아 스택을 리베이스하면 다시 걸린다.
+regexes = ['''rocky-4745b950''']

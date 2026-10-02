@@ -203,6 +203,7 @@ pub async fn run_daemon(
     runtime: TodoRuntimeConfig,
     ui_dist: Option<PathBuf>,
     usage: Option<crate::usage_sink::UsageSink>,
+    usage_dir: Option<PathBuf>,
     pr_watch: rocky_core::config::PrWatchConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
@@ -266,8 +267,16 @@ pub async fn run_daemon(
         inbox_sources: runtime.inbox.clone(),
         inbox_adapters: runtime.inbox_adapters.clone(),
         usage,
+        logs_db: Some(runtime.dir.join("logs.db")),
         ..ServerOptions::new(store)
     });
+    // 로그 색인 — 작업로그·사용 로그(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
+    crate::logindex::spawn_indexer(
+        runtime.dir.join("logs.db"),
+        rocky_core::worklog::default_worklog_root(),
+        usage_dir,
+        std::time::Duration::from_secs(60),
+    );
     state.set_db_integrity(integrity);
     // 죽은 세션이 쥔 doing 자동 해제 — 기동 1분 뒤부터 10분마다.
     crate::sweep::spawn_sweeper(
@@ -405,11 +414,11 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
     let env = rocky_core::config::env_snapshot();
     let runtime = resolve_runtime_config(&env, &todo);
     // 사용 로그 — 켜져 있으면 파일 싱크, 아니면 안 남긴다.
-    let usage = rocky_core::config::resolve_usage_dir(
+    let usage_dir = rocky_core::config::resolve_usage_dir(
         &env,
         &rocky_core::config::load_usage_block(&config_path),
-    )
-    .map(crate::usage_sink::file_sink);
+    );
+    let usage = usage_dir.clone().map(crate::usage_sink::file_sink);
     let pr_watch = rocky_core::config::load_pr_block(&config_path);
-    run_daemon(runtime, ui_dist, usage, pr_watch).await
+    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch).await
 }

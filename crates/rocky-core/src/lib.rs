@@ -11,6 +11,7 @@ pub mod handoff;
 pub mod ids;
 pub mod inbox;
 pub mod local_request;
+pub mod logindex;
 pub mod migrations;
 pub mod next;
 pub mod note_doc;

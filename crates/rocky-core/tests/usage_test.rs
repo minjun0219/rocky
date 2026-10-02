@@ -37,6 +37,10 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         normalize_route("GET", "/api/todos").as_deref(),
         Some("GET /api/todos")
     );
+    assert_eq!(
+        normalize_route("GET", "/api/logs/worklog?board=rocky").as_deref(),
+        Some("GET /api/logs/worklog")
+    );
     // 셋째 자리가 동작 이름인 라우트는 접지 않는다.
     assert_eq!(
         normalize_route("POST", "/api/handoffs/claim").as_deref(),
