@@ -107,6 +107,45 @@ describe('botVerdict', () => {
     );
   });
 
+  it('봇이 한도에 걸렸다고 알렸으면 limited — 그 뒤 봇이 다시 리뷰·👍 하면 그쪽', () => {
+    const limit = (
+      createdAt: string,
+      body = 'You have reached your Codex usage limits for code reviews.',
+    ) => ({
+      author: { login: 'chatgpt-codex-connector' },
+      body,
+      createdAt,
+    });
+    // 한도 코멘트만 — 기다릴 봇이 없다(head 전이어도: Codex 는 푸시를 다시 보지 않는다)
+    expect(botVerdict([], [], head, undefined, [limit('2026-09-28T00:30:00Z')])).toBe('limited');
+    expect(botVerdict([], [], head, undefined, [limit('2026-09-28T01:02:00Z')])).toBe('limited');
+    // 사람이 같은 문구를 쓴 건 아니다, 봇의 다른 코멘트도 아니다
+    expect(
+      botVerdict([], [], head, undefined, [
+        { ...limit('2026-09-28T01:02:00Z'), author: { login: 'minjun0219' } },
+      ]),
+    ).toBe('pending');
+    expect(
+      botVerdict([], [], head, undefined, [limit('2026-09-28T01:02:00Z', '리뷰를 시작합니다')]),
+    ).toBe('pending');
+    // 한도 뒤에 봇이 다시 움직였다(옛 head 의 👀 등) — 한도가 풀렸으니 다시 기다린다
+    expect(
+      botVerdict(
+        [],
+        [thumbs('chatgpt-codex-connector', '2026-09-28T00:40:00Z', 'EYES')],
+        head,
+        undefined,
+        [limit('2026-09-28T00:30:00Z')],
+      ),
+    ).toBe('pending');
+    // 이 head 의 리뷰·👍 가 있으면 그게 먼저
+    expect(
+      botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T01:03:00Z')], head, undefined, [
+        limit('2026-09-28T01:04:00Z'),
+      ]),
+    ).toBe('clean');
+  });
+
   it('본문의 봇 👍 = clean — 사람 👍·👀·head 이전 것은 아니다', () => {
     expect(botVerdict([], [thumbs('chatgpt-codex-connector', '2026-09-28T01:03:00Z')], head)).toBe(
       'clean',

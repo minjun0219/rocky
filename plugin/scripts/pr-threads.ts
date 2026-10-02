@@ -16,7 +16,7 @@
  * bun scripts/pr-threads.ts watch 154 [--wait-bot] [--timeout 300]
  *   # CI 가 끝날 때까지 → 현재 head 의 봇 신호(리뷰 코멘트 또는 본문 👍)가 올 때까지(또는 timeout) 기다린 뒤 list 출력
  *   # 기본은 봇을 기다리지 않는다 — CI 만 기다린 뒤 지금 상태를 낸다. `--wait-bot` 이면 봇 신호가 올 때까지(또는 timeout).
- *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / pending(아직·안 옴). botSeen: 이 PR 에 봇 흔적이 있는가
+ *   # verdict: findings(리뷰 제출) / clean(👍 만 — 지적 없음) / limited(봇이 한도에 걸렸다고 알림 — 기다리지 않는다) / pending(아직·안 옴). botSeen: 이 PR 에 봇 흔적이 있는가
  * bun scripts/pr-threads.ts ready 154           # "머지 후보인가" 한 번에 — CI 초록 + 상태 없는 스레드 없음 + 👀(결정 필요) 없음. exit 0/1
  * bun scripts/pr-threads.ts transitions --interval 60
  *   # 열린 PR 전체를 돌며 MERGED / CLOSED / DIRTY / CONFLICTING 전이만 한 줄씩 — Monitor 에 물린다
@@ -129,9 +129,17 @@ export type ReviewNode = {
 };
 /** PR 본문에 달린 리액션 — Codex 는 지적이 없으면 코멘트 대신 여기에 👍 만 남긴다. */
 export type ReactionNode = { content: string; createdAt: string; user: { login: string } | null };
+/** PR 대화 코멘트 — Codex 는 사용 한도에 걸리면 여기에 "You have reached your Codex usage limits" 를 남긴다. */
+export type CommentNode = { author: { login: string } | null; body: string; createdAt: string };
 
-/** 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만. */
-export type BotVerdict = 'pending' | 'findings' | 'clean';
+/** 봇이 "리뷰 못 한다"고 남기는 문구 — 한도. */
+const BOT_LIMIT = /usage limits?/i;
+
+/**
+ * 봇 리뷰 판정. `pending` = 아직(또는 안) 봄, `findings` = 리뷰 코멘트 제출, `clean` = 👍 만,
+ * `limited` = 봇이 사용 한도에 걸려 리뷰하지 못한다고 알렸다(기다릴 봇이 없다 — 알림을 막지 않는다).
+ */
+export type BotVerdict = 'pending' | 'findings' | 'clean' | 'limited';
 
 /**
  * 리뷰 봇 로그인인가. 리뷰 author 는 `chatgpt-codex-connector`, 본문 리액션의 user 는
@@ -173,6 +181,7 @@ export function botVerdict(
   reactions: ReactionNode[],
   headCommittedAt: string,
   head?: string,
+  comments: CommentNode[] = [],
 ): BotVerdict {
   const headAt = Date.parse(headCommittedAt);
   const isBot = isReviewBot;
@@ -190,7 +199,23 @@ export function botVerdict(
   const clean = reactions.some(
     (r) => isBot(r.user?.login) && r.content === 'THUMBS_UP' && Date.parse(r.createdAt) > headAt,
   );
-  return clean ? 'clean' : 'pending';
+  if (clean) {
+    return 'clean';
+  }
+  // 이 head 에 대한 신호가 없는데 봇의 가장 최근 소식이 "한도에 걸렸다" 면 기다릴 봇이 없다(2026-10-02 오너:
+  // 그럴 땐 완료 알림을 보낸다). 한도가 풀린 뒤 봇이 다시 리뷰·리액션을 남기면 그게 더 최근이라 이 판정은 꺼진다.
+  const lastAt = (times: (string | null | undefined)[]) =>
+    Math.max(0, ...times.map((t) => (t ? Date.parse(t) : 0)));
+  const lastLimit = lastAt(
+    comments
+      .filter((c) => isBot(c.author?.login) && BOT_LIMIT.test(c.body))
+      .map((c) => c.createdAt),
+  );
+  const lastOther = lastAt([
+    ...reviews.filter((r) => isBot(r.author?.login)).map((r) => r.submittedAt),
+    ...reactions.filter((r) => isBot(r.user?.login)).map((r) => r.createdAt),
+  ]);
+  return lastLimit > 0 && lastLimit >= lastOther ? 'limited' : 'pending';
 }
 
 export type CiState = 'pass' | 'fail' | 'pending';
@@ -482,6 +507,7 @@ query($owner:String!, $repo:String!, $num:Int!, $after:String) {
     commits(last:1){ nodes{ commit{ committedDate } } }
     reviews(last:30){ nodes{ author{ login } submittedAt commit{ oid } } }
     reactions(first:30){ nodes{ content createdAt user{ login } } }
+    comments(last:20){ nodes{ author{ login } body createdAt } }
     reviewRequests(first:20){ nodes{ requestedReviewer{
       ... on User{ login } ... on Bot{ login } ... on Mannequin{ login } ... on Team{ name } } } }
     reviewThreads(first:100, after:$after){
@@ -505,6 +531,7 @@ type PrData = {
       commits: { nodes: Array<{ commit: { committedDate: string } }> };
       reviews: { nodes: ReviewNode[] };
       reactions: { nodes: ReactionNode[] };
+      comments: { nodes: CommentNode[] };
       reviewRequests: {
         nodes: Array<{ requestedReviewer: { login?: string; name?: string } | null }>;
       };
@@ -525,6 +552,7 @@ export type PrSnapshot = {
   me: string;
   reviews: ReviewNode[];
   reactions: ReactionNode[];
+  comments: CommentNode[];
   threads: ThreadSummary[];
   /** 리뷰를 요청받고 아직 응답하지 않은 리뷰어(사람·봇·팀) — GitHub 이 응답하면 목록에서 뺀다. */
   pendingReviewers: string[];
@@ -562,6 +590,7 @@ function snapshot(slug: Slug, pr: number): PrSnapshot {
     me: first.viewer.login,
     reviews: p.reviews.nodes,
     reactions: p.reactions.nodes,
+    comments: p.comments.nodes,
     threads,
     pendingReviewers: p.reviewRequests.nodes
       .map((n) => n.requestedReviewer?.login ?? n.requestedReviewer?.name)
@@ -655,11 +684,23 @@ async function watch(
   const ci = checks.exitCode === 0 ? 'pass' : 'fail';
   const deadline = Date.now() + timeoutSec * 1000;
   let snap = snapshot(slug, pr);
-  let verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
+  let verdict = botVerdict(
+    snap.reviews,
+    snap.reactions,
+    snap.headCommittedAt,
+    snap.head,
+    snap.comments,
+  );
   while (waitBot && verdict === 'pending' && Date.now() < deadline) {
     await sleep(10_000);
     snap = snapshot(slug, pr);
-    verdict = botVerdict(snap.reviews, snap.reactions, snap.headCommittedAt, snap.head);
+    verdict = botVerdict(
+      snap.reviews,
+      snap.reactions,
+      snap.headCommittedAt,
+      snap.head,
+      snap.comments,
+    );
   }
   return { ...snap, ci, verdict };
 }
