@@ -37,7 +37,7 @@ fn all(index: &LogIndex) -> Vec<String> {
 fn worklog_is_ingested_incrementally_and_idempotently() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("worklog");
-    let file = root.join("rocky-4745b950").join("worklog.jsonl");
+    let file = root.join("rocky-proj").join("worklog.jsonl");
     let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
 
     append(
@@ -76,7 +76,7 @@ fn worklog_is_ingested_incrementally_and_idempotently() {
         })
         .unwrap();
     assert_eq!(held.len(), 1);
-    assert_eq!(held[0].project_key, "rocky-4745b950");
+    assert_eq!(held[0].project_key, "rocky-proj");
     assert_eq!(held[0].todo_ref.as_deref(), Some("rocky-12"));
 }
 
