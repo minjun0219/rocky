@@ -139,9 +139,7 @@ pub fn client_of(x_rocky_client: Option<&str>, user_agent: Option<&str>) -> Stri
         return c.to_string();
     }
     let ua = user_agent.unwrap_or("");
-    if ua.contains("rocky-tui") {
-        "tui".into()
-    } else if ua.contains("rocky") || ua.starts_with("ureq") {
+    if ua.contains("rocky") || ua.starts_with("ureq") {
         "cli".into()
     } else if ua.contains("Mozilla") {
         "web".into()
@@ -320,7 +318,6 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky history"),
     (UsageSource::Cli, "rocky board"),
     (UsageSource::Cli, "rocky board review-fix"),
-    (UsageSource::Cli, "rocky tui"),
     (UsageSource::Cli, "rocky open"),
     (UsageSource::Cli, "rocky daemon"),
     (UsageSource::Cli, "rocky mcp"),

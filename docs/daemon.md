@@ -11,8 +11,7 @@
 - **터미널의 `rocky`**: 부트스트랩(`plugin/bin/rocky`)이 SessionStart 에서 `~/.local/bin/rocky` →
   `$XDG_DATA_HOME|~/.local/share/rocky/current/rocky` 링크를 건다(`link_cli`; 남의 실제 파일이면 안
   건드림). `~/.local/bin` 이 PATH 에 있는지는 셸 몫 — `rocky config show` 의 `cli` 행이 링크 없음 /
-  PATH 없음을 가르고, `rocky config link` 가 지금 건다. 링크로 불렸을 때 형제 바이너리(`rockyd`·
-  `rocky-tui`)는 `sibling_binary` 가 `canonicalize` 한 실제 파일 옆에서 찾는다.
+  PATH 없음을 가르고, `rocky config link` 가 지금 건다. 링크로 불렸을 때 형제 바이너리(`rockyd`)는 `sibling_binary` 가 `canonicalize` 한 실제 파일 옆에서 찾는다.
 - **데몬 기동**: SessionStart(startup) 훅 `rocky hook ensure-daemon`(`rocky_cli::hooks`)이
   health→없으면 detached spawn.
   CLI 도 온디맨드 spawn. 상시 상주는 `rocky daemon install`(launchd KeepAlive).
@@ -132,9 +131,9 @@
 - **노트 본문은 CRDT 문서다**(`rocky_core::note_doc`, Yjs 호환 `yrs`; 설계
   `docs/design/specs/2026-09-28-note-crdt-design.md`, 오너 결정 2026-09-28 — `yrs`/`yjs` 두 런타임
   의존성은 그 결정으로 승인됐다). 사람(웹 `yjs`)과 에이전트(MCP `note_write`·CLI 의 set/append)가
-  같은 메모를 동시에 고쳐도 글자 단위로 합쳐진다. **데몬이 CRDT 피어**라 에이전트·CLI·TUI 는
+  같은 메모를 동시에 고쳐도 글자 단위로 합쳐진다. **데몬이 CRDT 피어**라 에이전트·CLI 는
   Yjs 를 모른다 — `update_note` 의 set 은 통째 교체가 아니라 공통 접두·접미를 뺀 **최소 편집**으로
-  문서에 들어가고, append 는 끝에 삽입이다. `notes.content` 는 **읽는 쪽의 진실**(목록·TUI·CLI·
+  문서에 들어가고, append 는 끝에 삽입이다. `notes.content` 는 **읽는 쪽의 진실**(목록·CLI·
   요약은 그대로), `note_docs.state`(user_version 7)는 **합치는 쪽의 진실**이다; 문서를 열 때
   둘이 어긋나면(구버전 데몬이 content 만 고친 경우) content 에 맞추고, 씨앗을 심거나 맞춘 문서는
   **읽기 경로여도 그 자리에서 저장한다** — 안 그러면 열 때마다 다른 client id 의 새 문서가 생겨

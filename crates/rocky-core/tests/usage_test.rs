@@ -71,8 +71,8 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
 
 #[test]
 fn client_prefers_the_header_then_guesses_from_user_agent() {
-    assert_eq!(client_of(Some("tui"), Some("Mozilla/5.0")), "tui");
-    assert_eq!(client_of(Some("  "), Some("rocky-tui/0.1")), "tui");
+    assert_eq!(client_of(Some("mcp"), Some("Mozilla/5.0")), "mcp");
+    assert_eq!(client_of(Some("  "), Some("rocky-cli/0.1")), "cli");
     assert_eq!(client_of(None, Some("ureq/3")), "cli");
     assert_eq!(client_of(None, Some("Mozilla/5.0 Safari")), "web");
     assert_eq!(client_of(None, None), "other");
@@ -191,7 +191,7 @@ fn report_counts_errors_latency_unused_and_distribution() {
         (UsageSource::Mcp, "todo_list"),
         (UsageSource::Mcp, "todo_write"),
         (UsageSource::Cli, "rocky board"),
-        (UsageSource::Cli, "rocky tui"),
+        (UsageSource::Cli, "rocky open"),
         (UsageSource::Hook, "hook notify-todo"),
     ];
     let r = build_report(
@@ -213,7 +213,7 @@ fn report_counts_errors_latency_unused_and_distribution() {
         r.unused,
         vec![
             (UsageSource::Mcp, "todo_write".to_string()),
-            (UsageSource::Cli, "rocky tui".to_string()),
+            (UsageSource::Cli, "rocky open".to_string()),
         ]
     );
     assert_eq!(
@@ -226,7 +226,7 @@ fn report_counts_errors_latency_unused_and_distribution() {
     assert!(text.contains("5건"));
     assert!(text.contains("todo_list  ✗1  8/100ms"));
     assert!(text.contains("안 쓴 표면 2개"));
-    assert!(text.contains("rocky tui"));
+    assert!(text.contains("rocky open"));
 }
 
 #[test]
