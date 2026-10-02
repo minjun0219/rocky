@@ -168,7 +168,73 @@ type EventSourceLike = {
 };
 type EventSourceCtor = new (url: string) => EventSourceLike;
 
+/**
+ * 노트 문서가 오가는 길 — 문서 받기·편집 보내기·프레즌스·구독. 웹은 소켓 하나로(`WsTransport`), 소켓을 못 열면
+ * 예전처럼 HTTP(GET/POST + 노트별 SSE, `HttpTransport`)로 간다. `NoteSync` 는 어느 길인지 모른다.
+ */
+export interface NoteTransport {
+  getDoc(noteId: string, sv?: string): Promise<{ update: string; sv?: string }>;
+  postUpdate(noteId: string, update: string, client: string): Promise<void>;
+  postPresence(noteId: string, client: string, state: unknown): Promise<void>;
+  /** 구독 — 붙을 때마다(재접속·밀림 포함) `open` 이 불린다: 그때 상태 벡터로 빠진 것을 다시 받는다. 돌려주는 함수로 끊는다. */
+  subscribe(noteId: string, on: { open(): void; event(e: NoteEvent): void }): () => void;
+}
+
+/** HTTP 판 — 노트마다 SSE, 편집·프레즌스는 건마다 POST. 소켓을 못 열 때의 폴백이자 테스트의 길. */
+export class HttpTransport implements NoteTransport {
+  constructor(
+    private readonly actor: string,
+    private readonly fetchImpl: FetchLike = (input, init) => fetch(input, init),
+    private readonly EventSourceImpl: EventSourceCtor = EventSource as unknown as EventSourceCtor,
+  ) {}
+
+  getDoc(noteId: string, sv?: string) {
+    const qs = sv ? `?sv=${encodeURIComponent(sv)}` : '';
+    return this.request<{ update: string; sv?: string }>('GET', `/api/notes/${noteId}/doc${qs}`);
+  }
+
+  async postUpdate(noteId: string, update: string, client: string) {
+    await this.request('POST', `/api/notes/${noteId}/doc`, { update, client });
+  }
+
+  async postPresence(noteId: string, client: string, state: unknown) {
+    await this.request('POST', `/api/notes/${noteId}/presence`, { client, state });
+  }
+
+  subscribe(noteId: string, on: { open(): void; event(e: NoteEvent): void }) {
+    const source = new this.EventSourceImpl(`/api/notes/${noteId}/doc/events`);
+    source.onopen = () => on.open();
+    source.onmessage = (e) => {
+      try {
+        on.event(JSON.parse(e.data as string) as NoteEvent);
+      } catch {
+        // 깨진 한 건은 버린다 — 다음 재접속의 차분이 메운다.
+      }
+    };
+    source.onerror = () => {};
+    return () => source.close();
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await this.fetchImpl(path, {
+      method,
+      headers: {
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        'x-rocky-actor': this.actor,
+        'x-rocky-client': 'web',
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`${method} ${path} → ${res.status}`);
+    }
+    return (await res.json()) as T;
+  }
+}
+
 export interface NoteSyncDeps {
+  /** 길을 직접 준다(테스트·소켓). 없고 `fetch`·`EventSource` 도 없으면 공유 소켓(`sharedNoteTransport`). */
+  transport?: NoteTransport;
   fetch?: FetchLike;
   EventSource?: EventSourceCtor;
   /** 테스트용 client id. */
@@ -185,9 +251,8 @@ export class NoteSync {
   onPresenceState: ((client: string, state: unknown) => void) | null = null;
   presence: Presence[] = [];
 
-  private readonly fetchImpl: FetchLike;
-  private readonly EventSourceImpl: EventSourceCtor;
-  private source: EventSourceLike | null = null;
+  private readonly transport: NoteTransport;
+  private unsubscribe: (() => void) | null = null;
   private pending: Uint8Array[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -202,16 +267,16 @@ export class NoteSync {
   ) {
     this.text = this.doc.getText(TEXT_KEY);
     this.client = deps.client ?? Math.random().toString(36).slice(2, 10);
-    this.fetchImpl = deps.fetch ?? ((input, init) => fetch(input, init));
-    this.EventSourceImpl = deps.EventSource ?? (EventSource as unknown as EventSourceCtor);
+    this.transport =
+      deps.transport ??
+      (deps.fetch || deps.EventSource
+        ? new HttpTransport(actor, deps.fetch, deps.EventSource)
+        : sharedNoteTransport(actor));
   }
 
   /** 전체 상태를 받아 문서에 넣고 SSE 를 구독한다. 실패하면 던진다 — 호출자가 idle 로 돌린다. */
   async open(): Promise<void> {
-    const body = await this.request<{ update: string; sv: string }>(
-      'GET',
-      `/api/notes/${this.noteId}/doc`,
-    );
+    const body = await this.transport.getDoc(this.noteId);
     Y.applyUpdate(this.doc, fromB64(body.update), REMOTE);
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === REMOTE || this.closed) {
@@ -246,10 +311,7 @@ export class NoteSync {
   /** 내가 보고 있다는 신호. `state` 는 남에게 그대로 전달된다(커서 등 — 편집기가 정한다). */
   async ping(state?: unknown): Promise<void> {
     try {
-      await this.request('POST', `/api/notes/${this.noteId}/presence`, {
-        client: this.client,
-        state: state ?? null,
-      });
+      await this.transport.postPresence(this.noteId, this.client, state ?? null);
     } catch {
       // 프레즌스는 있으면 좋은 것 — 실패해도 편집은 계속된다.
     }
@@ -267,10 +329,7 @@ export class NoteSync {
     const merged = Y.mergeUpdates(this.pending);
     this.pending = [];
     try {
-      await this.request('POST', `/api/notes/${this.noteId}/doc`, {
-        update: toB64(merged),
-        client: this.client,
-      });
+      await this.transport.postUpdate(this.noteId, toB64(merged), this.client);
     } catch {
       this.pending.unshift(merged);
       if (!this.closed && !this.retryTimer) {
@@ -318,8 +377,8 @@ export class NoteSync {
   /** 구독을 끊고 남은 편집을 보낸다. 이후의 로컬 편집은 보내지 않는다. */
   close(): void {
     this.closed = true;
-    this.source?.close();
-    this.source = null;
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
@@ -351,21 +410,12 @@ export class NoteSync {
   }
 
   private subscribe(): void {
-    const source = new this.EventSourceImpl(`/api/notes/${this.noteId}/doc/events`);
-    source.onopen = () => {
-      // 붙을 때마다 내 state vector 로 차분을 받는다 — 첫 접속도 예외가 아니다: GET 스냅숏과
-      // 구독 등록 사이에 남이 보낸 update 는 듣는 이가 없어 사라진다. 재접속이면 끊긴 사이 것.
-      void this.resync();
-    };
-    source.onmessage = (e) => {
-      try {
-        this.handle(JSON.parse(e.data as string) as NoteEvent);
-      } catch {
-        // 깨진 한 건은 버린다 — 다음 재접속의 차분이 메운다.
-      }
-    };
-    source.onerror = () => {};
-    this.source = source;
+    // 붙을 때마다 내 state vector 로 차분을 받는다 — 첫 접속도 예외가 아니다: 스냅숏과 구독 등록 사이에 남이
+    // 보낸 update 는 듣는 이가 없어 사라진다. 재접속·밀림이면 끊긴 사이 것.
+    this.unsubscribe = this.transport.subscribe(this.noteId, {
+      open: () => void this.resync(),
+      event: (e) => this.handle(e),
+    });
   }
 
   private async resync(): Promise<void> {
@@ -373,30 +423,247 @@ export class NoteSync {
       return;
     }
     try {
-      const sv = encodeURIComponent(toB64(Y.encodeStateVector(this.doc)));
-      const body = await this.request<{ update: string }>(
-        'GET',
-        `/api/notes/${this.noteId}/doc?sv=${sv}`,
-      );
+      const body = await this.transport.getDoc(this.noteId, toB64(Y.encodeStateVector(this.doc)));
       this.applyRemote(fromB64(body.update));
     } catch {
       // 다음 재접속에 다시.
     }
   }
+}
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(path, {
-      method,
-      headers: {
-        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-        'x-rocky-actor': this.actor,
-        'x-rocky-client': 'web',
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (!res.ok) {
-      throw new Error(`${method} ${path} → ${res.status}`);
-    }
-    return (await res.json()) as T;
+type WebSocketLike = {
+  readyState: number;
+  onopen: ((e: Event) => void) | null;
+  onmessage: ((e: MessageEvent) => void) | null;
+  onclose: ((e: CloseEvent) => void) | null;
+  onerror: ((e: Event) => void) | null;
+  send(data: string): void;
+  close(): void;
+};
+type WebSocketCtor = new (url: string) => WebSocketLike;
+const WS_OPEN = 1;
+
+/** 소켓이 안 붙을 때 이만큼 기다리다 그 요청은 HTTP 로 보낸다. */
+export const WS_CONNECT_TIMEOUT_MS = 3_000;
+/** 끊긴 소켓을 다시 붙이는 간격 — 두 배씩, 상한까지. */
+export const WS_RETRY_MAX_MS = 30_000;
+
+/**
+ * 소켓 판 — 열린 모든 노트가 연결 **하나**를 같이 쓴다(`/api/ws`, 프로토콜은 `rockyd::ws`). 예전엔 노트마다 SSE 에
+ * 편집마다 POST 라 브라우저의 호스트당 연결 한도(6개)에 걸렸다.
+ *
+ * - 요청은 `id` 로 답을 짝짓는다. 소켓이 `WS_CONNECT_TIMEOUT_MS` 안에 안 붙거나 한 번도 못 붙었으면 그 요청은
+ *   HTTP 로 보낸다 — 편집이 소켓 때문에 멈추지 않는다.
+ * - 구독은 붙을 때마다 다시 건다. `subbed`·`lag` 가 오면 그 노트의 `open` — 상태 벡터로 빠진 것을 다시 받는다.
+ * - 구독이 있는데 끊기면 1·2·4…30초로 다시 붙는다.
+ */
+export class WsTransport implements NoteTransport {
+  private socket: WebSocketLike | null = null;
+  private everOpened = false;
+  private failedBeforeOpen = false;
+  private nextId = 1;
+  private retryMs = 1_000;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly pending = new Map<
+    number,
+    { resolve(body: unknown): void; reject(e: Error): void }
+  >();
+  private readonly subs = new Map<string, { open(): void; event(e: NoteEvent): void }>();
+  private waiters: Array<(open: boolean) => void> = [];
+
+  constructor(
+    private readonly url: string,
+    private readonly fallback: NoteTransport,
+    private readonly WebSocketImpl: WebSocketCtor = WebSocket as unknown as WebSocketCtor,
+  ) {}
+
+  async getDoc(noteId: string, sv?: string) {
+    return this.call({ t: 'doc', note: noteId, ...(sv ? { sv } : {}) }, () =>
+      this.fallback.getDoc(noteId, sv),
+    ) as Promise<{ update: string; sv?: string }>;
   }
+
+  async postUpdate(noteId: string, update: string, client: string) {
+    await this.call({ t: 'update', note: noteId, update, client }, () =>
+      this.fallback.postUpdate(noteId, update, client),
+    );
+  }
+
+  async postPresence(noteId: string, client: string, state: unknown) {
+    await this.call({ t: 'presence', note: noteId, client, state }, () =>
+      this.fallback.postPresence(noteId, client, state),
+    );
+  }
+
+  subscribe(noteId: string, on: { open(): void; event(e: NoteEvent): void }) {
+    if (this.failedBeforeOpen) {
+      return this.fallback.subscribe(noteId, on);
+    }
+    this.subs.set(noteId, on);
+    this.connect();
+    if (this.socket?.readyState === WS_OPEN) {
+      this.socket.send(JSON.stringify({ t: 'sub', note: noteId }));
+    }
+    return () => {
+      this.subs.delete(noteId);
+      if (this.socket?.readyState === WS_OPEN) {
+        this.socket.send(JSON.stringify({ t: 'unsub', note: noteId }));
+      }
+    };
+  }
+
+  private async call(
+    frame: Record<string, unknown>,
+    viaHttp: () => Promise<unknown>,
+  ): Promise<unknown> {
+    if (this.failedBeforeOpen || !(await this.ready())) {
+      return viaHttp();
+    }
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.socket?.send(JSON.stringify({ ...frame, id }));
+    });
+  }
+
+  /** 열려 있으면 바로, 아니면 붙을 때까지(최대 `WS_CONNECT_TIMEOUT_MS`). */
+  private ready(): Promise<boolean> {
+    if (this.socket?.readyState === WS_OPEN) {
+      return Promise.resolve(true);
+    }
+    this.connect();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.waiters = this.waiters.filter((w) => w !== done);
+        resolve(false);
+      }, WS_CONNECT_TIMEOUT_MS);
+      const done = (open: boolean) => {
+        clearTimeout(timer);
+        resolve(open);
+      };
+      this.waiters.push(done);
+    });
+  }
+
+  private connect(): void {
+    if (this.socket || this.failedBeforeOpen) {
+      return;
+    }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    let socket: WebSocketLike;
+    try {
+      socket = new this.WebSocketImpl(this.url);
+    } catch {
+      this.giveUp();
+      return;
+    }
+    this.socket = socket;
+    socket.onopen = () => {
+      this.everOpened = true;
+      this.retryMs = 1_000;
+      for (const noteId of this.subs.keys()) {
+        socket.send(JSON.stringify({ t: 'sub', note: noteId }));
+      }
+      this.flushWaiters(true);
+    };
+    socket.onmessage = (e) => this.receive(e.data as string);
+    socket.onerror = () => {};
+    socket.onclose = () => {
+      this.socket = null;
+      for (const [, p] of this.pending) {
+        p.reject(new Error('socket closed'));
+      }
+      this.pending.clear();
+      if (!this.everOpened) {
+        // 한 번도 못 붙었다 — 프록시가 막는 등. 이 탭에서는 HTTP 로 간다.
+        this.giveUp();
+        return;
+      }
+      this.flushWaiters(false);
+      if (this.subs.size > 0) {
+        this.retryTimer = setTimeout(() => this.connect(), this.retryMs);
+        this.retryMs = Math.min(this.retryMs * 2, WS_RETRY_MAX_MS);
+      }
+    };
+  }
+
+  private giveUp(): void {
+    this.failedBeforeOpen = true;
+    this.socket = null;
+    this.flushWaiters(false);
+    // 이미 걸린 구독은 HTTP 로 옮긴다.
+    for (const [noteId, on] of this.subs) {
+      this.fallback.subscribe(noteId, on);
+    }
+    this.subs.clear();
+  }
+
+  private flushWaiters(open: boolean): void {
+    const waiters = this.waiters;
+    this.waiters = [];
+    for (const w of waiters) {
+      w(open);
+    }
+  }
+
+  private receive(raw: string): void {
+    let frame: {
+      t?: string;
+      id?: number;
+      note?: string;
+      body?: unknown;
+      error?: string;
+      ev?: NoteEvent;
+    };
+    try {
+      frame = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (frame.t === 'ok' || frame.t === 'err') {
+      const p = frame.id === undefined ? undefined : this.pending.get(frame.id);
+      if (!p || frame.id === undefined) {
+        return;
+      }
+      this.pending.delete(frame.id);
+      if (frame.t === 'ok') {
+        p.resolve(frame.body);
+      } else {
+        p.reject(new Error(frame.error ?? 'socket error'));
+      }
+      return;
+    }
+    const on = frame.note ? this.subs.get(frame.note) : undefined;
+    if (!on) {
+      return;
+    }
+    if (frame.t === 'subbed' || frame.t === 'lag') {
+      on.open();
+    } else if (frame.t === 'ev' && frame.ev) {
+      on.event(frame.ev);
+    }
+  }
+}
+
+const shared = new Map<string, NoteTransport>();
+
+/** 이 탭의 노트 소켓 — actor 마다 하나. 브라우저 밖(테스트)이면 HTTP. */
+export function sharedNoteTransport(actor: string): NoteTransport {
+  const existing = shared.get(actor);
+  if (existing) {
+    return existing;
+  }
+  const http = new HttpTransport(actor);
+  const transport =
+    typeof WebSocket === 'undefined' || typeof location === 'undefined'
+      ? http
+      : new WsTransport(
+          `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws?actor=${encodeURIComponent(actor)}`,
+          http,
+        );
+  shared.set(actor, transport);
+  return transport;
 }

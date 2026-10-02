@@ -150,18 +150,21 @@
   끊기면 브라우저가 다시 붙어 `GET …/doc?sv=` 로 차분을 받는다(전역 `/api/events` 는 반대로
   건너뛰고 이어 간다). 구독(`subscribe_note`)은 맵 락 안에서 끝낸다 — 보내는 쪽이 "듣는 이 0"
   채널을 걷어 내므로, 채널을 꺼낸 뒤 구독하기 전에 방송이 끼면 걷힌 채널을 구독하게 된다.
-  전송은 HTTP + **노트별 SSE**(`GET /api/notes/:ref/doc[?sv=]` · `POST …/doc {update}` ·
-  `GET …/doc/events` · `POST …/presence`) — 전역 `/api/events` 에는 싣지 않는다(그 채널의
-  구독자는 전부 refetch 한다). 웹 편집의 히스토리는 같은 actor 60초 창으로 **묶는다**
+  전송은 **웹소켓 하나**(`GET /api/ws`, `rockyd::ws` — 2026-10-02): 열린 노트가 연결 하나로 문서(`doc`)·편집
+  (`update`)·프레즌스(`presence`)·구독(`sub` → `ev`, 밀리면 `lag` → 클라이언트가 sv 차분)을 오간다. 핸드셰이크에서
+  REST 변경과 같은 cross-site 가드를 건다(웹소켓은 CORS 밖이다). 같은 일의 HTTP 라우트(`GET /api/notes/:ref/doc[?sv=]` ·
+  `POST …/doc {update}` · `GET …/doc/events`(노트별 SSE) · `POST …/presence`)는 소켓을 못 열 때의 폴백으로 남는다.
+  전역 `/api/events` 에는 싣지 않는다(그 채널의 구독자는 전부 refetch 한다). 웹 편집의 히스토리는 같은 actor 60초 창으로 **묶는다**
   (`NOTE_EDIT_COALESCE_SECS`; 글자마다 한 줄이면 `/api/changes` → 세션 주입까지 잡음이 된다).
   사용 로그는 여는 `GET …/doc` 만 남기고 편집·프레즌스·스트림은 모양으로 거른다(`SKIPPED_SHAPES`).
   제목은 CRDT 가 아니다(`PATCH` 그대로). MCP 도구 수는 그대로 5.
-  웹 쪽은 `web/notedoc.ts`(`NoteSync`: 열기·150ms 배치 POST·노트별 SSE·재접속 시 sv 차분·
-  프레즌스; `fetch`/`EventSource` 주입으로 단위 테스트). 편집기는 `web/codemirror-editor.ts`
+  웹 쪽은 `web/notedoc.ts`(`NoteSync`: 열기·150ms 배치 전송·구독·재접속 시 sv 차분·프레즌스) 아래에 길
+  (`NoteTransport`)이 둘 — `WsTransport`(탭에 하나, `sharedNoteTransport`; 한 번도 못 붙으면 HTTP 로) ·
+  `HttpTransport`(폴백·`fetch`/`EventSource` 주입 테스트). 편집기는 `web/codemirror-editor.ts`
   (CodeMirror 6 + `y-codemirror.next`) 하나다 — 결정 6 의 두 후보 중 textarea 를 2026-09-30 에
   걷었다. y-protocols `Awareness` 를 프레즌스 라우트의 `state`(awareness update 의 base64)에 실어
   나른다(`bridgeAwareness`) — 상대 커서·선택 영역. 편집기 세션은 본문을 누르면(상세는 열자마자) 열고
-  blur 20초 뒤 닫는다 — 노트마다 늘 SSE 를 물면 브라우저의 호스트당 연결 한도(HTTP/1.1 6개)에 걸린다.
+  blur 20초 뒤 닫는다(소켓 이전엔 노트마다 SSE 라 호스트당 연결 한도 때문이었고, 지금은 구독·프레즌스를 줄이려고).
   마크다운(GFM) 꾸밈과 서식 명령(`web/markdown-commands.ts`, ⌘B·⌘I·⌘K·툴바)이 같은 편집기에 붙는다.
 - **번호 참조(ref)**: todo/note 는 랜덤 id(`921gvwnr`, PK 로 유지) 외에 보드별 순번을 갖는다.
   id 를 받는 자리는 어디서든 `rocky-12`(보드 접두사) → `12`(현재 보드 컨텍스트 안의

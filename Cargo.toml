@@ -23,7 +23,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rand = "0.9"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "time", "net"] }
-axum = "0.8"
+# `ws` — 웹 노트 동시 편집을 소켓 하나로(문서·편집·프레즌스). 새 런타임 의존성(tokio-tungstenite)은 2026-10-02
+# 오너 허가 — 노트마다 SSE + 편집마다 POST 이던 것을 대신한다(호스트당 연결 한도).
+axum = { version = "0.8", features = ["ws"] }
+# 테스트 전용 — 노트 소켓을 실제 클라이언트로 두드린다. 둘 다 axum `ws` 가 이미 끌어온 크레이트다(새로 받지 않는다).
+tokio-tungstenite = "0.29"
+futures-util = "0.3"
 tower-http = { version = "0.6", features = ["fs"] }
 # transport-io: CLI 의 `mcp worklog` stdio 서버용.
 rmcp = { version = "3", features = ["server", "transport-streamable-http-server", "transport-io"] }
