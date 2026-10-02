@@ -314,3 +314,24 @@ export interface OpenPr {
   author?: string;
   subscribed: boolean;
 }
+
+/** `GET /api/logs/stats` — Rust `rocky_core::logindex::LogStats` 의 사본. */
+export interface SurfaceStat {
+  source: string;
+  name: string;
+  count: number;
+  errors: number;
+  lastTs: string;
+  p50Ms?: number;
+  p95Ms?: number;
+}
+export interface LogStats {
+  since: string;
+  worklog: {
+    turns: number;
+    byProject: [string, number][];
+    byWeekday: number[];
+    byTodo: [string, number][];
+  };
+  usage: { total: number; surfaces: SurfaceStat[]; unused: [string, string][] };
+}

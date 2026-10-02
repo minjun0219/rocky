@@ -90,3 +90,32 @@ async fn worklog_route_reads_the_boards_repo_from_the_index() {
     let (status, _) = get(&state, "/api/logs/worklog?board=nope").await;
     assert_eq!(status, 404);
 }
+
+#[tokio::test]
+async fn stats_route_reports_the_index() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("worklog");
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    write_line(
+        &root.join("p-1").join("worklog.jsonl"),
+        "1",
+        &now,
+        "턴",
+        &["turn", "todo:rocky-1"],
+    );
+    let db = tmp.path().join("logs.db");
+    LogIndex::open(&db)
+        .unwrap()
+        .ingest_worklog_root(&root)
+        .unwrap();
+    let state = rebuild(&f, |o| o.logs_db = Some(db.clone()));
+    let (status, body) = get(&state, "/api/logs/stats?days=7").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["worklog"]["turns"], 1);
+    assert_eq!(
+        body["worklog"]["byTodo"][0],
+        serde_json::json!(["rocky-1", 1])
+    );
+    assert!(body["usage"]["unused"].is_array());
+}

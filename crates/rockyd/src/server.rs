@@ -1801,6 +1801,32 @@ async fn dispatch(
     }
 
     // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──
+    if *method == Method::GET && path == "/api/logs/stats" {
+        // 회고(작업로그)와 rocky 개선(사용 로그) 통계 — 기본 30일, 최대 365일.
+        let days = query
+            .get("days")
+            .and_then(|d| d.parse::<i64>().ok())
+            .unwrap_or(30)
+            .clamp(1, 365);
+        let now = chrono::Utc::now();
+        let iso = |t: chrono::DateTime<chrono::Utc>| {
+            t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        };
+        let (since, until) = (iso(now - chrono::Duration::days(days)), iso(now));
+        let Some(db) = state.logs_db.clone() else {
+            return Ok(error_response(
+                "로그 색인이 없다",
+                StatusCode::SERVICE_UNAVAILABLE,
+            ));
+        };
+        let stats = tokio::task::spawn_blocking(move || {
+            rocky_core::logindex::LogIndex::open(&db).and_then(|index| index.stats(&since, &until))
+        })
+        .await
+        .map_err(|e| StoreError::new(format!("통계 조회 스레드: {e}")))?
+        .map_err(|e| StoreError::new(format!("통계 조회: {e}")))?;
+        return Ok(ok_json(&stats));
+    }
     if *method == Method::GET && path == "/api/logs/worklog" {
         // 보드를 고르면 그 보드 `path` 의 레포 작업로그만 — 키는 작업로그와 같은 함수로 계산한다(워크트리는 레포
         // 루트로 접힌다). 보드에 path 가 없으면 고를 레포가 없다(`unlinked`).

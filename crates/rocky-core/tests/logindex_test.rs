@@ -183,3 +183,76 @@ fn the_todo_tag_names_the_held_todo() {
     assert_eq!(todo_ref_from_tags(&tags(&["turn", "todo:"])), None);
     assert_eq!(todo_ref_from_tags(&tags(&["turn"])), None);
 }
+
+#[test]
+fn stats_count_turns_by_project_and_todo_and_reuse_the_usage_report() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("worklog");
+    append(
+        &root.join("rocky-1").join("worklog.jsonl"),
+        &line(
+            "1",
+            "2026-10-02T01:00:00.000Z",
+            "turn",
+            "a",
+            &["turn", "todo:rocky-3"],
+        ),
+    );
+    append(
+        &root.join("rocky-1").join("worklog.jsonl"),
+        &line(
+            "2",
+            "2026-10-02T02:00:00.000Z",
+            "turn",
+            "b",
+            &["turn", "todo:rocky-3"],
+        ),
+    );
+    append(
+        &root.join("mdwire-2").join("worklog.jsonl"),
+        &line("3", "2026-10-02T03:00:00.000Z", "turn", "c", &["turn"]),
+    );
+    append(
+        &root.join("mdwire-2").join("worklog.jsonl"),
+        &line("4", "2026-10-02T04:00:00.000Z", "decision", "d", &[]),
+    );
+    // 기간 밖
+    append(
+        &root.join("mdwire-2").join("worklog.jsonl"),
+        &line("5", "2026-09-01T00:00:00.000Z", "turn", "e", &[]),
+    );
+    let usage = tmp.path().join("usage");
+    let event = |name: &str, ok: bool, ms: u64| {
+        serde_json::json!({ "ts": "2026-10-02T05:00:00.000Z", "source": "rest", "name": name, "ok": ok, "ms": ms }).to_string() + "\n"
+    };
+    append(
+        &usage.join("2026-10.jsonl"),
+        &event("GET /api/todos", true, 10),
+    );
+    append(
+        &usage.join("2026-10.jsonl"),
+        &event("GET /api/todos", false, 30),
+    );
+    let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
+    index.ingest_worklog_root(&root).unwrap();
+    index.ingest_usage_dir(&usage).unwrap();
+
+    let stats = index
+        .stats("2026-10-01T00:00:00.000Z", "2026-10-03T00:00:00.000Z")
+        .unwrap();
+    assert_eq!(stats.worklog.turns, 3, "기간 안의 turn 만(decision 제외)");
+    assert_eq!(
+        stats.worklog.by_project,
+        vec![("rocky-1".to_string(), 2), ("mdwire-2".to_string(), 1)]
+    );
+    assert_eq!(stats.worklog.by_todo, vec![("rocky-3".to_string(), 2)]);
+    assert_eq!(stats.worklog.by_weekday.iter().sum::<u64>(), 3);
+    let todos = stats
+        .usage
+        .surfaces
+        .iter()
+        .find(|s| s.name == "GET /api/todos")
+        .unwrap();
+    assert_eq!((todos.count, todos.errors), (2, 1));
+    assert!(!stats.usage.unused.is_empty(), "안 쓴 표면도 같은 집계로");
+}

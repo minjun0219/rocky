@@ -14,7 +14,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::usage::UsageEvent;
+use crate::usage::{build_report, UsageEvent, UsageReport, UsageSource, KNOWN_SURFACES};
 use crate::worklog::{WorklogEntry, WORKLOG_FILE};
 
 const SCHEMA: &str = "
@@ -282,6 +282,96 @@ impl LogIndex {
     pub fn usage_count(&self) -> rusqlite::Result<i64> {
         self.conn
             .query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))
+    }
+}
+
+/// 작업로그 집계 — 회고용(어느 레포·요일·할 일에 턴이 몰렸나).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorklogStats {
+    pub turns: u64,
+    /// 프로젝트 키 → 턴 수, 많은 순.
+    pub by_project: Vec<(String, u64)>,
+    /// 현지 시각 요일(일=0 … 토=6) → 턴 수.
+    pub by_weekday: Vec<u64>,
+    /// 할 일 참조 → 붙은 턴 수, 많은 순(상위 10).
+    pub by_todo: Vec<(String, u64)>,
+}
+
+/// 통계 한 벌 — 회고(작업로그)와 rocky 개선(사용 로그, `rocky usage` 와 같은 집계).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogStats {
+    pub since: String,
+    pub worklog: WorklogStats,
+    pub usage: UsageReport,
+}
+
+impl LogIndex {
+    /// `since`(ISO) 이후의 통계. 사용 로그 쪽은 `rocky usage` 와 같은 `build_report`.
+    pub fn stats(&self, since: &str, until: &str) -> rusqlite::Result<LogStats> {
+        use chrono::{DateTime, Datelike, Local};
+        let mut turns = 0u64;
+        let mut by_project: std::collections::HashMap<String, u64> = Default::default();
+        let mut by_weekday = vec![0u64; 7];
+        let mut by_todo: std::collections::HashMap<String, u64> = Default::default();
+        let mut stmt = self.conn.prepare(
+            "SELECT project_key, timestamp, todo_ref FROM worklog_entries WHERE kind = 'turn' AND timestamp >= ?1",
+        )?;
+        let rows = stmt.query_map(params![since], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (project, ts, todo) = row?;
+            turns += 1;
+            *by_project.entry(project).or_default() += 1;
+            if let Ok(t) = DateTime::parse_from_rfc3339(&ts) {
+                by_weekday[t.with_timezone(&Local).weekday().num_days_from_sunday() as usize] += 1;
+            }
+            if let Some(todo) = todo {
+                *by_todo.entry(todo).or_default() += 1;
+            }
+        }
+        let ranked = |map: std::collections::HashMap<String, u64>, top: usize| {
+            let mut v: Vec<(String, u64)> = map.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            v.truncate(top);
+            v
+        };
+
+        let mut stmt = self.conn.prepare(
+            "SELECT ts, source, name, actor, client, ok, ms FROM usage_events WHERE ts >= ?1",
+        )?;
+        let events = stmt
+            .query_map(params![since], |r| {
+                let source: String = r.get(1)?;
+                Ok(UsageEvent {
+                    ts: r.get(0)?,
+                    source: serde_json::from_value(serde_json::Value::String(source))
+                        .unwrap_or(UsageSource::Rest),
+                    name: r.get(2)?,
+                    actor: r.get(3)?,
+                    client: r.get(4)?,
+                    ok: r.get(5)?,
+                    ms: r.get::<_, Option<i64>>(6)?.map(|m| m.max(0) as u64),
+                    meta: None,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(LogStats {
+            since: since.to_string(),
+            worklog: WorklogStats {
+                turns,
+                by_project: ranked(by_project, usize::MAX),
+                by_weekday,
+                by_todo: ranked(by_todo, 10),
+            },
+            usage: build_report(&events, since, until, KNOWN_SURFACES),
+        })
     }
 }
 

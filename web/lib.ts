@@ -3,7 +3,7 @@
  */
 import { isAgentActor } from './actors';
 import type { HandoffView, PrSnapshot, TodoView } from './types';
-import type { Comment, HistoryEntry, WorklogEntry } from './types';
+import type { Comment, HistoryEntry, SurfaceStat, WorklogEntry } from './types';
 
 /**
  * actor → 시각 톤. 에이전트는 warm(앰버), 사람은 cool(아이스 블루).
@@ -1081,4 +1081,20 @@ export function withWork(items: TimelineItem[], work: readonly WorklogEntry[]): 
   return [...items, ...work.map((w) => ({ kind: 'work' as const, at: w.timestamp, work: w }))].sort(
     (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0),
   );
+}
+
+/** 느린 표면 — 표본이 `min` 번 이상인 것 중 p95 가 큰 순. 몇 번 안 쓴 것의 한 번 느림에 휘둘리지 않게. */
+export function slowSurfaces(surfaces: readonly SurfaceStat[], min = 5, top = 5): SurfaceStat[] {
+  return surfaces
+    .filter((s) => s.count >= min && s.p95Ms !== undefined)
+    .sort((a, b) => (b.p95Ms ?? 0) - (a.p95Ms ?? 0))
+    .slice(0, top);
+}
+
+/** 실패가 잦은 표면 — 실패율 순(같으면 실패 수). */
+export function failingSurfaces(surfaces: readonly SurfaceStat[], top = 5): SurfaceStat[] {
+  return surfaces
+    .filter((s) => s.errors > 0)
+    .sort((a, b) => b.errors / b.count - a.errors / a.count || b.errors - a.errors)
+    .slice(0, top);
 }

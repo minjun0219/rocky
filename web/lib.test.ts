@@ -6,6 +6,8 @@ import type { NowRow } from './lib';
 import {
   ALL_SLICES,
   slicesFor,
+  failingSurfaces,
+  slowSurfaces,
   parseTurn,
   withWork,
   alertRows,
@@ -988,5 +990,29 @@ describe('parseTurn · withWork — 작업로그', () => {
       work('w0', '2026-10-02T00:00:00Z'),
     ]);
     expect(merged.map((i) => i.kind)).toEqual(['work', 'history', 'work']);
+  });
+});
+
+describe('slowSurfaces · failingSurfaces — 통계', () => {
+  const stat = (name: string, count: number, errors: number, p95Ms?: number) => ({
+    source: 'rest',
+    name,
+    count,
+    errors,
+    lastTs: '',
+    p95Ms,
+  });
+  test('느린 표면은 표본이 충분한 것만 p95 순', () => {
+    const rows = [
+      stat('a', 100, 0, 50),
+      stat('b', 2, 0, 9000),
+      stat('c', 10, 0, 300),
+      stat('d', 10, 0),
+    ];
+    expect(slowSurfaces(rows).map((s) => s.name)).toEqual(['c', 'a']);
+  });
+  test('실패는 실패율 순', () => {
+    const rows = [stat('a', 100, 5), stat('b', 4, 4), stat('c', 10, 0), stat('d', 10, 5)];
+    expect(failingSurfaces(rows).map((s) => s.name)).toEqual(['b', 'd', 'a']);
   });
 });
