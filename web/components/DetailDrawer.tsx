@@ -1,7 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { isEditableTarget } from '../lib';
-import { useUiStore } from '../store';
+import { useEffect, useState } from 'react';
+import { api, useUiStore } from '../store';
+import type { WorklogEntry } from '../types';
 import { NoteDetail } from './drawer/NoteDetail';
 import { CommentComposer, Timeline } from './drawer/Timeline';
 import { TodoDetail } from './drawer/TodoDetail';
@@ -15,6 +17,30 @@ import { TodoDetail } from './drawer/TodoDetail';
  */
 export function DetailDrawer() {
   const detail = useUiStore((s) => s.detail);
+  const actor = useUiStore((s) => s.actor);
+  // 이 할 일을 들고 일한 세션의 턴 기록 — 로그 색인(`todo:<ref>` 태그). 없거나 실패하면 그냥 없다.
+  const todoRef = detail?.kind === 'todo' ? detail.todo?.ref : undefined;
+  const [work, setWork] = useState<WorklogEntry[]>([]);
+  useEffect(() => {
+    setWork([]);
+    if (!todoRef) {
+      return;
+    }
+    let live = true;
+    api<{ entries: WorklogEntry[] }>(
+      `/api/logs/worklog?todo=${encodeURIComponent(todoRef)}&limit=30`,
+      actor,
+    )
+      .then((body) => {
+        if (live) {
+          setWork(body.entries ?? []);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [todoRef, actor]);
   const closeDetail = useUiStore((s) => s.closeDetail);
 
   if (!detail) {
@@ -50,7 +76,7 @@ export function DetailDrawer() {
           </Dialog.Close>
           {detail.kind === 'todo' ? <TodoDetail /> : <NoteDetail />}
           {detail.kind === 'todo' && detail.todo && <CommentComposer todoId={detail.todo.id} />}
-          <Timeline history={detail.history} comments={detail.comments} />
+          <Timeline history={detail.history} comments={detail.comments} work={work} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

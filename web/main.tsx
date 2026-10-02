@@ -4,6 +4,7 @@ import { DetailDrawer } from './components/DetailDrawer';
 import { FeedPane } from './components/FeedPane';
 import { GithubPane } from './components/GithubPane';
 import { ViewSwitch } from './components/ViewSwitch';
+import { WorklogPane } from './components/WorklogPane';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
 import { TodoPane } from './components/TodoPane';
@@ -169,6 +170,8 @@ function App() {
           <TodoPane />
         ) : view === 'notes' ? (
           <NotesRail />
+        ) : view === 'worklog' ? (
+          <WorklogPane />
         ) : (
           <GithubPane />
         )}

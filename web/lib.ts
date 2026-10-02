@@ -3,7 +3,7 @@
  */
 import { isAgentActor } from './actors';
 import type { HandoffView, PrSnapshot, TodoView } from './types';
-import type { Comment, HistoryEntry } from './types';
+import type { Comment, HistoryEntry, WorklogEntry } from './types';
 
 /**
  * actor → 시각 톤. 에이전트는 warm(앰버), 사람은 cool(아이스 블루).
@@ -295,7 +295,8 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 /** 히스토리 줄과 댓글 카드를 한 줄기로 묶은 타임라인 항목. */
 export type TimelineItem =
   | { kind: 'history'; at: string; entry: HistoryEntry }
-  | { kind: 'comment'; at: string; comment: Comment };
+  | { kind: 'comment'; at: string; comment: Comment }
+  | { kind: 'work'; at: string; work: WorklogEntry };
 
 /**
  * 댓글 계열 히스토리 액션 중 타임라인/상세 화면에서 버리는 것 — 댓글 카드가 여전히
@@ -1045,4 +1046,39 @@ export function slicesFor(events: readonly unknown[]): Set<Slice> {
     }
   }
   return out;
+}
+
+/**
+ * 턴 기록(`log-turn`, `req: … | tools: … | did: …`)을 푼다 — 작업로그 화면이 요청을 제목처럼, 결과를 둘째 줄로
+ * 보여 준다. 모양이 다르면(손으로 쓴 `decision` 등) 본문 전체를 `did` 로.
+ */
+export function parseTurn(content: string): { req: string; tools: string; did: string } {
+  const m = /^req: (.*?) \| tools: (.*?) \| did: (.*)$/s.exec(content);
+  if (!m) {
+    return { req: '', tools: '', did: content };
+  }
+  const tools = m[2] === '(none)' ? '' : (m[2] ?? '');
+  return { req: labelInjected(m[1] ?? ''), tools, did: m[3] ?? '' };
+}
+
+/**
+ * 하네스가 넣은 메시지를 짧은 이름으로 — Stop 훅(`rocky_core::transcript::label_injected`)이 새 기록부터 하는 일을
+ * 그 전 기록에도 보여 줄 때 똑같이 한다.
+ */
+export function labelInjected(req: string): string {
+  const head = req.trimStart();
+  if (head.startsWith('<task-notification>')) {
+    return '(백그라운드 작업 알림)';
+  }
+  if (head.startsWith('<bash-stdout>') || head.startsWith('<bash-stderr>')) {
+    return '(셸 출력)';
+  }
+  return req;
+}
+
+/** 할 일 타임라인에 작업 기록을 끼운다 — 같은 최신순. 동률은 원래 순서. */
+export function withWork(items: TimelineItem[], work: readonly WorklogEntry[]): TimelineItem[] {
+  return [...items, ...work.map((w) => ({ kind: 'work' as const, at: w.timestamp, work: w }))].sort(
+    (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0),
+  );
 }
