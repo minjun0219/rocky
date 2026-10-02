@@ -4,6 +4,8 @@ import type { Comment, HistoryEntry } from './types';
 import type { TodoView } from './types';
 import type { NowRow } from './lib';
 import {
+  ALL_SLICES,
+  slicesFor,
   alertRows,
   prRows,
   prStatus,
@@ -906,5 +908,34 @@ describe('alertRows — 피드의 PR 알림', () => {
       alertRows([pr({ number: 4, mergeState: 'DIRTY', updatedAt: old })], hidden, now),
     ).toEqual([]);
     expect(alertRows([pr({ number: 4, ready: true })], hidden, now)).toHaveLength(1);
+  });
+});
+
+describe('slicesFor — 이벤트가 건드린 것만 다시 받는다', () => {
+  test('엔티티별로 필요한 묶음만', () => {
+    expect([...slicesFor([{ entity: 'note', entityId: 'n', action: 'update' }])]).toEqual([
+      'notes',
+    ]);
+    expect(slicesFor([{ entity: 'todo', entityId: 't', action: 'update' }])).toEqual(
+      new Set(['todos', 'handoffs', 'summary']),
+    );
+    expect(slicesFor([{ entity: 'board', entityId: 'b', action: 'pr-ready' }])).toEqual(
+      new Set(['prs']),
+    );
+    expect(slicesFor([{ entity: 'section', entityId: 's', action: 'create' }])).toEqual(
+      new Set(['sections', 'todos']),
+    );
+  });
+
+  test('여러 이벤트는 합치고, 모르는 모양·보드 변경은 전부', () => {
+    expect(
+      slicesFor([
+        { entity: 'note', action: 'update' },
+        { entity: 'board', action: 'pr-conflict' },
+      ]),
+    ).toEqual(new Set(['notes', 'prs']));
+    expect(slicesFor([{ entity: 'board', action: 'update' }]).size).toBe(ALL_SLICES.length);
+    expect(slicesFor([{ nope: true }]).size).toBe(ALL_SLICES.length);
+    expect(slicesFor([null]).size).toBe(ALL_SLICES.length);
   });
 });

@@ -11,6 +11,7 @@ import {
   resolveTheme,
   THEME_KEY,
   type ThemePref,
+  type Slice,
 } from './lib';
 import { logUsage, setUsageActor } from './usage';
 import {
@@ -160,7 +161,8 @@ interface UiState {
   setView: (view: BoardView) => void;
   setConnected: (connected: boolean) => void;
 
-  refetch: () => Promise<void>;
+  /** 데몬에서 다시 받는다 — `slices` 를 주면 그 묶음만(SSE 이벤트가 건드린 것), 없으면 전부. */
+  refetch: (slices?: ReadonlySet<Slice>) => Promise<void>;
   /**
    * @param options.push false 면 히스토리 항목을 만들지 않는다. `refetch` 가 열린 상세를
    *   갱신할 때와 `applyRoute` 가 URL 을 따라갈 때 반드시 false 여야 한다 — 아니면
@@ -425,8 +427,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   setConnected: (connected) => set({ connected }),
 
-  refetch: async () => {
+  refetch: async (slices) => {
     const { selected, showArchived, actor, detail } = get();
+    const want = (slice: Slice) => !slices || slices.has(slice);
     const params = new URLSearchParams();
     if (selected !== 'all') {
       params.set('board', selected);
@@ -435,45 +438,60 @@ export const useUiStore = create<UiState>((set, get) => ({
       params.set('includeArchived', 'true');
     }
     const qs = params.size > 0 ? `?${params.toString()}` : '';
+    // 전체 보기면 보드의 할 일·핸드오프와 "지금" 의 재료(전 보드)가 같은 쿼리다 — 한 번만 받는다. 할 일 응답은 진행
+    // 중인 것이 있으면 데몬이 세션 목록까지 조회해서(수백 ms) 두 번 부르면 그만큼 두 번 기다린다.
+    const sameTodos = qs === '';
+    const sameHandoffs = selected === 'all';
+    const handoffsUrl = `/api/handoffs?open=true${
+      selected === 'all' ? '' : `&board=${encodeURIComponent(selected)}`
+    }`;
+    const skip = Promise.resolve(undefined);
 
     const [boards, todos, notes, sections, handoffs, nowTodos, nowHandoffs, summary, prs] =
       await Promise.all([
-        api<Board[]>('/api/boards', actor),
-        api<TodoView[]>(`/api/todos${qs}`, actor),
-        api<NoteView[]>(`/api/notes${qs}`, actor),
-        selected === 'all'
-          ? Promise.resolve([] as Section[])
-          : api<Section[]>(`/api/sections?board=${encodeURIComponent(selected)}`, actor),
+        want('boards') ? api<Board[]>('/api/boards', actor) : skip,
+        want('todos') ? api<TodoView[]>(`/api/todos${qs}`, actor) : skip,
+        want('notes') ? api<NoteView[]>(`/api/notes${qs}`, actor) : skip,
+        !want('sections')
+          ? skip
+          : selected === 'all'
+            ? Promise.resolve([] as Section[])
+            : api<Section[]>(`/api/sections?board=${encodeURIComponent(selected)}`, actor),
         // `open=true` — 대기 중인 것에 더해 **배달됐는데 아직 안 끝난** 것까지 받는다.
         // 후자가 없으면 "집어가 놓고 아무것도 안 한다"가 화면에 나타날 길이 없다.
-        api<HandoffView[]>(
-          `/api/handoffs?open=true${
-            selected === 'all' ? '' : `&board=${encodeURIComponent(selected)}`
-          }`,
-          actor,
-        ),
-        // "지금" 표의 재료 — 보고 있는 보드와 무관하게 전 보드. 전체 뷰면 위 todos 와 같지만
-        // 분기하면 코드가 두 갈래가 되므로 그냥 한 번 더 받는다(로컬 데몬, 수십 KB).
-        api<TodoView[]>('/api/todos', actor),
-        api<HandoffView[]>('/api/handoffs?open=true', actor),
+        want('handoffs') ? api<HandoffView[]>(handoffsUrl, actor) : skip,
+        // "지금"·피드의 재료 — 보고 있는 보드와 무관하게 전 보드.
+        want('todos') && !sameTodos ? api<TodoView[]>('/api/todos', actor) : skip,
+        want('handoffs') && !sameHandoffs
+          ? api<HandoffView[]>('/api/handoffs?open=true', actor)
+          : skip,
         // 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름".
-        api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
-          (): { collect?: number } => ({}),
-        ),
+        want('summary')
+          ? api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
+              (): { collect?: number } => ({}),
+            )
+          : skip,
         // PR 감시 스냅숏 — 없거나 실패하면 빈 목록("모름" 이 아니라 "없음" 으로 보여도 무해).
-        api<PrSnapshot[]>('/api/prs?open=true', actor).catch((): PrSnapshot[] => []),
+        want('prs')
+          ? api<PrSnapshot[]>('/api/prs?open=true', actor).catch((): PrSnapshot[] => [])
+          : skip,
       ]);
     set({
-      boards,
-      todos,
-      notes,
-      sections,
-      handoffs,
-      nowTodos,
-      nowHandoffs,
-      prs,
-      collect: typeof summary.collect === 'number' ? summary.collect : null,
+      ...(boards ? { boards } : {}),
+      ...(todos ? { todos, nowTodos: nowTodos ?? todos } : {}),
+      ...(notes ? { notes } : {}),
+      ...(sections ? { sections } : {}),
+      ...(handoffs ? { handoffs, nowHandoffs: nowHandoffs ?? handoffs } : {}),
+      ...(prs ? { prs } : {}),
+      ...(summary ? { collect: typeof summary.collect === 'number' ? summary.collect : null } : {}),
     });
+    if (!notes) {
+      // 노트를 안 받았으면 "본 것" 을 올릴 것도, 상세를 다시 받을 것도 노트 쪽엔 없다.
+      if (todos && detail?.kind === 'todo' && detail.todo) {
+        void get().openTodoDetail(detail.todo.id, { push: false, refresh: true });
+      }
+      return;
+    }
     // 노트를 보는 중이거나 막 떠난 참이면, 방금 받은 노트까지 "본 것" — 내 편집이 새 소식이 되지 않게.
     if (get().view === 'notes' || Date.now() < notesSettleUntil) {
       const seen = advanceSeen(get().notesSeenAt, notes);
@@ -486,7 +504,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     // 열린 상세가 있으면 함께 갱신 (SSE 로 들어온 변경 반영). await 하지 않으므로
     // `refresh: true` 로 "그 항목이 아직 열려 있을 때만" 반영하게 한다 — 그 사이 라우팅이
     // 드로어를 닫았다면(뒤로가기 등) 늦게 도착한 이 응답이 되살려선 안 된다.
-    if (detail?.kind === 'todo' && detail.todo) {
+    if (todos && detail?.kind === 'todo' && detail.todo) {
       void get().openTodoDetail(detail.todo.id, { push: false, refresh: true });
     } else if (detail?.kind === 'note' && detail.note) {
       void get().openNoteDetail(detail.note.id, { refresh: true });

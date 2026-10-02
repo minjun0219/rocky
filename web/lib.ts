@@ -1004,3 +1004,45 @@ export function alertRows(prs: PrSnapshot[], hidden: readonly string[], now: num
         ALERT_ORDER.indexOf(a.kind) - ALERT_ORDER.indexOf(b.kind) || b.at.localeCompare(a.at),
     );
 }
+
+/** 보드 화면이 데몬에서 받아 오는 묶음 — 이벤트가 건드린 것만 다시 받는다. */
+export type Slice = 'boards' | 'todos' | 'notes' | 'sections' | 'handoffs' | 'summary' | 'prs';
+export const ALL_SLICES: readonly Slice[] = [
+  'boards',
+  'todos',
+  'notes',
+  'sections',
+  'handoffs',
+  'summary',
+  'prs',
+];
+
+/**
+ * SSE 이벤트(`ChangeEvent` — `{entity, entityId, action, boardId?}`) → 다시 받을 묶음. 예전엔 이벤트 하나마다 9개를 다
+ * 받았다(할 일 제목 하나에도). 모르는 모양이면 안전하게 전부.
+ *
+ * - todo: 할 일 + 핸드오프(넘김·착수가 todo 히스토리로 온다) + 요약(링크가 바뀌면 수집함 "올라감" 이 바뀐다)
+ * - note: 노트만
+ * - section: 섹션 + 할 일(섹션 이동·이름)
+ * - board: PR 감시 전이(`pr-*`)면 PR 만, 그 밖(이름·key·path 등)은 참조가 바뀌니 전부
+ */
+export function slicesFor(events: readonly unknown[]): Set<Slice> {
+  const out = new Set<Slice>();
+  for (const raw of events) {
+    const event = raw as { entity?: unknown; action?: unknown } | null;
+    const entity = typeof event?.entity === 'string' ? event.entity : '';
+    const action = typeof event?.action === 'string' ? event.action : '';
+    if (entity === 'todo') {
+      out.add('todos').add('handoffs').add('summary');
+    } else if (entity === 'note') {
+      out.add('notes');
+    } else if (entity === 'section') {
+      out.add('sections').add('todos');
+    } else if (entity === 'board' && action.startsWith('pr-')) {
+      out.add('prs');
+    } else {
+      return new Set(ALL_SLICES);
+    }
+  }
+  return out;
+}
