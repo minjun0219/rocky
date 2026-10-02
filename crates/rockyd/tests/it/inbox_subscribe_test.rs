@@ -1,13 +1,11 @@
 //! 수집함 구독 — 세션이 소스를 구독하면 그 뒤에 생긴 항목만 그 세션 받은편지함(유닉스 소켓)에 알린다.
 
-mod common;
-
 use std::io::Read;
 use std::os::unix::net::UnixListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use common::*;
+use crate::common::*;
 use rocky_core::config::InboxSource;
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::json;

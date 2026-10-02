@@ -1,11 +1,9 @@
 //! TS `src/server.test.ts` 포팅 4/4 — spawn 라우트 + body.path + 게이트 힌트.
 
-mod common;
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use common::*;
+use crate::common::*;
 use rocky_core::sessions::SessionsResult;
 use rocky_core::types::*;
 use rockyd::server::ServerState;
