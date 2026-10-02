@@ -170,10 +170,25 @@ pub fn ensure_daemon(ctx: &CliContext) -> Result<(), String> {
     if health(&ctx.base_url) {
         return Ok(());
     }
+    // launchd job 이 로드돼 있으면 launchd 에게 띄우게 한다 — 여기서 따로 띄우면 그 데몬은 launchd 밖의
+    // 고아가 된다: launchd 가 재기동 대기(KeepAlive) 중인 몇 초 사이에 CLI·훅이 띄운 데몬이 포트를 쥐고,
+    // launchd 의 데몬은 "already running" 으로 계속 끝나며, 업데이트·재시작(bootout)은 이 고아를 못 내린다.
+    if crate::launchd::launchd_loaded() && crate::launchd::kickstart() {
+        for _ in 0..START_ATTEMPTS {
+            std::thread::sleep(POLL_INTERVAL);
+            if health(&ctx.base_url) {
+                return Ok(());
+            }
+        }
+        // launchd 가 못 띄웠다 — 보드가 없는 것보다 낫게 아래에서 직접 띄운다(고아는 status 가 알린다).
+    }
     // stdio 를 전부 끊어 detach 한다 — 부모(CLI)가 끝나도 데몬은 산다. TS 시절 cwd 를
     // 레포 루트로 고정했던 것은 bunfig.toml(Tailwind 플러그인)이 시작 cwd 에서 읽히기
     // 때문인데, Rust 데몬은 UI 를 미리 번들된 dist 로 서빙하므로 그 제약이 없다.
     std::process::Command::new(daemon_binary())
+        // launchd 데몬 아래(세션·어댑터)에서 불렸으면 이 변수를 물려받았다 — 새 데몬이 자기를 launchd 의
+        // 것으로 착각하지 않게 뗀다(`launched_by_launchd`).
+        .env_remove("XPC_SERVICE_NAME")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

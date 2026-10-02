@@ -213,11 +213,35 @@ pub async fn run_daemon(
     })
     .await?;
     if already {
-        println!(
-            "rocky daemon already running on port {} — exiting",
+        let label = rocky_core::config::launchd_label();
+        let xpc = std::env::var("XPC_SERVICE_NAME").ok();
+        let parent = std::os::unix::process::parent_id();
+        if !rocky_core::config::launched_by_launchd(xpc.as_deref(), &label, parent) {
+            println!(
+                "rocky daemon already running on port {} — exiting",
+                runtime.port
+            );
+            return Ok(());
+        }
+        // launchd 가 띄웠는데 포트를 다른 데몬(대개 launchd 밖에서 뜬 고아)이 쥐고 있다. 바로 끝나면 KeepAlive 가
+        // 10초마다 다시 띄워 로그만 쌓이고(`spawn scheduled` 루프) 고아가 내려가도 다음 재기동까지 비게 된다 —
+        // 그 데몬이 내려갈 때까지 기다렸다가 이어받는다.
+        eprintln!(
+            "rocky: 다른 데몬이 포트 {} 를 쥐고 있다 — launchd({label})의 데몬으로서 그게 내려가면 이어받는다 (rocky daemon status)",
             runtime.port
         );
-        return Ok(());
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let still = tokio::task::spawn_blocking({
+                let base_url = base_url.clone();
+                move || daemon_health(&base_url).is_some()
+            })
+            .await?;
+            if !still {
+                eprintln!("rocky: 포트가 비었다 — 이어받는다");
+                break;
+            }
+        }
     }
 
     std::fs::create_dir_all(&runtime.dir)?;

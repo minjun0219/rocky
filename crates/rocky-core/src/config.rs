@@ -85,6 +85,28 @@ pub struct TodoRuntimeConfig {
     pub inbox_adapters: Vec<InboxSource>,
 }
 
+/// launchd 상주 job 라벨 — CLI 의 plist 와 데몬의 "launchd 가 띄웠나" 판정이 같은 값을 본다.
+pub const LAUNCHD_LABEL: &str = "com.rocky.daemon";
+
+/// 실제로 쓰는 라벨 — `ROCKY_LAUNCHD_LABEL` 이 있으면 그것(개발용: 실제 상주 job 을 건드리지 않고
+/// 다른 라벨·포트로 launchd 동작을 재현할 때), 없으면 `LAUNCHD_LABEL`. 개발용 라벨은 **전용
+/// `ROCKY_CONFIG` 가 같이 있을 때만** 쓴다 — 라벨만 바꾸고 설정을 빠뜨리면 개발용 job 이 실제 포트·DB 를
+/// 쥐고, 교체 확인이 실제 상주 데몬을 "launchd 밖의 고아" 로 보고 내린다.
+pub fn launchd_label() -> String {
+    let config_set = std::env::var("ROCKY_CONFIG").is_ok_and(|c| !c.trim().is_empty());
+    std::env::var("ROCKY_LAUNCHD_LABEL")
+        .ok()
+        .filter(|l| config_set && !l.trim().is_empty())
+        .unwrap_or_else(|| LAUNCHD_LABEL.to_string())
+}
+
+/// 이 프로세스를 그 라벨의 launchd job 이 띄웠나 — launchd 는 job 의 환경에 `XPC_SERVICE_NAME=<라벨>` 을
+/// 넣고(셸에서 띄운 프로세스는 `0` 이거나 없다) 부모는 launchd(pid 1)다. 부모까지 보는 이유: launchd 데몬이
+/// 띄운 자식(세션·어댑터)은 이 변수를 물려받아, 그 아래에서 따로 뜬 데몬이 자기를 launchd 의 것으로 착각한다.
+pub fn launched_by_launchd(xpc_service_name: Option<&str>, label: &str, parent_pid: u32) -> bool {
+    xpc_service_name == Some(label) && parent_pid == 1
+}
+
 /// `~/...` 를 홈으로 확장한다.
 pub fn expand_tilde(input: &str) -> PathBuf {
     let home = || std::env::var("HOME").map(PathBuf::from).unwrap_or_default();

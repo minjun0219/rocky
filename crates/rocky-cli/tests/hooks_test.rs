@@ -58,6 +58,9 @@ fn run(
                     None => Ok(()),
                 }
             },
+            // 기본: 포트의 데몬이 곧 launchd 의 데몬이다(고아 없음).
+            managed_pid: &|| check("").and_then(|h| h.pid),
+            pause: &|| {},
         },
     )
 }
@@ -238,6 +241,8 @@ fn run_with_policy(
                 *log.replaced.borrow_mut() += 1;
                 Ok(())
             },
+            managed_pid: &|| check("").and_then(|h| h.pid),
+            pause: &|| {},
         },
         policy,
     );
@@ -339,4 +344,148 @@ fn inbox_registration_needs_session_socket_and_cwd() {
         Some("/w")
     )
     .is_none());
+}
+
+// ── launchd 밖의 고아 데몬 ───────────────────────────────────────────────────────
+//
+// 실제 사고(0.38.0): plist 는 v0.38.0 을 가리키는데 포트는 launchd 밖에서 뜬 v0.37.0(PPID 1)이 쥐고 있었다.
+// 교체(bootout→bootstrap)는 launchd 자기 프로세스만 내려 고아가 남고, 새 데몬은 "already running" 으로
+// 끝나는데 `rocky update`·`daemon restart` 는 성공이라 찍었다.
+
+/// 고아가 포트를 쥔 채 교체가 "성공" 한 상황 — 고아 pid 를 내린 뒤 launchd 의 새 데몬이 받는다.
+fn run_orphan(
+    log: &Log,
+    orphan_dies: bool,
+    launchd_pid: Option<u32>,
+    policy: RestartPolicy,
+) -> Option<String> {
+    let ctx = build_context(8636, std::env::temp_dir(), "test");
+    let orphan_alive = Cell::new(true);
+    let check = |_: &str| {
+        Some(if orphan_alive.get() {
+            health(Some("0.9.0"), 900)
+        } else {
+            health(Some("1.0.0"), 901)
+        })
+    };
+    ensure_daemon_with_policy(
+        &ctx,
+        &EnsureDeps {
+            version: "1.0.0",
+            check_health: &check,
+            spawn: &|_| {
+                *log.spawned.borrow_mut() += 1;
+                Ok(())
+            },
+            stop: &|_, pid| {
+                log.stopped.borrow_mut().push(pid);
+                if orphan_dies {
+                    orphan_alive.set(false);
+                }
+                orphan_dies
+            },
+            is_managed: &|| true,
+            replace_managed: &|| {
+                *log.replaced.borrow_mut() += 1;
+                Ok(())
+            },
+            managed_pid: &|| {
+                if orphan_alive.get() {
+                    launchd_pid
+                } else {
+                    Some(901)
+                }
+            },
+            pause: &|| {},
+        },
+        policy,
+    )
+}
+
+#[test]
+fn an_orphan_holding_the_port_is_stopped_after_the_job_is_replaced() {
+    for policy in [RestartPolicy::ExactVersion, RestartPolicy::Always] {
+        let log = Log::default();
+        // launchd 의 새 데몬은 떠서 포트를 기다리는 중(pid 901)
+        let warning = run_orphan(&log, true, Some(901), policy);
+        assert_eq!(*log.replaced.borrow(), 1);
+        assert_eq!(log.stopped.borrow().as_slice(), &[Some(900)], "{policy:?}");
+        assert_eq!(*log.spawned.borrow(), 0, "launchd 밖에서 또 띄우지 않는다");
+        assert_eq!(warning, None, "{policy:?}");
+    }
+}
+
+/// launchd 의 데몬이 "already running" 으로 끝나 `spawn scheduled` 인 상태(job pid 없음)도 같은 고아다.
+#[test]
+fn an_orphan_is_found_while_the_job_waits_to_respawn() {
+    let log = Log::default();
+    let warning = run_orphan(&log, true, None, RestartPolicy::ExactVersion);
+    assert_eq!(log.stopped.borrow().as_slice(), &[Some(900)]);
+    assert_eq!(warning, None);
+}
+
+/// 고아를 못 내리면 성공이라 하지 않는다 — 무엇이 포트에 남았는지와 확인 명령을 돌려준다.
+#[test]
+fn a_surviving_orphan_is_reported_not_called_a_success() {
+    let log = Log::default();
+    let warning =
+        run_orphan(&log, false, Some(901), RestartPolicy::Always).expect("고아가 남으면 알린다");
+    assert_eq!(
+        log.stopped.borrow().as_slice(),
+        &[Some(900)],
+        "한 번만 내린다"
+    );
+    assert!(
+        warning.contains("v0.9.0") && warning.contains("pid 900"),
+        "{warning}"
+    );
+    assert!(warning.contains("pid 901"), "{warning}");
+    assert!(warning.contains("rocky daemon status"), "{warning}");
+}
+
+/// 매 턴 훅은 5초 timeout 이라 교체 뒤 기다리지 않는다 — 고아 정리는 SessionStart·update·restart 몫.
+#[test]
+fn the_per_turn_hook_does_not_wait_for_the_replacement() {
+    let log = Log::default();
+    let warning = run_orphan(&log, true, Some(901), RestartPolicy::OnlyIfOlder);
+    assert_eq!(*log.replaced.borrow(), 1);
+    assert!(
+        log.stopped.borrow().is_empty(),
+        "매 턴엔 고아를 내리러 기다리지 않는다"
+    );
+    assert_eq!(warning, None);
+}
+
+/// pid 를 보고하지 않는 옛 데몬은 고아인지 모른다 — 함부로 내리지 않고, 버전이 안 맞으면 알린다.
+#[test]
+fn a_port_holder_without_a_pid_is_not_killed_but_reported() {
+    let ctx = build_context(8636, std::env::temp_dir(), "test");
+    let log = Log::default();
+    let old = DaemonHealth {
+        pid: None,
+        ..health(Some("0.9.0"), 0)
+    };
+    let warning = ensure_daemon_with_policy(
+        &ctx,
+        &EnsureDeps {
+            version: "1.0.0",
+            check_health: &|_| Some(old.clone()),
+            spawn: &|_| Ok(()),
+            stop: &|_, pid| {
+                log.stopped.borrow_mut().push(pid);
+                true
+            },
+            is_managed: &|| true,
+            replace_managed: &|| Ok(()),
+            managed_pid: &|| Some(901),
+            pause: &|| {},
+        },
+        RestartPolicy::Always,
+    )
+    .expect("버전이 안 맞으면 알린다");
+    assert!(log.stopped.borrow().is_empty());
+    assert!(
+        warning.contains("v0.9.0") && warning.contains("rocky daemon status"),
+        "{warning}"
+    );
 }

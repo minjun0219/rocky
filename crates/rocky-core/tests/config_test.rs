@@ -383,3 +383,23 @@ fn pr_notifiers_are_command_bridges() {
     std::fs::write(&path, r#"{ "pr": { "notify": false } }"#).unwrap();
     assert!(load_pr_block(&path).notifiers.is_empty());
 }
+
+/// launchd 는 job 의 환경에 `XPC_SERVICE_NAME=<라벨>` 을 넣는다 — 셸에서 띄운 데몬은 `0` 이거나 없다.
+#[test]
+fn launchd_ownership_is_read_from_the_xpc_service_name() {
+    use rocky_core::config::{launched_by_launchd, LAUNCHD_LABEL};
+    assert!(launched_by_launchd(Some(LAUNCHD_LABEL), LAUNCHD_LABEL, 1));
+    assert!(!launched_by_launchd(Some("0"), LAUNCHD_LABEL, 1));
+    assert!(!launched_by_launchd(None, LAUNCHD_LABEL, 1));
+    assert!(!launched_by_launchd(
+        Some("com.rocky.dev"),
+        LAUNCHD_LABEL,
+        1
+    ));
+    // launchd 데몬의 자식이 띄운 데몬 — 변수는 물려받았어도 부모가 launchd 가 아니다
+    assert!(!launched_by_launchd(
+        Some(LAUNCHD_LABEL),
+        LAUNCHD_LABEL,
+        4321
+    ));
+}
