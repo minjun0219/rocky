@@ -119,6 +119,11 @@ pub struct EnsureDeps<'a> {
     /// 상주 job 을 현재 설치 경로로 교체 (plist 갱신→bootout→bootstrap). `Err` 면 옛 job 은
     /// 이미 내려갔을 수 있다 — 호출자가 health 를 다시 보고 판단한다.
     pub replace_managed: &'a dyn Fn() -> Result<(), String>,
+    /// 로드된 launchd job 이 띄운 프로세스의 pid — 돌고 있지 않으면(`spawn scheduled` 등) `None`.
+    /// 포트를 쥔 데몬과 다르면 그 데몬은 launchd 밖의 고아다.
+    pub managed_pid: &'a dyn Fn() -> Option<u32>,
+    /// 교체 뒤 확인 사이의 쉼 — 테스트는 바로 돌아온다.
+    pub pause: &'a dyn Fn(),
 }
 
 /// SessionStart(startup): 데몬이 없으면 띄우고, **구버전이면** 내리고 현재 버전으로
@@ -218,6 +223,8 @@ pub fn with_live_deps<R>(f: impl FnOnce(&EnsureDeps) -> R) -> R {
         stop: &stop_daemon,
         is_managed: &is_launchd_registered,
         replace_managed: &|| install_launchd().map(|_| ()),
+        managed_pid: &|| crate::launchd::launchd_job().and_then(|job| job.pid),
+        pause: &|| std::thread::sleep(std::time::Duration::from_millis(250)),
     })
 }
 
@@ -288,7 +295,12 @@ pub fn ensure_daemon_with_policy(
     let new = deps.version;
     if (deps.is_managed)() {
         let Err(error) = (deps.replace_managed)() else {
-            return None;
+            // 매 턴 훅(UserPromptSubmit)은 5초 timeout 이라 새 데몬을 기다릴 수 없다 — 확인은 SessionStart·
+            // `rocky update`·`daemon restart` 가 한다. 기다리다 죽으면 그 턴의 알림 주입까지 사라진다.
+            if policy == RestartPolicy::OnlyIfOlder {
+                return None;
+            }
+            return settle_managed(ctx, deps, old);
         };
         if (deps.check_health)(&ctx.base_url).is_some() {
             return Some(format!(
@@ -317,6 +329,56 @@ pub fn ensure_daemon_with_policy(
             .pid
             .map(|p| format!(", pid {p}"))
             .unwrap_or_default()
+    ))
+}
+
+/// 교체 뒤 확인 횟수 — `pause`(250ms) 간격으로 최소 20초(health 응답 대기가 붙으면 더 길다). 고아가 내려간
+/// 뒤 launchd 의 데몬이 이어받기까지(옛 데몬 종료 유예 3초 + 대기 폴링 2초 + DB 열기)가 들어가야 한다.
+const SETTLE_TRIES: u32 = 80;
+
+/// launchd job 을 바꾼 뒤 **포트를 쥔 데몬이 정말 그 job 의 새 데몬인지** 확인한다. `bootout` 은 launchd 가
+/// 띄운 프로세스만 내린다 — launchd 밖에서 뜬 고아가 포트를 쥐고 있으면 새 job 의 데몬은 "already
+/// running" 으로 끝나고 고아(구버전)가 그대로 남는다. 그러니 포트의 pid 가 job 의 pid 와 다르면 그 고아를
+/// pid 로 내리고, launchd 의 데몬이 목표 버전으로 응답할 때까지 본다. 끝내 못 맞추면 성공이라 하지 않는다.
+fn settle_managed(ctx: &CliContext, deps: &EnsureDeps, old: &str) -> Option<String> {
+    let mut signalled: Option<u32> = None;
+    for _ in 0..SETTLE_TRIES {
+        if let Some(running) = (deps.check_health)(&ctx.base_url) {
+            let job = (deps.managed_pid)();
+            let orphan = running.pid.is_some() && running.pid != job;
+            if orphan && signalled != running.pid {
+                // 결과는 보지 않는다 — 고아가 내려가는 즉시 launchd 의 데몬이 포트를 잡으면 `stop` 은 health 가
+                // 끊기는 순간을 못 보고 실패라 답한다. 판정은 다음 바퀴의 pid 비교가 한다.
+                let _ = (deps.stop)(ctx, running.pid);
+                signalled = running.pid;
+                continue;
+            }
+            if !orphan && running.version.as_deref() == Some(deps.version) {
+                return None;
+            }
+        }
+        (deps.pause)();
+    }
+    let new = deps.version;
+    let now = match (deps.check_health)(&ctx.base_url) {
+        Some(running) => format!(
+            "포트의 데몬은 v{}{}",
+            running.version.as_deref().unwrap_or("?"),
+            running
+                .pid
+                .map(|p| format!("(pid {p})"))
+                .unwrap_or_default()
+        ),
+        None => "포트에 데몬이 없다".to_string(),
+    };
+    let job = (deps.managed_pid)()
+        .map(|p| format!("launchd 의 데몬은 pid {p}"))
+        .unwrap_or_else(|| "launchd 의 데몬은 떠 있지 않다".to_string());
+    let killed = signalled
+        .map(|p| format!(" launchd 밖의 데몬(pid {p})을 내리려 했다."))
+        .unwrap_or_default();
+    Some(format!(
+        "v{old} → v{new} 교체를 확인하지 못했다 — {now}, {job}.{killed}\n  아직 넘어가는 중일 수 있다 — 잠시 뒤 `rocky daemon status` 로 다시 확인하라."
     ))
 }
 

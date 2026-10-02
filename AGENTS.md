@@ -222,6 +222,10 @@ typecheck or tests — pre-push and CI already cover it.*
   것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서
   `/reload-plugins` 가 세션끼리 뒤집히지 않고 올린다. 교체의 각 단계는 실패를 삼키지 않고 보고한다; 데몬이
   사라지고 말았으면 launchd 밖에서라도 띄우고 `⚠ rocky 데몬: …` 경고를 주입한다.
+- **launchd 밖의 고아를 만들지도 두지도 않는다.** job 이 로드돼 있으면 CLI·훅은 따로 띄우지 않고 `launchctl kickstart`
+  로 맡긴다; 교체 뒤엔 포트의 pid 가 job 의 pid 와 같고 목표 버전인지 확인하고(다르면 그 고아를 pid 로 내린다),
+  `daemon restart`·`update` 는 버전이 목표와 다르면 실패로 끝난다; `daemon status` 는 둘이 다르면 ⚠. launchd 가 띄운
+  데몬은 포트가 차 있으면 끝나지 않고 기다렸다 이어받는다. 재현은 `ROCKY_LAUNCHD_LABEL` + 전용 `ROCKY_CONFIG`.
 - **첫 세션 순서**(SessionStart ↔ http MCP 초기화)는 보장되지 않는다 — 첫 세션의 MCP `failed` 는 `/mcp`
   재시도, 다음 세션, launchd 로 풀린다.
 - **전역 단일 인스턴스.** 포트가 락이다; 사용자 `rocky.json` 의 `todo` 블록만 적용된다. 새 데몬은 **포트를 먼저 잡고**

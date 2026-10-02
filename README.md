@@ -94,6 +94,7 @@ PATH 에 있으면 터미널에서 `rocky` 가 바로 된다(없으면 셸 rc �
 | 변수 | 기본값 | 영향 |
 | --- | --- | --- |
 | `ROCKY_CONFIG` | `~/.config/rocky/rocky.json` | user-level `rocky.json` 경로 override |
+| `ROCKY_LAUNCHD_LABEL` | `com.rocky.daemon` | 개발용 — launchd job 라벨 override. 실제 상주 job 을 건드리지 않고 launchd 동작을 재현할 때. 전용 `ROCKY_CONFIG`(다른 포트·dir)가 없으면 무시되고, 설정이 기본 포트면 `rocky daemon` 이 거부한다 |
 | `ROCKY_WORKLOG_DIR` | `~/.config/rocky/worklog/<project-key>` | 워크로그 JSONL 위치. `worklog.dir` 보다 우선 |
 | `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` | `Stop` 훅 턴 자동 기록 on/off. `0`/`false`/`off`/`no` 만 비활성 |
 | `ROCKY_USAGE` | `1` | 사용 로그 on/off. `0`/`false`/`off`/`no` 만 비활성 |

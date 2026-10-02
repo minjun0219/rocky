@@ -8,15 +8,15 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-use rocky_core::config::expand_tilde;
+use rocky_core::config::{expand_tilde, launchd_label};
 
 use crate::client::daemon_binary;
 
-/// launchd job 라벨.
-pub const LAUNCHD_LABEL: &str = "com.rocky.daemon";
+/// launchd job 라벨 — 기본값. 실제로 쓰는 값은 `launchd_label()`(개발용 `ROCKY_LAUNCHD_LABEL`).
+pub use rocky_core::config::LAUNCHD_LABEL;
 
 fn plist_path() -> PathBuf {
-    expand_tilde(&format!("~/Library/LaunchAgents/{LAUNCHD_LABEL}.plist"))
+    expand_tilde(&format!("~/Library/LaunchAgents/{}.plist", launchd_label()))
 }
 
 /// plist 로그가 놓이는 기본 디렉터리 — TS 와 같이 **설정된 dir 이 아니라 기본 경로**를
@@ -65,6 +65,17 @@ fn escape_xml(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// launchd 데몬의 로그 파일 — 개발용 라벨이면 따로(실제 상주 데몬의 daemon.log 에 섞이지 않게).
+fn log_path() -> String {
+    let label = launchd_label();
+    let file = if label == LAUNCHD_LABEL {
+        "daemon.log".to_string()
+    } else {
+        format!("{label}.log")
+    };
+    default_todo_dir().join(file).to_string_lossy().to_string()
+}
+
 /// plist 보간값 — 기본은 실제 install 시점 값. 테스트에서 특수문자 이스케이프를
 /// 검증할 수 있도록 override 가능한 seam 을 열어뒀다.
 #[derive(Debug, Clone, Default)]
@@ -85,19 +96,28 @@ pub fn plist_content(overrides: &PlistValues) -> String {
         .exec_path
         .clone()
         .unwrap_or_else(|| daemon_binary().to_string_lossy().to_string());
-    let log_path = overrides.log_path.clone().unwrap_or_else(|| {
-        default_todo_dir()
-            .join("daemon.log")
-            .to_string_lossy()
-            .to_string()
-    });
+    let log_path = overrides.log_path.clone().unwrap_or_else(log_path);
     let path = overrides.path.clone().unwrap_or_else(path_for_plist);
+    let label = launchd_label();
+    // 개발용 라벨로 등록할 때만 그 라벨과 설정 파일을 데몬에 물려준다 — 데몬이 자기 job 을 알아보고
+    // (`launched_by_launchd`) 실제 상주 데몬과 다른 포트·dir 로 뜨게. 평소 plist 에는 넣지 않는다.
+    let mut dev_env = String::new();
+    if label != LAUNCHD_LABEL {
+        for key in ["ROCKY_LAUNCHD_LABEL", "ROCKY_CONFIG"] {
+            if let Ok(value) = std::env::var(key) {
+                dev_env.push_str(&format!(
+                    "\n    <key>{key}</key><string>{}</string>",
+                    escape_xml(&value)
+                ));
+            }
+        }
+    }
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>{LAUNCHD_LABEL}</string>
+  <key>Label</key><string>{label}</string>
   <key>ProgramArguments</key>
   <array>
     <string>{exec}</string>
@@ -106,13 +126,14 @@ pub fn plist_content(overrides: &PlistValues) -> String {
   <key>KeepAlive</key><true/>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>{path}</string>
+    <key>PATH</key><string>{path}</string>{dev_env}
   </dict>
   <key>StandardOutPath</key><string>{log}</string>
   <key>StandardErrorPath</key><string>{log}</string>
 </dict>
 </plist>
 "#,
+        label = escape_xml(&label),
         exec = escape_xml(&exec_path),
         path = escape_xml(&path),
         log = escape_xml(&log_path),
@@ -164,7 +185,7 @@ pub fn register_job(
     plist: &str,
     pause: Duration,
 ) -> Result<(), String> {
-    let target = format!("{domain}/{LAUNCHD_LABEL}");
+    let target = format!("{domain}/{}", launchd_label());
     let _ = run(&["bootout", domain, plist]);
     for _ in 0..SETTLE_ATTEMPTS {
         if !run(&["print", &target]).0 {
@@ -218,7 +239,8 @@ pub fn install_launchd() -> Result<String, String> {
     )
     .map_err(|error| format!("launchd 등록 실패: {error}\nplist: {plist_str}"))?;
     Ok(format!(
-        "✓ launchd 등록 완료 ({LAUNCHD_LABEL}) — 로그인 시 자동 기동 + KeepAlive\n  plist: {plist_str}"
+        "✓ launchd 등록 완료 ({}) — 로그인 시 자동 기동 + KeepAlive\n  plist: {plist_str}",
+        launchd_label()
     ))
 }
 
@@ -228,7 +250,7 @@ pub fn launchd_loaded() -> bool {
     if !is_launchd_registered() {
         return false;
     }
-    let target = format!("{}/{LAUNCHD_LABEL}", gui_domain());
+    let target = job_target();
     launchctl(&["print", &target]).0
 }
 
@@ -241,10 +263,84 @@ pub fn uninstall_launchd() -> String {
         let _ = std::fs::remove_file(&plist);
     }
     if ok {
-        format!("✓ launchd 해제 완료 ({LAUNCHD_LABEL})")
+        format!("✓ launchd 해제 완료 ({})", launchd_label())
     } else {
         "launchd 해제: 등록되어 있지 않았다 (plist 는 정리됨)".to_string()
     }
+}
+
+fn job_target() -> String {
+    format!("{}/{}", gui_domain(), launchd_label())
+}
+
+/// `launchctl print` 에서 읽은 job 의 지금 상태 — `state = running` 이면 `pid = N` 이 같이 나온다.
+/// `spawn scheduled` 는 프로세스가 끝나 KeepAlive 가 다시 띄우려고 기다리는 중이다(pid 없음).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchdJob {
+    pub state: String,
+    pub pid: Option<u32>,
+}
+
+/// `launchctl print gui/<uid>/<label>` 출력 → `LaunchdJob`. 서비스 블록의 첫 `state =`·`pid =` 만 본다
+/// (뒤쪽 하위 블록에도 같은 이름의 줄이 있다).
+pub fn parse_job(print_output: &str) -> LaunchdJob {
+    let field = |name: &str| {
+        print_output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(name).map(str::trim))
+            .map(str::to_string)
+    };
+    LaunchdJob {
+        state: field("state = ").unwrap_or_else(|| "unknown".into()),
+        pid: field("pid = ").and_then(|p| p.parse().ok()),
+    }
+}
+
+/// 로드된 job 의 지금 상태. plist 가 없거나 로드되지 않았으면 `None`.
+pub fn launchd_job() -> Option<LaunchdJob> {
+    if !is_launchd_registered() {
+        return None;
+    }
+    let (ok, out) = launchctl(&["print", &job_target()]);
+    ok.then(|| parse_job(&out))
+}
+
+/// launchd 에게 job 을 지금 띄우라고 한다(이미 돌면 아무 일 없음, KeepAlive 대기 중이면 바로 띄운다).
+/// 데몬이 없을 때 CLI 가 launchd 밖에서 따로 띄우지 않게 하는 길이다 — 따로 띄운 것은 포트를 쥔 채
+/// launchd 의 다음 데몬을 "already running" 으로 계속 돌려보낸다.
+pub fn kickstart() -> bool {
+    launchctl(&["kickstart", &job_target()]).0
+}
+
+/// 포트를 쥔 데몬이 launchd job 의 프로세스가 아니면 경고 — 그 데몬은 업데이트·재시작이 내려 주지
+/// 못하고(bootout 은 launchd 자기 프로세스만 내린다), launchd 의 새 데몬은 포트 충돌로 바로 끝난다.
+/// `health_pid` 는 포트에서 응답한 데몬의 pid, `job` 은 로드된 launchd job(없으면 판정하지 않는다).
+pub fn ownership_warning(health_pid: Option<u32>, job: Option<&LaunchdJob>) -> Option<String> {
+    let job = job?;
+    let holder = health_pid?;
+    if job.pid == Some(holder) {
+        return None;
+    }
+    let launchd = match job.pid {
+        Some(pid) => format!("launchd 의 데몬은 pid {pid}"),
+        None => format!("launchd job 은 state={}", job.state),
+    };
+    Some(format!(
+        "⚠ 포트를 쥔 데몬(pid {holder})은 launchd 가 띄운 것이 아니다 — {launchd}. 업데이트가 이 데몬을 바꾸지 못한다 → rocky daemon restart"
+    ))
+}
+
+/// 포트에 데몬이 없는데 launchd job 도 돌지 않는다(`spawn scheduled` — 데몬이 뜨자마자 죽어 KeepAlive 가
+/// 다시 띄우려는 중 등) — 로그를 보라는 경고. 돌고 있으면(막 뜨는 중) 판정하지 않는다.
+pub fn stalled_job_warning(job: &LaunchdJob) -> Option<String> {
+    if job.state == "running" {
+        return None;
+    }
+    Some(format!(
+        "⚠ launchd job 이 state={} 인데 포트에 데몬이 없다 — 데몬이 뜨자마자 끝나고 있을 수 있다. 로그 {} 를 보고 rocky daemon restart",
+        job.state,
+        log_path()
+    ))
 }
 
 /// `daemon status` 한 줄 — 미등록 / plist 만 존재 / 로드됨(state 포함)을 가른다.
@@ -253,17 +349,15 @@ pub fn launchd_status() -> String {
     if !plist.is_file() {
         return "launchd: 미등록 (온디맨드 자동 기동만 사용중)".to_string();
     }
-    let target = format!("{}/{LAUNCHD_LABEL}", gui_domain());
-    let (ok, out) = launchctl(&["print", &target]);
-    if !ok {
-        return format!(
+    match launchd_job() {
+        None => format!(
             "launchd: plist 는 있으나 로드되지 않음 ({}) — 재부팅·크래시 뒤 데몬이 살아나지 않는다 → rocky daemon install 로 다시 등록",
             plist.display()
-        );
+        ),
+        Some(job) => format!(
+            "launchd: 등록됨, state={}{}",
+            job.state,
+            job.pid.map(|p| format!(", pid {p}")).unwrap_or_default()
+        ),
     }
-    let state = out
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("state = "))
-        .unwrap_or("unknown");
-    format!("launchd: 등록됨, state={state}")
 }

@@ -3,7 +3,9 @@
 use std::cell::RefCell;
 use std::time::Duration;
 
-use rocky_cli::launchd::{register_job, LAUNCHD_LABEL};
+use rocky_cli::launchd::{
+    ownership_warning, parse_job, register_job, stalled_job_warning, LaunchdJob, LAUNCHD_LABEL,
+};
 
 const DOMAIN: &str = "gui/501";
 const PLIST: &str = "/Users/u/Library/LaunchAgents/com.rocky.daemon.plist";
@@ -122,4 +124,81 @@ fn persistent_failure_is_an_error_with_the_launchctl_output() {
     assert!(error.contains("Input/output error"), "{error}");
     assert!(error.contains(LAUNCHD_LABEL), "{error}");
     assert_eq!(fake.count("bootstrap"), 5);
+}
+
+/// `launchctl print` 의 서비스 블록 — 돌고 있을 때와 KeepAlive 재기동 대기일 때.
+const PRINT_RUNNING: &str = "gui/501/com.rocky.daemon = {
+	active count = 1
+	path = /Users/me/Library/LaunchAgents/com.rocky.daemon.plist
+	type = LaunchAgent
+	state = running
+
+	program = /Users/me/.local/share/rocky/v0.38.0/rockyd
+	pid = 4321
+	endpoints = {
+		state = active
+	}
+}";
+const PRINT_SCHEDULED: &str = "gui/501/com.rocky.daemon = {
+	active count = 0
+	state = spawn scheduled
+	program = /Users/me/.local/share/rocky/v0.38.0/rockyd
+	last exit code = 0
+}";
+
+#[test]
+fn print_output_gives_the_job_state_and_pid() {
+    assert_eq!(
+        parse_job(PRINT_RUNNING),
+        LaunchdJob {
+            state: "running".into(),
+            pid: Some(4321)
+        }
+    );
+    assert_eq!(
+        parse_job(PRINT_SCHEDULED),
+        LaunchdJob {
+            state: "spawn scheduled".into(),
+            pid: None
+        }
+    );
+}
+
+#[test]
+fn a_port_holder_that_is_not_the_launchd_process_is_flagged() {
+    let running = parse_job(PRINT_RUNNING);
+    assert_eq!(ownership_warning(Some(4321), Some(&running)), None);
+
+    let warning = ownership_warning(Some(32682), Some(&running)).expect("다른 pid");
+    assert!(
+        warning.contains("pid 32682") && warning.contains("pid 4321"),
+        "{warning}"
+    );
+    assert!(warning.contains("rocky daemon restart"), "{warning}");
+
+    // 실제 사고 모양: launchd 데몬은 already running 으로 끝나 재기동 대기 중
+    let scheduled = parse_job(PRINT_SCHEDULED);
+    let warning = ownership_warning(Some(32682), Some(&scheduled)).expect("job 이 안 돈다");
+    assert!(warning.contains("state=spawn scheduled"), "{warning}");
+}
+
+#[test]
+fn ownership_is_not_judged_without_a_loaded_job_or_a_pid() {
+    assert_eq!(ownership_warning(Some(1), None), None);
+    assert_eq!(
+        ownership_warning(None, Some(&parse_job(PRINT_RUNNING))),
+        None
+    );
+}
+
+/// 포트가 비었는데 job 이 돌지 않는다 — 데몬이 뜨자마자 끝나는 루프. 막 뜨는 중(running)이면 말하지 않는다.
+#[test]
+fn a_job_that_keeps_dying_is_flagged_with_its_log() {
+    let warning = stalled_job_warning(&parse_job(PRINT_SCHEDULED)).expect("spawn scheduled");
+    assert!(
+        warning.contains("state=spawn scheduled") && warning.contains(".log"),
+        "{warning}"
+    );
+    assert!(warning.contains("rocky daemon restart"), "{warning}");
+    assert_eq!(stalled_job_warning(&parse_job(PRINT_RUNNING)), None);
 }

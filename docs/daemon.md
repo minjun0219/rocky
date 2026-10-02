@@ -44,6 +44,19 @@
   `rocky daemon status`/`config show` 는 "plist 는 있으나 로드되지 않음" 을 `launchd_loaded`
   로 가르고 `rocky daemon install` 을 고치는 명령으로 붙인다; `daemon start` 는 띄운
   프로세스가 launchd 상주인지 밖인지를 출력에 적는다.
+  **launchd 밖의 고아**(2026-10-02 실제 사고, 0.38.0): plist 는 새 버전인데 포트는 launchd 밖에서 뜬 옛
+  데몬(PPID 1)이 쥐고, launchd 의 새 데몬은 "already running" 으로 끝나 `spawn scheduled` 루프를 돌았다.
+  `bootout` 은 launchd 자기 프로세스만 내리므로 교체는 이 고아를 못 건드렸고, `rocky update`·`daemon
+  restart` 는 그래도 ✓ 를 찍었다. 고아는 launchd 데몬이 내려간 틈(교체 중 bootout→bootstrap, KeepAlive
+  재기동 대기 10초)에 CLI·SessionStart 의 온디맨드 spawn 이 띄운 것이다. 지금은 (1) job 이 로드돼 있으면
+  `client::ensure_daemon` 이 따로 띄우지 않고 `launchctl kickstart` 로 launchd 에게 띄우게 하고, (2) 교체 뒤
+  `settle_managed` 가 포트의 pid 와 job 의 pid(`launchctl print` 의 `pid =`)를 비교해 다르면 그 고아를 pid 로
+  내리고 목표 버전이 응답할 때까지 본다 — 못 맞추면 성공이라 하지 않는다, (3) `daemon restart`·`update` 는
+  끝난 뒤 버전이 목표와 다르면 실패로 끝난다, (4) `daemon status` 는 포트 pid ≠ job pid 를 ⚠ 로 적고
+  `rocky daemon restart` 를 붙인다, (5) launchd 가 띄운 데몬(`XPC_SERVICE_NAME` = 라벨)은 포트가 차 있으면
+  끝나지 않고 그 데몬이 내려갈 때까지 기다렸다 이어받는다 — 로그 스팸과 고아가 내려간 뒤의 공백이 없다.
+  launchd 동작을 실제 상주 job 없이 재현하려면 `ROCKY_LAUNCHD_LABEL`(개발용 라벨 — plist 에 그 라벨과
+  `ROCKY_CONFIG` 를 물려주고 로그는 `<라벨>.log`)과 전용 `ROCKY_CONFIG` 를 같이 준다.
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed` 는 `/mcp` retry / 다음 세션 / launchd 로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json 의 todo 블록만.

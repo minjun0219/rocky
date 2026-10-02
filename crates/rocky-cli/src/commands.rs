@@ -1315,6 +1315,16 @@ pub fn cmd_daemon(
         install_launchd, is_launchd_registered, launchd_loaded, launchd_status, uninstall_launchd,
     };
 
+    // 개발용 라벨이 실제 포트를 가리키면 멈춘다 — 그 상태의 restart 는 실제 상주 데몬을 "launchd 밖의 고아" 로
+    // 보고 내리고, 개발용 job 이 실제 DB 로 그 자리를 잇는다.
+    if rocky_core::config::launchd_label() != crate::launchd::LAUNCHD_LABEL
+        && ctx.port == rocky_core::config::DEFAULT_TODO_PORT
+    {
+        return Err(format!(
+            "ROCKY_LAUNCHD_LABEL 은 실제 포트({})가 아닌 전용 ROCKY_CONFIG(다른 port·dir)와 함께 써야 한다",
+            ctx.port
+        ));
+    }
     match rest.first().map(String::as_str) {
         // 포그라운드 실행 — TS 는 daemon.ts 를 in-process import 했고, 여기서는 데몬
         // 바이너리로 프로세스를 교체한다(exec). 반환하면 그 자체가 실패다.
@@ -1389,6 +1399,15 @@ pub fn cmd_daemon(
                 .and_then(|h| h.pid)
                 .map(|p| format!(", pid {p}"))
                 .unwrap_or_default();
+            // 목표는 이 CLI 의 버전이다 — 다른 버전이 응답하면(launchd 밖의 고아가 포트를 쥔 채 남는 등)
+            // 재시작했다고 말하지 않는다.
+            let here = env!("CARGO_PKG_VERSION");
+            if after.as_ref().and_then(|h| h.version.as_deref()) != Some(here) {
+                return Err(format!(
+                    "daemon 재시작 실패 — 목표 v{here}, 포트의 데몬은 {}{pid}. `rocky daemon status` 로 확인하라",
+                    version(&after)
+                ));
+            }
             match before {
                 Some(_) => println!(
                     "✓ daemon 재시작 {} → {}{pid}",
@@ -1403,13 +1422,31 @@ pub fn cmd_daemon(
             Ok(())
         }
         Some("status") => {
-            let alive = crate::client::health(&ctx.base_url);
-            if alive {
-                println!("✓ running on {}", ctx.base_url);
-            } else {
-                println!("✗ not running (port {})", ctx.port);
+            let running = crate::client::daemon_health(&ctx.base_url);
+            let alive = running.is_some();
+            // 포트를 쥔 데몬이 launchd job 의 프로세스가 아니면 ✓ 로 두지 않는다 — 그 데몬은 업데이트가 못 바꾼다.
+            let job = crate::launchd::launchd_job();
+            let warning = match &running {
+                Some(h) => crate::launchd::ownership_warning(h.pid, job.as_ref()),
+                None => job.as_ref().and_then(crate::launchd::stalled_job_warning),
+            };
+            match &running {
+                Some(h) => println!(
+                    "{} running on {}{}",
+                    if warning.is_some() { "⚠" } else { "✓" },
+                    ctx.base_url,
+                    match (h.version.as_deref(), h.pid) {
+                        (Some(v), Some(p)) => format!(" (v{v}, pid {p})"),
+                        (Some(v), None) => format!(" (v{v})"),
+                        _ => String::new(),
+                    }
+                ),
+                None => println!("✗ not running (port {})", ctx.port),
             }
             println!("{}", launchd_status());
+            if let Some(warning) = warning {
+                println!("{warning}");
+            }
             if alive {
                 println!("접속 주소:");
                 crate::system::print_addresses(
@@ -1676,6 +1713,17 @@ pub fn cmd_update(ctx: &CliContext, check: bool) -> Result<(), String> {
     }
     let _ = child.wait();
     let after = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
+    // 바이너리를 못 받았거나(릴리스 산출물이 아직 없음) launchd 밖의 옛 데몬이 포트를 쥔 채 남으면 데몬은
+    // 그대로다 — 그때 ✓ 를 찍으면 업데이트된 줄 안다.
+    if after.as_deref() != Some(latest.as_str()) {
+        return Err(format!(
+            "데몬이 v{latest} 로 바뀌지 않았다 — 지금 {}. 위 메시지(다운로드·교체 실패)를 보고, `rocky daemon status` 로 확인한 뒤 다시 `rocky update`",
+            after
+                .as_deref()
+                .map(|v| format!("v{v}"))
+                .unwrap_or_else(|| "데몬 없음".into())
+        ));
+    }
     println!(
         "✓ 데몬 {} → {}",
         running.as_deref().unwrap_or("(없음)"),
