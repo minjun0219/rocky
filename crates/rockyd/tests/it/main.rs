@@ -21,3 +21,4 @@ mod spawnctl_test;
 mod sweep_test;
 mod tailscale_test;
 mod usage_test;
+mod ws_test;

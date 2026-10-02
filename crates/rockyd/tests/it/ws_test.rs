@@ -1,10 +1,8 @@
 //! 노트 소켓(`/api/ws`) — 실제 서버에 실제 웹소켓 클라이언트로. 문서·편집·방송·프레즌스가 연결 하나로 오가고,
 //! 다른 사이트에서 연 소켓은 핸드셰이크에서 끊긴다.
 
-mod common;
-
+use crate::common::*;
 use base64::Engine;
-use common::*;
 use futures_util::{SinkExt, StreamExt};
 use rocky_core::note_doc::NoteDoc;
 use serde_json::{json, Value};
