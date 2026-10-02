@@ -144,11 +144,12 @@ function App() {
           `--app-head-h` 로 알려 아래의 sticky(빠른 추가 · 노트 툴바)가 그 밑에 붙게 한다. */}
       <div ref={headRef} className="app-head sticky top-0 z-20 bg-bg">
         <TopBar />
+        {/* 돌고 있음 — 탭과 상관없이 늘 보인다(2026-10-02 오너). 없으면 자리를 차지하지 않는다. */}
+        <NowTable />
         <ViewSwitch />
       </div>
-      {/* 관제판 — 한 열. 첫 화면은 피드(PR 알림 + 내 차례). 할 일: "돌고 있음"(전 보드) → 그 보드의 목록.
-          노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
-      {view === 'todos' ? <NowTable /> : null}
+      {/* 관제판 — 한 열. 머리(보드 스위처 · 돌고 있음 · 탭) 아래 첫 화면은 피드(PR 알림 + 내 차례).
+          할 일: 그 보드의 목록. 노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
       <div className="layout flex min-h-0 flex-1 flex-col">
         {view === 'feed' ? (
           <FeedPane />
