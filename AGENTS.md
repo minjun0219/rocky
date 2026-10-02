@@ -270,6 +270,8 @@ typecheck or tests — pre-push and CI already cover it.*
   자동으로 멈추고 이유를 댓글로 남긴다(`should_auto_release`); 사람이 든 것·`idle`·`unknown` 은 건드리지 않는다.
   핸드오프 주입문은 착수(`start`)와 함께 닫는 법(`done`/`stop`)을 말한다. `Stop` 훅(`handoff-stop`)은 이 세션에 귀속된
   doing 이 있으면 턴을 한 번 막고 닫았는지 묻는다(`held_todo_reminder`) — `stop_hook_active` 인 턴은 다시 막지 않아 루프가 없다.
+  같은 귀속으로 `log-turn` 은 턴 기록 태그에 `todo:<ref>` 를 붙인다(보드 할 일 상세가 작업 흐름을 이 태그로 모은다).
+  하네스가 넣은 메시지(`<task-notification>`·셸 출력)는 턴을 나누되 요청 칸엔 짧은 이름만 남긴다(`label_injected`).
 - **PR 감시**(`rockyd::prwatch`)는 **구독한 PR 만**(`pr_subscriptions` — `rocky pr subscribe N`, `/rocky:review-request`·
   `review-fix` 가 구독한다, 머지·닫힘에서 풀린다) `pr.intervalMinutes` 마다 상세 쿼리로 보고 `pr-*` 전이(actor `rocky`)를
   그 레포를 둔 보드 히스토리에 남긴다. 레포 목록은 보지 않는다 — 보드의 `repo` 는 감시 대상을 정하지 않는다. 구독은
