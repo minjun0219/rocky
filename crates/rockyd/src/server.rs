@@ -43,7 +43,7 @@ use crate::github::{
 };
 use crate::inbox_exec::{cached_inbox_dynamic, InboxFetch, InboxProvider, SourcesFn};
 use crate::runner::{default_runner, Runner};
-use crate::sessions_exec::{cached_sessions, uncached_sessions, SessionsProvider};
+use crate::sessions_exec::{cached_sessions, swr_sessions, uncached_sessions, SessionsProvider};
 use crate::spawnctl::{
     default_spawn_fn, find_live_session_at, worktree_name_for, worktree_path_for, RecentSpawns,
     SpawnFn, SpawnInput, RECENT_SPAWN_TTL,
@@ -344,9 +344,13 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
     // sessions 하나만 넣었을 때 세 라우트가 같은 결정론적 목록을 보게 한다
     // (TS `resolveSpawnSessions` / statuslineSessions 배선과 동일).
     let injected = options.sessions.clone();
-    let sessions = injected
-        .clone()
-        .unwrap_or_else(|| cached_sessions(default_gh.clone(), Duration::from_secs(3)));
+    let sessions = injected.clone().unwrap_or_else(|| {
+        swr_sessions(
+            default_gh.clone(),
+            Duration::from_secs(3),
+            Duration::from_secs(60),
+        )
+    });
     // spawn 라우트만 기본이 **캐시 없는** 조회기 — 가드가 spawn 이전 스냅샷을 보면 안 된다.
     let spawn_sessions = options
         .spawn_sessions
