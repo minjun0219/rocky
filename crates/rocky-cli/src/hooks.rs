@@ -14,7 +14,9 @@ use rocky_core::notify::{
     build_notify_context, build_pr_context, filter_human_changes, hold_cursor, merge_context,
     pr_entries_for_board, read_cursor, write_cursor, BoardLookup,
 };
-use rocky_core::transcript::{build_turn_content, extract_turn, should_capture};
+use rocky_core::transcript::{
+    build_turn_content, extract_turn_from_tail, should_capture, TAIL_WINDOW,
+};
 use rocky_core::types::{ChangesSince, ClaimedHandoff};
 use rocky_core::worklog::{Worklog, WorklogAppendInput};
 use serde_json::json;
@@ -589,10 +591,8 @@ pub fn hook_log_turn() {
     let Some(path) = input.get("transcript_path").and_then(|v| v.as_str()) else {
         return;
     };
-    let Ok(transcript) = std::fs::read_to_string(path) else {
-        return;
-    };
-    let Some(parts) = extract_turn(&transcript) else {
+    // 끝에서부터 — 트랜스크립트는 수십 MB 까지 자라는데 턴마다 통째로 읽으면 Stop 이 그만큼 느려진다.
+    let Some(parts) = extract_turn_from_tail(std::path::Path::new(path), TAIL_WINDOW) else {
         return;
     };
     let content = build_turn_content(&parts, config.capture_max_chars.unwrap_or(800));
