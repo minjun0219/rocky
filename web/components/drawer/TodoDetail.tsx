@@ -1,8 +1,11 @@
 import { Archive, ArchiveRestore, ArrowUpRight, Check, Pause, Play, RotateCcw } from 'lucide-react';
+import type { EditorView } from '@codemirror/view';
 import { useEffect, useRef, useState } from 'react';
+import { mountMarkdownEditor } from '../../codemirror-editor';
 import { boardCommand, copyRefWithFeedback, linkLabel } from '../../lib';
 import { useUiStore } from '../../store';
 import { IssueAction } from './IssueAction';
+import { FormatToolbar } from '../FormatToolbar';
 import { Markdown } from '../Markdown';
 import { SpawnAction } from './SpawnAction';
 
@@ -20,6 +23,9 @@ export function TodoDetail() {
   const cancelHandoff = useUiStore((s) => s.cancelHandoff);
   const todo = detail?.todo;
   const [desc, setDesc] = useState(todo?.description ?? '');
+  // 편집기의 ⌘Enter 는 편집기를 만들 때 묶인 콜백이라 그 뒤의 `desc` 상태를 못 본다 — 최신 글은 ref 로.
+  const descRef = useRef(desc);
+  descRef.current = desc;
   // 긴 설명은 접어서 시작한다 — 폰에서 설명 한 덩이가 1,400px 을 넘기면 상태 버튼·댓글이 화면
   // 세 장 아래로 밀린다(실측). 항목이 바뀌면 다시 접는다.
   const [descExpanded, setDescExpanded] = useState(false);
@@ -289,29 +295,15 @@ export function TodoDetail() {
       )}
       <div className="drawer-section-label">설명</div>
       {editingDesc ? (
-        <div>
-          <textarea
-            className="drawer-desc-edit"
-            value={desc}
-            rows={8}
-            onChange={(e) => setDesc(e.target.value)}
-          />
-          <div className="drawer-actions">
-            <button
-              type="button"
-              className="drawer-btn"
-              onClick={() => {
-                void patchTodo(todo.id, { description: desc });
-                setEditingDesc(false);
-              }}
-            >
-              저장
-            </button>
-            <button type="button" className="drawer-btn" onClick={() => setEditingDesc(false)}>
-              취소
-            </button>
-          </div>
-        </div>
+        <DescEditor
+          initial={todo.description}
+          onChange={setDesc}
+          onSave={() => {
+            void patchTodo(todo.id, { description: descRef.current });
+            setEditingDesc(false);
+          }}
+          onCancel={() => setEditingDesc(false)}
+        />
       ) : (
         <div className={`drawer-desc-wrap ${longDesc && !descExpanded ? 'is-collapsed' : ''}`}>
           <button type="button" className="drawer-desc" onClick={() => setEditingDesc(true)}>
@@ -430,4 +422,61 @@ export function TodoDetail() {
 /** 접어서 시작할 만큼 긴 설명인가 — 글자 500 또는 줄 12 를 넘으면. */
 export function isLongDescription(text: string): boolean {
   return text.length > 500 || text.split('\n').length > 12;
+}
+
+/**
+ * 설명 편집 — 노트와 같은 마크다운 편집기(서식 툴바·⌘B/⌘K·꾸밈)이고 글 길이만큼 자란다(고정 높이 스크롤
+ * 박스였던 textarea 를 걷었다). 실시간 문서가 아니라 저장은 버튼·⌘Enter, 취소는 버튼·Esc.
+ */
+function DescEditor(props: {
+  initial: string;
+  onChange: (text: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  // 편집기는 한 번 만든다 — 콜백이 바뀌어도 다시 만들지 않게 ref 로 최신 것을 부른다.
+  const callbacks = useRef(props);
+  callbacks.current = props;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 마운트에 한 번 — 처음 글로 만들고 언마운트에 걷는다
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
+    const view = mountMarkdownEditor(host, {
+      doc: props.initial,
+      onChange: (text) => callbacks.current.onChange(text),
+      onSave: () => callbacks.current.onSave(),
+      onCancel: () => callbacks.current.onCancel(),
+    });
+    viewRef.current = view;
+    view.focus();
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+  }, []);
+  return (
+    <div>
+      {/* 툴바는 편집기 끝까지만 따라온다 — 저장 버튼까지 감싸면 바닥에서 툴바가 그 버튼을 덮는다. */}
+      <div>
+        <FormatToolbar
+          view={() => viewRef.current}
+          className="sticky top-0 z-10 -mx-1 bg-surface px-1 py-1"
+        />
+        <div className="note-cm drawer-desc-cm" ref={hostRef} />
+      </div>
+      <div className="drawer-actions">
+        <button type="button" className="drawer-btn" onClick={props.onSave}>
+          저장 <span className="text-faint">⌘↵</span>
+        </button>
+        <button type="button" className="drawer-btn" onClick={props.onCancel}>
+          취소
+        </button>
+      </div>
+    </div>
+  );
 }

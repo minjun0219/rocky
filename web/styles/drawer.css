@@ -10,7 +10,8 @@
   position: fixed;
   inset: 0;
   background: rgba(12, 18, 15, 0.5);
-  z-index: 10;
+  /* 고정 머리·버전 줄(z-20)과 머리줄 메뉴(z-30)보다 위 — 모달이 그 밑에 깔리면 버전 줄이 드로어 바닥을 덮는다. */
+  z-index: 40;
 }
 
 .drawer {
@@ -23,7 +24,7 @@
   width: min(680px, 92vw);
   height: fit-content;
   max-height: 86vh;
-  z-index: 10;
+  z-index: 40;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -109,17 +110,6 @@
   color: var(--faint);
 }
 
-.drawer-desc-edit {
-  width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--warm-dim);
-  border-radius: 8px;
-  padding: 12px 14px;
-  font-size: 15px;
-  line-height: 1.6;
-  resize: vertical;
-}
-
 .drawer-actions {
   display: flex;
   flex-wrap: wrap;
@@ -163,4 +153,14 @@
 }
 .drawer-desc-more:hover {
   color: var(--text);
+}
+
+/* 설명 편집기 — 노트 편집기(`.note-cm`, notes.css)를 그대로 쓰되 테두리로 편집 중임을 보인다. 안쪽 스크롤 없이
+ * 글 길이만큼 자란다(드로어가 스크롤한다). */
+.drawer-desc-cm {
+  border: 1px solid var(--warm-dim);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 8em;
+  background: var(--bg);
 }

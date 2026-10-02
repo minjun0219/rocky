@@ -10,12 +10,11 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { type MountedEditor, mountNoteEditor } from '../codemirror-editor';
 import { boardCommand, copyRefWithFeedback, formatElapsed } from '../lib';
-import { applyFormat, FORMAT_ACTIONS } from '../markdown-commands';
 import { NoteSync, PRESENCE_PING_MS } from '../notedoc';
 import { useUiStore } from '../store';
 import type { NoteView } from '../types';
 import { logUsage } from '../usage';
-import { FORMAT_ICONS } from './format-icons';
+import { FormatToolbar } from './FormatToolbar';
 import { Markdown, markdownExcerpt } from './Markdown';
 
 /** 포커스가 빠진 뒤 동기화 세션을 얼마나 더 살려 두나 — 잠깐 다른 곳을 눌렀다 돌아오는 경우. */
@@ -451,36 +450,11 @@ function NoteEditor({
   return (
     <div className={`note-body mt-1 flex flex-col ${fill ? 'flex-1' : ''}`}>
       {live === 'on' && (
-        <div
-          className={`note-toolbar below-head sticky -top-3 z-10 -mx-1 flex flex-wrap gap-0.5 px-1 py-1 ${fill ? 'bg-bg' : 'bg-surface'}`}
-          role="toolbar"
-          aria-label="서식"
-        >
-          {FORMAT_ACTIONS.map((action) => {
-            const Icon = FORMAT_ICONS[action.id];
-            const hint = action.shortcut ? `${action.label} (${action.shortcut})` : action.label;
-            return (
-              <button
-                key={action.id}
-                type="button"
-                className="flex size-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-text"
-                title={hint}
-                aria-label={action.label}
-                // 누르는 순간 편집기가 포커스를 잃으면 선택이 풀린다 — 포커스를 뺏지 않는다.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  const view = mountedRef.current?.view;
-                  if (view) {
-                    logUsage('web:note-format', { action: action.id });
-                    applyFormat(view, action.run);
-                  }
-                }}
-              >
-                {Icon ? <Icon size={15} aria-hidden /> : action.label}
-              </button>
-            );
-          })}
-        </div>
+        <FormatToolbar
+          view={() => mountedRef.current?.view}
+          className={`note-toolbar below-head sticky -top-3 z-10 -mx-1 px-1 py-1 ${fill ? 'bg-bg' : 'bg-surface'}`}
+          onFormat={(action) => logUsage('web:note-format', { action })}
+        />
       )}
       <div className={`note-cm ${fill ? 'is-fill flex-1' : ''}`}>
         {live !== 'on' && (

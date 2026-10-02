@@ -156,7 +156,7 @@
     top: auto;
     right: 16px;
     bottom: max(16px, env(safe-area-inset-bottom));
-    z-index: 11;
+    z-index: 41;
     min-height: 48px;
     min-width: 48px;
     display: grid;
@@ -215,6 +215,8 @@
     border-left: none;
     border-top: 1px solid var(--line);
     border-radius: 14px 14px 0 0;
+    /* 바닥에 떠 있는 닫기(48px + 바닥 16px)만큼 끝에 여백 — 없으면 마지막 줄(히스토리 시각 등)이 버튼 밑에 깔린다. */
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
     animation: rt-sheet-up 0.22s ease-out;
   }
   @keyframes rt-sheet-up {
@@ -228,7 +230,7 @@
   .note-title,
   .note-content,
   .actor-input,
-  .drawer-desc-edit {
+  .drawer-desc-cm .cm-editor {
     font-size: 16px;
   }
 }
