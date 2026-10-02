@@ -35,6 +35,11 @@ pub fn build_handoff_prompt_from(input: &HandoffPromptInput) -> String {
         "착수할 때 todo_status {{ id: \"{}\", action: \"start\" }} 로 표시한다.",
         input.todo_ref
     ));
+    // 끝을 말하지 않으면 세션은 일을 마치고도 doing 으로 남겨 둔다 — 보드엔 "멈춤" 으로 쌓인다.
+    lines.push(format!(
+        "끝나면 todo_status {{ id: \"{}\", action: \"done\" }}, 손을 떼면 action: \"stop\" 으로 닫는다.",
+        input.todo_ref
+    ));
     if input.remaining > 0 {
         lines.push(format!(
             "(대기 중인 요청이 {}건 더 있다 — 이 건을 마치면 이어서 도착한다.)",
@@ -90,4 +95,60 @@ pub fn build_handoff_prompt(claimed: &ClaimedHandoff) -> String {
         todo_title: &claimed.todo_title,
         remaining: claimed.remaining,
     })
+}
+
+/// 이 세션이 들고 있는 진행 중 할 일 — Stop 훅이 데몬의 `doing` 목록에서 고른다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldTodo {
+    pub todo_ref: String,
+    pub title: String,
+}
+
+/// `GET /api/todos?status=doing` 응답(JSON 배열)에서 **이 세션이 든 것만** 고른다 — `doingSessionId` 가
+/// 훅의 `session_id` 와 같은 것. 핸드오프를 받아 `start` 한 세션에만 이 귀속이 붙는다(사람이 누른 start 나
+/// 세션이 스스로 든 것은 없다). 보관된 것은 뺀다.
+pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldTodo> {
+    todos
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|t| t.get("status").and_then(|v| v.as_str()) == Some("doing"))
+                .filter(|t| t.get("archivedAt").is_none_or(|v| v.is_null()))
+                .filter(|t| t.get("doingSessionId").and_then(|v| v.as_str()) == Some(session_id))
+                .filter_map(|t| {
+                    Some(HeldTodo {
+                        todo_ref: t.get("ref")?.as_str()?.to_string(),
+                        title: t.get("title")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Stop 훅의 마무리 확인 — 세션이 일을 끝내고도 `done` 을 부르지 않아 보드에 "멈춤" 이 쌓인다(2026-10-02
+/// 오너). 들고 있는 할 일이 있으면 턴을 한 번 더 열어 묻는다. `stop_hook_active`(이미 Stop 훅 때문에 이어진
+/// 턴)면 묻지 않는다 — 안 그러면 "아직 하는 중" 이라 답한 세션을 영영 못 멈춘다.
+pub fn held_todo_reminder(held: &[HeldTodo], stop_hook_active: bool) -> Option<String> {
+    if stop_hook_active || held.is_empty() {
+        return None;
+    }
+    let mut lines = vec![
+        "# rocky: 이 세션이 들고 있는 할 일".to_string(),
+        String::new(),
+    ];
+    for todo in held {
+        lines.push(format!("- {} \"{}\" — 진행 중", todo.todo_ref, todo.title));
+    }
+    lines.push(String::new());
+    lines.push(
+        "끝났으면 todo_status { id, action: \"done\" }, 손을 뗐으면 action: \"stop\" 으로 닫는다."
+            .to_string(),
+    );
+    lines.push(
+        "아직 하는 중이거나 사람의 답을 기다리는 중이면 아무것도 하지 말고 그대로 멈춘다 — 이 확인에 답하지 않는다."
+            .to_string(),
+    );
+    Some(lines.join("\n"))
 }
