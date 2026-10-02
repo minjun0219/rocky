@@ -48,6 +48,12 @@ fn is_real_user_prompt(msg: &Value) -> bool {
 /// 마지막 실제 사용자 프롬프트부터 끝까지를 한 턴으로 본다. 프롬프트가 없거나 셋 다
 /// 비면 `None`. 손상/부분 라인은 건너뛴다.
 pub fn extract_turn(transcript: &str) -> Option<TurnParts> {
+    extract_turn_found(transcript).flatten()
+}
+
+/// `extract_turn` 의 속 — 바깥 `None` 은 "이 글에 실제 프롬프트가 없다"(더 앞을 읽어야 한다), 안쪽 `None` 은
+/// "찾았는데 남길 게 없다". 끝에서부터 읽는 [`extract_turn_from_tail`] 이 둘을 가른다.
+fn extract_turn_found(transcript: &str) -> Option<Option<TurnParts>> {
     let entries: Vec<Value> = transcript
         .split('\n')
         .map(str::trim)
@@ -58,6 +64,42 @@ pub fn extract_turn(transcript: &str) -> Option<TurnParts> {
     let start = entries
         .iter()
         .rposition(|e| e.get("message").is_some_and(is_real_user_prompt))?;
+    Some(turn_from(&entries, start))
+}
+
+/// 끝에서부터 읽는 첫 창 — 한 턴은 대개 이 안이다.
+pub const TAIL_WINDOW: u64 = 256 * 1024;
+
+/// 트랜스크립트 **파일 끝**에서 마지막 턴을 뽑는다. 세션 트랜스크립트는 수십 MB 까지 자라는데(실측 41MB) 필요한 건
+/// 마지막 프롬프트부터 끝까지라, 끝의 창만 읽고 프롬프트가 없으면 창을 두 배로 넓힌다. 창의 첫 줄은 잘렸을 수 있어
+/// 버린다(파일 맨 앞까지 읽은 경우만 그대로). 결과는 파일 전체를 [`extract_turn`] 한 것과 같다.
+pub fn extract_turn_from_tail(path: &std::path::Path, first_window: u64) -> Option<TurnParts> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut window = first_window.max(1);
+    loop {
+        let start = len.saturating_sub(window);
+        file.seek(SeekFrom::Start(start)).ok()?;
+        let mut buf = Vec::with_capacity((len - start) as usize);
+        file.read_to_end(&mut buf).ok()?;
+        let text = String::from_utf8_lossy(&buf);
+        let text = if start == 0 {
+            &text[..]
+        } else {
+            text.split_once('\n').map_or("", |(_, rest)| rest)
+        };
+        if let Some(found) = extract_turn_found(text) {
+            return found;
+        }
+        if start == 0 {
+            return None;
+        }
+        window = window.saturating_mul(2);
+    }
+}
+
+fn turn_from(entries: &[Value], start: usize) -> Option<TurnParts> {
     let req = text_of(entries[start].get("message").and_then(|m| m.get("content")));
     // 도구 이름은 첫 등장 순서를 유지하면서 횟수를 센다 (JS Map 의 삽입 순서).
     let mut tool_names: Vec<String> = Vec::new();

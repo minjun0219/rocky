@@ -115,3 +115,53 @@ fn should_capture_defaults_and_overrides() {
     assert!(should_capture(Some("1"), Some(false)));
     assert!(should_capture(Some("   "), None));
 }
+
+/// 앞쪽에 긴 지난 턴들 + 마지막 턴. 끝에서부터 읽어도 파일 전체를 읽은 것과 같아야 한다.
+fn long_transcript() -> String {
+    let mut lines = Vec::new();
+    for i in 0..200 {
+        lines.push(json!({"type":"user","message":{"role":"user","content":format!("지난 요청 {i} {}", "x".repeat(300))}}).to_string());
+        lines.push(json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":format!("지난 답 {i}")}]}}).to_string());
+    }
+    // 마지막 턴 — 프롬프트 뒤에 도구 결과·도구 호출이 길게 붙는다(창 하나를 넘긴다).
+    lines
+        .push(json!({"type":"user","message":{"role":"user","content":"마지막 요청"}}).to_string());
+    for _ in 0..40 {
+        lines.push(json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"y".repeat(200)}}]}}).to_string());
+        lines.push(json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"z".repeat(200)}]}}).to_string());
+    }
+    lines.push(json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"끝"}]}}).to_string());
+    lines.join("\n")
+}
+
+#[test]
+fn reading_from_the_tail_matches_reading_the_whole_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("t.jsonl");
+    let text = long_transcript();
+    std::fs::write(&path, &text).unwrap();
+    let whole = extract_turn(&text).expect("마지막 턴");
+    assert_eq!(whole.req, "마지막 요청");
+    assert_eq!(whole.tools, vec!["Bash(×40)".to_string()]);
+    // 창이 작아 프롬프트가 안 잡히면 넓히고, 잘린 첫 줄은 버린다 — 어떤 창이든 결과가 같다.
+    for window in [1, 100, 1_000, 10_000, TAIL_WINDOW, 1 << 30] {
+        assert_eq!(
+            extract_turn_from_tail(&path, window),
+            Some(whole.clone()),
+            "window {window}"
+        );
+    }
+}
+
+#[test]
+fn reading_from_the_tail_without_a_prompt_is_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("t.jsonl");
+    let only_tools = json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}).to_string();
+    std::fs::write(&path, format!("{only_tools}\n{only_tools}")).unwrap();
+    assert_eq!(extract_turn_from_tail(&path, 10), None);
+    assert_eq!(
+        extract_turn_from_tail(&tmp.path().join("없음.jsonl"), 10),
+        None
+    );
+}
