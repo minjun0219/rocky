@@ -1,6 +1,5 @@
 //! TS `src/cli.test.ts` 의 포맷/경로 블록 포팅.
 
-
 use crate::common::*;
 use rocky_cli::format::*;
 use rocky_core::types::{TodoLink, TodoPriority, TodoStatus};

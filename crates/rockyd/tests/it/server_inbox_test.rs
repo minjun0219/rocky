@@ -1,6 +1,5 @@
 //! GET /api/inbox — 수집함 어댑터 실행·캐시·실패 격리.
 
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

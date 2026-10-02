@@ -1,9 +1,8 @@
 //! 사용 로그 — REST 입구·웹 이벤트 라우트가 싱크에 무엇을 넘기는지.
 
-
+use crate::common::*;
 use axum::body::Body;
 use axum::http::Request;
-use crate::common::*;
 use rocky_core::usage::UsageSource;
 use rockyd::server::handle_api;
 use rockyd::usage_sink::capture_sink;

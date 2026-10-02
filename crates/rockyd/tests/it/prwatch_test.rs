@@ -1,6 +1,5 @@
 //! PR 감시 잡 — 가짜 gh 러너로 한 tick: 스냅숏 저장·전이·알림·health·`/api/prs`·예산.
 
-
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

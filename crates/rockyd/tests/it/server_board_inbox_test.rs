@@ -1,6 +1,5 @@
 //! 보드 수집함 설정 — 어댑터 칸 목록·등록·삭제, 등록한 소스가 재기동 없이 수집함에 나오는지.
 
-
 use std::sync::{Arc, Mutex};
 
 use crate::common::*;

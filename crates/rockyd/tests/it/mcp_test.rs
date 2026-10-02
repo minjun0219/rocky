@@ -1,13 +1,12 @@
 //! TS `src/mcp.test.ts` 포팅 — InMemoryTransport 대신 **실제 HTTP JSON-RPC 표면**으로
 //! 검증한다(rmcp stateless 통합까지 함께 커버).
 
-
 use std::sync::Arc;
 
+use crate::common::{fx, rebuild, Fx};
 use axum::body::Body;
 use axum::extract::connect_info::ConnectInfo;
 use axum::http::Request;
-use crate::common::{fx, rebuild, Fx};
 use rockyd::daemon::build_router;
 use rockyd::runner::{CmdOutput, Runner};
 use rockyd::server::ServerState;

@@ -1,6 +1,5 @@
 //! TS `src/server.test.ts` 포팅 3/4 — handoff routes + doingState + claim 게이트.
 
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
