@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { formatAge, parseTurn } from '../lib';
 import { api, useUiStore } from '../store';
 import type { WorklogEntry } from '../types';
+import { StatsPanel } from './StatsPanel';
 import { logUsage } from '../usage';
 
 /** 한 번에 받는 줄 수 — "더 보기" 가 이만큼씩 더 받는다. */
@@ -86,6 +87,7 @@ export function WorklogPane() {
   const now = Date.now();
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 py-3" aria-label="작업로그">
+      <StatsPanel />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-[7px] text-sm text-text placeholder:text-faint"

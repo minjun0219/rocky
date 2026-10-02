@@ -91,6 +91,7 @@ const LITERAL_THIRD: &[&str] = &[
     "filters",
     "open",
     "worklog",
+    "stats",
 ];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
@@ -252,6 +253,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/prs/filters"),
     (UsageSource::Rest, "GET /api/prs/open"),
     (UsageSource::Rest, "GET /api/logs/worklog"),
+    (UsageSource::Rest, "GET /api/logs/stats"),
     (UsageSource::Rest, "POST /api/prs/filters"),
     (UsageSource::Rest, "DELETE /api/prs/filters"),
     (UsageSource::Rest, "PATCH /api/notes/:ref"),
