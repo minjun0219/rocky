@@ -286,6 +286,12 @@ typecheck or tests — pre-push and CI already cover it.*
   `--describe` 칸으로만 검증해 받고(`rocky_core::inbox::validate_params`), 명령 자체를 화면이 바꾸게 하지 않는다.
   **수집함 구독**(`rocky inbox subscribe`)은 세션을 소스의 구독자로 적고(`inbox_subscriptions`, 기준선은 `inbox_seen`),
   `rockyd::inbox_watch` 가 구독된 소스만 5분마다 읽어 새 항목을 그 세션 받은편지함에 보낸다 — 알리기만, 착수는 사람.
+- **로그 색인**(`rocky_core::logindex`, `rockyd::logindex`): 작업로그·사용 로그는 **JSONL 이 진실**이고 데몬은 그걸
+  `logs.db`(todo 폴더, `todo.db` 와 별도 파일)로 옮겨 읽기만 한다 — 쓰기 경로는 그대로다(데몬이 꺼져도 기록이 남는다).
+  **전용 OS 스레드**가 기동 때와 1분마다 파일별 바이트 위치로 새 줄만 옮긴다(작업로그는 `id`, 사용 로그는 `(파일, 위치)`
+  가 키라 다시 읽어도 중복이 없다). 지워도 다시 만든다. 조회는 `GET /api/logs/worklog` — `spawn_blocking` + 자기 연결.
+  보드 ↔ 레포는 보드 `path` 로 `default_project_key` 를 계산한다. 근거·범위는 `docs/design/specs/2026-10-02-log-index-design.md`.
+  *EN: JSONL is the source of truth; logs.db is a rebuildable index written by a dedicated thread — never route writes through the daemon.*
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL 이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd` 로 정한다. 끼워 넣는 쪽은 `rocky statusline`(`--cwd`·`--session`, 없으면 stdin JSON) — 1초마다 도는
   자리라 사용 로그·데몬 자동 기동을 거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.

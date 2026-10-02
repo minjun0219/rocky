@@ -85,6 +85,7 @@ ref 가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | DELETE `/api/prs/subscriptions` | `?repo=&number=` | `{removed}` | **로컬 전용** |
 | GET `/api/prs/filters` | — | `PrFilterSubscription[]` (`{id, query, sessionId?, createdAt}`) | 필터 구독 — GitHub 검색 조건 |
 | GET `/api/prs/open` | `?repo=` | `OpenPr[]` (`{number, title, url, isDraft, updatedAt, author?, subscribed}`) | 그 레포의 열린 PR — 필요할 때만(GitHub 1포인트, 레포별 60초 캐시). 보드에 붙었거나 구독한 레포만, 아니면 400 |
+| GET `/api/logs/worklog` | `?board=&todo=&kind=&q=&before=&limit=` | `{entries: IndexedWorklog[], unlinked?}` (`{id, projectKey, timestamp, kind, content, tags, todoRef?}`) | 로그 색인(`logs.db`)의 작업로그, 최신순(기본 50, 최대 500). `board` 는 그 보드 `path` 의 레포만(path 없으면 `unlinked: true`, 없는 보드는 404), `todo` 는 Stop 훅의 `todo:<ref>` 태그, `q` 는 본문 포함 검색 |
 | POST `/api/prs/filters` | `{query!, sessionId?}` | 201 `PrFilterSubscription` | **로컬 전용**. 한 줄·256자 안이 아니면 400. 같은 세션·같은 조건은 있던 것 |
 | DELETE `/api/prs/filters` | `?id=` | `{removed, prs}` | **로컬 전용**. 그 필터로 들어온 PR 구독도 걷는다(`prs` = 걷힌 수). 없으면 404 |
 | GET `/api/summary` | `?cwd=&cached=true` | `Summary` | **포팅 후 추가(0.26)** — 보드 요약 JSON(마감·진행중·핸드오프·수집함 미올림 + 항목 ≤4). `rocky today` · SessionStart 훅 · statusline 이 쓴다 |

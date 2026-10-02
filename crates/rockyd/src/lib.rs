@@ -7,6 +7,7 @@ pub mod daemon;
 pub mod github;
 pub mod inbox_exec;
 pub mod inbox_watch;
+pub mod logindex;
 pub mod mcp;
 pub mod prwatch;
 pub mod runner;
