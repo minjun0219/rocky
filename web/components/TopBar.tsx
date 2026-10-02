@@ -24,16 +24,16 @@ export function TopBar() {
   const runCount = nowRows.filter((r) => r.group === 'run').length;
 
   return (
-    <header className="topbar relative flex min-h-10 items-center justify-between gap-2 border-b border-line bg-surface/95 px-3 py-1 select-none backdrop-blur-xs">
-      <div className="flex shrink-0 items-center gap-2">
+    <header className="topbar relative flex flex-wrap min-h-10 items-center justify-between gap-x-2 gap-y-1.5 border-b border-line bg-surface/95 px-3 py-1 select-none backdrop-blur-xs">
+      <div className="order-1 flex shrink-0 items-center gap-2">
         <BoardSwitcher />
       </div>
 
-      <div className="flex min-w-0 items-center justify-center">
+      <div className="order-3 flex w-full min-w-0 items-center justify-center py-0.5 sm:order-2 sm:w-auto sm:py-0">
         <ViewSwitch />
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="order-2 flex shrink-0 items-center gap-1.5 sm:order-3">
         {runCount > 0 ? (
           <span
             className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-run"

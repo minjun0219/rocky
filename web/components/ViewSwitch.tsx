@@ -33,7 +33,7 @@ export function ViewSwitch() {
 
   return (
     <nav
-      className="view-switch inline-flex items-center rounded-lg border border-line/60 bg-surface-2/60 p-0.5"
+      className="view-switch inline-flex max-w-full items-center overflow-x-auto rounded-lg border border-line/60 bg-surface-2/60 p-0.5"
       aria-label="보기"
     >
       {kinds.map((kind) => {
@@ -43,7 +43,7 @@ export function ViewSwitch() {
             key={kind}
             type="button"
             aria-pressed={isActive}
-            className={`inline-flex min-h-7 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-all duration-150 ${
+            className={`inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs whitespace-nowrap transition-all duration-150 ${
               isActive
                 ? 'bg-surface font-semibold text-text shadow-xs'
                 : 'text-muted hover:text-text'
