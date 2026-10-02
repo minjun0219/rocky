@@ -6,6 +6,8 @@ import type { NowRow } from './lib';
 import {
   ALL_SLICES,
   slicesFor,
+  parseTurn,
+  withWork,
   alertRows,
   prRows,
   prStatus,
@@ -937,5 +939,54 @@ describe('slicesFor — 이벤트가 건드린 것만 다시 받는다', () => {
     expect(slicesFor([{ entity: 'board', action: 'update' }]).size).toBe(ALL_SLICES.length);
     expect(slicesFor([{ nope: true }]).size).toBe(ALL_SLICES.length);
     expect(slicesFor([null]).size).toBe(ALL_SLICES.length);
+  });
+});
+
+describe('parseTurn · withWork — 작업로그', () => {
+  test('턴 기록은 요청·도구·결과로 풀고, 다른 모양은 본문 그대로', () => {
+    expect(parseTurn('req: 고쳐줘 | tools: Bash(×2), Edit | did: 고쳤다')).toEqual({
+      req: '고쳐줘',
+      tools: 'Bash(×2), Edit',
+      did: '고쳤다',
+    });
+    expect(parseTurn('req: 물음 | tools: (none) | did: 답')).toEqual({
+      req: '물음',
+      tools: '',
+      did: '답',
+    });
+    expect(parseTurn('결정: JSONL 이 진실')).toEqual({
+      req: '',
+      tools: '',
+      did: '결정: JSONL 이 진실',
+    });
+  });
+
+  test('작업 기록을 댓글·히스토리 사이에 시간순으로', () => {
+    const work = (id: string, ts: string) => ({
+      id,
+      projectKey: 'p',
+      timestamp: ts,
+      kind: 'turn',
+      content: '',
+      tags: [] as string[],
+    });
+    const items = mergeTimeline(
+      [
+        {
+          id: 'h',
+          entity: 'todo',
+          entityId: 't',
+          actor: 'a',
+          action: 'update',
+          at: '2026-10-02T01:00:00Z',
+        } as never,
+      ],
+      [],
+    );
+    const merged = withWork(items, [
+      work('w1', '2026-10-02T02:00:00Z'),
+      work('w0', '2026-10-02T00:00:00Z'),
+    ]);
+    expect(merged.map((i) => i.kind)).toEqual(['work', 'history', 'work']);
   });
 });

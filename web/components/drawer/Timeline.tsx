@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
-import type { Comment, HistoryEntry } from '../../types';
-import { actorTone, formatElapsed, formatStamp, mergeTimeline } from '../../lib';
+import type { Comment, HistoryEntry, WorklogEntry } from '../../types';
+import {
+  actorTone,
+  formatElapsed,
+  formatStamp,
+  mergeTimeline,
+  parseTurn,
+  withWork,
+} from '../../lib';
 import { useUiStore } from '../../store';
 import { Markdown } from '../Markdown';
 
@@ -184,14 +191,25 @@ function CommentCard({ comment }: { comment: Comment }) {
 
 /** 히스토리와 댓글을 한 줄기로 보여준다 — 지라식 탭 분리를 하지 않는다. */
 
-export function Timeline({ history, comments }: { history: HistoryEntry[]; comments: Comment[] }) {
-  const items = mergeTimeline(history, comments);
+export function Timeline({
+  history,
+  comments,
+  work = [],
+}: {
+  history: HistoryEntry[];
+  comments: Comment[];
+  /** 이 할 일을 들고 일한 세션의 턴 기록(`todo:<ref>` 태그) — 로그 색인에서 온다. */
+  work?: readonly WorklogEntry[];
+}) {
+  const items = withWork(mergeTimeline(history, comments), work);
   return (
     <div className="mt-[18px] border-t border-line">
       <div className="drawer-section-label">타임라인</div>
       {items.map((item) =>
         item.kind === 'comment' ? (
           <CommentCard key={`c-${item.comment.id}`} comment={item.comment} />
+        ) : item.kind === 'work' ? (
+          <WorkRow key={`w-${item.work.id}`} work={item.work} />
         ) : (
           <div key={`h-${item.entry.id}`} className="flex items-baseline gap-2 py-[5px] text-meta">
             <span
@@ -212,6 +230,43 @@ export function Timeline({ history, comments }: { history: HistoryEntry[]; comme
           </div>
         ),
       )}
+    </div>
+  );
+}
+
+/**
+ * "작업" 한 줄 — 세션이 이 할 일을 들고 한 턴. 접혀 있으면 결과 한 줄, 누르면 요청·도구·결과 전체. 댓글은 사람에게
+ * 짧게 두고 작업 흐름은 여기서 본다.
+ */
+function WorkRow({ work }: { work: WorklogEntry }) {
+  const [open, setOpen] = useState(false);
+  const turn = parseTurn(work.content);
+  const summary = turn.did || turn.req;
+  return (
+    <div className="py-[5px] text-meta">
+      <button
+        type="button"
+        className="flex w-full items-baseline gap-2 border-0 bg-transparent p-0 text-left"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="history-dot size-[7px] shrink-0 self-center rounded-full bg-current tone-warm" />
+        <span className="shrink-0 font-mono text-chip text-muted">작업</span>
+        <span
+          className={`min-w-0 text-faint ${open ? '' : 'overflow-hidden text-ellipsis whitespace-nowrap'}`}
+        >
+          {summary}
+        </span>
+        <span className="ml-auto shrink-0 font-mono text-micro text-faint">
+          {formatElapsed(work.timestamp)} 전
+        </span>
+      </button>
+      {open && (turn.req || turn.tools) ? (
+        <div className="mt-1 ml-[15px] space-y-0.5 text-chip text-muted">
+          {turn.req ? <div>요청: {turn.req}</div> : null}
+          {turn.tools ? <div className="font-mono">도구: {turn.tools}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -232,8 +232,19 @@ export interface PrSnapshot {
   updatedAt: string;
 }
 
-/** 보드 화면의 보기 — 피드(첫 화면) / 할 일 목록 / 노트 / GitHub. */
-export type BoardView = 'feed' | 'todos' | 'notes' | 'github';
+/** 보드 화면의 보기 — 피드(첫 화면) / 할 일 목록 / 노트 / 작업로그 / GitHub. */
+export type BoardView = 'feed' | 'todos' | 'notes' | 'worklog' | 'github';
+
+/** `GET /api/logs/worklog` 한 줄 — Rust `rocky_core::logindex::IndexedWorklog` 의 사본. */
+export interface WorklogEntry {
+  id: string;
+  projectKey: string;
+  timestamp: string;
+  kind: string;
+  content: string;
+  tags: string[];
+  todoRef?: string;
+}
 
 /** `GET /api/inbox` — 수집함 항목 하나. `promoted` 는 데몬이 전 보드의 링크로 채운다. */
 export interface InboxItem {

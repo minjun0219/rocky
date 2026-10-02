@@ -17,7 +17,8 @@ export type WebUsageEvent =
   | 'web:theme'
   | 'web:archived-toggle'
   | 'web:quick-add'
-  | 'web:alert-open';
+  | 'web:alert-open'
+  | 'web:worklog-todo';
 
 let actorHeader = 'unknown';
 

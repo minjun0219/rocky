@@ -7,6 +7,7 @@ const LABEL: Record<BoardView, string> = {
   feed: '피드',
   todos: '할 일',
   notes: '노트',
+  worklog: '작업로그',
   github: 'GitHub',
 };
 
@@ -27,8 +28,8 @@ export function ViewSwitch() {
   const feed = useFeedCount();
   // 피드가 맨 앞이자 첫 화면이다(2026-10-02 오너).
   const kinds: BoardView[] = showGithub
-    ? ['feed', 'todos', 'notes', 'github']
-    : ['feed', 'todos', 'notes'];
+    ? ['feed', 'todos', 'notes', 'worklog', 'github']
+    : ['feed', 'todos', 'notes', 'worklog'];
 
   return (
     <nav className="view-switch flex gap-1 border-b border-line px-4 py-1.5" aria-label="보기">
