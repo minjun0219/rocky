@@ -90,7 +90,8 @@ async fn every_known_rest_surface_is_a_real_route() {
     let (sink, _captured) = capture_sink();
     let state = rebuild(&f, |o| o.usage = Some(sink));
     for (source, name) in rocky_core::usage::KNOWN_SURFACES {
-        if *source != UsageSource::Rest {
+        // 웹소켓(`WS /api/ws`)은 REST 입구가 아니라 axum 라우터의 업그레이드다 — `ws_test` 가 실제 클라이언트로 본다.
+        if *source != UsageSource::Rest || name.starts_with("WS ") {
             continue;
         }
         let (method, path) = name.split_once(' ').unwrap();
