@@ -1,5 +1,17 @@
 # @minjun0219/rocky
 
+## 0.39.0
+
+### Minor Changes
+
+- [#271](https://github.com/minjun0219/rocky/pull/271) [`7746df8`](https://github.com/minjun0219/rocky/commit/7746df87263a2cb9610eed24c2a3d43500b2cceb) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 알림 탭을 **피드**로 바꿔 맨 앞 탭이자 첫 화면으로 둔다. 피드는 PR 알림(결정 필요·머지 후보·오래된 충돌·CI 실패) 아래에 **내 차례**(넘김·멈춘 진행·읽지 않은 댓글·수집함)를 함께 싣는다 — "돌고 있음" 은 탭 위로 올라가 어느 탭에서든 늘 보인다. 지난번에 본 탭을 기억해 열지 않는다.
+
+### Patch Changes
+
+- [#270](https://github.com/minjun0219/rocky/pull/270) [`f571f2b`](https://github.com/minjun0219/rocky/commit/f571f2b40d7f11fa56d903dd0c7d7809268d618d) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 "할 일" 에서 "전체" 를 고르면 보드별 묶음을 머리(이름 · 항목 수)를 눌러 접을 수 있다 — 접힘은 브라우저에 남는다.
+
+- [#268](https://github.com/minjun0219/rocky/pull/268) [`2c1f29e`](https://github.com/minjun0219/rocky/commit/2c1f29e54223af0af475159de0326200eac94075) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 할 일 설명을 노트와 같은 마크다운 편집기(서식 툴바·⌘B/⌘K)로 편집한다 — 고정 높이 스크롤 상자 대신 글 길이만큼 자라고, 저장은 ⌘Enter, 취소는 Esc. 상세 드로어가 버전 줄에 덮이거나 좁은 화면의 닫기 버튼이 마지막 줄을 가리던 것도 고쳤다.
+
 ## 0.38.1
 
 ### Patch Changes
