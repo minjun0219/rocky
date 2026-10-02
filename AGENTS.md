@@ -150,7 +150,9 @@ plugin.json 동기화는 `bun run changeset:version` 안의 `scripts/sync-plugin
 
 **Git 훅(husky).** `bun install` 이 `prepare: "husky"` 로 `core.hooksPath` 를 `.husky/_` 에 건다.
 `.husky/pre-commit` 은 `lint-staged`(biome) + 비밀 스캔(`gitleaks protect --staged`, 없으면 내장 grep),
-`.husky/pre-push` 는 `typecheck` + `test` 를 돌린다. `--no-verify` 로 건너뛸 수 있다. CI 는 같은 게이트에
+`.husky/pre-push` 는 `typecheck` + `test` 를 돌린다. pre-push 는 전체 `cargo test` 까지 돌아 20~30분 걸린다 —
+`~/.cargo/bin` 이 PATH 에 있어야 하고, 도는 동안 체크아웃·파일 수정을 하지 않는다(훅의 테스트는 지금 작업 트리를 돈다).
+여러 브랜치는 `git push origin a b c` 한 번이면 훅도 한 번이다. `--no-verify` 로 건너뛸 수 있다. CI 는 같은 게이트에
 `gitleaks` 잡을 더해 다시 돌린다. 추적하는 것은 `.husky/pre-commit` 과 `.husky/pre-push` 뿐 — `.husky/_` 는
 husky 가 스스로 gitignore 한다.
 
@@ -160,8 +162,12 @@ typecheck or tests — pre-push and CI already cover it.*
 
 ## 코딩 규칙
 
-- **언어**: 도는 것은 전부 Rust(edition 2021, `rust-toolchain.toml` 의 stable) — 데몬, CLI, 훅, MCP 서버.
-  TypeScript 는 Bun 개발 스크립트(`scripts/`, `plugin/scripts/`)와 플러그인의 마크다운 표면에만 남는다.
+- **언어 경계(2026-10-02 오너 확인)**: 가운데는 Rust — 데몬·CLI·훅·MCP·저장소(`crates/`, edition 2021,
+  `rust-toolchain.toml` 의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
+  JSON 규약), 로그 분석(`logs.db` 를 읽기만), 개발·릴리스 스크립트(Bun). 데몬을 다른 언어로 옮기지 않는다: core 와 FFI
+  경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
+  느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
+  edges (web, bridges, scripts reading logs.db).*
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings` 가 게이트다(clippy 는
   테스트도 본다). 순수 판정 로직은 `rocky-core` 에, 통합 테스트는 `crates/*/tests/` 에; 데몬과 CLI 는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result` 를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
