@@ -50,4 +50,36 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     expect(screen.getByText('rocky 할 일')).toBeDefined();
     expect(screen.queryByRole('button', { name: /일반/ })).toBeNull();
   });
+
+  test('완료된 항목은 하단에 접혀 있고 토글 버튼으로 펼치거나 접을 수 있다', async () => {
+    const doneTodo = todoFixture({
+      id: 't-done',
+      boardId: 'b1',
+      title: '완료된 작업 항목',
+      status: 'done',
+    });
+    renderWithStore(<TodoPane />, {
+      selected: 'rocky',
+      boards,
+      todos: [...todos.filter((t) => t.boardId === 'b1'), doneTodo],
+      sections: [],
+    });
+
+    // 미완료 항목은 바로 보이지만 완료 항목은 초기에는 접힘
+    expect(screen.getByText('rocky 할 일')).toBeDefined();
+    expect(screen.queryByText('완료된 작업 항목')).toBeNull();
+
+    // 완료 토글 버튼 확인 및 클릭하여 펼치기
+    const toggleButton = screen.getByRole('button', { name: /완료된 작업 1개/ });
+    expect(toggleButton.getAttribute('aria-expanded')).toBe('false');
+
+    await userEvent.click(toggleButton);
+    expect(toggleButton.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('완료된 작업 항목')).toBeDefined();
+
+    // 다시 클릭하여 접기
+    await userEvent.click(toggleButton);
+    expect(toggleButton.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('완료된 작업 항목')).toBeNull();
+  });
 });

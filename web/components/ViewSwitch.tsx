@@ -52,7 +52,11 @@ export function ViewSwitch() {
           >
             {LABEL[kind]}
             {kind === 'notes' && news ? (
-              <span className="size-1.5 rounded-full bg-mine" role="img" aria-label="새 편집 있음" />
+              <span
+                className="size-1.5 rounded-full bg-mine"
+                role="img"
+                aria-label="새 편집 있음"
+              />
             ) : null}
             {kind === 'feed' && feed > 0 ? (
               <span className="rounded bg-mine-soft px-1 font-mono text-[11px] font-semibold tabular-nums text-mine">
@@ -60,9 +64,7 @@ export function ViewSwitch() {
               </span>
             ) : null}
             {kind === 'notes' && notes.length > 0 ? (
-              <span className="font-mono text-[11px] tabular-nums text-faint">
-                {notes.length}
-              </span>
+              <span className="font-mono text-[11px] tabular-nums text-faint">{notes.length}</span>
             ) : null}
           </button>
         );

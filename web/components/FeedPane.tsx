@@ -32,16 +32,18 @@ export function FeedPane() {
   const kinds = [...new Set(rows.map((r) => r.kind))];
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto px-4 py-3" aria-label="피드">
+    <main className="min-w-0 flex-1 overflow-y-auto px-4 py-3.5" aria-label="피드">
       {kinds.map((kind) => {
         const group = rows.filter((r) => r.kind === kind);
         return (
-          <section key={kind} className="mb-[26px]" aria-label={ALERT_LABEL[kind]}>
-            <h2 className="m-0 mb-1.5 flex items-baseline gap-2 font-mono text-chip font-medium text-faint">
+          <section key={kind} className="mb-6" aria-label={ALERT_LABEL[kind]}>
+            <h2 className="m-0 mb-2 flex items-baseline gap-2 font-mono text-chip font-medium text-faint">
               {ALERT_LABEL[kind]}
-              <span className="tabular-nums text-run">{group.length}</span>
+              <span className="rounded-[4px] bg-mine-soft px-1.5 py-0.2 font-mono text-[11px] font-semibold tabular-nums text-mine">
+                {group.length}
+              </span>
             </h2>
-            <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+            <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
               {group.map((row) => (
                 <AlertItem key={row.key} row={row} now={now} onHide={() => hide(row.hideKey)} />
               ))}
@@ -75,9 +77,9 @@ export function useFeedCount(): number {
 function AlertItem(props: { row: AlertRow; now: number; onHide: () => void }) {
   const { row, now, onHide } = props;
   return (
-    <li className="flex items-start border-t border-line first:border-t-0">
+    <li className="flex items-start border-t border-line/70 first:border-t-0">
       <a
-        className="now-item flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left no-underline hover:bg-surface-2 focus-visible:bg-surface-2"
+        className="now-item flex min-w-0 flex-1 items-start gap-2.5 px-3.5 py-2.5 text-left no-underline transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2"
         href={row.url}
         target="_blank"
         rel="noreferrer"
@@ -85,7 +87,9 @@ function AlertItem(props: { row: AlertRow; now: number; onHide: () => void }) {
       >
         <StateIcon {...ICON[row.kind]} />
         <span className="min-w-0 flex-1">
-          <span className="now-title block text-sm leading-[1.45] text-text">{row.title}</span>
+          <span className="now-title block text-sm font-medium leading-snug text-text">
+            {row.title}
+          </span>
           <span className="mt-0.5 block truncate font-mono text-chip tabular-nums text-muted">
             {[row.detail, formatAge(row.at, now)].join(' · ')}
           </span>

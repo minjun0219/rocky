@@ -96,12 +96,12 @@ export function MineSection() {
   const mine = rows.filter((r) => r.group !== 'run');
   const now = useNow(mine, 0);
   return (
-    <section className="mb-[26px]" aria-label="내 차례">
+    <section className="mb-6" aria-label="내 차례">
       <NowGroupHead title="내 차례" count={mineCount(rows)} tone="mine" />
       {mine.length === 0 ? (
         <p className="m-0 text-meta text-muted">내 차례 없음</p>
       ) : (
-        <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+        <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
           {mine.map((row) =>
             row.group === 'more' ? (
               <MoreLine
@@ -131,9 +131,9 @@ export function NowTable() {
     return null;
   }
   return (
-    <section className="now border-b border-line px-4 pb-3 pt-3" aria-label="돌고 있음">
+    <section className="now border-b border-line px-4 pb-3.5 pt-3" aria-label="돌고 있음">
       <NowGroupHead title="돌고 있음" count={run.length} tone="run" />
-      <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
+      <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
         {run.map((row) => (
           <NowItem key={row.key} row={row} now={now} />
         ))}
@@ -144,11 +144,16 @@ export function NowTable() {
 
 /** 묶음 머리 — 이름 + 개수. 같은 상태를 행마다 반복하는 대신 여기서 한 번 말한다. */
 function NowGroupHead(props: { title: string; count: number; tone: 'mine' | 'run' }) {
+  const isMine = props.tone === 'mine';
   return (
-    <h2 className="m-0 mb-1.5 flex items-baseline gap-2 font-mono text-chip font-medium text-faint">
+    <h2 className="m-0 mb-2 flex items-baseline gap-2 font-mono text-chip font-medium text-faint">
       {props.title}
       {props.count > 0 ? (
-        <span className={`tabular-nums ${props.tone === 'mine' ? 'text-mine' : 'text-run'}`}>
+        <span
+          className={`rounded-[4px] px-1.5 py-0.2 font-mono text-[11px] font-semibold tabular-nums ${
+            isMine ? 'bg-mine-soft text-mine' : 'bg-run-soft text-run'
+          }`}
+        >
           {props.count}
         </span>
       ) : null}
@@ -193,9 +198,9 @@ function NowItem(props: { row: NowRow; now: number }) {
     </>
   );
   const className =
-    'now-item flex w-full items-start gap-2 px-3 py-2 text-left no-underline hover:bg-surface-2 focus-visible:bg-surface-2';
+    'now-item flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left no-underline transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2';
   return (
-    <li className="border-t border-line first:border-t-0">
+    <li className="border-t border-line/70 first:border-t-0">
       {row.todoId ? (
         <button
           type="button"
@@ -226,19 +231,21 @@ function NowItem(props: { row: NowRow; now: number }) {
 
 /** 접힌 나머지의 요약 한 줄. 내 차례의 "N 더" 는 누르면 펼친다. */
 function MoreLine(props: { row: NowRow; onExpand?: () => void }) {
-  const text = <span className="font-mono text-chip text-muted">{props.row.title}</span>;
+  const text = (
+    <span className="font-mono text-chip font-medium text-muted">{props.row.title}</span>
+  );
   return (
-    <li className="border-t border-line first:border-t-0">
+    <li className="border-t border-line/70 first:border-t-0">
       {props.onExpand ? (
         <button
           type="button"
-          className="w-full px-3 py-2 text-left hover:bg-surface-2"
+          className="w-full px-3.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2"
           onClick={props.onExpand}
         >
           {text}
         </button>
       ) : (
-        <div className="px-3 py-2">{text}</div>
+        <div className="px-3.5 py-2">{text}</div>
       )}
     </li>
   );

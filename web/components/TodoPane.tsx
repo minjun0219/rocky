@@ -179,6 +179,9 @@ export function TodoPane() {
   // 여러 보드를 한 화면에 모으므로 헤더를 그리지 않는다.
   const currentBoard = selected === 'all' ? undefined : boards.find((b) => b.key === selected);
 
+  // 완료 항목 토글 상태 (기본은 접힘)
+  const [showDone, setShowDone] = useState(false);
+
   return (
     <main className="todo-pane min-w-0 flex-1 overflow-y-auto px-[26px] py-4">
       {/*
@@ -189,7 +192,7 @@ export function TodoPane() {
       {currentBoard && <BoardHeader key={currentBoard.key} board={currentBoard} />}
       {selected !== 'all' && (
         <form
-          className="below-head sticky top-0 z-[1] mb-3 border-b border-line bg-bg pb-3"
+          className="below-head sticky top-0 z-[1] mb-3.5 border-b border-line/80 bg-bg/95 pb-3 backdrop-blur-xs"
           onSubmit={(e) => {
             e.preventDefault();
             const title = draft.trim();
@@ -201,7 +204,7 @@ export function TodoPane() {
           }}
         >
           <input
-            className="quick-add-input mb-0 w-full rounded-lg border border-line bg-surface px-3.5 py-[9px] text-text placeholder:text-faint"
+            className="quick-add-input mb-0 w-full rounded-lg border border-line/80 bg-surface px-3.5 py-2 text-sm text-text shadow-2xs transition-all placeholder:text-faint focus:border-run focus:ring-1 focus:ring-run/30 focus-visible:outline-none"
             placeholder="+ 새 작업 (Enter 로 추가)"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -220,13 +223,35 @@ export function TodoPane() {
 
       {groups.map((group) => {
         const label =
-          'mb-1.5 border-b border-line pb-[5px] font-mono text-micro uppercase tracking-[0.22em] text-muted';
+          'mb-2 border-b border-line/70 pb-1 font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-muted';
         // 전체 보기의 보드 묶음만 접는다 — 한 보드 안의 섹션은 그 보드를 보는 중이라 다 보여야 한다.
         if (selected !== 'all') {
+          const activeItems = group.items.filter((t) => t.status !== 'done');
+          const doneItems = group.items.filter((t) => t.status === 'done');
+
           return (
-            <section key={group.key} className="mb-[26px]">
+            <section key={group.key} className="mb-6">
               <div className={label}>{group.title}</div>
-              {renderTree(group.items, 0)}
+              {renderTree(activeItems, 0)}
+
+              {doneItems.length > 0 && (
+                <div className="mt-2 border-t border-line/40 pt-1.5">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-mono text-chip text-muted transition-colors hover:text-text"
+                    onClick={() => setShowDone((prev) => !prev)}
+                    aria-expanded={showDone}
+                  >
+                    <ChevronRight
+                      size={12}
+                      aria-hidden
+                      className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
+                    />
+                    <span>완료된 작업 {doneItems.length}개</span>
+                  </button>
+                  {showDone && <div className="mt-1">{renderTree(doneItems, 0)}</div>}
+                </div>
+              )}
             </section>
           );
         }
@@ -234,10 +259,10 @@ export function TodoPane() {
         const count = todos.filter((t) => t.boardId === group.key).length;
         const Chevron = folded ? ChevronRight : ChevronDown;
         return (
-          <section key={group.key} className={folded ? 'mb-3' : 'mb-[26px]'}>
+          <section key={group.key} className={folded ? 'mb-3' : 'mb-6'}>
             <button
               type="button"
-              className={`${label} flex w-full items-center gap-1.5 text-left hover:text-text`}
+              className={`${label} flex w-full items-center gap-1.5 text-left transition-colors hover:text-text`}
               aria-expanded={!folded}
               onClick={() => toggleBoard(group.key)}
             >
