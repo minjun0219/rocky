@@ -151,8 +151,7 @@ plugin.json 동기화는 `bun run changeset:version` 안의 `scripts/sync-plugin
 **Git 훅(husky).** `bun install` 이 `prepare: "husky"` 로 `core.hooksPath` 를 `.husky/_` 에 건다.
 `.husky/pre-commit` 은 `lint-staged`(biome) + 비밀 스캔(`gitleaks protect --staged`, 없으면 내장 grep),
 `.husky/pre-push` 는 빠른 검사만 돈다 — `typecheck` + `test`(bun) + `cargo fmt --check` + `cargo clippy`(전체 `cargo test` 는 CI 몫,
-2026-10-02 — 푸시마다 20~30분 걸려 SSH 가 끊겼다). pre-push 는 전체 `cargo test` 까지 돌아 20~30분 걸린다 —
-`~/.cargo/bin` 이 PATH 에 있어야 하고, 도는 동안 체크아웃·파일 수정을 하지 않는다(훅의 테스트는 지금 작업 트리를 돈다).
+2026-10-02 — 푸시마다 20~30분 걸려 SSH 가 끊겼다). `~/.cargo/bin` 이 PATH 에 있어야 하고, 도는 동안 체크아웃·파일 수정을 하지 않는다(훅의 테스트는 지금 작업 트리를 돈다).
 여러 브랜치는 `git push origin a b c` 한 번이면 훅도 한 번이다. `--no-verify` 로 건너뛸 수 있다. CI 는 같은 게이트에
 `gitleaks` 잡을 더해 다시 돌린다. 추적하는 것은 `.husky/pre-commit` 과 `.husky/pre-push` 뿐 — `.husky/_` 는
 husky 가 스스로 gitignore 한다.
