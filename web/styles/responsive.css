@@ -249,7 +249,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .doing-pulse,
-  .drawer {
+  .drawer,
+  .status-dot-badge * {
     animation: none;
   }
   /* tokens.css 의 공통 전이도 끈다. */

@@ -40,10 +40,10 @@ export function TopBar() {
         <div className="flex shrink-0 items-center gap-1.5">
           {runCount > 0 ? (
             <span
-              className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-run"
+              className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-chip font-semibold tabular-nums text-run"
               title={`실행 중인 에이전트 ${runCount}개`}
             >
-              <span className="size-1.5 animate-pulse rounded-full bg-run" aria-hidden />
+              <span className="size-1.5 rounded-full bg-run" aria-hidden />
               {runCount}
             </span>
           ) : null}

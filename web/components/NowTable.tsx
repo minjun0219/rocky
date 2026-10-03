@@ -150,7 +150,7 @@ function NowGroupHead(props: { title: string; count: number; tone: 'mine' | 'run
       {props.title}
       {props.count > 0 ? (
         <span
-          className={`rounded-[4px] px-1.5 py-0.2 font-mono text-[11px] font-semibold tabular-nums ${
+          className={`rounded-[4px] px-1.5 py-0.2 font-mono text-chip font-semibold tabular-nums ${
             isMine ? 'bg-mine-soft text-mine' : 'bg-run-soft text-run'
           }`}
         >

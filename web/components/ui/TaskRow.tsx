@@ -71,7 +71,7 @@ export function TaskRow({
             {title}
           </span>
           {refNumber ? (
-            <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
+            <span className="shrink-0 font-mono text-chip tabular-nums text-faint">
               {typeof refNumber === 'number' ? `#${refNumber}` : refNumber}
             </span>
           ) : null}
@@ -80,7 +80,7 @@ export function TaskRow({
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-chip">
           {badges}
           {timeAgo ? (
-            <span className="ml-auto font-mono text-[11px] tabular-nums text-faint">{timeAgo}</span>
+            <span className="ml-auto font-mono text-chip tabular-nums text-faint">{timeAgo}</span>
           ) : null}
         </div>
       </button>

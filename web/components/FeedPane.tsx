@@ -39,7 +39,7 @@ export function FeedPane() {
           <section key={kind} className="mb-6" aria-label={ALERT_LABEL[kind]}>
             <h2 className="m-0 mb-2 flex items-baseline gap-2 font-mono text-chip font-medium text-faint">
               {ALERT_LABEL[kind]}
-              <span className="rounded-[4px] bg-mine-soft px-1.5 py-0.2 font-mono text-[11px] font-semibold tabular-nums text-mine">
+              <span className="rounded-[4px] bg-mine-soft px-1.5 py-0.2 font-mono text-chip font-semibold tabular-nums text-mine">
                 {group.length}
               </span>
             </h2>

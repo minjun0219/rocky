@@ -52,7 +52,7 @@ export function SegmentTabs<T extends string = string>({
               <span className="size-1.5 rounded-full bg-mine" title="새 내용 있음" />
             ) : null}
             {typeof tab.count === 'number' && tab.count > 0 ? (
-              <span className="rounded bg-mine-soft px-1 font-mono text-[11px] font-semibold tabular-nums text-mine">
+              <span className="rounded bg-mine-soft px-1 font-mono text-chip font-semibold tabular-nums text-mine">
                 {tab.count}
               </span>
             ) : null}
