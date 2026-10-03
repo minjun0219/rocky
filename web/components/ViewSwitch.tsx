@@ -33,7 +33,7 @@ export function ViewSwitch() {
 
   return (
     <nav
-      className="view-switch inline-flex max-w-full items-center overflow-x-auto rounded-lg border border-line/60 bg-surface-2/60 p-0.5"
+      className="view-switch flex w-full sm:w-auto max-w-full items-center justify-between sm:justify-center overflow-x-auto rounded-lg border border-line/60 bg-surface-2/60 p-0.5"
       aria-label="보기"
     >
       {kinds.map((kind) => {
@@ -43,7 +43,7 @@ export function ViewSwitch() {
             key={kind}
             type="button"
             aria-pressed={isActive}
-            className={`inline-flex min-h-6 sm:min-h-7 shrink-0 items-center gap-1 sm:gap-1.5 rounded-md px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[11px] sm:text-xs whitespace-nowrap transition-all duration-150 ${
+            className={`inline-flex min-h-7 flex-1 sm:flex-initial min-w-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md px-1 sm:px-2.5 py-1 text-[11px] sm:text-xs whitespace-nowrap transition-all duration-150 ${
               isActive
                 ? 'bg-surface font-semibold text-text shadow-xs'
                 : 'text-muted hover:text-text'
@@ -59,14 +59,12 @@ export function ViewSwitch() {
               />
             ) : null}
             {kind === 'feed' && feed > 0 ? (
-              <span className="rounded bg-mine-soft px-1 py-0.2 font-mono text-[10px] sm:text-[11px] font-semibold tabular-nums text-mine">
+              <span className="rounded bg-mine-soft px-1.5 py-0.2 font-mono text-[11px] font-semibold tabular-nums text-mine">
                 {feed}
               </span>
             ) : null}
             {kind === 'notes' && notes.length > 0 ? (
-              <span className="font-mono text-[10px] sm:text-[11px] tabular-nums text-faint">
-                {notes.length}
-              </span>
+              <span className="font-mono text-[11px] tabular-nums text-faint">{notes.length}</span>
             ) : null}
           </button>
         );

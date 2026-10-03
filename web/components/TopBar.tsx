@@ -24,36 +24,46 @@ export function TopBar() {
   const runCount = nowRows.filter((r) => r.group === 'run').length;
 
   return (
-    <header className="topbar relative flex min-h-10 items-center justify-between gap-1 border-b border-line bg-surface/95 px-2 sm:px-3 py-1 select-none backdrop-blur-xs">
-      <div className="flex shrink-0 items-center">
-        <BoardSwitcher />
+    <header className="topbar relative w-full max-w-full min-w-0 overflow-hidden sm:overflow-visible border-b border-line bg-surface/95 select-none backdrop-blur-xs">
+      {/* 1행: 데스크톱에서는 3개 슬롯(좌-중-우), 모바일에서는 좌(보드)-우(메뉴) 상단 바 */}
+      <div className="flex h-10 w-full min-w-0 items-center justify-between px-3">
+        <div className="flex shrink-0 items-center">
+          <BoardSwitcher />
+        </div>
+
+        {/* 데스크톱 세그먼트 탭 (>= 640px) */}
+        <div className="hidden sm:flex sm:items-center sm:justify-center">
+          <ViewSwitch />
+        </div>
+
+        {/* 우측 슬롯 (모바일/데스크톱 공통: 에이전트 인디케이터 + 연결 상태 + 메뉴) */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {runCount > 0 ? (
+            <span
+              className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-run"
+              title={`실행 중인 에이전트 ${runCount}개`}
+            >
+              <span className="size-1.5 animate-pulse rounded-full bg-run" aria-hidden />
+              {runCount}
+            </span>
+          ) : null}
+          {connected ? null : (
+            <span
+              className="link-status inline-flex items-center gap-1 font-mono text-chip text-dead"
+              title="데몬과의 실시간 연결이 끊겼다 — 다시 붙는 중. 보이는 내용은 마지막으로 받은 것이다."
+              role="status"
+            >
+              <span className="size-1.5 rounded-full bg-current" aria-hidden />
+              <span className="hidden sm:inline">연결 끊김</span>
+            </span>
+          )}
+          <HeaderMenu />
+        </div>
       </div>
 
-      <div className="flex min-w-0 items-center justify-center">
+      {/* 2행: 모바일 전용 세그먼트 서브탭 (< 640px) */}
+      <div className="flex sm:hidden w-full min-w-0 items-center justify-center border-t border-line/50 px-2 py-1 bg-surface-2/20">
         <ViewSwitch />
-      </div>
-
-      <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
-        {runCount > 0 ? (
-          <span
-            className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-run"
-            title={`실행 중인 에이전트 ${runCount}개`}
-          >
-            <span className="size-1.5 animate-pulse rounded-full bg-run" aria-hidden />
-            {runCount}
-          </span>
-        ) : null}
-        {connected ? null : (
-          <span
-            className="link-status inline-flex items-center gap-1.5 font-mono text-chip text-dead"
-            title="데몬과의 실시간 연결이 끊겼다 — 다시 붙는 중. 보이는 내용은 마지막으로 받은 것이다."
-            role="status"
-          >
-            <span className="size-1.5 rounded-full bg-current" aria-hidden />
-            연결 끊김
-          </span>
-        )}
-        <HeaderMenu />
       </div>
     </header>
   );
