@@ -558,6 +558,8 @@ export function nowRows(
     /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
     prs?: PrSnapshot[];
     expanded?: boolean;
+    /** 읽지 않은 댓글 요약 줄을 펼쳤나 — `expanded`(내 차례 5행 제한)와 따로. */
+    expandUnread?: boolean;
   },
   now = Date.now(),
 ): NowRow[] {
@@ -663,30 +665,29 @@ export function nowRows(
     .filter((t) => !t.archivedAt && t.status !== 'done' && !handled.has(t.id))
     .filter((t) => hasUnreadComments(t, input.seen))
     .sort((a, b) => (b.lastCommentAt ?? '').localeCompare(a.lastCommentAt ?? ''));
-  // 펼치면(`expanded`) 오래된 것까지 전부 행으로 — 요약 줄이 "목록에서 💬 를 찾아라" 로 끝나지 않게.
-  const inWindow = unread
+  const recent = unread
     .filter((t) => t.lastCommentAt && now - Date.parse(t.lastCommentAt) <= UNREAD_WINDOW_MS)
     .slice(0, UNREAD_ROW_MAX);
-  const recent = input.expanded ? unread : inWindow;
-  const counted = new Set(inWindow.map((t) => t.id));
+  const unreadRow = (t: TodoView): NowRow => ({
+    key: `unread:${t.id}`,
+    kind: 'unread',
+    group: 'mine',
+    glyph: 'mine',
+    ref: t.ref,
+    title: t.title,
+    todoId: t.id,
+    who: '—',
+    since: t.lastCommentAt,
+    live: false,
+    unread: t.commentCount,
+    state: '읽지 않은 댓글',
+  });
   for (const t of recent) {
-    pushMine(MINE_RANK.unread, {
-      key: `unread:${t.id}`,
-      kind: 'unread',
-      group: 'mine',
-      glyph: 'mine',
-      ref: t.ref,
-      title: t.title,
-      todoId: t.id,
-      who: '—',
-      since: t.lastCommentAt,
-      live: false,
-      unread: t.commentCount,
-      state: '읽지 않은 댓글',
-      ...(counted.has(t.id) ? {} : { extra: true }),
-    });
+    pushMine(MINE_RANK.unread, unreadRow(t));
   }
-  const restUnread = unread.length - recent.length;
+  const recentIds = new Set(recent.map((t) => t.id));
+  const restUnreadTodos = unread.filter((t) => !recentIds.has(t.id));
+  const restUnread = restUnreadTodos.length;
 
   if (input.collect && input.collect > 0) {
     pushMine(MINE_RANK.collect, {
@@ -720,8 +721,14 @@ export function nowRows(
   if (hidden > 0) {
     rows.push(moreRow('mine:more', `내 차례 ${hidden}개 더`, hidden));
   }
+  // 요약 줄이 접은 읽지 않은 댓글 — 펼치면(`expandUnread`) 그 자리에 행으로. 내 차례의 5행 제한·개수와는
+  // 따로 간다: "내 차례 N개 더" 를 눌러 오래된 댓글 수십 건이 같이 쏟아지지 않게, 반대도 마찬가지.
   if (restUnread > 0) {
-    rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 보기`, restUnread));
+    if (input.expandUnread) {
+      rows.push(...restUnreadTodos.map((t) => ({ ...unreadRow(t), extra: true })));
+    } else {
+      rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 보기`, restUnread));
+    }
   }
   run.sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''));
   return [...rows, ...run];

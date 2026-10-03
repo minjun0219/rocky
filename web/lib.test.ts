@@ -673,7 +673,11 @@ describe('nowRows', () => {
     expect(rows[3]?.title).toContain('5건 더');
     expect(rows[3]?.todoId).toBeUndefined();
     // 펼치면 요약 줄 없이 전부(오래된 c-0 포함) 행으로 — 행마다 할 일로 간다.
-    const all = nowRows({ todos, handoffs: [], seen: {}, expanded: true }, NOW);
+    // "내 차례 N개 더"(expanded)는 요약 줄을 펼치지 않는다 — 따로 간다.
+    expect(nowRows({ todos, handoffs: [], seen: {}, expanded: true }, NOW).at(-1)?.key).toBe(
+      'unread:more',
+    );
+    const all = nowRows({ todos, handoffs: [], seen: {}, expandUnread: true }, NOW);
     const unreadRows = all.filter((r) => r.kind === 'unread' && r.group === 'mine');
     expect(unreadRows).toHaveLength(8);
     expect(unreadRows.every((r) => r.todoId)).toBe(true);
