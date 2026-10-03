@@ -152,23 +152,32 @@
     min-height: 44px;
     min-width: 44px;
   }
-  /* 닫기를 엄지 범위로 — 우상단 ✕ 는 한 손 파지에서 못 닿는다. 스크롤과 무관하게
-     제자리에 있도록 viewport 고정. 시트가 전폭이라 겹칠 레이아웃이 없다. */
+  /* 닫기는 시트 바닥에 붙는 전폭 "닫기" 줄이다 — 우상단 ✕ 는 한 손 파지에서 못 닿는다. 예전엔 viewport 에
+     고정한 둥근 버튼이었는데, 스크롤하는 내용 위에 떠서 댓글 입력칸·"등록" 을 가렸다(2026-10-03 E2E).
+     sticky 줄은 불투명 배경이라 내용이 그 밑으로 지나갈 뿐 겹쳐 보이지 않고, 시트 끝에서는 제자리에 놓인다. */
   .drawer-close {
-    position: fixed;
+    position: sticky;
     top: auto;
-    right: 16px;
-    bottom: max(16px, env(safe-area-inset-bottom));
-    z-index: 41;
-    min-height: 48px;
-    min-width: 48px;
-    display: grid;
-    place-content: center;
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: 999px;
+    right: auto;
+    bottom: 0;
+    z-index: 1;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    width: calc(100% + 2 * var(--drawer-pad-x));
+    min-height: 52px;
+    margin: 16px calc(-1 * var(--drawer-pad-x)) 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--surface);
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
     color: var(--text);
-    font-size: 16px;
+    font-size: 15px;
+  }
+  .drawer-close-label {
+    display: inline;
   }
   .comment-tool {
     min-height: 44px;
@@ -218,8 +227,8 @@
     border-left: none;
     border-top: 1px solid var(--line);
     border-radius: 14px 14px 0 0;
-    /* 바닥에 떠 있는 닫기(48px + 바닥 16px)만큼 끝에 여백 — 없으면 마지막 줄(히스토리 시각 등)이 버튼 밑에 깔린다. */
-    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    /* 바닥은 sticky "닫기" 줄이 채운다 — 여백 없이 시트 끝에 붙게. */
+    padding-bottom: 0;
     animation: rt-sheet-up 0.22s ease-out;
   }
   @keyframes rt-sheet-up {
@@ -277,6 +286,13 @@
   }
   .drag-handle {
     display: none;
+  }
+  /* 글자만 있는 작은 버튼·링크(보드 "편집", 레포 링크, 수집함·세션 전달의 "새로고침"·"설정", "열린 PR") —
+     손가락 타깃 44px. 마우스로 보는 좁은 패널(cmux)은 글자 크기 그대로 둔다. */
+  .tap {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
   .todo-row {
     grid-template-columns: auto auto minmax(0, 1fr);

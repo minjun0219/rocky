@@ -70,14 +70,14 @@ export function BoardInbox({ board }: { board: string }) {
         <div className="flex-1" />
         <button
           type="button"
-          className="text-chip text-faint hover:text-text"
+          className="tap text-chip text-faint hover:text-text"
           onClick={() => void load(true)}
         >
           새로고침
         </button>
         <button
           type="button"
-          className="text-chip text-faint hover:text-text"
+          className="tap text-chip text-faint hover:text-text"
           aria-expanded={settings}
           onClick={() => setSettings(!settings)}
         >

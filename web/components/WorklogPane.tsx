@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { formatAge, parseTurn } from '../lib';
+import { formatAge, mdToPlain, parseTurn, shortTools } from '../lib';
 import { api, useUiStore } from '../store';
 import type { WorklogEntry } from '../types';
 import { StatsPanel } from './StatsPanel';
@@ -131,12 +131,12 @@ export function WorklogPane() {
         <ul className="m-0 list-none overflow-hidden rounded-[10px] border border-line bg-surface p-0">
           {entries.map((entry) => {
             const turn = parseTurn(entry.content);
-            const title = turn.req || turn.did;
-            const second = turn.req ? turn.did : '';
+            const title = mdToPlain(turn.req || turn.did);
+            const second = turn.req ? mdToPlain(turn.did) : '';
             const meta = [
               entry.kind,
               selected === 'all' ? entry.projectKey.replace(/-[0-9a-f]{8}$/, '') : '',
-              turn.tools,
+              shortTools(turn.tools),
               formatAge(entry.timestamp, now),
             ].filter(Boolean);
             return (

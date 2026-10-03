@@ -28,7 +28,6 @@ export function NoteDetail() {
         {copied ? '✓' : note.ref}
       </button>
       <h2 className="m-0 mt-1 mb-2.5 text-lg font-bold leading-[1.35] text-text">{note.title}</h2>
-      <div className="drawer-id">{note.id}</div>
       <div className="drawer-desc drawer-desc-static">
         <Markdown text={note.content} />
       </div>

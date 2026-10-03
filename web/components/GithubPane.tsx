@@ -120,14 +120,14 @@ function RepoPrs(props: { repo: string; count: number; children: React.ReactNode
           href={`https://github.com/${repo}/pulls`}
           target="_blank"
           rel="noreferrer"
-          className="min-w-0 truncate text-muted no-underline hover:text-text hover:underline"
+          className="tap min-w-0 truncate text-muted no-underline hover:text-text hover:underline"
         >
           {repo}
         </a>
         {count > 0 ? <span className="tabular-nums text-faint">구독 {count}</span> : null}
         <button
           type="button"
-          className="ml-auto shrink-0 font-sans text-meta font-normal text-muted underline underline-offset-2 hover:text-text"
+          className="tap ml-auto shrink-0 font-sans text-meta font-normal text-muted underline underline-offset-2 hover:text-text"
           aria-expanded={open}
           aria-label={open ? `${repo} 그 밖의 열린 PR 접기` : `${repo} 그 밖의 열린 PR 보기`}
           onClick={() => setOpen((o) => !o)}

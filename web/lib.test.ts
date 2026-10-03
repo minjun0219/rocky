@@ -10,6 +10,8 @@ import {
   failingSurfaces,
   slowSurfaces,
   parseTurn,
+  mdToPlain,
+  shortTools,
   withWork,
   alertRows,
   prRows,
@@ -1027,5 +1029,27 @@ describe('slowSurfaces · failingSurfaces — 통계', () => {
   test('실패는 실패율 순', () => {
     const rows = [stat('a', 100, 5), stat('b', 4, 4), stat('c', 10, 0), stat('d', 10, 5)];
     expect(failingSurfaces(rows).map((s) => s.name)).toEqual(['b', 'd', 'a']);
+  });
+});
+
+describe('mdToPlain · shortTools — 작업로그 목록의 글자', () => {
+  test('마크다운 표시는 걷고 글자만 남긴다', () => {
+    expect(
+      mdToPlain('[#293](https://github.com/o/r/pull/293) 를 열었습니다. **원인:** `ROCKY_BIN`'),
+    ).toBe('#293 를 열었습니다. 원인: ROCKY_BIN');
+    expect(mdToPlain('## 제목\n- 항목 *하나*\n- [ ] 할 것\n> 인용')).toBe(
+      '제목 항목 하나 할 것 인용',
+    );
+    expect(mdToPlain('| 대상 | 상태 |\n|---|---|\n| 데몬 | 켜짐 |')).toBe(
+      '대상 · 상태 데몬 · 켜짐',
+    );
+    expect(mdToPlain('a * b * c')).toBe('a * b * c');
+  });
+
+  test('MCP 도구 이름은 서버:도구 로 줄인다', () => {
+    expect(shortTools('mcp__plugin_playwright_playwright__browser_click(×3), Bash')).toBe(
+      'playwright:browser_click(×3), Bash',
+    );
+    expect(shortTools('mcp__context7__query-docs')).toBe('context7:query-docs');
   });
 });
