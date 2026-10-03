@@ -1,28 +1,28 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readView, useUiStore } from './store';
+import { useUiStore } from './store';
 
 afterEach(() => {
-  sessionStorage.clear();
-  localStorage.clear();
+  window.history.replaceState(null, '', '/');
+  useUiStore.setState({ view: 'feed' });
 });
 
-describe('보던 탭 — 같은 브라우저 탭의 새로고침에만 남는다', () => {
-  test('탭이 바뀌면 sessionStorage 에 적고, 다음 부팅이 그 탭으로 연다', () => {
-    useUiStore.setState({ view: 'feed' });
+describe('보던 탭은 주소에 산다', () => {
+  test('탭을 바꾸면 주소에 싣고 히스토리에 쌓는다 — 피드로 오면 맨 주소', () => {
+    window.history.replaceState(null, '', '/');
+    useUiStore.setState({ view: 'feed', openNoteId: null, detail: null, selected: 'all' });
+    const before = window.history.length;
+    useUiStore.getState().setView('todos');
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/?view=todos');
+    expect(window.history.length).toBe(before + 1);
+    useUiStore.getState().setView('feed');
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/');
+  });
+
+  test('주소를 따라간다 — 뒤로가기로 맨 주소에 오면 피드', async () => {
     useUiStore.setState({ view: 'todos' });
-    expect(sessionStorage.getItem('rocky:view')).toBe('todos');
-    expect(readView()).toBe('todos');
-  });
-
-  test('적힌 게 없거나 모르는 값이면 피드 — 새로 연 탭의 첫 화면', () => {
-    expect(readView()).toBe('feed');
-    sessionStorage.setItem('rocky:view', 'nope');
-    expect(readView()).toBe('feed');
-  });
-
-  test('GitHub 탭을 꺼 뒀으면 GitHub 으로 열지 않는다', () => {
-    sessionStorage.setItem('rocky:view', 'github');
-    localStorage.setItem('rocky:github-tab', 'off');
-    expect(readView()).toBe('feed');
+    await useUiStore.getState().applyRoute({ board: 'all' });
+    expect(useUiStore.getState().view).toBe('feed');
+    await useUiStore.getState().applyRoute({ board: 'all', view: 'worklog' });
+    expect(useUiStore.getState().view).toBe('worklog');
   });
 });

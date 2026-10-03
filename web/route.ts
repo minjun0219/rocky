@@ -1,3 +1,5 @@
+import type { BoardView } from './types';
+
 /**
  * URL ↔ 화면 상태 변환 — 웹 UI 퍼머링크의 단일 소유자.
  *
@@ -36,6 +38,27 @@ export interface Route {
   board: BoardSelection;
   todo?: TodoRef;
   note?: string;
+  /**
+   * 보던 탭(`?view=todos`). 피드는 싣지 않는다 — 맨 주소가 첫 화면(피드)이다. 노트 상세(`/rocky/notes/3`·
+   * `?note=`)는 그 자체가 노트 탭이라 싣지 않는다. 경로 세그먼트(`/rocky/todos`)가 아니라 쿼리인 이유: 둘째
+   * 세그먼트는 이미 todo 번호가, 첫 세그먼트는 board key(`all` 포함)가 쓴다 — 탭 이름과 부딪힐 수 있다.
+   */
+  view?: Exclude<BoardView, 'feed'>;
+}
+
+const VIEWS: readonly BoardView[] = ['feed', 'todos', 'notes', 'worklog', 'github'];
+
+/** `?view=todos` → `'todos'`. 모르는 값·피드는 undefined(첫 화면). */
+function parseViewParam(search: string): Route['view'] {
+  let raw: string | null;
+  try {
+    raw = new URLSearchParams(search).get('view');
+  } catch {
+    return undefined;
+  }
+  return raw !== null && raw !== 'feed' && VIEWS.includes(raw as BoardView)
+    ? (raw as Route['view'])
+    : undefined;
 }
 
 /**
@@ -84,6 +107,12 @@ export function isAddressableBoardKey(key: string): boolean {
  * 친 문자열이 앱을 죽이면 안 된다.
  */
 export function parseRoute(pathname: string, search = ''): Route {
+  const route = parseRouteBase(pathname, search);
+  const view = route.note === undefined ? parseViewParam(search) : undefined;
+  return view === undefined ? route : { ...route, view };
+}
+
+function parseRouteBase(pathname: string, search: string): Route {
   const segments = pathname.split('/').filter((s) => s !== '');
   const rawBoard = segments[0];
   const fromQuery = (board: BoardSelection): Route => {
@@ -171,6 +200,15 @@ function parseTodoParam(search: string): TodoRef | undefined {
  * key 여도 같은 이유로 todo 를 뺀다.
  */
 export function buildPath(route: Route): string {
+  const path = buildPathBase(route);
+  // 노트 상세 주소는 그 자체가 노트 탭이다 — 탭을 또 싣지 않는다.
+  if (route.view === undefined || route.note !== undefined) {
+    return path;
+  }
+  return `${path}${path.includes('?') ? '&' : '?'}view=${route.view}`;
+}
+
+function buildPathBase(route: Route): string {
   const base =
     route.board === 'all' || !isAddressableBoardKey(route.board)
       ? '/'
