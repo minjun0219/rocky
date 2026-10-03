@@ -24,7 +24,7 @@ export function TopBar() {
   const runCount = nowRows.filter((r) => r.group === 'run').length;
 
   return (
-    <header className="topbar relative w-full max-w-full min-w-0 overflow-hidden sm:overflow-visible border-b border-line bg-surface/95 select-none backdrop-blur-xs">
+    <header className="topbar relative w-full max-w-full min-w-0 border-b border-line bg-surface/95 select-none backdrop-blur-xs">
       {/* 1행: 데스크톱에서는 3개 슬롯(좌-중-우), 모바일에서는 좌(보드)-우(메뉴) 상단 바 */}
       <div className="flex h-10 w-full min-w-0 items-center justify-between px-3">
         <div className="flex shrink-0 items-center">

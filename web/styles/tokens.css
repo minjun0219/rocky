@@ -154,8 +154,6 @@
     font-family: var(--sans);
     font-size: 15px;
     line-height: 1.55;
-    overflow-x: hidden;
-    max-width: 100vw;
   }
 
   button {
@@ -184,9 +182,6 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  width: 100%;
-  max-width: 100vw;
-  overflow-x: hidden;
 }
 
 /* 상호작용 요소 공통 전이 — 호버/포커스가 뚝뚝 끊기지 않게. 색·배경·테두리만 걸고
