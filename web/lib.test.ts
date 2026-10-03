@@ -6,6 +6,7 @@ import type { NowRow } from './lib';
 import {
   ALL_SLICES,
   slicesFor,
+  mineCount,
   failingSurfaces,
   slowSurfaces,
   parseTurn,
@@ -671,6 +672,14 @@ describe('nowRows', () => {
     expect(rows[3]?.group).toBe('more');
     expect(rows[3]?.title).toContain('5건 더');
     expect(rows[3]?.todoId).toBeUndefined();
+    // 펼치면 요약 줄 없이 전부(오래된 c-0 포함) 행으로 — 행마다 할 일로 간다.
+    const all = nowRows({ todos, handoffs: [], seen: {}, expanded: true }, NOW);
+    const unreadRows = all.filter((r) => r.kind === 'unread' && r.group === 'mine');
+    expect(unreadRows).toHaveLength(8);
+    expect(unreadRows.every((r) => r.todoId)).toBe(true);
+    expect(all.some((r) => r.group === 'more')).toBe(false);
+    // 펼쳐도 내 차례 개수는 그대로 — 3일 안의 3건만 센다.
+    expect(mineCount(all)).toBe(mineCount(rows));
   });
 
   test('내 차례는 5행까지, 넘치면 "N개 더" — expanded 면 다 싣는다', () => {

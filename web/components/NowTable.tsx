@@ -104,11 +104,7 @@ export function MineSection() {
         <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
           {mine.map((row) =>
             row.group === 'more' ? (
-              <MoreLine
-                key={row.key}
-                row={row}
-                onExpand={row.key === 'mine:more' ? () => setExpanded(true) : undefined}
-              />
+              <MoreLine key={row.key} row={row} onExpand={() => setExpanded(true)} />
             ) : (
               <NowItem key={row.key} row={row} now={now} />
             ),
