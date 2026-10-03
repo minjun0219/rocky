@@ -1,5 +1,12 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { useUiStore } from './store';
+
+// 이 파일만 따로 돌면 주소가 about:blank 라 replaceState 가 먹지 않는다(CI 의 파일 순서) — 기준 주소를 박는다.
+beforeEach(() => {
+  (window as unknown as { happyDOM: { setURL: (url: string) => void } }).happyDOM.setURL(
+    'http://127.0.0.1:8636/',
+  );
+});
 
 afterEach(() => {
   window.history.replaceState(null, '', '/');
