@@ -1115,13 +1115,17 @@ export function parseTurn(content: string): { req: string; tools: string; did: s
  * `[#293](https://…)` 이 글자로 보인다. 목록 행은 눌러 펼치는 버튼이라 링크를 살릴 수 없어(버튼 안 링크) 글자만 남긴다.
  */
 export function mdToPlain(md: string): string {
+  // 코드(펜스 본문·인라인 코드)는 글자 그대로 남긴다 — 먼저 자리표로 빼 두어야 `__init__` 같은 식별자가
+  // 강조 치환에 깎이지 않는다. 펜스는 구분자(```lang)만 걷고 본문은 살린다.
+  const code: string[] = [];
+  const hold = (text: string) => `\uE000${code.push(text) - 1}\uE000`;
   return md
-    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/```[^\n]*\n?([\s\S]*?)```/g, (_m, body: string) => hold(body))
+    .replace(/`([^`]+)`/g, (_m, body: string) => hold(body))
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/(\*\*|__)(.+?)\1/g, '$2')
     .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, '$1$2')
-    .replace(/`([^`]+)`/g, '$1')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/^\s{0,3}>\s?/gm, '')
     .replace(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?/gm, '')
@@ -1132,6 +1136,7 @@ export function mdToPlain(md: string): string {
         .map((c) => c.trim())
         .join(' · '),
     )
+    .replace(/\uE000(\d+)\uE000/g, (_m, i: string) => code[Number(i)] ?? '')
     .replace(/\s+/g, ' ')
     .trim();
 }

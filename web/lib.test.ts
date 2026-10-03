@@ -1046,6 +1046,12 @@ describe('mdToPlain · shortTools — 작업로그 목록의 글자', () => {
     expect(mdToPlain('a * b * c')).toBe('a * b * c');
   });
 
+  test('코드는 글자 그대로 — 펜스는 구분자만 걷고 인라인 코드의 밑줄은 강조로 읽지 않는다', () => {
+    expect(mdToPlain('```sh\necho ok\n```')).toBe('echo ok');
+    expect(mdToPlain('실행:\n```\n- **a**\n```\n끝')).toBe('실행: - **a** 끝');
+    expect(mdToPlain('`__init__`를 호출')).toBe('__init__를 호출');
+  });
+
   test('MCP 도구 이름은 서버:도구 로 줄인다', () => {
     expect(shortTools('mcp__plugin_playwright_playwright__browser_click(×3), Bash')).toBe(
       'playwright:browser_click(×3), Bash',
