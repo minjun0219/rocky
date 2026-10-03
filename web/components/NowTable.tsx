@@ -81,18 +81,27 @@ export function StateIcon(props: { Icon: LucideIcon; className: string; label: s
  * 내 차례의 행 — 보고 있는 보드와 무관하게 전 보드를 본다. 무엇을 어떤 순서로 싣는지는 `nowRows`(순수)가
  * 정한다. PR 은 피드의 PR 알림이 따로 맡는다 — 여기서는 할 일만(넘김·멈춘 진행·읽지 않은 댓글·수집함).
  */
-export function useNowRows(expanded = false): NowRow[] {
+export function useNowRows(expanded = false, expandUnread = false): NowRow[] {
   const nowTodos = useUiStore((s) => s.nowTodos);
   const handoffs = useUiStore((s) => s.nowHandoffs);
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
-  return nowRows({ todos: nowTodos, handoffs, seen: seenComments, collect, expanded });
+  return nowRows({
+    todos: nowTodos,
+    handoffs,
+    seen: seenComments,
+    collect,
+    expanded,
+    expandUnread,
+  });
 }
 
 /** 피드의 "내 차례" — 예전엔 할 일 화면 맨 위 "지금" 표에 있었다(2026-10-02 피드로 옮김). */
 export function MineSection() {
+  // 요약 줄 둘은 따로 펼친다 — "내 차례 N개 더" 가 오래된 읽지 않은 댓글까지 쏟지 않게.
   const [expanded, setExpanded] = useState(false);
-  const rows = useNowRows(expanded);
+  const [expandUnread, setExpandUnread] = useState(false);
+  const rows = useNowRows(expanded, expandUnread);
   const mine = rows.filter((r) => r.group !== 'run');
   const now = useNow(mine, 0);
   return (
@@ -107,7 +116,9 @@ export function MineSection() {
               <MoreLine
                 key={row.key}
                 row={row}
-                onExpand={row.key === 'mine:more' ? () => setExpanded(true) : undefined}
+                onExpand={() =>
+                  row.key === 'unread:more' ? setExpandUnread(true) : setExpanded(true)
+                }
               />
             ) : (
               <NowItem key={row.key} row={row} now={now} />
