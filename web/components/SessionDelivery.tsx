@@ -77,7 +77,7 @@ export function SessionDelivery() {
         <div className="flex-1" />
         <button
           type="button"
-          className="text-chip text-faint hover:text-text"
+          className="tap text-chip text-faint hover:text-text"
           onClick={() => void load()}
         >
           새로고침

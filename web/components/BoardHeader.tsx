@@ -38,7 +38,7 @@ export function BoardHeader({ board }: { board: Board }) {
         <div className="flex-1" />
         <button
           type="button"
-          className="text-chip text-faint hover:text-warm"
+          className="tap text-chip text-faint hover:text-warm"
           onClick={() => setEditing(true)}
           title="보드 이름·slug·설명·GitHub 레포 수정"
         >
@@ -49,7 +49,7 @@ export function BoardHeader({ board }: { board: Board }) {
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {board.repo && (
           <a
-            className="chip chip-link"
+            className="tap chip chip-link"
             href={`https://github.com/${board.repo}`}
             target="_blank"
             rel="noreferrer"

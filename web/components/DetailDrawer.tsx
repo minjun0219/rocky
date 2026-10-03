@@ -71,12 +71,15 @@ export function DetailDrawer() {
           <Dialog.Title className="sr-only">
             {detail.kind === 'todo' ? '할 일 상세' : '메모 상세'}
           </Dialog.Title>
-          <Dialog.Close className="drawer-close" aria-label="상세 닫기">
-            <X size={16} aria-hidden />
-          </Dialog.Close>
           {detail.kind === 'todo' ? <TodoDetail /> : <NoteDetail />}
           {detail.kind === 'todo' && detail.todo && <CommentComposer todoId={detail.todo.id} />}
           <Timeline history={detail.history} comments={detail.comments} work={work} />
+          {/* 맨 끝에 둔다 — 넓은 화면은 우상단 ✕(absolute), 좁은 화면은 시트 바닥에 붙는 "닫기" 줄(sticky)이라
+              DOM 순서가 바닥이어야 내용 위에 떠서 가리지 않는다(responsive.css). */}
+          <Dialog.Close className="drawer-close" aria-label="상세 닫기">
+            <X size={16} aria-hidden />
+            <span className="drawer-close-label">닫기</span>
+          </Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

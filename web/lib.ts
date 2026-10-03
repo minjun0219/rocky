@@ -1111,6 +1111,55 @@ export function parseTurn(content: string): { req: string; tools: string; did: s
 }
 
 /**
+ * 마크다운을 목록에 쓸 평문으로 — 작업로그의 결과(마지막 답)는 마크다운이라 그대로 두면 `**원인:**`·
+ * `[#293](https://…)` 이 글자로 보인다. 목록 행은 눌러 펼치는 버튼이라 링크를 살릴 수 없어(버튼 안 링크) 글자만 남긴다.
+ */
+export function mdToPlain(md: string): string {
+  // 코드(펜스 본문·인라인 코드)는 글자 그대로 남긴다 — 먼저 자리표로 빼 두어야 `__init__` 같은 식별자가
+  // 강조 치환에 깎이지 않는다. 펜스는 구분자(```lang)만 걷고 본문은 살린다.
+  const code: string[] = [];
+  const hold = (text: string) => `\uE000${code.push(text) - 1}\uE000`;
+  return md
+    .replace(/```[^\n]*\n?([\s\S]*?)```/g, (_m, body: string) => hold(body))
+    .replace(/`([^`]+)`/g, (_m, body: string) => hold(body))
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, '$1$2')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?/gm, '')
+    .replace(/^[ \t]*\|?(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*:?-*:?[ \t]*$/gm, '')
+    .replace(/^[ \t]*\|(.*?)\|?[ \t]*$/gm, (_m, row: string) =>
+      row
+        .split('|')
+        .map((c) => c.trim())
+        .join(' · '),
+    )
+    .replace(/\uE000(\d+)\uE000/g, (_m, i: string) => code[Number(i)] ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 도구 목록의 MCP 이름을 짧게 — `mcp__plugin_playwright_playwright__browser_click(×3)` →
+ * `playwright:browser_click(×3)`. 서버 이름은 플러그인 접두사를 떼고 마지막 조각만.
+ */
+export function shortTools(tools: string): string {
+  return tools.replace(
+    /mcp__([A-Za-z0-9_-]+?)__([A-Za-z0-9_-]+)/g,
+    (_m, server: string, tool: string) => {
+      const name =
+        server
+          .replace(/^plugin_/, '')
+          .split('_')
+          .at(-1) ?? server;
+      return `${name}:${tool}`;
+    },
+  );
+}
+
+/**
  * 하네스가 넣은 메시지를 짧은 이름으로 — Stop 훅(`rocky_core::transcript::label_injected`)이 새 기록부터 하는 일을
  * 그 전 기록에도 보여 줄 때 똑같이 한다.
  */

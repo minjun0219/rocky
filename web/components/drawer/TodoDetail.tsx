@@ -155,7 +155,8 @@ export function TodoDetail() {
         type="button"
         className="drawer-ref"
         onClick={() => void handleCopyRef()}
-        title={copied ? '복사됨' : `${todo.ref} 복사`}
+        // 내부 id 는 화면에 따로 찍지 않는다 — ref 가 사람이 쓰는 이름이고, id 가 필요할 때(CLI·디버그)만 툴팁으로.
+        title={copied ? '복사됨' : `${todo.ref} 복사 · id ${todo.id}`}
         aria-label={copied ? '복사됨' : `${todo.ref} 복사`}
       >
         {copied ? '✓' : todo.ref}
@@ -206,9 +207,11 @@ export function TodoDetail() {
           </button>
         </h2>
       )}
-      <div className="drawer-id">{todo.id}</div>
       <div className="drawer-chips">
-        <span className={`chip prio-${todo.priority}`}>{todo.priority}</span>
+        {/* p4 는 "우선순위 없음" 이라 목록처럼 칩을 그리지 않는다 */}
+        {todo.priority !== 'p4' && (
+          <span className={`chip prio-${todo.priority}`}>{todo.priority}</span>
+        )}
         {todo.labels.map((label) => (
           <span key={label} className="chip chip-label">
             {label}
@@ -326,7 +329,8 @@ export function TodoDetail() {
         </div>
       )}
       <div className="drawer-actions">
-        {todo.status !== 'doing' && statusButton(Play, '시작', 'start')}
+        {/* 끝난 일은 "다시 열기" 가 먼저다 — 완료에서 곧장 시작하면 상태가 한 단계를 건너뛴다 */}
+        {todo.status !== 'doing' && todo.status !== 'done' && statusButton(Play, '시작', 'start')}
         {todo.status === 'doing' && statusButton(Pause, '중단', 'stop')}
         {todo.status !== 'done' && statusButton(Check, '완료', 'done')}
         {todo.status === 'done' && statusButton(RotateCcw, '다시 열기', 'reopen')}
