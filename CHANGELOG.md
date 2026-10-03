@@ -1,5 +1,21 @@
 # @minjun0219/rocky
 
+## 0.40.1
+
+### Patch Changes
+
+- [#292](https://github.com/minjun0219/rocky/pull/292) [`0b063d7`](https://github.com/minjun0219/rocky/commit/0b063d7481ce25fb8e2d14a568bd89357cdda13c) Thanks [@minjun0219](https://github.com/minjun0219)! - 피드의 수집함 행이 출처를 말하고("todoist 수집함에 보드로 안 옮긴 항목 2건"), 누르면 항목이 원래 앱 링크로 펼쳐진다.
+
+- [#289](https://github.com/minjun0219/rocky/pull/289) [`dc4b70f`](https://github.com/minjun0219/rocky/commit/dc4b70f17810de3460a28600e720ce9211587c9d) Thanks [@minjun0219](https://github.com/minjun0219)! - 피드 "내 차례" 의 `읽지 않은 댓글 N건 더` 를 누르면 나머지가 그 자리에 펼쳐진다(목록에서 💬 를 찾지 않아도 된다).
+
+- [#290](https://github.com/minjun0219/rocky/pull/290) [`f1e34d1`](https://github.com/minjun0219/rocky/commit/f1e34d124bd5c5f3d5eab6862975f3c94cd33c4a) Thanks [@minjun0219](https://github.com/minjun0219)! - 폰(터치 기기)에서 할 일 행의 칩 줄이 오른쪽 끝 열로 밀려 깨지던 것과, p1·p2 우선순위 칩이 글자 없는 단색 상자로 보이던 것을 고친다.
+
+- [#294](https://github.com/minjun0219/rocky/pull/294) [`d2ff23a`](https://github.com/minjun0219/rocky/commit/d2ff23a8b2c4d96d588f277d989a39a0ac30a33c) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 점검에서 나온 것들을 고친다 — 폰 상세의 닫기가 시트 바닥 "닫기" 줄로 바뀌어 댓글 입력칸을 가리지 않고, 폰에서 글자 버튼(편집·새로고침·설정·열린 PR·레포 링크)이 손가락 크기가 되고, 작업로그가 마크다운 원문 대신 글자로 보이고 MCP 도구 이름이 짧아지고, 상세에서 내부 id·p4 칩과 완료한 일의 "시작" 버튼을 뺀다.
+
+- [#293](https://github.com/minjun0219/rocky/pull/293) [`1a6ad93`](https://github.com/minjun0219/rocky/commit/1a6ad93e40cb3d07040e680c1b1cd7632c84d75b) Thanks [@minjun0219](https://github.com/minjun0219)! - 보던 탭이 주소에 실린다(`?view=todos`) — 새로고침·앱 전환(폰 Safari 가 페이지를 다시 부른다)·뒤로가기·탭 복제가 모두 같은 탭으로 돌아온다. 맨 주소는 여전히 피드(첫 화면)다.
+
+- [#295](https://github.com/minjun0219/rocky/pull/295) [`d4c0854`](https://github.com/minjun0219/rocky/commit/d4c08541d0798938d1fbc4bdf74cc8728fdc9915) Thanks [@minjun0219](https://github.com/minjun0219)! - 한글 라벨이 "섹 션 · 읽지 않은 댓글" 처럼 띄엄띄엄 보이던 것을 고친다 — 고정폭 글꼴 뒤에 본문 한글 글꼴을 두고, 고정폭 라벨의 낱말 사이를 줄이고, 한글 라벨에 준 자간을 걷는다.
+
 ## 0.40.0
 
 ### Minor Changes
