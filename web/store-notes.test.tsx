@@ -76,7 +76,8 @@ describe('노트 상세 주소', () => {
     window.history.replaceState(null, '', '/rocky/notes/3');
     useUiStore.setState({ openNoteId: 'n3' });
     useUiStore.getState().closeNote();
-    expect(here()).toBe('/rocky');
+    // 노트 목록에 남는다 — 탭(노트)은 주소에 실린다.
+    expect(here()).toBe('/rocky?view=notes');
   });
 
   test('옛 보드 key 로 온 노트 링크도 연다', async () => {

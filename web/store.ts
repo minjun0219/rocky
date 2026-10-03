@@ -65,6 +65,25 @@ function readStored(key: string): string | null {
   }
 }
 
+/**
+ * 주소가 가리키는 탭 — 노트 상세면 노트, `?view=` 가 있으면 그 탭, 없으면 피드(첫 화면). 보던 탭을 주소에 실어
+ * 새로고침·앱 전환(폰 Safari 가 페이지를 다시 부른다)·뒤로가기·탭 복제가 모두 같은 탭으로 돌아온다(2026-10-03 오너:
+ * "path 로 해야지"). GitHub 탭을 꺼 뒀으면 피드.
+ */
+function viewOf(route: Route): BoardView {
+  if (route.note !== undefined) {
+    return 'notes';
+  }
+  const view = route.view ?? 'feed';
+  return view === 'github' && readStored(GITHUB_TAB_KEY) === 'off' ? 'feed' : view;
+}
+
+/** 지금 보는 탭을 실은 주소 — store 가 주소를 쓸 때는 늘 이것으로(탭이 주소에서 빠지지 않게). */
+function pathFor(route: Route): string {
+  const view = useUiStore.getState().view;
+  return buildPath(view === 'feed' ? route : { ...route, view });
+}
+
 function writeStored(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
@@ -338,9 +357,8 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     })(),
   ),
-  // 첫 화면은 늘 피드다(2026-10-02 오너) — 지난번에 본 탭을 기억해 열지 않는다. 주소가 노트·할 일을 가리키면
-  // `applyRoute` 가 그쪽으로 옮긴다.
-  view: 'feed',
+  // 첫 화면은 피드다(2026-10-02 오너) — 맨 주소면 피드, 탭을 실은 주소(`?view=todos`)면 그 탭.
+  view: viewOf(parseRoute(window.location.pathname, window.location.search)),
   notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
   openNoteId: null,
   connected: false,
@@ -363,7 +381,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       // 보드를 바꾸면 열린 상세도 닫는다 — 주소는 새 보드를 가리키는데 드로어가 이전
       // 보드의 todo 를 계속 띄우면, 같은 주소를 새로고침한 화면과 달라진다.
       set({ selected, detail: null, openNoteId: null });
-      pushPath(buildPath({ board: selected }));
+      pushPath(pathFor({ board: selected }));
     }
     void get().refetch();
   },
@@ -385,6 +403,10 @@ export const useUiStore = create<UiState>((set, get) => ({
         ? { showGithub }
         : { showGithub, view: get().view === 'github' ? 'feed' : get().view },
     );
+    if (!showGithub) {
+      const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
+      replacePath(pathFor(here));
+    }
   },
   setShowArchived: (showArchived) => {
     logUsage('web:archived-toggle');
@@ -427,6 +449,9 @@ export const useUiStore = create<UiState>((set, get) => ({
     notesSettleUntil = view !== 'notes' ? Date.now() + NOTES_SETTLE_MS : 0;
     set({ view, notesSeenAt: advanceSeen(get().notesSeenAt, get().notes) });
     writeStored(NOTES_SEEN_KEY, get().notesSeenAt);
+    // 탭은 주소에 산다 — 히스토리 항목으로 쌓아 뒤로가기가 앞 탭으로 돌아가게. 보드·열린 상세는 그대로 둔다.
+    const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
+    pushPath(pathFor(here));
   },
   setConnected: (connected) => set({ connected }),
 
@@ -563,7 +588,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     // todo 의 보드로 옮겼고, 그게 "상세를 열면 뒤 화면이 그 보드로 바뀐다" 로 보였다.
     // 상세를 연 것이 히스토리 항목을 만든다 — closeDetail 이 이 표식을 보고 back() 할지
     // 정한다(퍼머링크로 바로 진입한 경우엔 back() 이 앱 밖으로 나가버린다).
-    pushPath(buildPath({ board: selected, todo: ref }), { rockyTodoDetail: true });
+    pushPath(pathFor({ board: selected, todo: ref }), { rockyTodoDetail: true });
   },
 
   openNoteDetail: async (id, options) => {
@@ -596,7 +621,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     // 퍼머링크로 바로 들어온 경우: 되돌릴 항목이 없다. back() 하면 앱 밖으로 나간다.
     set({ detail: null });
-    window.history.replaceState(null, '', buildPath({ board: get().selected }));
+    window.history.replaceState(null, '', pathFor({ board: get().selected }));
   },
 
   createBoard: async (key) => {
@@ -608,7 +633,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     // selected 를 먼저 바꾼 뒤 조회한다 — 순서가 반대면 refetch 가 이전 보드 기준으로
     // 돌아, 새 보드 화면에 직전 보드의 항목·섹션이 그대로 남는다.
     set({ selected: board.key, detail: null, openNoteId: null });
-    pushPath(buildPath({ board: board.key }));
+    pushPath(pathFor({ board: board.key }));
     await get().refetch();
   },
 
@@ -617,6 +642,10 @@ export const useUiStore = create<UiState>((set, get) => ({
     // "옛 참조는 계속 풀린다"는 약속을 웹 UI 만 안 지키는 셈이 된다. REST·MCP·CLI 는
     // 서버가 별칭을 풀어주지만 이 판정은 클라이언트에 있어 여기서 따로 봐야 한다.
     // 푼 뒤에는 **새 key** 로 정규화한다(별칭은 입력 전용).
+    // 탭부터 — 아래의 주소 정규화(pathFor)가 지금 탭을 싣는다. 뒤로가기로 맨 주소에 오면 피드다.
+    if (viewOf(route) !== get().view) {
+      set({ view: viewOf(route) });
+    }
     const matched = route.board === 'all' ? undefined : resolveBoardKey(get().boards, route.board);
     const known = route.board === 'all' || matched !== undefined;
     const board: BoardSelection = matched ?? 'all';
@@ -624,7 +653,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       // 낡은 링크에 에러 화면을 띄우지 않는다. 히스토리에 죽은 항목을 남기지 않으려
       // push 가 아니라 replace 를 쓴다. 아래 정규화가 어차피 같은 일을 하지만, 그 전의
       // refetch 가 실패해도 죽은 주소는 남지 않도록 여기서 먼저 걷어낸다.
-      replacePath(buildPath({ board: 'all' }));
+      replacePath(pathFor({ board: 'all' }));
     }
     if (board !== get().selected) {
       set({ selected: board });
@@ -641,7 +670,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       const note = get().notes.find((n) => n.ref === wanted || n.id === wanted);
       set({ detail: null, view: 'notes', openNoteId: note?.id ?? null });
       replacePath(
-        buildPath(note ? { board, note: note.ref } : { board }),
+        pathFor(note ? { board, note: note.ref } : { board }),
         note ? window.history.state : null,
       );
       return;
@@ -651,7 +680,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({ detail: null });
       // `/demo/abc` 처럼 해석되지 않은 꼬리가 주소에 남지 않게 정규화한다.
       // push 가 아니라 replace 인 이유: 히스토리에 죽은 항목을 남기지 않는다.
-      replacePath(buildPath({ board }));
+      replacePath(pathFor({ board }));
       return;
     }
     // 상세의 보드도 별칭을 푼다. 목록은 선택한 보드 것만 있으므로(전체 보기가 아니면),
@@ -665,7 +694,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (id === undefined || todoBoard === undefined) {
       // 없거나 보관된 번호 — 보드만 열어 준다.
       set({ detail: null });
-      replacePath(buildPath({ board }));
+      replacePath(pathFor({ board }));
       return;
     }
     await get().openTodoDetail(id, { push: false });
@@ -674,7 +703,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     // 건넨 링크에 죽은 꼬리가 따라간다. 여기서는 현재 항목의 state(상세 마커)를 보존해야
     // 한다 — 지우면 closeDetail 이 back() 대신 replace 분기를 골라 뒤로가기가 어긋난다.
     replacePath(
-      buildPath({ board, todo: { board: todoBoard, number: route.todo.number } }),
+      pathFor({ board, todo: { board: todoBoard, number: route.todo.number } }),
       window.history.state,
     );
   },
@@ -698,7 +727,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     // 않게, state 는 보존해 드로어 마커를 유지).
     const route = routeForTodo(moved, get().boards, get().selected);
     if (route.todo !== undefined && isAddressableBoardKey(route.todo.board)) {
-      replacePath(buildPath(route), window.history.state);
+      replacePath(pathFor(route), window.history.state);
     }
     await get().refetch();
   },
@@ -768,7 +797,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     logUsage('web:note-open');
     set({ openNoteId: id, view: 'notes' });
-    pushPath(buildPath({ board: get().selected, note: note.ref }), { rockyNote: true });
+    pushPath(pathFor({ board: get().selected, note: note.ref }), { rockyNote: true });
   },
 
   closeNote: () => {
@@ -780,7 +809,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       return;
     }
     // 퍼머링크로 바로 들어왔다 — back() 하면 앱 밖으로 나간다.
-    replacePath(buildPath({ board: get().selected }));
+    replacePath(pathFor({ board: get().selected }));
   },
 
   addComment: async (todoId, body) => {
@@ -930,7 +959,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       const { todo } = parseRoute(window.location.pathname, window.location.search);
       const renamed =
         todo !== undefined && todo.board === boardKey ? { ...todo, board: board.key } : todo;
-      replacePath(buildPath({ board: board.key, todo: renamed }), window.history.state);
+      replacePath(pathFor({ board: board.key, todo: renamed }), window.history.state);
     }
     await get().refetch();
   },

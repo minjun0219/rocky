@@ -317,3 +317,44 @@ describe('노트 상세 주소', () => {
     expect(parseRoute('/', '?note=')).toEqual({ board: 'all' });
   });
 });
+
+describe('보던 탭 ?view=', () => {
+  test('주소에서 탭을 읽는다 — 피드·모르는 값은 싣지 않는다', () => {
+    expect(parseRoute('/rocky', '?view=todos')).toEqual({ board: 'rocky', view: 'todos' });
+    expect(parseRoute('/', '?view=worklog')).toEqual({ board: 'all', view: 'worklog' });
+    expect(parseRoute('/rocky/12', '?view=todos')).toEqual({
+      board: 'rocky',
+      todo: { board: 'rocky', number: 12 },
+      view: 'todos',
+    });
+    expect(parseRoute('/rocky', '?view=feed')).toEqual({ board: 'rocky' });
+    expect(parseRoute('/rocky', '?view=nope')).toEqual({ board: 'rocky' });
+  });
+
+  test('노트 상세 주소는 그 자체가 노트 탭이라 view 를 따로 갖지 않는다', () => {
+    expect(parseRoute('/rocky/notes/3', '?view=todos')).toEqual({
+      board: 'rocky',
+      note: 'rocky-3',
+    });
+    expect(buildPath({ board: 'rocky', note: 'rocky-3', view: 'notes' })).toBe('/rocky/notes/3');
+  });
+
+  test('탭을 주소에 싣는다 — 쿼리가 있으면 뒤에 붙인다', () => {
+    expect(buildPath({ board: 'rocky', view: 'todos' })).toBe('/rocky?view=todos');
+    expect(buildPath({ board: 'all', view: 'github' })).toBe('/?view=github');
+    expect(buildPath({ board: 'rocky', todo: { board: 'rocky', number: 12 }, view: 'todos' })).toBe(
+      '/rocky/12?view=todos',
+    );
+    expect(buildPath({ board: 'all', todo: { board: 'rocky', number: 12 }, view: 'todos' })).toBe(
+      '/?todo=rocky-12&view=todos',
+    );
+    for (const path of [
+      '/rocky?view=todos',
+      '/rocky/12?view=worklog',
+      '/?todo=rocky-12&view=todos',
+    ]) {
+      const [pathname = '', search = ''] = path.split(/(?=\?)/);
+      expect(buildPath(parseRoute(pathname, search))).toBe(path);
+    }
+  });
+});
