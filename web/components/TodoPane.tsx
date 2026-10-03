@@ -229,7 +229,7 @@ export function TodoPane() {
 
       {groups.map((group) => {
         const label =
-          'mb-2 border-b border-line/70 pb-1 font-mono text-chip font-medium uppercase tracking-[0.06em] text-muted';
+          'mb-2 border-b border-line/70 pb-1 font-mono text-chip font-medium uppercase text-muted';
         // 보드 화면: 섹션별로 분리하고 각 섹션이 독립적인 완료 접기 상태를 가진다.
         if (selected !== 'all') {
           return (
