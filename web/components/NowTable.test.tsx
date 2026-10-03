@@ -76,6 +76,29 @@ describe('NowTable', () => {
     expect(openTodoDetail).toHaveBeenCalledWith('gone');
   });
 
+  test('수집함 행은 출처를 말하고, 누르면 항목이 원래 앱 링크로 펼쳐진다', async () => {
+    renderWithStore(<MineSection />, {
+      nowTodos: [],
+      nowHandoffs: [],
+      collect: 4,
+      collectItems: [
+        { source: 'todoist', title: '페르소나 힌트', url: 'https://app.todoist.com/app/task/a' },
+        { source: 'todoist', title: '문제 유형 옵션', url: 'https://app.todoist.com/app/task/b' },
+      ],
+    });
+    const row = screen.getByRole('button', { name: /todoist 수집함에 보드로 안 옮긴 항목 4건/ });
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+    await userEvent.click(row);
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+    const link = screen.getByRole('link', { name: /페르소나 힌트/ });
+    expect(link.getAttribute('href')).toBe('https://app.todoist.com/app/task/a');
+    // 요약은 3개까지만 싣는다 — 넘친 수는 한 줄로. 펼쳐도 내 차례 개수는 수집함 행 하나.
+    expect(screen.getByText(/외 2건/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /내 차례\s*1/ })).toBeTruthy();
+    await userEvent.click(row);
+    expect(screen.queryByRole('link', { name: /페르소나 힌트/ })).toBeNull();
+  });
+
   test('내 차례가 5행을 넘으면 "N개 더" — 누르면 펼친다', async () => {
     const nowTodos = Array.from({ length: 7 }, (_, i) =>
       todoFixture({
