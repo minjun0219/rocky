@@ -48,7 +48,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
 
   return (
     <div
-      className={`todo-row group flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-surface ${done ? 'is-done' : ''} ${todo.archivedAt ? 'is-archived' : ''}`}
+      className={`todo-row group flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors duration-150 hover:bg-surface-2/60 ${done ? 'is-done opacity-50' : ''} ${todo.archivedAt ? 'is-archived' : ''}`}
       style={{ paddingLeft: `${depth * 22}px` }}
       data-todo-id={todo.id}
     >

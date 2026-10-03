@@ -32,22 +32,22 @@ colors:
   link-dark: "#7fb0f0"
 typography:
   title:
-    fontFamily: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif
+    fontFamily: '"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif'
     fontSize: 18px
     fontWeight: 600
     lineHeight: 1.3
   body:
-    fontFamily: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif
+    fontFamily: '"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif'
     fontSize: 15px
     fontWeight: 400
     lineHeight: 1.5
   row:
-    fontFamily: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif
+    fontFamily: '"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif'
     fontSize: 14px
     fontWeight: 400
     lineHeight: 1.45
   meta:
-    fontFamily: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif
+    fontFamily: '"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif'
     fontSize: 13px
     fontWeight: 400
     lineHeight: 1.45
@@ -232,7 +232,7 @@ components:
 
 ## Typography
 
-시스템 글꼴만 쓴다(오프라인 — 외부 웹폰트 금지). 한글은 Apple SD Gothic Neo 로 떨어진다.
+Pretendard Variable(가변 폰트, 로컬 woff2 번들)을 기본으로 쓰며, 시스템 글꼴 스택(-apple-system, Apple SD Gothic Neo 등)으로 폴백된다.
 ref·시각·개수는 모노에 `tabular-nums` 로 — 갱신될 때 자릿수가 흔들리지 않게.
 
 | 토큰 | 크기 | 굵기 | 쓰는 곳 |
@@ -514,10 +514,8 @@ ref·시각·개수는 모노에 `tabular-nums` 로 — 갱신될 때 자릿수�
 
 | 지금 코드 | 규칙 | 자리 |
 | --- | --- | --- |
-| 완료가 손으로 정한 자리에 남는다 | 완료는 맨 아래 접힘 | `web/components/TodoPane.tsx` |
 | 상세가 오버레이 드로어 | < 720px 에서 push | `web/components/DetailDrawer.tsx` |
 | 드래그 핸들이 hover 에서만 보인다 | hover 전용 컨트롤 없음 | `web/components/TodoItem.tsx` |
-| 11px(`micro`) 19곳 | 12px 미만 없음 | `web/styles/tokens.css` |
 | 핸드오프가 링크 파랑(`--handoff`) | 파랑은 링크만 | `web/styles/tokens.css` |
 
 ## 근거

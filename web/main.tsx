@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { DetailDrawer } from './components/DetailDrawer';
 import { FeedPane } from './components/FeedPane';
 import { GithubPane } from './components/GithubPane';
-import { ViewSwitch } from './components/ViewSwitch';
 import { WorklogPane } from './components/WorklogPane';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
@@ -159,7 +158,6 @@ function App() {
         <TopBar />
         {/* 돌고 있음 — 탭과 상관없이 늘 보인다(2026-10-02 오너). 없으면 자리를 차지하지 않는다. */}
         <NowTable />
-        <ViewSwitch />
       </div>
       {/* 관제판 — 한 열. 머리(보드 스위처 · 돌고 있음 · 탭) 아래 첫 화면은 피드(PR 알림 + 내 차례).
           할 일: 그 보드의 목록. 노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}

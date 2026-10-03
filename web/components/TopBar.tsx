@@ -11,28 +11,60 @@ const THEME_LABEL: Record<ThemePref, string> = {
   dark: '다크',
 };
 
+import { useNowRows } from './NowTable';
+import { ViewSwitch } from './ViewSwitch';
+
 /**
- * 머리줄 — 한 줄(40px 이하). 보드 스위처 · (끊겼을 때만) 연결 표시 · `⋯` 메뉴.
- * 예전엔 워드마크·`LINK ♪`·활동 띠·테마 아이콘·보관됨 체크박스·이름 버튼이 설명 없이 늘어서
- * 360px 에서 두 줄로 접혔다(`web/DESIGN.md` "Layout", Known Gaps). 드물게 쓰는 것은 메뉴로.
+ * 머리줄 — 42px 초슬림 단일 바.
+ * 보드 스위처 · 세그먼트 탭(ViewSwitch) · 실시간 에이전트 인디케이터 · (끊겼을 때만) 연결 표시 · `⋯` 메뉴 통합.
  */
 export function TopBar() {
   const connected = useUiStore((s) => s.connected);
+  const nowRows = useNowRows();
+  const runCount = nowRows.filter((r) => r.group === 'run').length;
+
   return (
-    <header className="topbar relative flex min-h-10 items-center gap-2 border-b border-line bg-surface px-3 py-1">
-      <BoardSwitcher />
-      <div className="flex-1" />
-      {connected ? null : (
-        <span
-          className="link-status inline-flex items-center gap-1.5 font-mono text-chip text-dead"
-          title="데몬과의 실시간 연결이 끊겼다 — 다시 붙는 중. 보이는 내용은 마지막으로 받은 것이다."
-          role="status"
-        >
-          <span className="size-1.5 rounded-full bg-current" aria-hidden />
-          연결 끊김
-        </span>
-      )}
-      <HeaderMenu />
+    <header className="topbar relative w-full max-w-full min-w-0 border-b border-line bg-surface/95 select-none backdrop-blur-xs">
+      {/* 1행: 데스크톱에서는 3개 슬롯(좌-중-우), 모바일에서는 좌(보드)-우(메뉴) 상단 바 */}
+      <div className="flex h-10 w-full min-w-0 items-center justify-between px-3">
+        <div className="flex shrink-0 items-center">
+          <BoardSwitcher />
+        </div>
+
+        {/* 데스크톱 세그먼트 탭 (>= 640px) */}
+        <div className="hidden sm:flex sm:items-center sm:justify-center">
+          <ViewSwitch />
+        </div>
+
+        {/* 우측 슬롯 (모바일/데스크톱 공통: 에이전트 인디케이터 + 연결 상태 + 메뉴) */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {runCount > 0 ? (
+            <span
+              className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-chip font-semibold tabular-nums text-run"
+              title={`실행 중인 에이전트 ${runCount}개`}
+            >
+              <span className="size-1.5 rounded-full bg-run" aria-hidden />
+              {runCount}
+            </span>
+          ) : null}
+          {connected ? null : (
+            <span
+              className="link-status inline-flex items-center gap-1 font-mono text-chip text-dead"
+              title="데몬과의 실시간 연결이 끊겼다 — 다시 붙는 중. 보이는 내용은 마지막으로 받은 것이다."
+              role="status"
+            >
+              <span className="size-1.5 rounded-full bg-current" aria-hidden />
+              <span className="hidden sm:inline">연결 끊김</span>
+            </span>
+          )}
+          <HeaderMenu />
+        </div>
+      </div>
+
+      {/* 2행: 모바일 전용 세그먼트 서브탭 (< 640px) */}
+      <div className="flex sm:hidden w-full min-w-0 items-center justify-center border-t border-line/50 px-2 py-1 bg-surface-2/20">
+        <ViewSwitch />
+      </div>
     </header>
   );
 }

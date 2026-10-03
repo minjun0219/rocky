@@ -32,33 +32,43 @@ export function ViewSwitch() {
     : ['feed', 'todos', 'notes', 'worklog'];
 
   return (
-    <nav className="view-switch flex gap-1 border-b border-line px-4 py-1.5" aria-label="보기">
-      {kinds.map((kind) => (
-        <button
-          key={kind}
-          type="button"
-          aria-pressed={view === kind}
-          className={`min-h-8 rounded-md px-3 text-sm ${
-            view === kind ? 'bg-surface font-semibold text-text' : 'text-muted hover:text-text'
-          }`}
-          onClick={() => setView(kind)}
-        >
-          {LABEL[kind]}
-          {kind === 'notes' && news ? (
-            <span className="ml-1 text-mine" role="img" aria-label="새 편집 있음">
-              •
-            </span>
-          ) : null}
-          {kind === 'feed' && feed > 0 ? (
-            <span className="ml-1 font-mono text-chip font-semibold tabular-nums text-mine">
-              {feed}
-            </span>
-          ) : null}
-          {kind === 'notes' && notes.length > 0 ? (
-            <span className="ml-1 font-mono text-chip tabular-nums text-faint">{notes.length}</span>
-          ) : null}
-        </button>
-      ))}
+    <nav
+      className="view-switch flex w-full sm:w-auto max-w-full items-center justify-between sm:justify-center overflow-x-auto rounded-lg border border-line/60 bg-surface-2/60 p-0.5"
+      aria-label="보기"
+    >
+      {kinds.map((kind) => {
+        const isActive = view === kind;
+        return (
+          <button
+            key={kind}
+            type="button"
+            aria-pressed={isActive}
+            className={`inline-flex min-h-7 flex-1 sm:flex-initial min-w-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md px-1 sm:px-2.5 py-1 text-chip whitespace-nowrap transition-all duration-150 ${
+              isActive
+                ? 'bg-surface font-semibold text-text shadow-xs'
+                : 'text-muted hover:text-text'
+            }`}
+            onClick={() => setView(kind)}
+          >
+            {LABEL[kind]}
+            {kind === 'notes' && news ? (
+              <span
+                className="size-1.5 rounded-full bg-mine"
+                role="img"
+                aria-label="새 편집 있음"
+              />
+            ) : null}
+            {kind === 'feed' && feed > 0 ? (
+              <span className="rounded bg-mine-soft px-1.5 py-0.2 font-mono text-chip font-semibold tabular-nums text-mine">
+                {feed}
+              </span>
+            ) : null}
+            {kind === 'notes' && notes.length > 0 ? (
+              <span className="font-mono text-chip tabular-nums text-faint">{notes.length}</span>
+            ) : null}
+          </button>
+        );
+      })}
     </nav>
   );
 }
