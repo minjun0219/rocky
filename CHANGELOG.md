@@ -1,5 +1,35 @@
 # @minjun0219/rocky
 
+## 0.40.0
+
+### Minor Changes
+
+- [#273](https://github.com/minjun0219/rocky/pull/273) [`0c4caf9`](https://github.com/minjun0219/rocky/commit/0c4caf971739799572f116bb9a8768adc6a69e9b) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬이 작업로그·사용 로그(JSONL)를 로그 색인(`logs.db`)으로 옮겨 `GET /api/logs/worklog` 로 보드·할 일·검색어별로 읽게 한다 — 쓰기는 그대로 JSONL 이고, 색인은 전용 스레드가 1분마다 새 줄만 옮기며 지워도 다시 만든다. 보드 작업로그 탭·할 일 상세·통계의 바탕이다.
+
+- [#281](https://github.com/minjun0219/rocky/pull/281) [`6431606`](https://github.com/minjun0219/rocky/commit/64316065d493206231410239af9ba79c447fceb6) Thanks [@minjun0219](https://github.com/minjun0219)! - 작업로그 탭에 통계(최근 30일)를 더한다 — 회고(레포별·요일별 턴, 턴이 몰린 할 일)와 rocky 개선(느린 표면·실패하는 표면·안 쓴 표면). `GET /api/logs/stats` 가 로그 색인에서 낸다.
+
+- [#282](https://github.com/minjun0219/rocky/pull/282) [`1129c27`](https://github.com/minjun0219/rocky/commit/1129c27583f435b7b34251ba54eb321fa93733bd) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 노트 동시 편집을 웹소켓 하나(`GET /api/ws`)로 옮긴다 — 열린 노트가 연결 하나로 문서·편집·프레즌스를 주고받아, 노트마다 SSE 를 열고 편집마다 POST 하던 것이 없어진다(호스트당 연결 한도·요청 왕복). 다른 사이트에서 연 소켓은 핸드셰이크에서 거부하고, 소켓을 못 열면 예전 HTTP 길로 간다.
+
+- [#288](https://github.com/minjun0219/rocky/pull/288) [`ce4c59e`](https://github.com/minjun0219/rocky/commit/ce4c59e64c18de0e825df3a95b3ffe7b1f932867) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드 UI 전면 리디자인 (A안: 미니멀 관제판) — Pretendard Variable 한글 가변 폰트 번들링 및 적용, 12px 미만(11px) 텍스트 상향으로 시인성 개선, 상단 42px 초슬림 단일 바 헤더(피드·할 일·노트·작업로그·GitHub 5개 탭 및 실시간 에이전트 인디케이터 통합), 4px 마이크로 뱃지 기반 작업 목록 및 완료 작업 하단 접기(Collapsible), 상세 모달 및 반응형 최적화.
+
+- [#278](https://github.com/minjun0219/rocky/pull/278) [`2f52626`](https://github.com/minjun0219/rocky/commit/2f52626f2f75a6c4dfcb83c8102ef4680cf9091e) Thanks [@minjun0219](https://github.com/minjun0219)! - TUI(`rocky tui`, `rocky-tui` 바이너리)를 걷어낸다 — 90일 동안 한 번도 쓰이지 않았고, 보드 화면은 웹 UI 하나로 간다. 릴리스 tarball 에서도 빠진다.
+
+- [#280](https://github.com/minjun0219/rocky/pull/280) [`d4656e7`](https://github.com/minjun0219/rocky/commit/d4656e71b8a8a1d52c261ba8b5f7e4147e5d8f1b) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드에 **작업로그** 탭을 더한다 — 고른 보드(레포)의 작업 기록을 최신순으로 보고 찾기·종류로 거른다. 할 일 상세의 타임라인에는 그 할 일을 든 세션의 턴이 "작업" 줄로 끼어든다. 백그라운드 알림·셸 출력은 원문 대신 짧은 이름으로 보인다.
+
+### Patch Changes
+
+- [#287](https://github.com/minjun0219/rocky/pull/287) [`c6f7d8b`](https://github.com/minjun0219/rocky/commit/c6f7d8bdfe448a60d74a784376740f8c2b77d7a7) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-fix` 가 Codex 가 사용 한도에 걸렸다고 알린 PR(`verdict: limited`)을 봇 리뷰를 기다리느라 머지 후보 알림에서 막지 않는다 — 다른 조건이 맞으면 "봇 리뷰 없음(한도)" 을 적고 알린다.
+
+- [#275](https://github.com/minjun0219/rocky/pull/275) [`c894abb`](https://github.com/minjun0219/rocky/commit/c894abbbbaceab8a85effe655793a82b05361eb6) Thanks [@minjun0219](https://github.com/minjun0219)! - Stop 훅(`log-turn`)이 턴마다 세션 트랜스크립트 전체(수십 MB)를 읽던 것을 파일 끝에서부터 읽게 한다 — 41MB 트랜스크립트에서 0.12초(릴리스) → 0.04초(디버그), 세션이 길어져도 늘지 않는다.
+
+- [#279](https://github.com/minjun0219/rocky/pull/279) [`3fbad02`](https://github.com/minjun0219/rocky/commit/3fbad02693dce97dd0a65b4c740cf94f04d0c4f1) Thanks [@minjun0219](https://github.com/minjun0219)! - 턴 기록(`log-turn`)에 그 세션이 들고 있는 할 일을 `todo:<ref>` 태그로 붙인다 — 보드 할 일 상세가 작업 흐름을 모으는 바탕. 백그라운드 작업 알림·셸 출력처럼 하네스가 넣은 메시지는 요청 칸에 원문 대신 짧은 이름만 남긴다.
+
+- [#276](https://github.com/minjun0219/rocky/pull/276) [`f2a0b20`](https://github.com/minjun0219/rocky/commit/f2a0b20e6135b3bd7e411d6064b357c466945ab9) Thanks [@minjun0219](https://github.com/minjun0219)! - 할 일 목록이 진행 중 항목의 세션 상태를 붙이려고 세션 목록(`claude agents`, 수백 ms)을 묻던 것을 기다리지 않게 한다 — 3초가 지난 값도 60초까지는 바로 주고 뒤에서 한 번 새로 받는다(진행 중 표시가 한 번 늦을 수 있다).
+
+- [#272](https://github.com/minjun0219/rocky/pull/272) [`e9fba79`](https://github.com/minjun0219/rocky/commit/e9fba796e2babce662f82518c81c189fcc7bf5f2) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드에서 넘겨받은 할 일을 끝낸 세션이 `done` 을 부르지 않아 "멈춤" 으로 남던 것을 막는다 — 핸드오프 주입문이 닫는 법(`done`/`stop`)까지 말하고, Stop 훅이 그 세션이 들고 있는 진행 중 할 일이 있으면 턴을 한 번 막고 닫았는지 묻는다(그 확인으로 이어진 턴은 다시 막지 않는다).
+
+- [#274](https://github.com/minjun0219/rocky/pull/274) [`e306ad1`](https://github.com/minjun0219/rocky/commit/e306ad10b0075cd5b1b515441c2b021f1079264b) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드가 데몬 이벤트마다 보드 전체(요청 8개)를 다시 받던 것을 그 이벤트가 건드린 것만 받게 한다 — 할 일 수정은 3개, 노트 수정은 1개. 전체 보기에서 겹치던 할 일·핸드오프 요청도 한 번으로 줄였다.
+
 ## 0.39.0
 
 ### Minor Changes
