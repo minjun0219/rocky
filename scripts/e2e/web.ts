@@ -598,15 +598,12 @@ async function runEnv(
       .locator('nav[aria-label="보기"]:visible button[aria-pressed="true"]')
       .first()
       .textContent();
-    // 지금은 보기 탭을 주소·저장소에 싣지 않아 새로고침하면 첫 화면(피드)으로 돌아간다(store.ts 의 view 초기값).
-    // 의도인지 결정이 안 났으니 기능 실패가 아니라 발견으로 남긴다.
+    // 보던 탭은 주소(`?view=notes`)에 실린다 — 새로고침해도 같은 탭이어야 한다(#293).
     if (!/노트/.test(pressed ?? '')) {
-      add({
-        env: env.name,
-        step: '24-reload-keeps-tab',
-        kind: '동작 확인',
-        detail: `새로고침 뒤 탭이 "${pressed}"`,
-      });
+      throw new Error(`새로고침 뒤 탭이 "${pressed}" — 노트여야 한다`);
+    }
+    if (!new URL(p.url()).search.includes('view=notes')) {
+      throw new Error(`주소에 탭이 없다: ${p.url()}`);
     }
   });
   await step('25-permalink', async () => {
