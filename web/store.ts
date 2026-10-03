@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { HandoffView, PrSnapshot } from './types';
+import type { CollectItem, HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
 import type { AgentSession, BoardView } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
@@ -96,6 +96,8 @@ interface UiState {
   prs: PrSnapshot[];
   /** 수집함 미올림 수 — 데몬이 캐시로 모르면 null. */
   collect: number | null;
+  /** 미올림 수집함 항목(최대 3개) — 피드의 수집함 행을 펼치면 보인다. */
+  collectItems: CollectItem[];
   sections: Section[];
   notes: NoteView[];
   selected: BoardSelection;
@@ -317,6 +319,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   nowHandoffs: [],
   prs: [],
   collect: null,
+  collectItems: [],
   sections: [],
   notes: [],
   // 첫 fetch 부터 올바른 보드를 조회하도록 URL 을 먼저 읽는다. 없는 보드였다면
@@ -467,9 +470,10 @@ export const useUiStore = create<UiState>((set, get) => ({
           : skip,
         // 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름".
         want('summary')
-          ? api<{ collect?: number }>('/api/summary?cached=true', actor).catch(
-              (): { collect?: number } => ({}),
-            )
+          ? api<{ collect?: number; collectItems?: CollectItem[] }>(
+              '/api/summary?cached=true',
+              actor,
+            ).catch((): { collect?: number; collectItems?: CollectItem[] } => ({}))
           : skip,
         // PR 감시 스냅숏 — 없거나 실패하면 빈 목록("모름" 이 아니라 "없음" 으로 보여도 무해).
         want('prs')
@@ -483,7 +487,12 @@ export const useUiStore = create<UiState>((set, get) => ({
       ...(sections ? { sections } : {}),
       ...(handoffs ? { handoffs, nowHandoffs: nowHandoffs ?? handoffs } : {}),
       ...(prs ? { prs } : {}),
-      ...(summary ? { collect: typeof summary.collect === 'number' ? summary.collect : null } : {}),
+      ...(summary
+        ? {
+            collect: typeof summary.collect === 'number' ? summary.collect : null,
+            collectItems: summary.collectItems ?? [],
+          }
+        : {}),
     });
     if (!notes) {
       // 노트를 안 받았으면 "본 것" 을 올릴 것도, 상세를 다시 받을 것도 노트 쪽엔 없다.

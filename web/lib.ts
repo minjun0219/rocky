@@ -2,7 +2,7 @@
  * UI 순수 헬퍼 — actor 톤(두 대기 컨셉), 시간 표기, 초경량 markdown 렌더 토큰화.
  */
 import { isAgentActor } from './actors';
-import type { HandoffView, PrSnapshot, TodoView } from './types';
+import type { CollectItem, HandoffView, PrSnapshot, TodoView } from './types';
 import type { Comment, HistoryEntry, SurfaceStat, WorklogEntry } from './types';
 
 /**
@@ -555,6 +555,10 @@ export function nowRows(
     handoffs: HandoffView[];
     seen: Record<string, string>;
     collect?: number | null;
+    /** 요약이 실어 준 미올림 수집함 항목(최대 3개) — 수집함 행을 펼치면 보인다. */
+    collectItems?: CollectItem[];
+    /** 수집함 행을 펼쳤나. */
+    expandCollect?: boolean;
     /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
     prs?: PrSnapshot[];
     expanded?: boolean;
@@ -696,11 +700,11 @@ export function nowRows(
       group: 'mine',
       glyph: 'mine',
       ref: '수집함',
-      title: `아직 안 올린 항목 ${input.collect}건`,
+      title: `${collectSources(input.collectItems)}에 보드로 안 옮긴 항목 ${input.collect}건`,
       who: 'YOU',
       live: false,
       unread: 0,
-      state: '보드로 올릴까',
+      state: input.expandCollect ? '보드로 옮길까' : '눌러서 보기',
     });
   }
 
@@ -730,8 +734,39 @@ export function nowRows(
       rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 보기`, restUnread));
     }
   }
+  // 수집함 행을 펼치면 바로 밑에 항목을 — 행마다 원래 앱(Todoist 등)으로 간다. 개수에는 넣지 않는다
+  // (수집함은 행 하나로 센다). 요약은 3개까지만 실으니 넘친 수는 한 줄로.
+  const at = rows.findIndex((r) => r.key === 'collect');
+  if (input.expandCollect && at >= 0) {
+    const items = input.collectItems ?? [];
+    const extra: NowRow[] = items.map((item, i) => ({
+      key: `collect:${i}`,
+      kind: 'collect',
+      group: 'mine',
+      glyph: 'mine',
+      ref: item.source,
+      title: item.title,
+      ...(item.url ? { url: item.url } : {}),
+      who: '—',
+      live: false,
+      unread: 0,
+      state: '보드로 안 옮김',
+      extra: true,
+    }));
+    const rest = (input.collect ?? 0) - items.length;
+    if (rest > 0) {
+      extra.push(moreRow('collect:more', `외 ${rest}건 — 수집함 앱에서`, rest));
+    }
+    rows.splice(at + 1, 0, ...extra);
+  }
   run.sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''));
   return [...rows, ...run];
+}
+
+/** 수집함 행 제목의 출처 — "todoist 수집함" 처럼. 항목을 모르면 그냥 "수집함". */
+function collectSources(items: CollectItem[] | undefined): string {
+  const names = [...new Set((items ?? []).map((i) => i.source))];
+  return names.length > 0 ? `${names.join('·')} 수집함` : '수집함';
 }
 
 function moreRow(key: string, title: string, hidden: number): NowRow {

@@ -246,6 +246,13 @@ export interface WorklogEntry {
   todoRef?: string;
 }
 
+/** `GET /api/summary` 의 `collectItems` — 아직 보드로 안 옮긴 수집함 항목(최대 3개, 제목은 한 줄로 편 것). */
+export interface CollectItem {
+  source: string;
+  title: string;
+  url?: string;
+}
+
 /** `GET /api/inbox` — 수집함 항목 하나. `promoted` 는 데몬이 전 보드의 링크로 채운다. */
 export interface InboxItem {
   id: string;

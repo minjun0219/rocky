@@ -81,18 +81,25 @@ export function StateIcon(props: { Icon: LucideIcon; className: string; label: s
  * 내 차례의 행 — 보고 있는 보드와 무관하게 전 보드를 본다. 무엇을 어떤 순서로 싣는지는 `nowRows`(순수)가
  * 정한다. PR 은 피드의 PR 알림이 따로 맡는다 — 여기서는 할 일만(넘김·멈춘 진행·읽지 않은 댓글·수집함).
  */
-export function useNowRows(expanded = false, expandUnread = false): NowRow[] {
+export function useNowRows(
+  expanded = false,
+  expandUnread = false,
+  expandCollect = false,
+): NowRow[] {
   const nowTodos = useUiStore((s) => s.nowTodos);
   const handoffs = useUiStore((s) => s.nowHandoffs);
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
+  const collectItems = useUiStore((s) => s.collectItems);
   return nowRows({
     todos: nowTodos,
     handoffs,
     seen: seenComments,
     collect,
+    collectItems,
     expanded,
     expandUnread,
+    expandCollect,
   });
 }
 
@@ -101,7 +108,9 @@ export function MineSection() {
   // 요약 줄 둘은 따로 펼친다 — "내 차례 N개 더" 가 오래된 읽지 않은 댓글까지 쏟지 않게.
   const [expanded, setExpanded] = useState(false);
   const [expandUnread, setExpandUnread] = useState(false);
-  const rows = useNowRows(expanded, expandUnread);
+  // 수집함 행은 눌러서 펼치고 접는다 — 항목이 뭔지 피드에서 바로 보이게.
+  const [expandCollect, setExpandCollect] = useState(false);
+  const rows = useNowRows(expanded, expandUnread, expandCollect);
   const mine = rows.filter((r) => r.group !== 'run');
   const now = useNow(mine, 0);
   return (
@@ -116,12 +125,21 @@ export function MineSection() {
               <MoreLine
                 key={row.key}
                 row={row}
-                onExpand={() =>
-                  row.key === 'unread:more' ? setExpandUnread(true) : setExpanded(true)
+                onExpand={
+                  row.key === 'collect:more'
+                    ? undefined
+                    : () => (row.key === 'unread:more' ? setExpandUnread(true) : setExpanded(true))
                 }
               />
             ) : (
-              <NowItem key={row.key} row={row} now={now} />
+              <NowItem
+                key={row.key}
+                row={row}
+                now={now}
+                {...(row.key === 'collect'
+                  ? { onToggle: () => setExpandCollect((v) => !v), toggled: expandCollect }
+                  : {})}
+              />
             ),
           )}
         </ul>
@@ -176,7 +194,7 @@ function NowGroupHead(props: { title: string; count: number; tone: 'mine' | 'run
  * 한 행 — 첫 줄: 글리프 + 제목(두 줄까지), 둘째 줄: ref · 누가 · 시각 · 상태 글자.
  * 행 전체가 누르는 자리다(todo 면 상세, PR 이면 새 탭).
  */
-function NowItem(props: { row: NowRow; now: number }) {
+function NowItem(props: { row: NowRow; now: number; onToggle?: () => void; toggled?: boolean }) {
   const { row, now } = props;
   const openTodoDetail = useUiStore((s) => s.openTodoDetail);
   // PR 행은 PR 모양 아이콘으로 — 머지 가능이면 머지, 충돌이면 경고.
@@ -212,7 +230,19 @@ function NowItem(props: { row: NowRow; now: number }) {
     'now-item flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left no-underline transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2';
   return (
     <li className="border-t border-line/70 first:border-t-0">
-      {row.todoId ? (
+      {props.onToggle ? (
+        <button
+          type="button"
+          className={className}
+          aria-expanded={props.toggled ?? false}
+          onClick={() => {
+            logUsage('web:now-row', { kind: row.kind });
+            props.onToggle?.();
+          }}
+        >
+          {body}
+        </button>
+      ) : row.todoId ? (
         <button
           type="button"
           className={className}
