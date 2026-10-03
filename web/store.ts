@@ -42,6 +42,9 @@ const NOTES_SEEN_KEY = 'rocky:notes-seen';
 const GITHUB_HIDDEN_KEY = 'rocky:github-hidden';
 /** GitHub 탭을 보이나 — 끄면 탭도 GitHub 줄도 안 보인다. 기본 켬. */
 const GITHUB_TAB_KEY = 'rocky:github-tab';
+/** 보던 탭 — sessionStorage(이 브라우저 탭 안에서만). 새로 연 탭은 피드에서 시작한다. */
+const VIEW_KEY = 'rocky:view';
+const VIEWS: readonly BoardView[] = ['feed', 'todos', 'notes', 'worklog', 'github'];
 
 function readHidden(): string[] {
   try {
@@ -63,6 +66,23 @@ function readStored(key: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 새로고침 전에 보던 탭. 폰 Safari 는 앱을 오가면 페이지를 다시 불러오는데, 탭이 메모리에만 있으면 늘
+ * 피드로 돌아갔다(2026-10-03 오너). sessionStorage 라 **같은 브라우저 탭** 의 새로고침·복원에만 남고, 새로
+ * 연 탭은 피드다 — "첫 화면은 늘 피드" 와 같이 간다. GitHub 탭을 꺼 뒀으면 피드로.
+ */
+export function readView(): BoardView {
+  try {
+    const v = sessionStorage.getItem(VIEW_KEY) as BoardView | null;
+    if (v && VIEWS.includes(v) && (v !== 'github' || readStored(GITHUB_TAB_KEY) !== 'off')) {
+      return v;
+    }
+  } catch {
+    // 막힌 저장소 — 피드에서 시작한다.
+  }
+  return 'feed';
 }
 
 function writeStored(key: string, value: string): void {
@@ -338,9 +358,9 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     })(),
   ),
-  // 첫 화면은 늘 피드다(2026-10-02 오너) — 지난번에 본 탭을 기억해 열지 않는다. 주소가 노트·할 일을 가리키면
-  // `applyRoute` 가 그쪽으로 옮긴다.
-  view: 'feed',
+  // 첫 화면은 피드다(2026-10-02 오너) — 지난 방문의 탭은 기억하지 않고, 같은 브라우저 탭의 새로고침만
+  // 보던 탭으로 돌아온다(`readView`). 주소가 노트·할 일을 가리키면 `applyRoute` 가 그쪽으로 옮긴다.
+  view: readView(),
   notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
   openNoteId: null,
   connected: false,
@@ -935,3 +955,14 @@ export const useUiStore = create<UiState>((set, get) => ({
     await get().refetch();
   },
 }));
+
+// 탭이 바뀌면 기억한다 — `setView` 뿐 아니라 노트를 여는 길 등 `view` 를 바꾸는 모든 곳을 한 번에 덮는다.
+useUiStore.subscribe((state, prev) => {
+  if (state.view !== prev.view) {
+    try {
+      sessionStorage.setItem(VIEW_KEY, state.view);
+    } catch {
+      // 다음 새로고침에 피드로 돌아갈 뿐이다.
+    }
+  }
+});
