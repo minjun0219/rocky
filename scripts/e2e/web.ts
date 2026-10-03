@@ -553,10 +553,11 @@ async function runEnv(
     await p.waitForTimeout(1500);
   });
   await step('17-note-back', async () => {
-    await p
-      .getByRole('button', { name: /목록|뒤로|닫기/ })
-      .first()
-      .click();
+    // 뒤로가기는 노트 상세 머리의 "‹ 노트" 버튼이다 — 편집기 서식 막대의 "목록"(글머리표)과 헷갈리지 않게
+    // 이름을 정확히 고르고 "노트 상세" 영역 안에서만 찾는다(보기 탭 "노트 N" 과도 갈린다). 상세가 닫혔는지까지 본다.
+    const detail = p.getByRole('region', { name: '노트 상세' });
+    await detail.getByRole('button', { name: '노트', exact: true }).click();
+    await detail.waitFor({ state: 'detached', timeout: 3000 });
     await p.getByText(`${tag} 노트 본문`).first().waitFor({ timeout: 3000 });
   });
   await step('18-worklog', async () => {
