@@ -30,6 +30,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "lucide-react": "^1.31.0",
+    "playwright-core": "^1.63.0",
     "pretendard": "^1.3.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -73,6 +74,7 @@
     "prepare": "husky",
     "check:changesets": "bun scripts/check-changesets.ts",
     "build:ui": "bun scripts/build-ui.ts",
+    "e2e": "bun scripts/e2e/web.ts",
     "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./bridges ./web",
     "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web"
   },
