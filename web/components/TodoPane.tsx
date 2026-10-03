@@ -243,24 +243,21 @@ export function TodoPane() {
             />
           );
         }
-        // 전체 보기: 보드별 그룹 접기
+        // 전체 보기: 보드별 그룹 접기 및 보드 내 완료된 작업 접기
         const folded = collapsed.has(group.key);
-        const count = todos.filter((t) => t.boardId === group.key).length;
-        const Chevron = folded ? ChevronRight : ChevronDown;
+        const boardTodos = todos.filter((t) => t.boardId === group.key);
         return (
-          <section key={group.key} className={folded ? 'mb-3' : 'mb-6'}>
-            <button
-              type="button"
-              className={`${label} flex w-full items-center gap-1.5 text-left transition-colors hover:text-text`}
-              aria-expanded={!folded}
-              onClick={() => toggleBoard(group.key)}
-            >
-              <Chevron size={13} aria-hidden className="shrink-0" />
-              <span className="min-w-0 truncate">{group.title}</span>
-              <span className="ml-auto tracking-normal tabular-nums text-faint">{count}</span>
-            </button>
-            {!folded && renderTree(group.items, 0, true)}
-          </section>
+          <BoardGroup
+            key={group.key}
+            title={group.title}
+            roots={group.items}
+            allBoardTodos={boardTodos}
+            childrenOf={childrenOf}
+            renderTree={renderTree}
+            folded={folded}
+            onToggleFold={() => toggleBoard(group.key)}
+            labelClass={label}
+          />
         );
       })}
     </main>
@@ -338,6 +335,83 @@ function TodoSection({ title, roots, childrenOf, renderTree, labelClass }: TodoS
             <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
           )}
         </div>
+      )}
+    </section>
+  );
+}
+
+interface BoardGroupProps {
+  title: string;
+  roots: TodoView[];
+  allBoardTodos: TodoView[];
+  childrenOf: Map<string, TodoView[]>;
+  renderTree: (items: TodoView[], depth: number, showDone: boolean) => React.ReactNode;
+  folded: boolean;
+  onToggleFold: () => void;
+  labelClass: string;
+}
+
+/** 전체 보기 화면에서의 각 보드 그룹 — 보드 자체 접기 + 보드 내 완료된 작업 독립 접기 지원. */
+function BoardGroup({
+  title,
+  roots,
+  allBoardTodos,
+  childrenOf,
+  renderTree,
+  folded,
+  onToggleFold,
+  labelClass,
+}: BoardGroupProps) {
+  const [showDone, setShowDone] = useState(false);
+
+  // 활성 루트: 자신 또는 자손에 미완료 작업이 남아있는 항목들
+  const activeRoots = roots.filter((t) => hasActiveDescendant(t, childrenOf));
+  // 완전 완료 루트: 자신과 모든 자손이 전부 완료된 항목들
+  const doneRoots = roots.filter((t) => !hasActiveDescendant(t, childrenOf));
+
+  // 이 보드에 속한 모든 항목 중 완료(done) 상태인 항목의 총 개수
+  const totalDoneCount = allBoardTodos.filter((t) => t.status === 'done').length;
+  const count = allBoardTodos.length;
+  const Chevron = folded ? ChevronRight : ChevronDown;
+
+  return (
+    <section className={folded ? 'mb-3' : 'mb-6'}>
+      <button
+        type="button"
+        className={`${labelClass} flex w-full items-center gap-1.5 text-left transition-colors hover:text-text`}
+        aria-expanded={!folded}
+        onClick={onToggleFold}
+      >
+        <Chevron size={13} aria-hidden className="shrink-0" />
+        <span className="min-w-0 truncate">{title}</span>
+        <span className="ml-auto tracking-normal tabular-nums text-faint">{count}</span>
+      </button>
+
+      {!folded && (
+        <>
+          {renderTree(activeRoots, 0, showDone)}
+
+          {totalDoneCount > 0 && (
+            <div className="mt-2 border-t border-line/40 pt-1.5">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-mono text-chip text-muted transition-colors hover:text-text"
+                onClick={() => setShowDone((prev) => !prev)}
+                aria-expanded={showDone}
+              >
+                <ChevronRight
+                  size={12}
+                  aria-hidden
+                  className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
+                />
+                <span>완료된 작업 {totalDoneCount}개</span>
+              </button>
+              {showDone && doneRoots.length > 0 && (
+                <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   );

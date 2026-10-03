@@ -192,4 +192,45 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     expect(screen.getByText('백로그 완료 작업')).toBeDefined();
     expect(screen.queryByText('진행중 완료 작업')).toBeNull();
   });
+
+  test('전체 보기에서도 각 보드의 완료된 작업은 기본으로 접혀 있고 토글로 펼칠 수 있다', async () => {
+    const doneRocky = todoFixture({
+      id: 't-d-rocky',
+      boardId: 'b1',
+      title: 'rocky 완료 작업',
+      status: 'done',
+    });
+    const doneMdwire = todoFixture({
+      id: 't-d-mdwire',
+      boardId: 'b2',
+      title: 'mdwire 완료 작업',
+      status: 'done',
+    });
+
+    renderWithStore(<TodoPane />, {
+      selected: 'all',
+      boards,
+      todos: [...todos, doneRocky, doneMdwire],
+      sections: [],
+    });
+
+    // 미완료 작업은 보이지만 완료 작업은 기본으로 접힘
+    expect(screen.getByText('rocky 할 일')).toBeDefined();
+    expect(screen.getByText('mdwire 할 일')).toBeDefined();
+    expect(screen.queryByText('rocky 완료 작업')).toBeNull();
+    expect(screen.queryByText('mdwire 완료 작업')).toBeNull();
+
+    // rocky 보드의 완료 토글 버튼
+    const buttons = screen.getAllByRole('button', { name: /완료된 작업 1개/ });
+    expect(buttons.length).toBe(2);
+
+    // rocky 보드의 완료 토글만 클릭
+    await userEvent.click(buttons[0]!);
+    expect(buttons[0]!.getAttribute('aria-expanded')).toBe('true');
+    expect(buttons[1]!.getAttribute('aria-expanded')).toBe('false');
+
+    // rocky 완료 작업은 열리고, mdwire 완료 작업은 여전히 접혀 있음
+    expect(screen.getByText('rocky 완료 작업')).toBeDefined();
+    expect(screen.queryByText('mdwire 완료 작업')).toBeNull();
+  });
 });
