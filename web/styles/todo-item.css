@@ -73,16 +73,25 @@
   color: var(--text);
 }
 
+/* 한 규칙에 `color-mix()` 는 하나만 — 둘이면 Bun 의 CSS 변환이 대체값(단색 `var(--p1)`)을 깔고
+   `@supports` 덮어쓰기에서 하나를 빠뜨려, 배경이 글자색과 같은 단색이 돼 칩 글자가 사라졌다
+   (2026-10-03, iOS·Chromium 모두). 배경은 같은 선택자의 둘째 규칙으로 나눈다. */
 .prio-p1 {
   color: var(--p1);
   border-color: color-mix(in srgb, var(--p1) 40%, transparent);
-  background: color-mix(in srgb, var(--p1) 12%, transparent);
   font-weight: 600;
+}
+
+.prio-p1 {
+  background: color-mix(in srgb, var(--p1) 12%, transparent);
 }
 
 .prio-p2 {
   color: var(--p2);
   border-color: color-mix(in srgb, var(--p2) 40%, transparent);
+}
+
+.prio-p2 {
   background: color-mix(in srgb, var(--p2) 8%, transparent);
 }
 

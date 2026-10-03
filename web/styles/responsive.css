@@ -47,7 +47,9 @@
      padding 으로 확보한다. 그래서 칩이 없는 항목은 한 줄(~52px)로 끝난다. */
   .todo-row {
     display: grid;
-    /* 핸들 · 체크 · 번호 · 제목 — 핸들이 없으면(콜백 미전달) 첫 auto 열이 0 으로 접힌다 */
+    /* 핸들 · 체크 · 번호 · 제목. 터치 기기는 핸들을 숨기고 열을 셋으로 줄인다(아래 pointer: coarse) —
+       숨긴 grid 아이템은 칸을 차지하지 않아, 열 수를 그대로 두면 제목이 번호 열로 당겨지고 칩 줄만
+       맨 끝 열로 밀렸다(2026-10-03 iPhone 실측). 제목·칩 줄은 늘 마지막 열에 고정한다. */
     grid-template-columns: auto auto auto minmax(0, 1fr);
     column-gap: 8px;
     row-gap: 2px;
@@ -80,6 +82,7 @@
   }
   .todo-title {
     grid-row: 1;
+    grid-column: -2 / -1;
     white-space: normal;
     overflow-wrap: anywhere;
     text-align: left;
@@ -94,7 +97,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    grid-column: 4 / -1;
+    grid-column: -2 / -1;
     grid-row: 2;
   }
   /* 메타 행을 아예 만들지 않아야 하는 두 경우.
@@ -274,6 +277,9 @@
   }
   .drag-handle {
     display: none;
+  }
+  .todo-row {
+    grid-template-columns: auto auto minmax(0, 1fr);
   }
 }
 
