@@ -52,7 +52,7 @@ typography:
     fontWeight: 400
     lineHeight: 1.45
   label:
-    fontFamily: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace
+    fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", monospace'
     fontSize: 12px
     fontWeight: 500
     lineHeight: 1.35
@@ -246,6 +246,10 @@ ref·시각·개수는 모노에 `tabular-nums` 로 — 갱신될 때 자릿수�
 - **12px 미만은 없다.** 곁눈으로 읽는 화면이다. 지금 코드의 `micro`(11px)는 없앤다. [근거: glance 10]
 - 굵기는 400·500·600 셋만. 미읽음은 배지보다 **굵기(600)** 로 말한다(Slack 방식). [근거: glance b]
 - 대문자·자간을 넓힌 라벨은 영문 섹션 머리에만. 한글에는 자간을 주지 않는다.
+  `label` 의 한글은 고정폭 글꼴에 없어 본문 글꼴(Pretendard)로 그린다 — 글꼴 목록에서 `monospace` 앞에 둔다.
+  `monospace` 로 떨어지면 전각 한글이 나와 자간을 준 것처럼 벌어진다.
+  띄어쓰기는 고정폭 글꼴의 공백(0.6em)이라 낱말 사이가 넓다 — `font-mono` 라벨은 `word-spacing: -0.3em` 으로 줄인다
+  (코드 블록은 제외).
 - 제목은 **두 줄까지 줄바꿈**(`line-clamp: 2`, `word-break: keep-all`, `overflow-wrap: anywhere`)
   하고, 메타 줄은 한 줄 말줄임이다. 320px 에서 한 줄로 자르면 한국어 제목은 거의 다 잘린다.
 - 대비: 본문·행은 WCAG 4.5:1 이상 + APCA Lc 75 이상, 12px 라벨은 Lc 60 이상, 상태 글리프·테두리는

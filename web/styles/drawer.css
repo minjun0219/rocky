@@ -95,7 +95,7 @@
 .drawer-section-label {
   font-family: var(--mono);
   font-size: 12px;
-  letter-spacing: 0.22em;
+  /* 섹션·보드·설명·댓글 — 한글 라벨이라 자간을 주지 않는다(DESIGN.md Typography) */
   color: var(--muted);
   margin: 16px 0 6px;
 }
