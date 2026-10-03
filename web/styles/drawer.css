@@ -77,7 +77,7 @@
 
 .drawer-id {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.14em;
   color: var(--faint);
   opacity: 0.6;
@@ -94,7 +94,7 @@
 
 .drawer-section-label {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.22em;
   color: var(--muted);
   margin: 16px 0 6px;
