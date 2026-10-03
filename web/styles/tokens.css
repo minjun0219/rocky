@@ -50,7 +50,11 @@
   --ok: var(--run);
   --handoff: var(--link); /* 핸드오프 — "보냈다" */
   --handoff-dim: #e3edfa;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  /* 한글은 고정폭 글꼴에 없다 — 맨 끝 `monospace` 까지 가면 브라우저가 전각 한글 글꼴로 떨어져 "내 차례" 가
+     띄엄띄엄 보였다(2026-10-03). 고정폭 영문 글꼴 뒤, `monospace` 앞에 본문 한글 글꼴을 둔다. */
+  --mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Pretendard Variable", Pretendard,
+    "Apple SD Gothic Neo", monospace;
   --sans:
     "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Apple SD Gothic Neo", sans-serif;
@@ -176,6 +180,13 @@
     outline-offset: 2px;
     border-radius: 4px;
   }
+}
+
+/* 고정폭 라벨의 낱말 사이 — 한글은 본문 글꼴(Pretendard)로 그려지지만 띄어쓰기는 고정폭 글꼴의 넓은 공백
+   (0.6em)이라 "읽지 않은 댓글" 이 띄엄띄엄 보였다(2026-10-03). 라벨에만 공백을 본문 폭쯤으로 줄인다 — 코드
+   블록(markdown.css)은 정렬이 걸려 있어 건드리지 않는다. */
+.font-mono {
+  word-spacing: -0.3em;
 }
 
 .app {

@@ -155,9 +155,7 @@ function BoardEditForm({
       }}
     >
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
-          이름
-        </span>
+        <span className="w-14 shrink-0 font-mono text-micro text-faint">이름</span>
         <input
           className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={title}
@@ -167,9 +165,7 @@ function BoardEditForm({
         />
       </label>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
-          key
-        </span>
+        <span className="w-14 shrink-0 font-mono text-micro text-faint">key</span>
         <input
           className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={key}
@@ -185,9 +181,7 @@ function BoardEditForm({
         식별자다. 바꿔도 옛 참조는 계속 풀린다.
       </p>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
-          설명
-        </span>
+        <span className="w-14 shrink-0 font-mono text-micro text-faint">설명</span>
         <input
           className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={description}
@@ -196,9 +190,7 @@ function BoardEditForm({
         />
       </label>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
-          GitHub
-        </span>
+        <span className="w-14 shrink-0 font-mono text-micro text-faint">GitHub</span>
         <input
           className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={repo}
@@ -207,9 +199,7 @@ function BoardEditForm({
         />
       </label>
       <label className="mb-1.5 flex items-center gap-2.5">
-        <span className="w-14 shrink-0 font-mono text-micro uppercase tracking-[0.14em] text-faint">
-          PR 알림
-        </span>
+        <span className="w-14 shrink-0 font-mono text-micro text-faint">PR 알림</span>
         <input
           className="board-edit-input min-w-0 flex-1 rounded-md border border-line bg-bg px-[9px] py-[5px] text-sm text-text placeholder:text-faint"
           value={authors}
