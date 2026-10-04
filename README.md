@@ -126,7 +126,7 @@ v0.2까지의 journal / mysql / spec-pact / pr-watch 도메인과 에이전트·
 
 ## 개발
 
-필요한 것: [Bun](https://bun.sh)(개발 도구·웹 UI 빌드), [Rust](https://www.rust-lang.org)(`rust-toolchain.toml`의 stable).
+필요한 것: [Bun](https://bun.sh)(개발 도구·웹 UI 빌드), [Rust](https://www.rust-lang.org)(`rust-toolchain.toml`의 stable), E2E용 브라우저(설치된 Chrome, 없으면 `bunx playwright install chromium`).
 
 ```bash
 bun install        # 개발 도구(biome · changesets · husky 훅 배선)와 브릿지 의존. 데몬·CLI에는 TS가 없다
