@@ -292,8 +292,8 @@
   .tap {
     display: inline-flex;
     align-items: center;
-    /* 두 글자 버튼("편집"·"설정")은 높이만 44px 면 폭이 21px 라 여전히 좁다 — 폭도 바닥을 둔다. */
-    justify-content: center;
+    /* 두 글자 버튼("편집"·"설정")은 높이만 44px 면 폭이 21px 라 여전히 좁다 — 폭도 바닥을 둔다. 정렬은
+       시작 그대로 — 가운데로 두면 줄어드는 긴 레포 링크의 앞부분이 잘린다. */
     min-width: 44px;
     min-height: 44px;
   }
