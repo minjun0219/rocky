@@ -35,3 +35,7 @@ CLAUDE.local.md
 # Python 브리지의 빌드 산출물 — 컴파일된 파일에 옛 문자열이 그대로 남는다
 __pycache__/
 *.pyc
+
+# Playwright E2E 산출물
+playwright-report/
+test-results/
