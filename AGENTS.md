@@ -126,9 +126,11 @@ bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts)
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
-bun run e2e         # 웹 UI E2E(scripts/e2e/web.ts) — 임시 폴더의 격리 데몬 + 가짜 픽스처, 폰·cmux·데스크톱 세 화면.
-                    # 기능 실패만 exit 1(화면 점검 발견은 경고, --strict 면 실패). CI 밖 — 브라우저는
-                    # `bunx playwright-core install chromium` 또는 설치된 Chrome. 이슈·세션·핸드오프 버튼은 누르지 않는다
+bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e/*.spec.ts) — globalSetup 이 빌드 후 임시 폴더의
+                    # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱 세 프로젝트가 병렬로 돈다. 화면 점검 발견은
+                    # 경고(annotation), `E2E_STRICT=1` 이면 실패. `E2E_NO_BUILD=1` 은 빌드 생략. 브라우저는 받아 둔 Chromium
+                    # (`bunx playwright install chromium`)이 맞으면 그것, 아니면 설치된 Chrome(CI 는 Chrome). CI 잡 `e2e (playwright)`.
+                    # 테스트는 자기 이름이 든 항목만 만든다. 이슈·세션·핸드오프 버튼은 누르지 않는다
 bunx changeset      # 사용자 표면 변경의 버전 의도 선언(patch/minor/major)
 
 cargo fmt --all --check                                   # Rust 포맷

@@ -17,5 +17,12 @@
     "noImplicitOverride": true,
     "useUnknownInCatchVariables": true
   },
-  "include": ["scripts/**/*.ts", "plugin/scripts/**/*.ts", "web/**/*.ts", "web/**/*.tsx"]
+  "include": [
+    "scripts/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "plugin/scripts/**/*.ts",
+    "web/**/*.ts",
+    "web/**/*.tsx"
+  ]
 }
