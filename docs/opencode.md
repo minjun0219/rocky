@@ -1,10 +1,10 @@
-# opencode 에서 rocky 쓰기
+# opencode에서 rocky 쓰기
 
-rocky 의 worklog MCP 를 opencode 에서 쓰는 방법. worklog 는 CLI 의 stdio MCP 서버(`rocky mcp worklog`)라 Claude Code 플러그인과 같은 바이너리를 그대로 띄우면 된다.
+rocky의 worklog MCP를 opencode에서 쓰는 방법. worklog는 CLI의 stdio MCP 서버(`rocky mcp worklog`)라 Claude Code 플러그인과 같은 바이너리를 그대로 띄우면 된다.
 
 ## 등록
 
-opencode 설정 파일 `opencode.json` 의 `mcp` 섹션에 local stdio 서버로 추가한다. user 스코프는 `~/.config/opencode/opencode.json`, project 스코프는 레포 루트의 `opencode.json` 을 쓴다:
+opencode 설정 파일 `opencode.json`의 `mcp` 섹션에 local stdio 서버로 추가한다. user 스코프는 `~/.config/opencode/opencode.json`, project 스코프는 레포 루트의 `opencode.json`을 쓴다:
 
 ```json
 {
@@ -19,7 +19,7 @@ opencode 설정 파일 `opencode.json` 의 `mcp` 섹션에 local stdio 서버로
 }
 ```
 
-`type` 은 `"local"` 고정이며 필수다. `command` 는 문자열 배열이다. Codex 의 `command` + `args` 를 한 배열로 합친 형태라고 보면 된다. 옵션으로 `environment` 객체, `enabled`, `timeout` 을 둘 수 있고 `timeout` 기본값은 5000ms 다. 환경 변수 필드명은 `env` 가 아니라 `environment` 다.
+`type`은 `"local"` 고정이며 필수다. `command`는 문자열 배열이다. Codex의 `command` + `args`를 한 배열로 합친 형태라고 보면 된다. 옵션으로 `environment` 객체, `enabled`, `timeout`을 둘 수 있고 `timeout` 기본값은 5000ms 다. 환경 변수 필드명은 `env`가 아니라 `environment` 다.
 
 ## CLI 등가
 
@@ -29,19 +29,19 @@ opencode 설정 파일 `opencode.json` 의 `mcp` 섹션에 local stdio 서버로
 opencode mcp add rocky
 ```
 
-대화형으로 local 서버를 추가한다. 환경 변수가 필요하면 `--env KEY=VALUE` 옵션으로 `environment` 를 지정할 수 있다.
+대화형으로 local 서버를 추가한다. 환경 변수가 필요하면 `--env KEY=VALUE` 옵션으로 `environment`를 지정할 수 있다.
 
 ## 노출되는 도구
 
-opencode 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도구는 데몬 `http://127.0.0.1:8636/mcp` 에 따로 등록).
+opencode 에서는 `rocky mcp worklog`의 worklog 도구를 쓴다 (보드 도구는 데몬 `http://127.0.0.1:8636/mcp`에 따로 등록).
 
 - `worklog_*` 4개: `worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`
 
 ## 주의점
 
-- `/Users/you/.local/share/rocky/current/rocky` 의 `/Users/you` 는 자기 홈으로 바꾼다(설정 파일은 `~` 를 풀지 않는다). `current` 는 플러그인 부트스트랩이 SessionStart 마다 받아 둔 최신 버전(`v<version>`)으로 걸어 두는 링크라 **릴리스가 바뀌어도 이 경로는 그대로다** — Claude Code 에서 rocky 세션을 한 번 연 뒤라야 생긴다. 레포에서 직접 빌드한 걸 쓰려면 `<repo>/target/release/rocky`.
-- `cwd` 가 중요하다. `rocky.json` 의 project scope 해석과 worklog 프로젝트별 기본 저장 경로는 MCP 서버 프로세스의 `cwd` 기준이다. opencode 는 실행 디렉터리 기준으로 서버를 spawn 하므로 프로젝트별로 동작한다.
-- 경로는 `environment` 로 오버라이드할 수 있다:
+- `/Users/you/.local/share/rocky/current/rocky`의 `/Users/you`는 자기 홈으로 바꾼다(설정 파일은 `~`를 풀지 않는다). `current`는 플러그인 부트스트랩이 SessionStart 마다 받아 둔 최신 버전(`v<version>`)으로 걸어 두는 링크라 **릴리스가 바뀌어도 이 경로는 그대로다** — Claude Code에서 rocky 세션을 한 번 연 뒤라야 생긴다. 레포에서 직접 빌드한 걸 쓰려면 `<repo>/target/release/rocky`.
+- `cwd`가 중요하다. `rocky.json`의 project scope 해석과 worklog 프로젝트별 기본 저장 경로는 MCP 서버 프로세스의 `cwd` 기준이다. opencode는 실행 디렉터리 기준으로 서버를 spawn 하므로 프로젝트별로 동작한다.
+- 경로는 `environment`로 오버라이드할 수 있다:
 
 ```json
 {
@@ -59,4 +59,4 @@ opencode 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도�
 }
 ```
 
-- `/rocky:review-request` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. opencode 에서는 rocky 가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky 의 현재 배선 선택이지 opencode 의 한계가 아니다 — opencode 자체는 `.opencode/command` · `.opencode/agent` · `.opencode/plugin` + `.claude/skills/` 자동 발견을 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.
+- `/rocky:review-request` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. opencode 에서는 rocky가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky의 현재 배선 선택이지 opencode의 한계가 아니다 — opencode 자체는 `.opencode/command` · `.opencode/agent` · `.opencode/plugin` + `.claude/skills/` 자동 발견을 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.
