@@ -127,7 +127,8 @@ bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts)
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
 bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e/*.spec.ts) — globalSetup 이 빌드 후 임시 폴더의
-                    # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱 세 프로젝트가 병렬로 돈다. 화면 점검 발견은
+                    # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱(Chromium)과 cmux-webkit(cmux 웹뷰 = Safari
+                    # 엔진, `bunx playwright install webkit`) 네 프로젝트가 병렬로 돈다. 화면 점검 발견은
                     # 경고(annotation), `E2E_STRICT=1` 이면 실패. `E2E_NO_BUILD=1` 은 빌드 생략. 브라우저는 받아 둔 Chromium
                     # (`bunx playwright install chromium`)이 맞으면 그것, 아니면 설치된 Chrome(CI 는 Chrome). CI 잡 `e2e (playwright)`.
                     # 테스트는 자기 이름이 든 항목만 만든다. 이슈·세션·핸드오프 버튼은 누르지 않는다

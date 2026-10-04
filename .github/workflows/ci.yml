@@ -93,7 +93,11 @@ jobs:
       - name: Build UI
         run: bun run build:ui
 
-      # 브라우저는 내려받지 않는다 — 러너에 깔린 Google Chrome 을 쓴다(playwright.config.ts 가 CI 면 channel: 'chrome').
+      # Chromium 쪽은 내려받지 않는다 — 러너에 깔린 Google Chrome 을 쓴다(playwright.config.ts 가 CI 면 channel: 'chrome').
+      # cmux 의 웹뷰(WKWebView = Safari 엔진)를 흉내 내는 cmux-webkit 프로젝트만 WebKit 과 그 시스템 의존을 받는다.
+      - name: Install WebKit
+        run: bunx playwright install --with-deps webkit
+
       - name: E2E
         run: bun run e2e
         env:
