@@ -1,10 +1,10 @@
-# Codex CLI 에서 rocky 쓰기
+# Codex CLI에서 rocky 쓰기
 
-rocky 의 worklog MCP 를 OpenAI Codex CLI 에서 쓰는 방법. worklog 는 CLI 의 stdio MCP 서버(`rocky mcp worklog`)라 Claude Code 플러그인과 같은 바이너리를 그대로 띄우면 된다.
+rocky의 worklog MCP를 OpenAI Codex CLI에서 쓰는 방법. worklog는 CLI의 stdio MCP 서버(`rocky mcp worklog`)라 Claude Code 플러그인과 같은 바이너리를 그대로 띄우면 된다.
 
 ## 등록
 
-`~/.codex/config.toml` 에 MCP 서버를 추가한다:
+`~/.codex/config.toml`에 MCP 서버를 추가한다:
 
 ```toml
 [mcp_servers.rocky]
@@ -20,15 +20,15 @@ codex mcp add rocky -- /Users/you/.local/share/rocky/current/rocky mcp worklog
 
 ## 노출되는 도구
 
-Codex 에서는 `rocky mcp worklog` 의 worklog 도구를 쓴다 (보드 도구는 데몬 `http://127.0.0.1:8636/mcp` 에 따로 등록).
+Codex 에서는 `rocky mcp worklog`의 worklog 도구를 쓴다 (보드 도구는 데몬 `http://127.0.0.1:8636/mcp`에 따로 등록).
 
 - `worklog_*` 4개: `worklog_append` / `worklog_read` / `worklog_search` / `worklog_status`
 
 ## 주의점
 
-- `/Users/you/.local/share/rocky/current/rocky` 의 `/Users/you` 는 자기 홈으로 바꾼다(설정 파일은 `~` 를 풀지 않는다). `current` 는 플러그인 부트스트랩이 SessionStart 마다 받아 둔 최신 버전(`v<version>`)으로 걸어 두는 링크라 **릴리스가 바뀌어도 이 경로는 그대로다** — Claude Code 에서 rocky 세션을 한 번 연 뒤라야 생긴다. 레포에서 직접 빌드한 걸 쓰려면 `<repo>/target/release/rocky`.
-- `cwd` 가 중요하다. `rocky.json` 의 project scope 해석과 worklog 프로젝트별 기본 저장 경로는 MCP 서버 프로세스의 `cwd` 기준이다. Codex 가 워크스페이스를 `cwd` 로 spawn 하면 프로젝트별로 동작한다. 고정하려면 `[mcp_servers.rocky]` 에 `cwd` 를 추가한다.
-- 경로는 `env` 로 오버라이드할 수 있다:
+- `/Users/you/.local/share/rocky/current/rocky`의 `/Users/you`는 자기 홈으로 바꾼다(설정 파일은 `~`를 풀지 않는다). `current`는 플러그인 부트스트랩이 SessionStart 마다 받아 둔 최신 버전(`v<version>`)으로 걸어 두는 링크라 **릴리스가 바뀌어도 이 경로는 그대로다** — Claude Code에서 rocky 세션을 한 번 연 뒤라야 생긴다. 레포에서 직접 빌드한 걸 쓰려면 `<repo>/target/release/rocky`.
+- `cwd`가 중요하다. `rocky.json`의 project scope 해석과 worklog 프로젝트별 기본 저장 경로는 MCP 서버 프로세스의 `cwd` 기준이다. Codex가 워크스페이스를 `cwd`로 spawn 하면 프로젝트별로 동작한다. 고정하려면 `[mcp_servers.rocky]`에 `cwd`를 추가한다.
+- 경로는 `env`로 오버라이드할 수 있다:
 
 ```toml
 [mcp_servers.rocky]
@@ -37,4 +37,4 @@ args = ["mcp", "worklog"]
 env = { ROCKY_WORKLOG_DIR = "..." }
 ```
 
-- `/rocky:review-request` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. Codex 에서는 rocky 가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky 의 현재 배선 선택이지 Codex 의 한계가 아니다 — Codex 자체는 2026 기준 hooks · skills · subagents · `.codex-plugin/plugin.json` 번들 + 마켓플레이스를 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.
+- `/rocky:review-request` / `/rocky:recall` 등 슬래시 커맨드와 `writing-cc-plugin` 스킬은 Claude Code 전용이다. Codex 에서는 rocky가 MCP 도구만 등록하므로 이들은 노출되지 않는다. 단 이는 rocky의 현재 배선 선택이지 Codex의 한계가 아니다 — Codex 자체는 2026 기준 hooks · skills · subagents · `.codex-plugin/plugin.json` 번들 + 마켓플레이스를 지원하므로 이 표면들은 이식 가능하다(미구현). 호스트별 커버 범위는 [`docs/hosts.md`](./hosts.md) 참고.
