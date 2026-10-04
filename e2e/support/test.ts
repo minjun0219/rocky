@@ -26,9 +26,11 @@ export const test = base.extend<Fixtures>({
     }
     await use(url);
   },
+  // 재시도도 같은 데몬을 쓴다 — 시도마다 이름을 달리해, 앞 시도가 반쯤 바꿔 둔 항목을 다시 집지 않게.
   // biome-ignore lint/correctness/noEmptyPattern: Playwright 는 픽스처 함수의 첫 인자가 구조 분해여야 한다.
   tag: async ({}, use, info) => {
-    await use(`E2E ${info.project.name} ${info.title}`);
+    const attempt = info.retry > 0 ? ` r${info.retry}` : '';
+    await use(`E2E ${info.project.name} ${info.title}${attempt}`);
   },
   api: async ({ baseURL }, use) => {
     await use({
