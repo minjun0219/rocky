@@ -25,7 +25,7 @@ pub fn default_config_json() -> String {
     text
 }
 
-/// Claude Code statusline 스크립트 끝에 붙일 조각 — `docs/board.md` "statusline 에 얹기" 와
+/// Claude Code statusline 스크립트 끝에 붙일 조각 — `docs/board.md` "statusline에 얹기" 와
 /// 같은 내용. 포트를 바꿔 썼으면 여기도 따라간다.
 pub fn statusline_snippet(port: u16) -> String {
     format!(
