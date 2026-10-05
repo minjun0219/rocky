@@ -3,7 +3,6 @@ name: merge-cleanup
 description: Use after a PR this session opened has been merged — the daemon's "#N 머지됨" inbox message — to do the post-merge housekeeping on a small model in a fresh context instead of re-reading the main session's long history. Fast-forwards the local default branch, deletes finished local branches only when git agrees they are merged, and reports whether a release PR is open, the next PR of a stack is ready, and any review that landed after merge. Never switches the main session's branch, never force-deletes, never merges or comments. Dispatched by /rocky:review-fix step 11.
 tools: Bash, Read
 model: haiku
-effort: low
 ---
 
 # merge-cleanup
