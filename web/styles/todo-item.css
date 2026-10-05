@@ -113,6 +113,17 @@
   border-color: color-mix(in srgb, var(--cool) 20%, transparent);
 }
 
+/* 링크 칩 옆 PR 상태 — 데몬이 감시 중인 PR 만. 색은 상태(`PR_ICON`)가 정하고 글자는 작게. */
+.chip-link-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  font-size: 0.92em;
+}
+
 .chip-link:hover {
   border-color: var(--cool);
   color: var(--cool);
