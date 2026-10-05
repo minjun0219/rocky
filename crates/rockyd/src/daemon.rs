@@ -234,6 +234,8 @@ async fn wait_for_previous_daemon(
 }
 
 /// 데몬을 기동해 리슨한다 — TS `startDaemon` 대응. 반환하지 않는다(서버 수명).
+// 기능 블록(pr · tokens · verify · rc)마다 인자가 하나씩이다 — 묶으면 블록 하나 더할 때마다 구조체를 고친다.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_daemon(
     runtime: TodoRuntimeConfig,
     ui_dist: Option<PathBuf>,
@@ -495,7 +497,10 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
     let verify = rocky_core::verify::load_verify_block(&config_path);
     // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다.
     let rc = rocky_core::config::load_rc_block(&config_path);
-    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc).await
+    run_daemon(
+        runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc,
+    )
+    .await
 }
 
 /// 토큰 색인 — 트랜스크립트 루트(None 이면 끔)와 추천 규칙.
