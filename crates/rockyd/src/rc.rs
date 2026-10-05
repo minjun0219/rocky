@@ -2,7 +2,7 @@
 //!
 //! 이 조각은 보기만 한다(띄우기·내리기 없음). 짧은 명령뿐이라 기존 러너(timeout + kill_on_drop)로 충분하다.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rocky_core::config::RcConfig;
@@ -96,31 +96,30 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
     }
 }
 
-/// TTL 캐시를 씌운 조회기.
+/// TTL 캐시를 씌운 조회기. 잠금을 프로브가 끝날 때까지 쥔다 — 만료 직후 겹친 요청은 진행 중인 프로브를
+/// 기다렸다 그 결과를 받는다(요청마다 `ps`·`lsof` 를 새로 띄우지 않고, 늦게 끝난 옛 프로브가 새 결과를 덮지 않는다).
 pub fn cached_rc(
     runner: Runner,
     config: Option<RcConfig>,
     home: String,
     ttl: Duration,
 ) -> RcProvider {
-    let cache: Arc<Mutex<Option<(Instant, RcStatus)>>> = Arc::new(Mutex::new(None));
+    let cache: Arc<tokio::sync::Mutex<Option<(Instant, RcStatus)>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
     let config = Arc::new(config);
     let home = Arc::new(home);
     Arc::new(move || {
         let (runner, config, home, cache) =
             (runner.clone(), config.clone(), home.clone(), cache.clone());
         Box::pin(async move {
-            if let Ok(slot) = cache.lock() {
-                if let Some((at, status)) = slot.as_ref() {
-                    if at.elapsed() < ttl {
-                        return status.clone();
-                    }
+            let mut slot = cache.lock().await;
+            if let Some((at, status)) = slot.as_ref() {
+                if at.elapsed() < ttl {
+                    return status.clone();
                 }
             }
             let status = probe(&runner, config.as_ref().as_ref(), &home).await;
-            if let Ok(mut slot) = cache.lock() {
-                *slot = Some((Instant::now(), status.clone()));
-            }
+            *slot = Some((Instant::now(), status.clone()));
             status
         })
     })

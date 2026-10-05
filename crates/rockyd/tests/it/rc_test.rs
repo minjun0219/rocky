@@ -36,7 +36,11 @@ fn fake_runner(calls: Arc<Mutex<Vec<String>>>, agy_installed: bool) -> Runner {
             ),
             _ => CmdOutput::failure("No such file or directory"),
         };
-        Box::pin(async move { result })
+        // 한 번 양보한다 — 겹친 요청이 실제로 같은 순간에 프로브 안에 있게.
+        Box::pin(async move {
+            tokio::task::yield_now().await;
+            result
+        })
     })
 }
 
@@ -142,6 +146,29 @@ async fn cache_reuses_within_ttl() {
     );
     provider().await;
     provider().await;
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.starts_with("ps"))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn concurrent_misses_share_one_probe() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let provider = cached_rc(
+        fake_runner(calls.clone(), true),
+        Some(config()),
+        "/home/u".into(),
+        Duration::from_secs(60),
+    );
+    let (a, b, c) = tokio::join!(provider(), provider(), provider());
+    assert_eq!(a, b);
+    assert_eq!(b, c);
     assert_eq!(
         calls
             .lock()
