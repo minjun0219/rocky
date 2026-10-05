@@ -102,6 +102,9 @@ rocky rc agy stop                # agy remote-control stop(정지 + 등록 해�
 
 서버는 데몬과 다른 프로세스 그룹으로 띄워 데몬을 재시작·업데이트해도 살아 있다. 재시작은 SIGTERM 뒤 20초를 기다리고, `already served`(claude.ai 쪽 등록이 남음)면 45초·90초 뒤 다시 띄운다. 기동 로그와 이벤트는 todo 폴더의 `rc/`(`<라벨>.out` · `.err` · `events.jsonl`)에 남는다.
 
+**감시**(`"supervise": true`, 기본 꺼짐): 데몬이 2분마다 고정 서버를 보고 꺼져 있으면 스스로 띄운다(비고정은 띄우지 않는다). 연달아 못 뜨면 2분부터 30분까지 쉬었다 다시 해 본다. 데몬 맥락(launchd 면 키체인)의 claude 자격이 끊기면 macOS 배너를 한 번 띄우고 그동안은 띄우지 않으며, 돌아오면 다시 한 번 알리고 끊기기 전에 뜬 서버를 "자격 의심"으로 표시한다(다시 띄우기를 권한다). 자격 기록은 `rc/auth.json`.
+
+
 | API | 내용 |
 | --- | --- |
 | `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않는다 |
@@ -151,7 +154,7 @@ claude plugin install rocky@rocky-marketplace
 | `worklog` | `dir`(env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture`(기본 true) / `captureMaxChars`(기본 800) / `digestThreshold`(기본 40) |
 | `usage` | 사용 로그. `dir`(기본 `~/.config/rocky/usage`) / `enabled`(기본 true). 표면별 호출을 월별 JSONL로 남기고 `rocky usage`로 읽는다. 내용은 싣지 않는다 |
 | `pr` | PR 감시. `enabled`(기본 true) / `intervalMinutes`(기본 3) / `notify`(기본 true) / `sessionNotify`(기본 true) / `notifiers[]`(알림 브릿지, 예: `bridges/telegram/`). 데몬은 **구독한 PR만** 본다. 동작은 [`docs/board.md`](./docs/board.md) "PR 감시" |
-| `rc` | `claude rc` 서버 현황 — **사용자 설정(`~/.config/rocky/rocky.json`)에서만 읽는다**(프로젝트 `./rocky.json` 의 `rc` 는 무시 — 데몬은 전역 하나다). `enabled`(기본 true — rc 를 못 쓰는 기기에선 false) / `root`(기본 `~/dev/workspaces`, 상대 경로면 홈 기준) / `pinned`(늘 떠 있어야 하는 폴더) / `targets`(부를 수 있는 폴더). 블록이 없거나 꺼 두면 프로브·화면 모두 없다 |
+| `rc` | `claude rc` 서버 현황 — **사용자 설정(`~/.config/rocky/rocky.json`)에서만 읽는다**(프로젝트 `./rocky.json` 의 `rc` 는 무시 — 데몬은 전역 하나다). `enabled`(기본 true — rc 를 못 쓰는 기기에선 false) / `supervise`(기본 false — 꺼진 고정 서버를 데몬이 되살린다) / `root`(기본 `~/dev/workspaces`, 상대 경로면 홈 기준) / `pinned`(늘 떠 있어야 하는 폴더) / `targets`(부를 수 있는 폴더). 블록이 없거나 꺼 두면 프로브·화면 모두 없다 |
 | `statusline` | `rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄 — cc-usage 와 같은 출력)의 한도 설정. `source`(`auto` 기본 / `stdin` / `api` / `none`) / `alertPercent`(기본 90, `0` 이면 임박 경고 끔). `extraCommands[]`(다른 도구의 statusline 줄 — `command` argv, `timeoutMs` 기본 300). usage API 조회는 아직 없어 `api`·`auto` 는 stdin 에 한도가 없으면 조회 대기로 보인다. 보드 줄 템플릿(`todo.statusline`)과는 다른 자리다 |
 | `tokens` | Claude Code 토큰 색인. `enabled`(기본 true) / `dir`(트랜스크립트 루트, 기본 `$CLAUDE_CONFIG_DIR/projects` → `~/.claude/projects`) / `recommend`(`window` 15 · `minTurns` 5 · `lowOutputTokens` 3000 · `lowerEffort` · `holdAfterRaise` · `switchToSonnet` · `freshSession` · `heavyContextTokens` 200000 · `freshSessionOutputTokens` 10000) |
 | `verify` | 기본 브랜치 검증(opt-in). `targets[]` — `board`(그 보드 `path`가 레포) / `branch`(기본 `main`) / `steps[]`(`name` · `command` argv · `timeoutMs` 기본 30분) — 와 `intervalSeconds`(기본 60). 아래 "기본 브랜치 검증" |

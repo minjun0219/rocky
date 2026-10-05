@@ -119,6 +119,9 @@ pub struct ServerRow {
     /// 마지막으로 띄우거나 다시 띄운 결과(데몬이 다시 뜨면 사라진다).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_result: Option<RcResult>,
+    /// 자격이 끊겼다 돌아오기 전에 뜬 서버 — 죽은 토큰을 들고 있을 수 있어 다시 띄우기를 권한다(감시가 켜져 있을 때만 잰다).
+    #[serde(skip_serializing_if = "is_false")]
+    pub auth_suspect: bool,
 }
 
 /// 진행 중인 일.
@@ -167,6 +170,23 @@ pub struct RcStatus {
     /// 프로브 명령(`ps`·`lsof`)이 실패했으면 그 사유 — 이때 "꺼짐"은 모르는 것이다.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub probe_error: Option<String>,
+    /// 감시(`rc.supervise`)가 켜져 있으면 그 상태 — 꺼져 있으면 None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supervise: Option<SuperviseInfo>,
+}
+
+/// 감시 상태 — 마지막 바퀴 시각과, 데몬 맥락이 지금 로그아웃으로 보이는지(그동안은 되살리지 못한다).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuperviseInfo {
+    /// RFC 3339. 아직 한 바퀴도 안 돌았으면 None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_tick: Option<String>,
+    pub logged_out: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl RcStatus {
@@ -178,6 +198,7 @@ impl RcStatus {
             auth: AuthState::Unknown,
             antigravity: None,
             probe_error: None,
+            supervise: None,
         }
     }
 }
@@ -376,6 +397,7 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
                 sessions: hit.map_or(0, |s| s.sessions),
                 action: None,
                 last_result: None,
+                auth_suspect: false,
             }
         })
         .collect();

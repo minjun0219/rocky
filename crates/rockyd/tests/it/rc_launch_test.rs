@@ -437,3 +437,167 @@ async fn logged_out_daemon_context_touches_nothing() {
     assert!(w.signals.is_empty(), "내리지 않았다");
     assert!(w.spawns.is_empty(), "띄우지 않았다");
 }
+
+// ── 감시(되살리기) ──
+
+/// 바퀴마다 바뀌는 프로브 — (repo-a 가 떠 있나, 데몬 맥락이 로그인인가, repo-a 가 떠 있은 시간).
+fn probe_runner_live(state: Arc<Mutex<(bool, bool, u64)>>) -> Runner {
+    Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
+        let (running, logged_in, up) = *state.lock().unwrap();
+        let mut ps = String::from("    1     0 30-00:00:00 /sbin/launchd\n");
+        if running {
+            ps.push_str(&format!(
+                "  100     1 {:02}:{:02}:{:02} claude rc --name repo-a\n",
+                up / 3600,
+                (up / 60) % 60,
+                up % 60
+            ));
+        }
+        let out = match argv[0].as_str() {
+            "ps" => ps,
+            "lsof" => "p100\nfcwd\nn/w/repo-a\n".to_string(),
+            "claude" => format!(r#"{{"loggedIn": {logged_in}}}"#),
+            _ => return Box::pin(async { CmdOutput::failure("없음") }),
+        };
+        Box::pin(async move {
+            CmdOutput {
+                code: 0,
+                stdout: out,
+                stderr: String::new(),
+            }
+        })
+    })
+}
+
+fn supervisor(
+    state: Arc<Mutex<(bool, bool, u64)>>,
+    script: Vec<Behavior>,
+) -> (tempfile::TempDir, Arc<Mutex<World>>, Arc<RcController>) {
+    let dir = tempfile::tempdir().unwrap();
+    let world = Arc::new(Mutex::new(World {
+        next_pid: 200,
+        script: script.into(),
+        ..Default::default()
+    }));
+    let control = Arc::new(RcController::new(
+        Some(config()),
+        "/home/u".into(),
+        dir.path().join("rc"),
+        probe_runner_live(state),
+        ops(world.clone()),
+    ));
+    control.enable_supervise();
+    (dir, world, control)
+}
+
+fn notifier() -> (rockyd::rc::RcNotifier, Arc<Mutex<Vec<String>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    (
+        Arc::new(move |_title, body| sink.lock().unwrap().push(body)),
+        seen,
+    )
+}
+
+#[tokio::test]
+async fn supervise_revives_only_the_stopped_pinned_server() {
+    let state = Arc::new(Mutex::new((false, true, 0)));
+    let (_dir, world, control) = supervisor(state, vec![CONNECTED]);
+    let (notify, seen) = notifier();
+    let started = control.supervise_tick(&notify).await;
+    assert_eq!(started, vec!["repo-a"], "repo-b 는 고정이 아니다");
+    assert_eq!(
+        world.lock().unwrap().spawns,
+        vec![vec!["claude", "rc", "--name", "repo-a"]]
+    );
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "로그인이 이어지면 알리지 않는다"
+    );
+}
+
+#[tokio::test]
+async fn supervise_backs_off_after_a_failed_revive() {
+    let state = Arc::new(Mutex::new((false, true, 0)));
+    let (_dir, world, control) = supervisor(state, vec![DIES]);
+    let (notify, _) = notifier();
+    assert_eq!(control.supervise_tick(&notify).await, vec!["repo-a"]);
+    // 2분을 쉬는 동안 다음 바퀴는 두드리지 않는다.
+    assert!(control.supervise_tick(&notify).await.is_empty());
+    assert_eq!(world.lock().unwrap().spawns.len(), 1);
+}
+
+#[tokio::test]
+async fn supervise_alerts_once_on_logout_and_once_on_recovery() {
+    let state = Arc::new(Mutex::new((false, false, 0)));
+    let (dir, world, control) = supervisor(state.clone(), vec![CONNECTED]);
+    let (notify, seen) = notifier();
+    assert!(
+        control.supervise_tick(&notify).await.is_empty(),
+        "로그아웃이면 띄우지 않는다"
+    );
+    assert!(control.supervise_tick(&notify).await.is_empty());
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        1,
+        "같은 상태가 이어지면 다시 울리지 않는다"
+    );
+    assert!(seen.lock().unwrap()[0].contains("끊겼다"));
+    assert!(world.lock().unwrap().spawns.is_empty());
+    let mark: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("rc/auth.json")).unwrap())
+            .unwrap();
+    assert!(
+        mark["lastOut"].is_i64(),
+        "데몬을 다시 띄워도 알아채게 남긴다"
+    );
+
+    state.lock().unwrap().1 = true;
+    assert_eq!(control.supervise_tick(&notify).await, vec!["repo-a"]);
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[1].contains("돌아왔다"));
+}
+
+#[tokio::test]
+async fn recovery_marks_servers_started_before_the_logout() {
+    let now = chrono::Utc::now().timestamp();
+    // repo-a 는 1시간 전에 떴고, 30분 전에 끊겼다가 10분 전에 돌아왔다(기록은 데몬이 다시 떠도 파일에 남아 있다).
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("rc")).unwrap();
+    std::fs::write(
+        dir.path().join("rc/auth.json"),
+        format!(r#"{{"lastOut": {}, "lastIn": {}}}"#, now - 1800, now - 600),
+    )
+    .unwrap();
+    let live = probe_runner_live(Arc::new(Mutex::new((true, true, 3600))));
+    let control = RcController::new(
+        Some(config()),
+        "/home/u".into(),
+        dir.path().join("rc"),
+        live.clone(),
+        ops(Arc::new(Mutex::new(World::default()))),
+    );
+    control.enable_supervise();
+    let mut status = rockyd::rc::probe(&live, Some(&config()), "/home/u").await;
+    control.decorate(&mut status);
+    let a = status.servers.iter().find(|s| s.label == "repo-a").unwrap();
+    assert!(a.auth_suspect, "끊기기 전에 뜬 서버");
+    assert!(
+        !status
+            .supervise
+            .as_ref()
+            .expect("감시가 켜져 있다")
+            .logged_out
+    );
+}
+
+#[tokio::test]
+async fn status_has_no_supervise_block_when_off() {
+    let f = fixture(false, true, vec![]);
+    let mut status =
+        rockyd::rc::probe(&probe_runner(false, true), Some(&config()), "/home/u").await;
+    f.control.decorate(&mut status);
+    assert!(status.supervise.is_none());
+    assert!(status.servers.iter().all(|s| !s.auth_suspect));
+}

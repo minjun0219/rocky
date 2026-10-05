@@ -143,6 +143,9 @@ fn line(v: &Value, running: bool) -> String {
         "starting" => parts.push("띄우는 중…".into()),
         "restarting" => parts.push("재시작 중…".into()),
         "retrying" => parts.push("다시 시도 중…".into()),
+        _ if v.get("authSuspect").and_then(Value::as_bool) == Some(true) => {
+            parts.push("⚠ 자격 의심 — 다시 띄우기를 권한다".into())
+        }
         _ => {
             // 실패만 남긴다 — 성공은 ● 가 이미 말한다.
             if let Some(r) = v.get("lastResult") {
@@ -202,6 +205,19 @@ pub fn render_status(raw: &Value) -> String {
         "out" => "자격: ⚠ 로그아웃 — 새로 띄우는 서버가 로그인 안 된 채 뜬다".into(),
         _ => "자격: 확인 못 함".into(),
     });
+    if let Some(sup) = raw.get("supervise").filter(|v| !v.is_null()) {
+        out.push(match sup.get("lastTick").and_then(Value::as_str) {
+            // 데몬은 UTC 로 남긴다 — 이 기기의 현지 시각으로 보인다.
+            Some(at) => match chrono::DateTime::parse_from_rfc3339(at) {
+                Ok(t) => format!(
+                    "감시: 켜짐 — 마지막 {}",
+                    t.with_timezone(&chrono::Local).format("%H:%M")
+                ),
+                Err(_) => format!("감시: 켜짐 — 마지막 {at}"),
+            },
+            None => "감시: 켜짐 — 첫 바퀴 전".into(),
+        });
+    }
     out.extend(agy_line(raw));
     out.join("\n")
 }
