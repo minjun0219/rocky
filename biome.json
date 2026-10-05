@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "extends": ["@minjun0219/biome-config"],
   "files": {
-    "includes": ["**", "!.claude"]
+    "includes": ["**", "!.claude", "!crates/*/tests/fixtures"]
   },
   "assist": {
     "enabled": false

@@ -1,0 +1,17 @@
+{
+  "why": "빈 입력 — 최소 한 줄",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "",
+  "allow": [
+    [
+      "[cc-usage]",
+      "[rocky]"
+    ]
+  ],
+  "usage": null
+}
