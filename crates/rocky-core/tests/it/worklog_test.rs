@@ -535,3 +535,30 @@ fn timestamp_parsing_covers_js_shapes() {
     assert!(parse_timestamp_ms("2026-09-22").is_some());
     assert!(parse_timestamp_ms("now").is_none());
 }
+
+#[test]
+fn root_uri_path_reads_file_uris() {
+    assert_eq!(
+        root_uri_path("file:///Users/a/repo"),
+        Some(PathBuf::from("/Users/a/repo"))
+    );
+    assert_eq!(
+        root_uri_path("file://localhost/Users/a/repo"),
+        Some(PathBuf::from("/Users/a/repo"))
+    );
+    // 공백·한글은 퍼센트 인코딩으로 온다
+    assert_eq!(
+        root_uri_path("file:///Users/a/my%20repo/%ED%95%9C"),
+        Some(PathBuf::from("/Users/a/my repo/한"))
+    );
+}
+
+#[test]
+fn root_uri_path_rejects_other_shapes() {
+    assert_eq!(root_uri_path("https://example.com/repo"), None);
+    // 호스트가 붙은 file URI 는 로컬 폴더가 아니다
+    assert_eq!(root_uri_path("file://server/share"), None);
+    assert_eq!(root_uri_path("file:///a/%ZZ"), None);
+    assert_eq!(root_uri_path("file:///a/%+1"), None);
+    assert_eq!(root_uri_path("file:///a/%2"), None);
+}

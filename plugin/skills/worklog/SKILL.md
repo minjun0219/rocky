@@ -9,8 +9,9 @@ description: Use when a session should leave or consult a durable per-repo recor
 
 ## 저절로 남는 것
 
-`Stop` 훅이 매 턴을 `kind: "turn"` 한 줄로 남긴다(요청·쓴 도구·마지막 답의 앞부분, LLM 없이). 이 세션이 할 일을 들고 있으면
-`todo:<ref>` 태그가 붙는다. 그러니 턴 요약을 손으로 쓰지 않는다.
+Claude Code 에서는 `Stop` 훅이 매 턴을 `kind: "turn"` 한 줄로 남긴다(요청·쓴 도구·마지막 답의 앞부분, LLM 없이). 이 세션이
+할 일을 들고 있으면 `todo:<ref>` 태그가 붙는다. 그러니 턴 요약을 손으로 쓰지 않는다. Antigravity 에는 이 훅이 없어 손으로 남긴
+것만 남는다.
 
 ## 손으로 남길 것
 

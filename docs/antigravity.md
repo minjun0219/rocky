@@ -1,7 +1,7 @@
 # Antigravity에서 rocky 쓰기
 
 Google Antigravity(CLI `agy`, 앱, IDE)에서 rocky 보드를 쓰는 방법. 메인 호스트는 Claude Code이고, agy에는
-작업(주로 디자인)을 넘겨받아 처리하는 데 필요한 만큼만 붙인다 — 보드 MCP + `board` 스킬 + 짧은 규칙 하나.
+작업(주로 디자인)을 넘겨받아 처리하는 데 필요한 만큼만 붙인다 — 보드·워크로그 MCP + `board`·`worklog` 스킬 + 짧은 규칙 하나.
 실측 기준은 `agy 1.2.14`(2026-10).
 
 ## 설치
@@ -13,18 +13,26 @@ agy plugin install <rocky 레포>/antigravity
 agy plugin list            # rocky — skills, mcpServers
 ```
 
-설치는 번들을 `~/.gemini/config/plugins/rocky/`로 **복사**한다(`skills/board`의 심볼릭 링크는 실제 파일로
+설치는 번들을 `~/.gemini/config/plugins/rocky/`로 **복사**한다(`skills/*`의 심볼릭 링크는 실제 파일로
 풀린다). 그래서 rocky를 갱신하면 같은 명령을 다시 돌려야 새 스킬이 들어간다. 끄려면 `agy plugin disable rocky`.
+워크로그 서버는 `~/.local/share/rocky/current/rocky`(부트스트랩이 걸어 두는 링크)를 `--roots`로 띄우므로, 그 바이너리가
+`--roots`를 아는 버전이어야 한다.
 
 ## 붙는 것
 
 | 번들 파일 | 내용 |
 | --- | --- |
-| `mcp_config.json` | 데몬 MCP `http://127.0.0.1:8636/mcp`(`serverUrl`) — `todo_*` · `note_*` · `token_*` |
-| `skills/board` | Claude Code 플러그인의 `plugin/skills/board`와 같은 파일(링크) |
-| `rules/AGENTS.md` | 항상 켜지는 규칙 세 줄 — `rocky-12` 같은 참조는 보드 항목, actor는 `antigravity`, 데몬이 꺼졌으면 멈춤 |
+| `mcp_config.json` | 데몬 MCP `http://127.0.0.1:8636/mcp`(`serverUrl`) — `todo_*` · `note_*` · `token_*`, 그리고 `rocky mcp worklog --roots` — `worklog_*` |
+| `skills/board` · `skills/worklog` | Claude Code 플러그인의 `plugin/skills/*`와 같은 파일(링크) |
+| `rules/AGENTS.md` | 항상 켜지는 규칙 — `rocky-12` 같은 참조는 보드 항목, actor는 `antigravity`, 결정은 워크로그에, 데몬이 꺼졌으면 멈춤 |
 
 agy의 HTTP MCP 클라이언트는 streamable HTTP를 말하고, 데몬의 stateless `/mcp`에 그대로 붙는다.
+
+**워크로그의 프로젝트는 `roots`로 정한다.** agy는 플러그인 MCP 서버를 **플러그인 폴더에서** 띄우고, 작업 폴더를 환경
+변수로 넘기지 않는다(`PLUGIN_ROOT`만 있다). 그래서 cwd로 프로젝트를 정하는 기본 동작으로는 모든 기록이 한 칸에 쌓인다.
+`--roots`는 도구를 부를 때마다 클라이언트에 MCP `roots/list`를 물어 첫 `file://` 폴더를 프로젝트로 쓴다(agy는 작업
+폴더를 돌려준다). 답을 못 받으면 cwd로 물러서지 않고 에러를 낸다. roots는 MCP에서 폐기 예정(SEP-2577 — 폐기 뒤 1년은
+동작)이지만 아직 대체 수단이 없다.
 
 ## 넘기기 흐름
 
@@ -40,10 +48,6 @@ agy의 HTTP MCP 클라이언트는 streamable HTTP를 말하고, 데몬의 state
 
 - **데몬 기동.** agy에는 SessionStart가 없다. 데몬이 떠 있어야 한다 — launchd 상주(`rocky daemon install`)를
   하거나 Claude Code 세션을 한 번 연 뒤에 쓴다. 꺼져 있으면 보드 도구가 연결 거부로 실패한다.
-- **워크로그(`worklog_*`).** agy는 플러그인 MCP 서버를 **플러그인 폴더에서** 띄우고, 작업 폴더를 환경 변수로
-  넘기지 않는다(`PLUGIN_ROOT`만 있다). `rocky mcp worklog`는 프로세스 cwd로 프로젝트를 정하므로 모든 기록이
-  한 칸에 쌓인다 — 그래서 번들에서 뺐다. agy는 MCP `roots`로 작업 폴더를 알려 주므로(`roots/list` →
-  `file:///…/<workspace>`), 워크로그 서버가 `roots`를 읽게 하면 되살릴 수 있다.
 - **턴 자동 기록, 보드 변경 주입.** agy에도 `Stop` · `PreInvocation` 훅이 있지만(stdin JSON에
   `transcriptPath`), 트랜스크립트 모양이 달라 파서를 새로 짜야 한다. 아직 하지 않았다.
 - **`/rocky:*` 커맨드와 서브에이전트.** `gh`·Claude Code 서브에이전트에 기대는 흐름이라 옮기지 않는다.

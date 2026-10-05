@@ -2,6 +2,10 @@
   "mcpServers": {
     "rocky": {
       "serverUrl": "http://127.0.0.1:8636/mcp"
+    },
+    "worklog": {
+      "command": "sh",
+      "args": ["-c", "exec \"$HOME/.local/share/rocky/current/rocky\" mcp worklog --roots"]
     }
   }
 }
