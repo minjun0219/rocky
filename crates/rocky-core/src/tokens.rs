@@ -259,6 +259,25 @@ pub fn ingest_line(
 
 // ── 조회 ─────────────────────────────────────────────────────────────────────
 
+/// 조회 구간 `[from, to)` — 주지 않은 끝은 `days`(기본 30, 1~365)일 전 / 끝없음. 값은 ISO 문자열(날짜만도 된다).
+pub fn range(
+    from: Option<&str>,
+    to: Option<&str>,
+    days: Option<i64>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> (String, String) {
+    let pick = |v: Option<&str>| {
+        v.map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    let from = pick(from).unwrap_or_else(|| {
+        let days = days.unwrap_or(30).clamp(1, 365);
+        (now - chrono::Duration::days(days)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    });
+    (from, pick(to).unwrap_or_else(|| "9999".to_string()))
+}
+
 /// 요약을 무엇으로 묶나.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupBy {

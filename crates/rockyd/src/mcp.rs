@@ -1,7 +1,7 @@
 //! rocky 의 MCP 표면 — 데몬의 `/mcp` (streamable HTTP). TS 원본 `src/mcp.ts`.
 //!
-//! 도구는 5개로 압축한다(세션마다 실리는 스키마 토큰 고정비 최소화):
-//! todo_list / todo_write / todo_status / note_list / note_write. 삭제 도구는 없다.
+//! 보드 도구 5개(todo_list / todo_write / todo_status / note_list / note_write, 삭제 도구는 없다)와
+//! Claude Code 토큰 색인을 읽는 2개(token_summary / token_current_session — 모델·effort 고를 때 참고).
 //!
 //! **stateless**: `legacy_session_mode=false` + `NeverSessionManager` — 요청 간 상태는
 //! 전부 store 에 있다. TS 가 요청마다 서버를 새로 만들어 `allowIssueCreate` 를 접어
@@ -165,6 +165,28 @@ pub struct NoteWriteArgs {
     pub actor: Option<String>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct TokenSummaryArgs {
+    /// model,effort (default) | model | effort | session | branch
+    #[serde(rename = "groupBy")]
+    #[schemars(rename = "groupBy")]
+    pub group_by: Option<String>,
+    /// look back this many days (default 30); ignored when from is given
+    pub days: Option<i64>,
+    /// ISO start (inclusive)
+    pub from: Option<String>,
+    /// ISO end (exclusive)
+    pub to: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct TokenCurrentSessionArgs {
+    /// working directory of the session (absolute path) — the latest session at or under it is used
+    pub cwd: String,
+    /// how many recent turns to include (default 20)
+    pub turns: Option<usize>,
+}
+
 #[derive(Clone)]
 pub struct TodoMcp {
     state: Arc<ServerState>,
@@ -238,9 +260,87 @@ impl TodoMcp {
         self.record_tool("note_write", started, &out);
         out
     }
+
+    #[tool(
+        name = "token_summary",
+        description = "Claude Code 토큰 사용 합계 — 세션 트랜스크립트에서 색인한 모델·effort별(기본) 또는 세션·브랜치별 입력·출력·캐시 토큰, 턴 수(사람의 프롬프트), 요청 수, 도구 호출 수. 모델과 effort 를 고를 때 과거에 어디에 토큰이 들었는지 본다. 기간은 days(기본 30) 또는 from/to(ISO)."
+    )]
+    async fn token_summary(
+        &self,
+        Parameters(args): Parameters<TokenSummaryArgs>,
+    ) -> CallToolResult {
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.token_summary_inner(args).await);
+        self.record_tool("token_summary", started, &out);
+        out
+    }
+
+    #[tool(
+        name = "token_current_session",
+        description = "지금 세션의 턴별 모델·effort·토큰과 규칙 기반 추천 — cwd(이 디렉터리나 그 아래)에서 가장 최근에 움직인 Claude Code 세션. 추천(suggestions)은 effort 를 낮추거나 Sonnet 으로 바꿀지에 대한 것이고 근거 수치(evidence)를 함께 싣는다; 색인은 1분마다 갱신된다."
+    )]
+    async fn token_current_session(
+        &self,
+        Parameters(args): Parameters<TokenCurrentSessionArgs>,
+    ) -> CallToolResult {
+        let started = std::time::Instant::now();
+        let out = tool_outcome(self.token_current_session_inner(args).await);
+        self.record_tool("token_current_session", started, &out);
+        out
+    }
 }
 
 impl TodoMcp {
+    async fn token_summary_inner(
+        &self,
+        args: TokenSummaryArgs,
+    ) -> Result<CallToolResult, StoreError> {
+        let group_raw = args.group_by.unwrap_or_else(|| "model,effort".into());
+        let group_by = rocky_core::tokens::GroupBy::parse(&group_raw).ok_or_else(|| {
+            StoreError::new(format!(
+                "groupBy 는 model,effort · model · effort · session · branch 중 하나다: {group_raw:?}"
+            ))
+        })?;
+        let (from, to) = rocky_core::tokens::range(
+            args.from.as_deref(),
+            args.to.as_deref(),
+            args.days,
+            chrono::Utc::now(),
+        );
+        let (f, t) = (from.clone(), to.clone());
+        let rows = self
+            .state
+            .query_logs("토큰 요약", move |index| {
+                rocky_core::tokens::summary(index.conn(), &f, &t, group_by)
+            })
+            .await?
+            .unwrap_or_default();
+        json_result(&json!({ "from": from, "to": to, "groupBy": group_raw, "rows": rows }))
+    }
+
+    async fn token_current_session_inner(
+        &self,
+        args: TokenCurrentSessionArgs,
+    ) -> Result<CallToolResult, StoreError> {
+        let cwd = args.cwd.trim().to_string();
+        if cwd.is_empty() {
+            return Err(StoreError::new("cwd 가 필요하다"));
+        }
+        let limit = args.turns.unwrap_or(20).clamp(1, 500);
+        let lookup = cwd.clone();
+        let found = self
+            .state
+            .query_logs("현재 세션", move |index| {
+                match rocky_core::tokens::latest_session_for_cwd(index.conn(), &lookup)? {
+                    Some(id) => rocky_core::tokens::session_detail(index.conn(), &id, limit),
+                    None => Ok(None),
+                }
+            })
+            .await?
+            .flatten()
+            .ok_or_else(|| StoreError::new(format!("이 디렉터리의 세션이 색인에 없다: {cwd}")))?;
+        json_result(&found)
+    }
     /// 도구 한 번을 사용 로그에 — MCP 에는 actor 헤더가 없으니 `agent` 로 적는다.
     fn record_tool(&self, name: &str, started: std::time::Instant, out: &CallToolResult) {
         let mut event = UsageEvent::new(UsageSource::Mcp, name, out.is_error != Some(true));

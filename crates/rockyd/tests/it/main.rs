@@ -20,5 +20,6 @@ mod shutdown_test;
 mod spawnctl_test;
 mod sweep_test;
 mod tailscale_test;
+mod tokens_test;
 mod usage_test;
 mod ws_test;

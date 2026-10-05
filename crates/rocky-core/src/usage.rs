@@ -92,6 +92,10 @@ const LITERAL_THIRD: &[&str] = &[
     "open",
     "worklog",
     "stats",
+    "summary",
+    "current",
+    "sessions",
+    "recommendation",
 ];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
@@ -99,6 +103,7 @@ const SKIPPED_ROUTES: &[&str] = &[
     "/api/health",
     "/api/statusline",
     "/api/events",
+    "/api/tokens/events",
     "/api/usage",
     // 훅이 턴마다 부르는 받은편지함 등록 — 남기면 로그가 그것뿐이 된다(사람·에이전트의 사용이 아니다).
     "/api/sessions/inbox",
@@ -124,8 +129,13 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     if segs.len() >= 3 && segs[0] == "api" && !LITERAL_THIRD.contains(&segs[2]) {
         segs[2] = ":ref";
     }
-    // `/api/inbox/sources/:id` — 셋째 자리가 이름이라 넷째가 id 다.
-    if segs.len() >= 4 && segs[1] == "inbox" && segs[2] == "sources" {
+    // `/api/inbox/sources/:id`·`/api/tokens/sessions/:id` — 셋째 자리가 이름이라 넷째가 id 다.
+    if segs.len() >= 4
+        && matches!(
+            (segs[1], segs[2]),
+            ("inbox", "sources") | ("tokens", "sessions")
+        )
+    {
         segs[3] = ":ref";
     }
     let shape = format!("{} /{}", method.to_uppercase(), segs.join("/"));
@@ -282,11 +292,16 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "DELETE /api/inbox/subscriptions"),
     (UsageSource::Rest, "GET /api/sessions"),
     (UsageSource::Rest, "GET /api/summary"),
+    (UsageSource::Rest, "GET /api/tokens/summary"),
+    (UsageSource::Rest, "GET /api/tokens/current"),
+    (UsageSource::Rest, "GET /api/tokens/sessions/:ref"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
     (UsageSource::Mcp, "note_list"),
     (UsageSource::Mcp, "note_write"),
+    (UsageSource::Mcp, "token_summary"),
+    (UsageSource::Mcp, "token_current_session"),
     (UsageSource::Mcp, "worklog_append"),
     (UsageSource::Mcp, "worklog_read"),
     (UsageSource::Mcp, "worklog_search"),
@@ -328,6 +343,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky mcp"),
     (UsageSource::Cli, "rocky tailscale"),
     (UsageSource::Cli, "rocky config"),
+    (UsageSource::Cli, "rocky tokens"),
+    (UsageSource::Cli, "rocky tokens here"),
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),

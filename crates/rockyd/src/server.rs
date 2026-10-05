@@ -85,6 +85,8 @@ pub struct ServerOptions {
     pub usage: Option<UsageSink>,
     /// 로그 색인 DB(`logs.db`) — 색인 스레드가 쓰고 `/api/logs/*` 가 읽는다. 없으면 그 라우트는 빈 목록.
     pub logs_db: Option<std::path::PathBuf>,
+    /// 토큰 추천 규칙(`rocky.json` 의 `tokens.recommend`).
+    pub token_recommend: rocky_core::tokens::RecommendConfig,
 }
 
 impl ServerOptions {
@@ -105,6 +107,7 @@ impl ServerOptions {
             inbox: None,
             usage: None,
             logs_db: None,
+            token_recommend: Default::default(),
         }
     }
 }
@@ -128,6 +131,7 @@ pub struct ServerState {
     inbox_config_names: Vec<String>,
     usage: UsageSink,
     logs_db: Option<std::path::PathBuf>,
+    pub token_recommend: rocky_core::tokens::RecommendConfig,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
     /// 노트별 문서 스트림(`GET /api/notes/:ref/doc/events`) — CRDT update 와 프레즌스만.
@@ -325,6 +329,26 @@ impl ServerState {
 
     /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
     /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
+    /// 로그 색인(`logs.db`)을 읽는 질의 하나 — 블로킹 스레드에서 자기 연결로. 색인이 없으면 `None`.
+    pub async fn query_logs<T: Send + 'static, E: std::fmt::Display + Send + 'static>(
+        &self,
+        what: &'static str,
+        query: impl FnOnce(&rocky_core::logindex::LogIndex) -> Result<T, E> + Send + 'static,
+    ) -> Result<Option<T>, StoreError> {
+        let Some(db) = self.logs_db.clone() else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || {
+            let index = rocky_core::logindex::LogIndex::open(&db)
+                .map_err(|e| format!("{}: {e}", db.display()))?;
+            query(&index).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| StoreError::new(format!("{what} 조회 스레드: {e}")))?
+        .map(Some)
+        .map_err(|e| StoreError::new(format!("{what} 조회: {e}")))
+    }
+
     pub fn broadcast_note(&self, note_id: &str, payload: &serde_json::Value) {
         let mut streams = self.note_streams.lock().expect("note_streams poisoned");
         let Some(sender) = streams.get(note_id) else {
@@ -449,6 +473,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
             .collect(),
         usage: options.usage.unwrap_or_else(noop_sink),
         logs_db: options.logs_db,
+        token_recommend: options.token_recommend,
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
@@ -1853,6 +1878,75 @@ async fn dispatch(
     }
 
     // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──
+    if *method == Method::GET && path == "/api/tokens/summary" {
+        // 모델×effort(기본) · 모델 · effort · 세션 · 브랜치별 토큰 합계. 구간은 from/to(ISO) 또는 days(기본 30).
+        let group_raw = query
+            .get("groupBy")
+            .map(String::as_str)
+            .unwrap_or("model,effort");
+        let Some(group_by) = rocky_core::tokens::GroupBy::parse(group_raw) else {
+            return Ok(error_response(
+                &format!("groupBy 는 model,effort · model · effort · session · branch 중 하나다: {group_raw:?}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        };
+        let (from, to) = rocky_core::tokens::range(
+            query.get("from").map(String::as_str),
+            query.get("to").map(String::as_str),
+            query.get("days").and_then(|d| d.parse::<i64>().ok()),
+            chrono::Utc::now(),
+        );
+        let (f, t) = (from.clone(), to.clone());
+        let rows = state
+            .query_logs("토큰 요약", move |index| {
+                rocky_core::tokens::summary(index.conn(), &f, &t, group_by)
+            })
+            .await?
+            .unwrap_or_default();
+        return Ok(ok_json(
+            &json!({ "from": from, "to": to, "groupBy": group_raw, "rows": rows }),
+        ));
+    }
+    if *method == Method::GET && path == "/api/tokens/current" {
+        // 이 디렉터리(또는 그 아래)에서 가장 최근에 움직인 세션.
+        let Some(cwd) = query
+            .get("cwd")
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+        else {
+            return Ok(error_response("cwd 가 필요하다", StatusCode::BAD_REQUEST));
+        };
+        let limit = token_turn_limit(query);
+        let found = state
+            .query_logs("현재 세션", move |index| {
+                match rocky_core::tokens::latest_session_for_cwd(index.conn(), &cwd)? {
+                    Some(id) => rocky_core::tokens::session_detail(index.conn(), &id, limit),
+                    None => Ok(None),
+                }
+            })
+            .await?
+            .flatten();
+        return Ok(match found {
+            Some(detail) => ok_json(&detail),
+            None => error_response("이 디렉터리의 세션이 색인에 없다", StatusCode::NOT_FOUND),
+        });
+    }
+    if *method == Method::GET {
+        if let Some(id) = path.strip_prefix("/api/tokens/sessions/") {
+            let id = id.trim().to_string();
+            let limit = token_turn_limit(query);
+            let found = state
+                .query_logs("세션 턴", move |index| {
+                    rocky_core::tokens::session_detail(index.conn(), &id, limit)
+                })
+                .await?
+                .flatten();
+            return Ok(match found {
+                Some(detail) => ok_json(&detail),
+                None => error_response("세션이 색인에 없다", StatusCode::NOT_FOUND),
+            });
+        }
+    }
     if *method == Method::GET && path == "/api/logs/stats" {
         // 회고(작업로그)와 rocky 개선(사용 로그) 통계 — 기본 30일, 최대 365일.
         let days = query
@@ -2766,6 +2860,15 @@ async fn statusline_inner(
         },
         STATUSLINE_TITLE_MAX,
     ))
+}
+
+/// `?limit=` — 세션 상세에 실을 최근 턴 수(기본 50, 최대 500).
+fn token_turn_limit(query: &HashMap<String, String>) -> usize {
+    query
+        .get("limit")
+        .and_then(|l| l.parse::<usize>().ok())
+        .unwrap_or(50)
+        .clamp(1, 500)
 }
 
 /// GET /api/events — store change 이벤트를 SSE 로 흘린다.
