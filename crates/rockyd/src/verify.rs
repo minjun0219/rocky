@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use rocky_core::config::CommandBridge;
 use rocky_core::verify::{
-    dir_name, notification, parse_ls_remote, should_run, VerifyConfig, VerifyRecord, VerifyState,
-    VerifyTarget, DEFAULT_STEP_TIMEOUT_MS,
+    dir_name, notification, parse_ls_remote, should_run, VerifyConfig, VerifyRecord, VerifyRun,
+    VerifyState, VerifyTarget, DEFAULT_STEP_TIMEOUT_MS, MAX_ATTEMPTS,
 };
 use serde::Serialize;
 
@@ -32,6 +32,8 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(120);
 const KILL_GRACE: Duration = Duration::from_secs(5);
 /// 대상마다 남기는 로그 파일 수.
 const KEEP_LOGS: usize = 10;
+/// `signals.log`·`runs.jsonl` 이 이만큼 넘으면 `.1` 로 한 번 돌린다.
+const APPEND_LOG_LIMIT: u64 = 256 * 1024;
 
 /// 대상 하나의 지금 상태 — `GET /api/verify` 가 그대로 싣는다.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -144,24 +146,41 @@ async fn git(runner: &Runner, args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// 프로세스 그룹을 건드린 판단을 남긴다 — 데몬 로그와 대상 디렉터리의 `signals.log`(실행마다 갈리는 로그와 달리
-/// 계속 쌓인다, 64KB 가 넘으면 `signals.log.1` 로 한 번 돌린다). 그룹 id 재사용 판별이 맞았는지 나중에 이걸로 본다.
-fn note_signal(dir: &Path, message: &str) {
+/// 대상 디렉터리의 계속 쌓이는 파일에 한 줄 — 실행마다 갈리는 로그와 달리 데몬이 다시 떠도 남는다.
+/// `APPEND_LOG_LIMIT` 를 넘으면 `<name>.1` 로 한 번 돌린다(그 전 것은 버린다).
+fn append_line(dir: &Path, name: &str, line: &str) {
     use std::io::Write;
-    println!("rocky: verify 시그널 — {message}");
-    let file = dir.join("signals.log");
+    // 실행 전 error 경로에서도 디렉터리가 생긴다 — 레포 경로·git 에러가 담기니 소유자만.
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(dir);
+        let _ = std::fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    }
+    let file = dir.join(name);
     if std::fs::metadata(&file)
-        .map(|m| m.len() > 64 * 1024)
+        .map(|m| m.len() > APPEND_LOG_LIMIT)
         .unwrap_or(false)
     {
-        let _ = std::fs::rename(&file, dir.join("signals.log.1"));
+        let _ = std::fs::rename(&file, dir.join(format!("{name}.1")));
     }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&file)
     {
-        let _ = writeln!(f, "{} {message}", iso_now());
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// 프로세스 그룹을 건드린 판단을 남긴다 — 데몬 로그와 `signals.log`. 그룹 id 재사용 판별이 맞았는지 나중에 이걸로 본다.
+fn note_signal(dir: &Path, message: &str) {
+    println!("rocky: verify 시그널 — {message}");
+    append_line(dir, "signals.log", &format!("{} {message}", iso_now()));
+}
+
+/// 실행 이력 한 줄을 `runs.jsonl` 에 — 언제 어떤 커밋이 통과·실패·끊겼나, 검증을 못 한 이유.
+fn note_run(dir: &Path, run: &VerifyRun) {
+    if let Ok(line) = serde_json::to_string(run) {
+        append_line(dir, "runs.jsonl", &line);
     }
 }
 
@@ -405,6 +424,18 @@ pub async fn verify_target(
 ) {
     let dir = target_dir(root, target);
     let report = |record: Option<VerifyRecord>, error: Option<String>| {
+        // 검증을 못 한 이유는 바뀌었을 때만 남긴다 — 원격이 안 닿으면 바퀴마다 같은 말이다.
+        if let Some(e) = &error {
+            let before = state
+                .verify()
+                .into_iter()
+                .find(|s| s.board == target.board && s.branch == target.branch)
+                .and_then(|s| s.error);
+            if before.as_deref() != Some(e.as_str()) {
+                println!("rocky: verify {} {} — {e}", target.board, target.branch);
+                note_run(&dir, &VerifyRun::error(iso_now(), e.clone()));
+            }
+        }
         set_status(
             state,
             VerifyTargetStatus {
@@ -450,7 +481,8 @@ pub async fn verify_target(
         },
         Err(e) => return report(last, Some(format!("{repo_s}: {e}"))),
     };
-    if !should_run(last.as_ref(), &remote) {
+    let rerun = state.verify_rerun_requested(&target.board, &target.branch);
+    if !should_run(last.as_ref(), &remote, rerun) {
         return report(last, None);
     }
     let _ = std::fs::create_dir_all(&dir);
@@ -470,6 +502,10 @@ pub async fn verify_target(
     .await;
     if let Err(e) = prepared {
         return report(last, Some(format!("준비 실패(다음 바퀴에 다시) — {e}")));
+    }
+    // 여기서부터 이 커밋을 돈다 — 끝을 못 본 지난 실행을 이력에 남긴다.
+    if let Some(prev) = last.filter(|r| r.state == VerifyState::Running) {
+        note_run(&dir, &VerifyRun::of(iso_now(), prev, false));
     }
     let tree_s = tree.to_string_lossy().to_string();
     let log = dir.join(format!("{}.log", &remote[..remote.len().min(12)]));
@@ -491,17 +527,51 @@ pub async fn verify_target(
         started_at: iso_now(),
         finished_at: None,
         log: log.to_string_lossy().to_string(),
+        attempt: 1,
     };
     write_record(&dir, "last.json", &record);
     report(Some(record.clone()), None);
+    state.set_verify_in_flight(Some((&target.board, &target.branch)));
+    // 다시 돌리기 요청은 받은 것으로 친다 — 여기까지 온 요청은 이번 실행이 흡수하고, 이 뒤의 요청은 "도는 중" 으로 거절된다.
+    // 위 둘 사이에 await 가 없어야 한다(그 틈에 온 요청이 지워지지 않고 남아 같은 커밋을 또 돈다).
+    state.clear_verify_rerun(&target.board, &target.branch);
 
-    let mut outcome = Ok(());
-    for step in &target.steps {
-        if let Err(reason) = run_step(&dir, &tree, step, &log).await {
-            outcome = Err((step.name.clone(), reason));
-            break;
+    // 실패하면 그 자리에서 다시 — 첫 실패는 이력에만 남기고 알리지 않는다. 출력은 같은 로그 파일에 이어 쌓인다.
+    let outcome = loop {
+        let mut outcome = Ok(());
+        for step in &target.steps {
+            if let Err(reason) = run_step(&dir, &tree, step, &log).await {
+                outcome = Err((step.name.clone(), reason));
+                break;
+            }
         }
-    }
+        let Err((step, reason)) = &outcome else {
+            break outcome;
+        };
+        if record.attempt >= MAX_ATTEMPTS {
+            break outcome;
+        }
+        let mut failed = record.clone();
+        failed.state = VerifyState::Failed;
+        failed.failed_step = Some(step.clone());
+        failed.reason = Some(reason.clone());
+        failed.finished_at = Some(iso_now());
+        note_run(&dir, &VerifyRun::of(iso_now(), failed, rerun));
+        println!(
+            "rocky: verify {} {} {step} 실패({reason}) — 한 번 더 돈다",
+            target.board, target.branch
+        );
+        // 로그는 `append_line` 으로 쓰지 않는다 — 상한에 걸려 돌려지면 첫 시도의 출력이 다른 이름으로 간다.
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&log) {
+            use std::io::Write;
+            let _ = writeln!(f, "\n### 자동 재시도 — {step} 실패: {reason}");
+        }
+        record.attempt += 1;
+        record.started_at = iso_now();
+        write_record(&dir, "last.json", &record);
+        report(Some(record.clone()), None);
+    };
+    state.set_verify_in_flight(None);
     match outcome {
         Ok(()) => record.state = VerifyState::Passed,
         Err((step, reason)) => {
@@ -515,10 +585,12 @@ pub async fn verify_target(
     let finished_before = read_record(&dir, "finished.json");
     write_record(&dir, "last.json", &record);
     write_record(&dir, "finished.json", &record);
+    note_run(&dir, &VerifyRun::of(iso_now(), record.clone(), rerun));
     prune_logs(&dir);
     report(Some(record.clone()), None);
     if let Some((title, body)) = notification(finished_before.as_ref(), &record) {
-        println!("rocky: {title} — {body}");
+        // 제목이 이미 `rocky:` 로 시작한다.
+        println!("{title} — {body}");
         notifier(title, body);
     }
 }
@@ -536,7 +608,8 @@ pub async fn tick(
     }
 }
 
-/// 기동 뒤 `first_after` 지나 처음, 이후 바퀴가 끝날 때마다 `interval_seconds` 쉬고 다시.
+/// 기동 뒤 `first_after` 지나 처음, 이후 바퀴가 끝날 때마다 `interval_seconds` 쉬고 다시. 다시 돌리기 요청이 오면
+/// 쉬는 중이라도 바로 다음 바퀴로 간다(`verify_wake`).
 pub fn spawn_verifier(
     state: Arc<ServerState>,
     runner: Runner,
@@ -553,7 +626,10 @@ pub fn spawn_verifier(
         tokio::time::sleep(first_after).await;
         loop {
             tick(&state, &runner, &notifier, &root, &cfg).await;
-            tokio::time::sleep(Duration::from_secs(cfg.interval_seconds())).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(cfg.interval_seconds())) => {}
+                _ = state.verify_wake.notified() => {}
+            }
         }
     });
 }

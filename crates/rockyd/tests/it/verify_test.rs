@@ -303,6 +303,196 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert!(seen[0].contains("다시 초록"), "{seen:?}");
+    // 이력에는 준비 실패·끊긴 실행·통과가 차례로 남는다.
+    let events: Vec<String> = runs(&dir).iter().map(|r| r["event"].to_string()).collect();
+    assert_eq!(
+        events,
+        [r#""error""#, r#""interrupted""#, r#""passed""#],
+        "{events:?}"
+    );
+}
+
+/// `runs.jsonl` 의 줄들.
+fn runs(dir: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(dir.join("runs.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    f.store.ensure_board("proj", None, "t").unwrap();
+    f.store
+        .set_board_path("proj", work.to_str().unwrap(), "t")
+        .unwrap();
+    let root = tmp.path().join("verify");
+    // 트리 밖의 파일을 보는 단계 — 커밋은 그대로인데 환경만 바뀌는 거짓 실패를 흉내 낸다.
+    let flag = tmp.path().join("env-ok");
+    let target = VerifyTarget {
+        board: "proj".into(),
+        branch: "main".into(),
+        steps: vec![step("env", &format!("test -f {}", flag.display()), None)],
+    };
+    let dir = rockyd::verify::target_dir(&root, &target);
+    let runner = default_runner();
+    let (notifier, seen) = capture();
+
+    verify_target(&f.state, &runner, &notifier, &root, &target).await;
+    assert_eq!(
+        f.state.verify()[0].record.clone().unwrap().state,
+        VerifyState::Failed
+    );
+    std::fs::write(&flag, "").unwrap();
+    verify_target(&f.state, &runner, &notifier, &root, &target).await;
+    assert_eq!(
+        f.state.verify()[0].record.clone().unwrap().state,
+        VerifyState::Failed,
+        "부탁하지 않으면 같은 커밋은 다시 돌지 않는다"
+    );
+
+    // 원격(프록시를 거친) 요청은 프로세스를 띄우지 못한다; 없는 대상은 404.
+    let (code, _) = call(
+        &f.state,
+        "POST",
+        "/api/verify/rerun",
+        Some(serde_json::json!({})),
+        ReqOptions {
+            headers: vec![("x-forwarded-for", "203.0.113.7")],
+            ..ReqOptions::default()
+        },
+    )
+    .await;
+    assert_eq!(code, 403);
+    let (code, body) = post(
+        &f.state,
+        "/api/verify/rerun",
+        serde_json::json!({ "board": "nope" }),
+    )
+    .await;
+    assert_eq!(code, 404, "{body}");
+    assert!(!f.state.verify_rerun_requested("proj", "main"));
+
+    let (code, body) = call(
+        &f.state,
+        "POST",
+        "/api/verify/rerun",
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["queued"][0]["board"], "proj");
+    verify_target(&f.state, &runner, &notifier, &root, &target).await;
+    assert_eq!(
+        f.state.verify()[0].record.clone().unwrap().state,
+        VerifyState::Passed
+    );
+    assert!(
+        !f.state.verify_rerun_requested("proj", "main"),
+        "돈 뒤에는 요청을 지운다"
+    );
+    assert!(seen.lock().unwrap()[1].contains("다시 초록"));
+
+    // 첫 실행은 자동 재시도까지 두 번 실패, 다시 돌린 실행은 통과.
+    let lines = runs(&dir);
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines[0]["event"], "failed");
+    assert_eq!(lines[0]["record"]["failedStep"], "env");
+    assert!(lines[0]["record"].get("attempt").is_none());
+    assert!(lines[0].get("rerun").is_none());
+    assert_eq!(lines[1]["event"], "failed");
+    assert_eq!(lines[1]["record"]["attempt"], 2);
+    assert_eq!(lines[2]["event"], "passed");
+    assert_eq!(lines[2]["rerun"], true);
+    assert_eq!(lines[0]["record"]["sha"], lines[2]["record"]["sha"]);
+
+    // 데몬이 죽어 `running` 기록만 남은 대상은 도는 중이 아니다 — 맡는다.
+    let mut status = f.state.verify();
+    status[0].record.as_mut().unwrap().state = VerifyState::Running;
+    f.state.set_verify(status);
+    let (code, body) = post(&f.state, "/api/verify/rerun", serde_json::json!({})).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["queued"][0]["board"], "proj");
+    f.state.clear_verify_rerun("proj", "main");
+
+    // 실제로 도는 중인 대상은 맡지 않는다.
+    f.state.set_verify_in_flight(Some(("proj", "main")));
+    let (code, body) = post(
+        &f.state,
+        "/api/verify/rerun",
+        serde_json::json!({ "board": "proj", "branch": "main" }),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["running"][0]["board"], "proj");
+    assert!(body["queued"].as_array().unwrap().is_empty());
+    assert!(!f.state.verify_rerun_requested("proj", "main"));
+}
+
+#[tokio::test]
+async fn a_failure_that_passes_on_the_automatic_retry_stays_green_and_quiet() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    f.store.ensure_board("proj", None, "t").unwrap();
+    f.store
+        .set_board_path("proj", work.to_str().unwrap(), "t")
+        .unwrap();
+    let root = tmp.path().join("verify");
+    // 처음 한 번만 실패하는 단계 — 부하로 시간 초과가 난 셈.
+    let marker = tmp.path().join("tried");
+    let script = format!(
+        "if [ -f {m} ]; then exit 0; else touch {m}; exit 1; fi",
+        m = marker.display()
+    );
+    let target = VerifyTarget {
+        board: "proj".into(),
+        branch: "main".into(),
+        steps: vec![step("flaky", &script, None)],
+    };
+    let dir = rockyd::verify::target_dir(&root, &target);
+    let (notifier, seen) = capture();
+
+    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
+    let rec = f.state.verify()[0].record.clone().unwrap();
+    assert_eq!(rec.state, VerifyState::Passed);
+    assert_eq!(rec.attempt, 2);
+    assert!(seen.lock().unwrap().is_empty(), "첫 실패는 알리지 않는다");
+    let log = std::fs::read_to_string(&rec.log).unwrap();
+    assert!(
+        log.contains("### 자동 재시도 — flaky 실패: 종료 코드 1"),
+        "{log}"
+    );
+    let lines = runs(&dir);
+    let events: Vec<_> = lines.iter().map(|l| l["event"].as_str().unwrap()).collect();
+    assert_eq!(events, ["failed", "passed"], "{lines:?}");
+    assert_eq!(lines[1]["record"]["attempt"], 2);
+}
+
+#[tokio::test]
+async fn the_same_reason_for_not_verifying_is_kept_once() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    f.store.ensure_board("bare", None, "t").unwrap();
+    let root = tmp.path().join("verify");
+    let target = VerifyTarget {
+        board: "bare".into(),
+        branch: "main".into(),
+        steps: vec![step("noop", "true", None)],
+    };
+    let (notifier, _seen) = capture();
+    for _ in 0..3 {
+        verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
+    }
+    let lines = runs(&rockyd::verify::target_dir(&root, &target));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["event"], "error");
+    assert!(lines[0]["error"].as_str().unwrap().contains("path"));
 }
 
 #[tokio::test]

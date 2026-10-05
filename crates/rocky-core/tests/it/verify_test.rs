@@ -2,7 +2,7 @@
 
 use rocky_core::verify::{
     dir_name, is_branch_name, load_verify_block, notification, parse_ls_remote, should_run,
-    VerifyRecord, VerifyState,
+    VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState,
 };
 
 fn config(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -95,25 +95,35 @@ fn record(sha: &str, state: VerifyState) -> VerifyRecord {
         started_at: "2026-10-05T00:00:00.000Z".into(),
         finished_at: None,
         log: "/tmp/x.log".into(),
+        attempt: 1,
     }
 }
 
 #[test]
-fn reruns_only_new_or_interrupted_commits() {
-    assert!(should_run(None, "aaa"));
+fn reruns_only_new_or_interrupted_commits_unless_asked() {
+    assert!(should_run(None, "aaa", false));
     assert!(!should_run(
         Some(&record("aaa", VerifyState::Passed)),
-        "aaa"
+        "aaa",
+        false
     ));
     assert!(
-        !should_run(Some(&record("aaa", VerifyState::Failed)), "aaa"),
+        !should_run(Some(&record("aaa", VerifyState::Failed)), "aaa", false),
         "같은 커밋의 실패는 다시 돌지 않는다"
     );
     assert!(
-        should_run(Some(&record("aaa", VerifyState::Running)), "aaa"),
+        should_run(Some(&record("aaa", VerifyState::Failed)), "aaa", true),
+        "다시 돌려 달라고 하면 같은 커밋도 돈다"
+    );
+    assert!(
+        should_run(Some(&record("aaa", VerifyState::Running)), "aaa", false),
         "데몬이 도중에 내려갔다"
     );
-    assert!(should_run(Some(&record("aaa", VerifyState::Passed)), "bbb"));
+    assert!(should_run(
+        Some(&record("aaa", VerifyState::Passed)),
+        "bbb",
+        false
+    ));
 }
 
 #[test]
@@ -132,4 +142,48 @@ fn notifies_failures_and_recoveries_only() {
     let (title, _) = notification(Some(&fail), &pass).unwrap();
     assert!(title.contains("다시 초록"));
     assert!(notification(Some(&fail), &record("d", VerifyState::Running)).is_none());
+
+    let twice = VerifyRecord {
+        attempt: 2,
+        ..record("eeeeeeeeee", VerifyState::Failed)
+    };
+    let (_, body) = notification(None, &twice).unwrap();
+    assert!(
+        body.contains("종료 코드 101 (다시 돌려도 실패 — 2번 연속)"),
+        "{body}"
+    );
+}
+
+#[test]
+fn the_attempt_count_is_written_only_after_a_retry() {
+    let first = serde_json::to_value(record("aaa", VerifyState::Passed)).unwrap();
+    assert!(first.get("attempt").is_none(), "{first}");
+    let back: VerifyRecord = serde_json::from_value(first).unwrap();
+    assert_eq!(back.attempt, 1, "옛 기록(필드 없음)은 첫 시도로 읽는다");
+    let second = VerifyRecord {
+        attempt: 2,
+        ..record("aaa", VerifyState::Passed)
+    };
+    assert_eq!(serde_json::to_value(second).unwrap()["attempt"], 2);
+}
+
+#[test]
+fn run_lines_name_the_outcome_and_stay_flat_for_errors() {
+    let at = "2026-10-05T01:00:00.000Z".to_string();
+    let interrupted = VerifyRun::of(at.clone(), record("aaa", VerifyState::Running), false);
+    assert_eq!(interrupted.event, VerifyRunEvent::Interrupted);
+    let failed = VerifyRun::of(at.clone(), record("aaa", VerifyState::Failed), true);
+    let line = serde_json::to_value(&failed).unwrap();
+    assert_eq!(line["event"], "failed");
+    assert_eq!(line["rerun"], true);
+    assert_eq!(line["record"]["failedStep"], "cargo-test");
+
+    let error = serde_json::to_value(VerifyRun::error(at, "원격을 못 읽음".into())).unwrap();
+    assert_eq!(
+        error,
+        serde_json::json!({ "at": "2026-10-05T01:00:00.000Z", "event": "error", "error": "원격을 못 읽음" }),
+        "rerun:false·record 없음은 줄에 싣지 않는다"
+    );
+    let back: VerifyRun = serde_json::from_value(line).unwrap();
+    assert_eq!(back, failed);
 }

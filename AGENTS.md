@@ -253,7 +253,7 @@ typecheck or tests — pre-push and CI already cover it.*
 - **tailscale serve 자동 확보는 남의 노출을 빼앗지 않는다.** `decide_serve_action`: `claim`(빈 자리),
   `keep`(내 것), `yield`(살아 있는 다른 rocky 데몬), `reclaim`(죽은 포트). 수동 `rocky tailscale on`은 가드하지
   않는다.
-- **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 보드의 `path` / `repo` / `reviewFix` / `prAuthors` 변경, 보드 수집함 설정(`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다)은
+- **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 검증 다시 돌리기, 보드의 `path` / `repo` / `reviewFix` / `prAuthors` 변경, 보드 수집함 설정(`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다)은
   `is_local_request`가 필요하다: 루프백 peer **이고** 프록시 헤더(`x-forwarded-*`, `forwarded`,
   `tailscale-user-*`, `cf-*`)가 없어야 한다; peer 주소가 없으면 거부(fail-closed). *EN: Anything that writes to GitHub, spawns processes or steers
   sessions is local-only: loopback peer and no proxy headers; fail closed.*
@@ -326,7 +326,9 @@ typecheck or tests — pre-push and CI already cover it.*
   잡 하나가 대상을 차례로 — 동시 1개, 몰린 커밋은 최신 하나. **fetch·워크트리 준비 실패는 커밋을 빨강으로 남기지 않고** 다음 바퀴에 다시.
   단계는 자기 프로세스 그룹으로 띄우고, 남지 않게 세 겹: 시간 초과면 TERM → 5초 → KILL, 데몬이 작업을 버리면 가드가 KILL, 데몬이 죽어
   남은 그룹은 `running.pgid`(그룹 id + 리더 시작 시각 — 리더가 살아 있는데 시각이 다르면 번호 재사용이라 건드리지 않는다)로 다음 실행 전에 끝낸다. 그룹을 건드린 판단은 전부 데몬 로그와 대상의 `signals.log` 에 남는다(재사용 판별이 맞았는지 나중에 본다). 기록은 `last.json`(도는 중이면 다음 기동에 같은 커밋을 다시)과 `finished.json`(알림
-  기준 — 끊겼다 다시 돈 실행도 복구를 알린다). 실패·복구만 배너. 조회는 `GET /api/verify`·`rocky verify`. 히스토리·웹 "지금"·세션
+  기준 — 끊겼다 다시 돈 실행도 복구를 알린다), 이력은 `runs.jsonl`(끝남·끊김·못 함 — 못 한 이유는 바뀔 때만). 실패하면 그 자리에서 한 번 더(`MAX_ATTEMPTS`) — 첫 실패는
+  이력에만, 두 번 연속일 때만 기록·배너. 그 뒤 같은 커밋의 실패는
+  `rocky verify --rerun`/`POST /api/verify/rerun`(로컬 전용 — 프로세스를 띄운다, 요청은 메모리, 잡을 바로 깨운다)으로만 다시. 실패·복구만 배너. 조회는 `GET /api/verify`·`rocky verify`. 히스토리·웹 "지금"·세션
   받은편지함에는 아직 싣지 않는다.
 - **rc 서버 현황**(`rocky_core::rc`, `rockyd::rc`): `rc` 블록(사용자 설정만)의 폴더와 떠 있는 `claude rc` 서버를 맞대
   `GET /api/rc/servers`·`rocky rc`로 낸다 — 지금은 **보기만** 한다(띄우기·감시는 다음 조각, 설계는
