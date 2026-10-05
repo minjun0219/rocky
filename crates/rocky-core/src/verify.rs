@@ -25,9 +25,10 @@ pub fn is_branch_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
 }
 
-/// 보드 key 를 디렉터리 이름으로 — 영숫자·`-`·`_` 만 남긴다.
-pub fn dir_name(board: &str) -> String {
-    let cleaned: String = board
+/// 보드 key·브랜치를 디렉터리 이름으로 — 읽기 쉬운 부분(영숫자·`-`·`_` 만) 뒤에 원래 이름의 SHA-256 앞 8자를 붙인다.
+/// 치환만 하면 `release/a` 와 `release_a` 가 같은 디렉터리가 되어 기록·트리를 나눠 쓴다.
+pub fn dir_name(name: &str) -> String {
+    let readable: String = name
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -37,11 +38,12 @@ pub fn dir_name(board: &str) -> String {
             }
         })
         .collect();
-    if cleaned.is_empty() {
-        "_".into()
-    } else {
-        cleaned
-    }
+    let digest = ring::digest::digest(&ring::digest::SHA256, name.as_bytes());
+    let hash: String = digest.as_ref()[..4]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{readable}-{hash}")
 }
 
 /// `git ls-remote origin refs/heads/<branch>` 출력에서 그 브랜치의 커밋. 없으면 `None`.

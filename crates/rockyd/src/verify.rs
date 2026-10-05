@@ -72,7 +72,7 @@ fn iso_now() -> String {
 }
 
 /// 대상마다 따로 — 같은 보드의 다른 브랜치가 기록·트리를 나눠 쓰지 않게.
-fn target_dir(root: &Path, target: &VerifyTarget) -> PathBuf {
+pub fn target_dir(root: &Path, target: &VerifyTarget) -> PathBuf {
     root.join(dir_name(&target.board))
         .join(dir_name(&target.branch))
 }
@@ -171,20 +171,40 @@ impl Drop for GroupGuard {
     }
 }
 
+/// 프로세스의 시작 시각(`ps -o lstart=`) — pid 가 재사용됐는지 가르는 열쇠. 프로세스가 없으면 `None`.
+async fn started_at(pid: i32) -> Option<String> {
+    let out = tokio::process::Command::new("ps")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .output()
+        .await
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !text.is_empty()).then_some(text)
+}
+
 /// 데몬이 죽어(SIGKILL·크래시) 남은 단계 그룹을 끝낸다 — 같은 트리에서 새 실행과 겹치지 않게.
+/// `running.pgid` 는 "그룹 id \t 리더 시작 시각" 이다. 리더가 살아 있는데 시작 시각이 다르면 그 번호를 다른 프로세스가
+/// 재사용한 것이라 건드리지 않는다. 리더가 없으면 남은 멤버는 우리 것이다 — 그룹에 멤버가 있는 동안 그 id 는
+/// 재사용되지 않는다(없으면 killpg 가 아무것도 하지 않는다).
 async fn reap_orphan(dir: &Path) {
     let file = dir.join("running.pgid");
-    let Some(pgid) = std::fs::read_to_string(&file)
-        .ok()
-        .and_then(|s| s.trim().parse::<i32>().ok())
-    else {
+    let Ok(raw) = std::fs::read_to_string(&file) else {
         return;
     };
+    let _ = std::fs::remove_file(&file);
+    let (pgid, recorded) = raw.split_once('\t').unwrap_or((raw.as_str(), ""));
+    let Ok(pgid) = pgid.trim().parse::<i32>() else {
+        return;
+    };
+    if let Some(now) = started_at(pgid).await {
+        if now != recorded.trim() {
+            return; // 다른 프로세스가 그 번호를 쓰고 있다
+        }
+    }
     if signal_group(pgid, libc::SIGTERM) {
         tokio::time::sleep(KILL_GRACE).await;
         signal_group(pgid, libc::SIGKILL);
     }
-    let _ = std::fs::remove_file(file);
 }
 
 /// 단계 하나 — 워크트리에서, 출력은 로그 파일로(파이프가 아니라 — 떨어져 나간 손자가 fd 를 물어도 `wait` 가 매달리지
@@ -197,7 +217,8 @@ async fn run_step(dir: &Path, tree: &Path, step: &CommandBridge, log: &Path) -> 
         .append(true)
         .open(log)
         .map_err(open_err)?;
-    let _ = writeln!(file, "\n### {} — $ {}", step.name, step.command.join(" "));
+    // argv 는 남기지 않는다 — 단계 인자에 토큰이 들어 있을 수 있다. 이름과 실행 파일만.
+    let _ = writeln!(file, "\n### {} — {}", step.name, step.command[0]);
     let out = file.try_clone().map_err(open_err)?;
     let mut cmd = tokio::process::Command::new(&step.command[0]);
     cmd.args(&step.command[1..])
@@ -217,7 +238,8 @@ async fn run_step(dir: &Path, tree: &Path, step: &CommandBridge, log: &Path) -> 
     // 그룹 id 는 자식 pid 다(process_group(0)).
     let pgid = child.id().map(|p| p as i32).unwrap_or(0);
     let pgid_file = dir.join("running.pgid");
-    let _ = std::fs::write(&pgid_file, pgid.to_string());
+    let leader_start = started_at(pgid).await.unwrap_or_default();
+    let _ = std::fs::write(&pgid_file, format!("{pgid}\t{leader_start}"));
     let guard = GroupGuard {
         pgid,
         pgid_file,
@@ -353,6 +375,7 @@ pub async fn verify_target(
         return report(last, None);
     }
     let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     reap_orphan(&dir).await;
 
     // 준비(fetch·워크트리)는 커밋을 빨강으로 만들지 않는다 — 실패하면 기록을 그대로 두고 다음 바퀴에 다시.
@@ -372,6 +395,8 @@ pub async fn verify_target(
     let tree_s = tree.to_string_lossy().to_string();
     let log = dir.join(format!("{}.log", &remote[..remote.len().min(12)]));
     let _ = std::fs::write(&log, "");
+    // 단계 출력이 쌓이는 곳 — 소유자만 읽는다.
+    let _ = std::fs::set_permissions(&log, std::os::unix::fs::PermissionsExt::from_mode(0o600));
     let mut record = VerifyRecord {
         board: target.board.clone(),
         branch: target.branch.clone(),

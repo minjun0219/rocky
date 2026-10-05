@@ -51,8 +51,21 @@ fn branch_and_dir_names_are_safe() {
     assert!(!is_branch_name("-x"));
     assert!(!is_branch_name("a..b"));
     assert!(!is_branch_name("a b"));
-    assert_eq!(dir_name("rocky"), "rocky");
-    assert_eq!(dir_name("../x"), "___x");
+    assert!(dir_name("rocky").starts_with("rocky-"));
+    assert!(
+        dir_name("../x").starts_with("___x-"),
+        "경로 구분자는 남지 않는다"
+    );
+    assert_ne!(
+        dir_name("release/a"),
+        dir_name("release_a"),
+        "치환으로 겹치는 이름도 나뉜다"
+    );
+    assert_eq!(
+        dir_name("main"),
+        dir_name("main"),
+        "같은 이름은 늘 같은 디렉터리"
+    );
 }
 
 #[test]

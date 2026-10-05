@@ -101,12 +101,23 @@ async fn verifies_new_commits_in_its_own_worktree_and_notifies_failure_and_recov
     assert_eq!(rec.state, VerifyState::Passed, "{status:?}");
     assert_eq!(rec.subject.as_deref(), Some("첫 커밋"));
     assert!(
-        root.join("proj/main/tree/ok.txt").exists(),
+        rockyd::verify::target_dir(&root, &target)
+            .join("tree/ok.txt")
+            .exists(),
         "전용 워크트리에서 돈다"
     );
-    assert!(std::fs::read_to_string(&rec.log)
-        .unwrap()
-        .contains("### echo"));
+    let log = std::fs::read_to_string(&rec.log).unwrap();
+    assert!(log.contains("### echo — sh"), "{log}");
+    assert!(
+        !log.contains("test -f ok.txt"),
+        "단계 argv 는 로그에 남지 않는다"
+    );
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&rec.log).unwrap().permissions().mode() & 0o777,
+        0o600,
+        "로그는 소유자만 읽는다"
+    );
     assert!(seen.lock().unwrap().is_empty(), "첫 통과는 조용하다");
     // 보드 레포의 작업 트리·브랜치는 그대로다.
     assert!(work.join("ok.txt").exists());
@@ -216,7 +227,9 @@ async fn a_timed_out_step_takes_its_grandchildren_with_it() {
         .unwrap()
         .success();
     assert!(!alive, "시간 초과면 손자까지 끝낸다(pid {pid})");
-    assert!(!root.join("proj/main/running.pgid").exists());
+    assert!(!rockyd::verify::target_dir(&root, &target)
+        .join("running.pgid")
+        .exists());
 }
 
 #[tokio::test]
@@ -229,21 +242,24 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
         .set_board_path("proj", work.to_str().unwrap(), "t")
         .unwrap();
     let root = tmp.path().join("verify");
-    let dir = root.join("proj/main");
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
         steps: vec![step("has-ok", "test -f ok.txt", None)],
     };
+    let dir = rockyd::verify::target_dir(&root, &target);
     let (notifier, seen) = capture();
 
-    // 준비 실패(트리 자리에 지울 수 없는 것) — 커밋을 빨강으로 남기지 않고 error 만, 알림 없음.
-    std::fs::create_dir_all(dir.join("tree")).unwrap();
-    std::fs::write(dir.join("tree/.git"), "gitdir: /nowhere").unwrap();
-    let locked = dir.join("tree");
-    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o555)).unwrap();
-    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
-    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    // 준비 실패(fetch 만 실패하는 runner — 네트워크가 잠깐 끊긴 셈) — 커밋을 빨강으로 남기지 않고 error 만, 알림 없음.
+    let real = default_runner();
+    let flaky: rockyd::runner::Runner = Arc::new(move |argv: Vec<String>, stdin, timeout| {
+        if argv.iter().any(|a| a == "fetch") {
+            Box::pin(async { rockyd::runner::CmdOutput::failure("could not resolve host") })
+        } else {
+            real(argv, stdin, timeout)
+        }
+    });
+    verify_target(&f.state, &flaky, &notifier, &root, &target).await;
     let status = f.state.verify()[0].clone();
     assert!(
         status.error.as_deref().unwrap_or("").contains("준비 실패"),
@@ -251,7 +267,6 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
     );
     assert!(status.record.is_none(), "준비 실패는 기록을 만들지 않는다");
     assert!(seen.lock().unwrap().is_empty());
-    let _ = std::fs::remove_dir_all(&locked);
 
     // 앞 커밋이 실패로 끝났고, 지금 커밋은 도는 중에 데몬이 내려갔다(last=Running, finished=Failed).
     let head = String::from_utf8(
