@@ -1,7 +1,9 @@
 //! TS 원본 `src/sessions.test.ts` 의 파싱·매칭 구간 포팅.
 //! (RunCommand 실행·TTL 캐시는 데몬 쪽이라 Phase 2 에서 포팅한다.)
 
-use rocky_core::sessions::{match_board, parse_sessions, SessionsResult};
+use rocky_core::sessions::{
+    claude_jobs_dir, job_state_path, match_board, parse_job_state, parse_sessions, SessionsResult,
+};
 
 const SAMPLE: &str = r#"[
   {"pid":19921,"cwd":"/Users/minjun/dev/workspaces/rocky-todo","kind":"interactive","startedAt":1784964736538,"sessionId":"bc29bdd3-ba90-4547-96eb-9db0af935e6c","name":"rocky-todo-1e","status":"idle"},
@@ -119,4 +121,51 @@ fn background_rows_without_pid_are_kept() {
     assert_eq!(dormant.state.as_deref(), Some("blocked"));
     assert_eq!(dormant.status, "idle", "status 가 없으면 idle 로 읽는다");
     assert_eq!(result.sessions[1].pid, Some(82536));
+}
+
+#[test]
+fn job_state_keeps_only_what_the_screen_uses() {
+    let raw = r##"{"state":"blocked","detail":"3 PR 머지, 결정 대기","tempo":"blocked","inFlight":{"tasks":0},
+      "tokens":129916,"needs":"1) 워크트리 정리 2) 룰셋 결정","suggestedReply":"룰셋 끄고 정리해줘",
+      "output":{"result":"done"},"intent":"# 긴 첫 프롬프트","updatedAt":"2026-08-10T08:28:00.000Z"}"##;
+    let job = parse_job_state(raw).unwrap();
+    assert_eq!(job.detail.as_deref(), Some("3 PR 머지, 결정 대기"));
+    assert_eq!(job.needs.as_deref(), Some("1) 워크트리 정리 2) 룰셋 결정"));
+    assert_eq!(job.suggested_reply.as_deref(), Some("룰셋 끄고 정리해줘"));
+    assert_eq!(job.tokens, Some(129916));
+    assert_eq!(job.updated_at.as_deref(), Some("2026-08-10T08:28:00.000Z"));
+}
+
+#[test]
+fn job_state_without_known_fields_is_none() {
+    assert_eq!(parse_job_state("not json"), None);
+    assert_eq!(parse_job_state("[]"), None);
+    assert_eq!(
+        parse_job_state(r#"{"state":"working","detail":"  "}"#),
+        None
+    );
+}
+
+#[test]
+fn job_state_path_rejects_ids_that_leave_the_folder() {
+    let dir = std::path::Path::new("/jobs");
+    assert_eq!(
+        job_state_path(dir, "0da6a98a"),
+        Some(std::path::PathBuf::from("/jobs/0da6a98a/state.json"))
+    );
+    for bad in ["", "..", "../x", "a/b", "a.b", "a b"] {
+        assert_eq!(job_state_path(dir, bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn jobs_dir_follows_claude_config_dir() {
+    let mut env = rocky_core::config::EnvMap::new();
+    env.insert("CLAUDE_CONFIG_DIR".into(), "/alt/claude".into());
+    assert_eq!(
+        claude_jobs_dir(&env),
+        std::path::PathBuf::from("/alt/claude/jobs")
+    );
+    env.insert("CLAUDE_CONFIG_DIR".into(), " ".into());
+    assert!(claude_jobs_dir(&env).ends_with(".claude/jobs"));
 }

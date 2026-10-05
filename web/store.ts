@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { CollectItem, HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
-import type { AgentSession, BoardView, RcStatus } from './types';
+import type { BoardView, RcStatus, SessionRow } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
 import {
   advanceSeen,
@@ -178,7 +178,7 @@ interface UiState {
   sessions: {
     available: boolean;
     reason?: string;
-    list: Array<AgentSession & { matched: boolean }>;
+    list: SessionRow[];
   };
 
   setSelected: (selection: BoardSelection) => void;
@@ -924,7 +924,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       const result = await api<{
         available: boolean;
         reason?: string;
-        sessions: Array<AgentSession & { matched: boolean }>;
+        sessions: SessionRow[];
       }>(`/api/sessions?board=${encodeURIComponent(board)}`, actor);
       set({
         sessions: { available: result.available, reason: result.reason, list: result.sessions },

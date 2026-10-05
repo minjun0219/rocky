@@ -324,6 +324,9 @@ pub async fn run_daemon(
         inbox_adapters: runtime.inbox_adapters.clone(),
         usage,
         logs_db: Some(runtime.dir.join("logs.db")),
+        claude_jobs_dir: Some(rocky_core::sessions::claude_jobs_dir(
+            &rocky_core::config::env_snapshot(),
+        )),
         token_recommend: tokens.recommend.clone(),
         rc: Some(rc_status),
         agy_control: Some(agy_control),

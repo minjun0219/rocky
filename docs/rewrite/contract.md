@@ -74,7 +74,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | POST `/api/todos` | `{board!, title!, description?, section?, parentId?, priority?, due?, labels?, links?}` | 201 `TodoView` | 보드 자동 생성(ensureBoard) |
 | GET `/api/notes` | `?board=&global=&includeArchived=` | `NoteView[]` | |
 | POST `/api/notes` | `{title!, board?, content?}` | 201 `NoteView` | |
-| GET `/api/sessions` | `?board=` | `{available, reason?, sessions: (AgentSession & {matched})[]}` | matched는 board 없으면 전부 false |
+| GET `/api/sessions` | `?board=` | `{available, reason?, sessions: (AgentSession & {matched, job?})[]}` | matched는 board 없으면 전부 false. `job`은 background 행의 작업 요약(`~/.claude/jobs/<id>/state.json`, 못 읽으면 없음) |
 | POST `/api/handoffs/claim` | `{sessionId!, via?}` | `ClaimedHandoff` 또는 **204** | 로컬 전용(404 위장). via는 'prompt' 외엔 'stop' |
 | GET `/api/handoffs` | `?board=&status=&open=true` | `HandoffView[]` | 없는 board 명시 → `[]`. `open` = pending + 미완료 delivered, **보관된 todo의 것은 제외**. stale/unstarted 판정은 아래 |
 | GET `/api/changes` | `?sinceId=&limit=` | `ChangeFeedEntry[]` | sinceId 음수/비정수 400 |
