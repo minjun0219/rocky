@@ -12,6 +12,12 @@ const SAMPLE_BACKGROUND: &str = r#"[
   {"pid":24075,"id":"5acaaaeb","cwd":"/repo/.claude/worktrees/todo-16","kind":"background","startedAt":1785151478042,"sessionId":"5acaaaeb-1275-48d1-8f4c-3970c33ff6dc","name":"rocky-todo-16","status":"idle","state":"done"}
 ]"#;
 
+/// Claude Code 2.1.289 — 잠든 background 행에는 `pid`·`status` 가 없고 `state` 에 `blocked` 가 온다.
+const SAMPLE_DORMANT: &str = r#"[
+  {"id":"0da6a98a","cwd":"/repo/.claude/worktrees/todo-25","kind":"background","startedAt":1786318742359,"sessionId":"0da6a98a-ed68-4ca3-a447-9ae91c1be8e9","name":"repo-25","state":"blocked"},
+  {"pid":82536,"cwd":"/repo","kind":"interactive","startedAt":1791192384395,"sessionId":"92a79b99-aebd-55bc-b4a0-335c04e5848e","name":"Rocky","status":"idle"}
+]"#;
+
 #[test]
 fn parses_agents_json() {
     let result = parse_sessions(SAMPLE);
@@ -100,4 +106,16 @@ fn interactive_sessions_have_no_id_or_state() {
     let result = parse_sessions(SAMPLE);
     assert!(result.sessions[0].id.is_none());
     assert!(result.sessions[0].state.is_none());
+}
+
+#[test]
+fn background_rows_without_pid_are_kept() {
+    let result = parse_sessions(SAMPLE_DORMANT);
+    assert_eq!(result.sessions.len(), 2, "pid 없는 행을 버리면 안 된다");
+    let dormant = &result.sessions[0];
+    assert_eq!(dormant.pid, None);
+    assert_eq!(dormant.id.as_deref(), Some("0da6a98a"));
+    assert_eq!(dormant.state.as_deref(), Some("blocked"));
+    assert_eq!(dormant.status, "idle", "status 가 없으면 idle 로 읽는다");
+    assert_eq!(result.sessions[1].pid, Some(82536));
 }

@@ -8,7 +8,10 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSession {
-    pub pid: i64,
+    /// 프로세스 pid. 프로세스가 없는 background 세션(사람 답을 기다리며 잠든 `blocked` 등)에는 없다 —
+    /// Claude Code 2.1.289 의 `claude agents --json` 이 그 행에 `pid`·`status` 를 싣지 않는다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<i64>,
     pub cwd: String,
     /// 'interactive' | 'background' — CLI 가 주는 값을 그대로 둔다.
     pub kind: String,
@@ -20,7 +23,8 @@ pub struct AgentSession {
     pub name: String,
     /// 'idle' | 'busy' — CLI 가 주는 값을 그대로 둔다.
     pub status: String,
-    /// background 세션의 수명 상태 — 'working' | 'done'. 없음은 "죽지 않았다".
+    /// background 세션의 수명 상태 — 'working' | 'blocked' | 'done'. 없음은 "죽지 않았다".
+    /// 'blocked' 는 사람의 답을 기다리는 중이다(살아 있다).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     pub started_at: i64,
@@ -48,7 +52,7 @@ impl SessionsResult {
 
 fn to_session(value: &serde_json::Value) -> Option<AgentSession> {
     let row = value.as_object()?;
-    let pid = row.get("pid")?.as_i64()?;
+    let pid = row.get("pid").and_then(|v| v.as_i64());
     let cwd = row.get("cwd")?.as_str()?;
     let session_id = row.get("sessionId")?.as_str()?;
     let name = row.get("name")?.as_str()?;
