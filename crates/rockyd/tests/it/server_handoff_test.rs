@@ -714,3 +714,29 @@ async fn a_remote_handoff_is_queued_but_does_not_wake_the_session() {
     assert!(drain(&listener).is_empty());
     assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_some());
 }
+
+#[tokio::test]
+async fn handoff_picks_its_target_from_the_uncached_session_list() {
+    // 읽기 라우트의 목록(지난 값)엔 sess-1 이 살아 있지만 캐시 없는 목록에선 이미 끝났다 —
+    // 핸드오프는 큐에 쓰는 일이라 캐시 없는 쪽을 봐야 한다(끝난 세션 앞에 아무도 집지 않을 핸드오프가 남는다).
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(fixture_sessions()));
+        o.spawn_sessions = Some(fixed_sessions(available(vec![sess(
+            2,
+            "/w/forses",
+            "sess-2",
+            "forses-90",
+            "busy",
+        )])));
+    });
+    let todo = create(&f, "rocky-todo", "x");
+    let (status, _) = post(
+        &state,
+        &format!("/api/todos/{}/handoff", todo.id),
+        json!({"sessionId":"sess-1"}),
+    )
+    .await;
+    assert_eq!(status, 400);
+    assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_none());
+}

@@ -38,7 +38,8 @@ pub async fn release_gone_doing(
     if doing.is_empty() {
         return Vec::new();
     }
-    let sessions = state.sessions().await;
+    // 자동 해제는 상태를 바꾸므로 캐시 없는 목록으로 본다(`fresh_sessions`).
+    let sessions = state.fresh_sessions().await;
     if !sessions.available {
         return Vec::new();
     }
