@@ -148,7 +148,12 @@ export function SessionDelivery() {
                   key={`${d.at}:${d.sessionId}:${d.subject}`}
                   className="truncate py-0.5 text-meta text-muted"
                 >
-                  <span className={d.ok ? 'text-run' : 'text-dead'}>{d.ok ? '✓' : '✗'}</span>{' '}
+                  <span
+                    className={d.ok ? 'text-run' : 'text-dead'}
+                    title={d.ok ? undefined : (d.reason ?? '이유 모름')}
+                  >
+                    {d.ok ? '✓' : '✗'}
+                  </span>{' '}
                   {formatAge(d.at, now)} · {KIND[d.kind] ?? d.kind} ·{' '}
                   {d.url ? (
                     <a className="text-link" href={d.url} target="_blank" rel="noreferrer">

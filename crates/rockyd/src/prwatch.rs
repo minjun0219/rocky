@@ -127,25 +127,26 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
             r.session_id == session_id
                 && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
         });
-        let record = move |state: &ServerState, ok: bool| {
+        let record = move |state: &ServerState, reason: Option<String>| {
             state.record_delivery(rocky_core::peer_inbox::Delivery {
                 at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 kind: kind.clone(),
                 subject: subject.clone(),
                 url: Some(url.clone()),
                 session_id: session_id.clone(),
-                ok,
+                ok: reason.is_none(),
+                reason,
             });
         };
         let Some(target) = target else {
             // 구독한 세션이 끝났다(등록이 없거나 오래됐다) — 못 보냈다는 사실만 전달 기록에 남긴다.
-            record(&state, false);
+            record(&state, Some("받을 세션 등록 없음".to_string()));
             return;
         };
         let state = state.clone();
         tokio::task::spawn_blocking(move || {
             let ok = write_inbox(&target.socket, &line);
-            record(&state, ok.is_ok());
+            record(&state, ok.as_ref().err().map(|e| e.to_string()));
             if let Err(e) = ok {
                 eprintln!("rocky: 세션 알림 — 구독한 세션의 받은편지함에 못 썼다({e})");
                 state.forget_inbox(&target.session_id);

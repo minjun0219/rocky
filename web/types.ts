@@ -308,6 +308,8 @@ export interface DeliveryStatus {
     url?: string;
     sessionId: string;
     ok: boolean;
+    /** 못 보냈으면 왜 — `받을 세션 등록 없음` 또는 소켓 에러. */
+    reason?: string;
   }[];
 }
 

@@ -123,6 +123,11 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
                     url: None,
                     session_id: sub.session_id.clone(),
                     ok: matches!(written, Ok(Ok(()))),
+                    reason: match &written {
+                        Ok(Ok(())) => None,
+                        Ok(Err(e)) => Some(e.to_string()),
+                        Err(e) => Some(e.to_string()),
+                    },
                 });
                 match written {
                     Ok(Ok(())) => sent += 1,

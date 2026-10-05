@@ -48,6 +48,9 @@ pub struct Delivery {
     pub session_id: String,
     /// 받은편지함에 썼나.
     pub ok: bool,
+    /// 못 썼으면 왜 — `받을 세션 등록 없음` 또는 소켓 에러.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// 받은편지함 소켓 경로로 보이는가 — 데몬은 이 경로에 **쓰기** 때문에, 등록 요청이 아무
