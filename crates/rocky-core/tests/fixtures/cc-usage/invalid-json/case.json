@@ -13,5 +13,7 @@
       "[rocky]"
     ]
   ],
-  "usage": null
+  "usage": null,
+  "repo": [],
+  "gitEnv": {}
 }

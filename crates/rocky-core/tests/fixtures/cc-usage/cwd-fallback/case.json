@@ -8,5 +8,7 @@
   },
   "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"cwd\":\"{{HOME}}/other\"}",
   "allow": [],
-  "usage": null
+  "usage": null,
+  "repo": [],
+  "gitEnv": {}
 }
