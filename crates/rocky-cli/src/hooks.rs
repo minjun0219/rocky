@@ -473,12 +473,16 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
         emit_prompt_context(merge_context(&[upgrade_warning]));
         return;
     }
-    let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) else {
-        let _ = inbox_thread.join();
-        emit_prompt_context(merge_context(&[upgrade_warning]));
-        return;
-    };
+    let context = notify_todo_context(ctx, &input);
+    let _ = inbox_thread.join();
+    emit_prompt_context(merge_context(&[upgrade_warning, context]));
+}
 
+/// notify-todo 의 본체 — 훅 입력 하나로 이번 턴에 넣을 블록(사람의 보드 변경 · 이 세션이 구독한 PR 의 전이 · 핸드오프)을
+/// 만든다. 커서는 `ctx.dir` 의 `hook-cursors.json` 에 세션별로. 업그레이드·받은편지함 등록·stdin/stdout 은
+/// `hook_notify_todo` 가 한다(테스트가 가짜 데몬으로 이 함수만 부른다). `session_id` 가 없으면 None.
+pub fn notify_todo_context(ctx: &CliContext, input: &serde_json::Value) -> Option<String> {
+    let session_id = input.get("session_id").and_then(|v| v.as_str())?;
     let cursor_file = ctx.dir.join("hook-cursors.json");
     let cursor = read_cursor(&cursor_file, session_id);
 
@@ -518,7 +522,7 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
                         let base_url = ctx.base_url.clone();
                         std::thread::spawn(move || fetch_pr_subscriptions(&base_url))
                     };
-                    let board = session_board_key(&ctx.base_url, &input);
+                    let board = session_board_key(&ctx.base_url, input);
                     (board, subs_thread.join().unwrap_or(None))
                 } else {
                     (BoardLookup::Unmatched, Some(Vec::new()))
@@ -536,10 +540,8 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
                         &subscriptions.unwrap_or_default(),
                     );
                     if !mine.is_empty() {
-                        pr_context = build_pr_context(&drop_absorbed(
-                            &mine,
-                            &absorbed_peer_messages(&input),
-                        ));
+                        pr_context =
+                            build_pr_context(&drop_absorbed(&mine, &absorbed_peer_messages(input)));
                     }
                     change_context = build_notify_context(&filter_human_changes(feed.entries));
                 }
@@ -549,15 +551,8 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
 
     // 패닉한 스레드는 "요청 없음"과 같게 본다 — fail-open.
     let claimed = claim_thread.join().unwrap_or(None);
-    let _ = inbox_thread.join();
     let handoff_context = claimed.as_ref().map(build_handoff_prompt);
-
-    emit_prompt_context(merge_context(&[
-        upgrade_warning,
-        change_context,
-        pr_context,
-        handoff_context,
-    ]));
+    merge_context(&[change_context, pr_context, handoff_context])
 }
 
 /// UserPromptSubmit 의 additionalContext 출력 — 실을 게 없으면 아무것도 내지 않는다.

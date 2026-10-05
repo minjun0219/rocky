@@ -1,0 +1,263 @@
+//! notify-todo 훅과 rocky 채널의 **배선** — 순수 판정(`rocky_core::notify`)은 core 테스트가 고정하고, 여기서는 진짜
+//! 소켓의 가짜 데몬으로 조회 순서·실패 처리·커서를 본다: 구독한 PR 만 싣는지, 구독·세션 조회가 실패하면 커서를
+//! 넘기지 않는지, 세션이 이미 받아들인 받은편지함 메시지를 빼는지.
+
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+use rocky_cli::channel::{read_page, Page};
+use rocky_cli::client::build_context;
+use rocky_cli::hooks::notify_todo_context;
+use rocky_core::notify::read_cursor;
+use serde_json::{json, Value};
+
+/// 경로(쿼리 앞까지)별 응답 — 테스트 도중 바꿀 수 있다. 없는 경로는 404.
+#[derive(Clone, Default)]
+struct FakeDaemon {
+    routes: Arc<Mutex<HashMap<String, (u16, String)>>>,
+    port: u16,
+}
+
+impl FakeDaemon {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let fake = FakeDaemon {
+            routes: Arc::default(),
+            port: listener.local_addr().expect("addr").port(),
+        };
+        let routes = fake.routes.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buf = [0u8; 16384];
+                let read = stream.read(&mut buf).unwrap_or(0);
+                let raw = String::from_utf8_lossy(&buf[..read]).to_string();
+                let path = raw
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("")
+                    .split('?')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                let (status, body) = routes
+                    .lock()
+                    .unwrap()
+                    .get(&path)
+                    .cloned()
+                    .unwrap_or((404, r#"{"error":"not found"}"#.to_string()));
+                let response = format!(
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        fake
+    }
+
+    fn set(&self, path: &str, status: u16, body: Value) {
+        self.routes
+            .lock()
+            .unwrap()
+            .insert(path.to_string(), (status, body.to_string()));
+    }
+
+    fn base(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+}
+
+/// 변경 피드의 PR 전이 한 건.
+fn pr_entry(id: i64, action: &str, number: i64) -> Value {
+    json!({
+        "id": id, "entity": "board", "entityId": "b1", "actor": "rocky", "action": action,
+        "changes": { "repo": "o/r", "number": number, "title": format!("PR {number}"),
+                     "url": format!("https://github.com/o/r/pull/{number}") },
+        "at": "2026-10-05T10:00:00.000Z", "title": "rocky", "boardKey": "rocky"
+    })
+}
+
+fn feed(last_id: i64, entries: Vec<Value>) -> Value {
+    json!({ "lastId": last_id, "entries": entries })
+}
+
+/// 이 세션이 #7 을, 다른 세션이 #8 을 구독했다. 보드는 없다(세션 cwd 가 어느 보드로도 안 풀린다 → 구독만으로 고른다).
+fn daemon_with_subscriptions(session: &str) -> FakeDaemon {
+    let fake = FakeDaemon::start();
+    fake.set("/api/boards", 200, json!([]));
+    fake.set("/api/handoffs/claim", 204, json!(null));
+    fake.set(
+        "/api/prs/subscriptions",
+        200,
+        json!([
+            { "repo": "o/r", "number": 7, "sessionId": session, "createdAt": "2026-10-05T00:00:00Z" },
+            { "repo": "o/r", "number": 8, "sessionId": "someone-else", "createdAt": "2026-10-05T00:00:00Z" }
+        ]),
+    );
+    fake
+}
+
+/// 첫 프롬프트는 워터마크만 적고, 다음 프롬프트부터 이 세션이 구독한 PR 의 전이만 싣는다 — 남의 PR(#8)은 빠진다.
+#[test]
+fn the_hook_injects_only_transitions_of_prs_this_session_subscribed() {
+    let fake = daemon_with_subscriptions("me");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = build_context(fake.port, dir.path(), "test");
+    let cursors = dir.path().join("hook-cursors.json");
+    let input = json!({ "session_id": "me", "cwd": "/nowhere" });
+
+    fake.set("/api/changes", 200, feed(10, vec![]));
+    assert_eq!(
+        notify_todo_context(&ctx, &input),
+        None,
+        "첫 프롬프트는 과거를 싣지 않는다"
+    );
+    assert_eq!(read_cursor(&cursors, "me"), Some(10));
+
+    fake.set(
+        "/api/changes",
+        200,
+        feed(
+            12,
+            vec![pr_entry(11, "pr-ready", 7), pr_entry(12, "pr-conflict", 8)],
+        ),
+    );
+    let text = notify_todo_context(&ctx, &input).expect("구독한 #7 은 실린다");
+    assert!(text.contains("#7 머지 후보"), "{text}");
+    assert!(!text.contains("#8"), "남이 구독한 PR 은 빠진다 — {text}");
+    assert_eq!(read_cursor(&cursors, "me"), Some(12));
+}
+
+/// 구독 조회가 실패하면 이 세션 것인지 가를 수 없다 — 창을 통째로 미루고 커서를 넘기지 않아, 다음 턴에 다시 받는다.
+#[test]
+fn a_failed_subscription_lookup_holds_the_cursor_until_the_next_turn() {
+    let fake = daemon_with_subscriptions("me");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = build_context(fake.port, dir.path(), "test");
+    let cursors = dir.path().join("hook-cursors.json");
+    let input = json!({ "session_id": "me", "cwd": "/nowhere" });
+    fake.set("/api/changes", 200, feed(10, vec![]));
+    notify_todo_context(&ctx, &input);
+
+    fake.set(
+        "/api/changes",
+        200,
+        feed(11, vec![pr_entry(11, "pr-ready", 7)]),
+    );
+    fake.set("/api/prs/subscriptions", 500, json!({ "error": "db" }));
+    assert_eq!(notify_todo_context(&ctx, &input), None);
+    assert_eq!(
+        read_cursor(&cursors, "me"),
+        Some(10),
+        "커서를 넘기지 않는다"
+    );
+
+    fake.set(
+        "/api/prs/subscriptions",
+        200,
+        json!([{ "repo": "o/r", "number": 7, "sessionId": "me", "createdAt": "2026-10-05T00:00:00Z" }]),
+    );
+    let text = notify_todo_context(&ctx, &input).expect("다음 턴에 같은 창을 다시 받는다");
+    assert!(text.contains("#7 머지 후보"), "{text}");
+    assert_eq!(read_cursor(&cursors, "me"), Some(11));
+}
+
+/// 받은편지함으로 와서 세션이 이미 받아들인 전이는 다시 넣지 않는다 — 트랜스크립트의 peer 기록이든, 이 턴을 연
+/// 프롬프트 자체든. 받아들이지 않은 것(승인 창에서 거절 등 — 기록이 없다)은 넣는다.
+#[test]
+fn transitions_already_absorbed_from_the_inbox_are_not_injected_again() {
+    let fake = daemon_with_subscriptions("me");
+    fake.set(
+        "/api/prs/subscriptions",
+        200,
+        json!([
+            { "repo": "o/r", "number": 7, "sessionId": "me", "createdAt": "2026-10-05T00:00:00Z" },
+            { "repo": "o/r", "number": 9, "sessionId": "me", "createdAt": "2026-10-05T00:00:00Z" }
+        ]),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = build_context(fake.port, dir.path(), "test");
+    let transcript = dir.path().join("t.jsonl");
+    let peer = json!({
+        "type": "user", "isMeta": true, "origin": { "kind": "peer", "from": "unknown" },
+        "timestamp": "2026-10-05T10:00:05.000Z",
+        "message": { "role": "user", "content": "<cross-session-message from=\"unknown\">\nrocky: o/r #7 머지 후보 — PR 7\n</cross-session-message>" }
+    });
+    std::fs::write(&transcript, format!("{peer}\n")).unwrap();
+    let input = |prompt: &str| {
+        json!({ "session_id": "me", "cwd": "/nowhere",
+                "transcript_path": transcript.to_string_lossy(), "prompt": prompt })
+    };
+    fake.set("/api/changes", 200, feed(10, vec![]));
+    notify_todo_context(&ctx, &input("시작"));
+
+    fake.set(
+        "/api/changes",
+        200,
+        feed(
+            12,
+            vec![pr_entry(11, "pr-ready", 7), pr_entry(12, "pr-ready", 9)],
+        ),
+    );
+    let text = notify_todo_context(&ctx, &input("일하자")).expect("#9 는 받아들인 적이 없다");
+    assert!(
+        !text.contains("#7"),
+        "트랜스크립트에 받아들인 기록 — {text}"
+    );
+    assert!(text.contains("#9 머지 후보"), "{text}");
+
+    // 이 턴을 연 프롬프트가 곧 받은편지함 메시지(쉬던 세션) — 아직 트랜스크립트에 없어도 뺀다.
+    fake.set(
+        "/api/changes",
+        200,
+        feed(13, vec![pr_entry(13, "pr-conflict", 9)]),
+    );
+    assert_eq!(
+        notify_todo_context(&ctx, &input("rocky: o/r #9 충돌 — 풀어야 한다 — PR 9")),
+        None
+    );
+}
+
+/// 채널: 부모 pid 로 세션을 찾아 그 세션이 구독한 PR 만 보낸다. 세션 목록에 없으면 보내지 않고 cursor 는 넘긴다.
+/// 세션·구독 조회가 실패하면 cursor 를 그대로 두고 다시 시도하게 한다(`Page::Retry`).
+#[test]
+fn the_channel_reads_a_page_for_the_session_found_by_its_parent_pid() {
+    let fake = daemon_with_subscriptions("me");
+    fake.set(
+        "/api/changes",
+        200,
+        feed(
+            12,
+            vec![pr_entry(11, "pr-ready", 7), pr_entry(12, "pr-ready", 8)],
+        ),
+    );
+    fake.set(
+        "/api/sessions",
+        200,
+        json!({ "available": true, "sessions": [{ "pid": 4242, "sessionId": "me", "cwd": "/nowhere" }] }),
+    );
+    let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
+    let base = fake.base();
+
+    let Page::Read { events, next, more } = read_page(&agent, &base, 4242, 10) else {
+        panic!("읽혀야 한다");
+    };
+    assert_eq!((next, more), (12, false));
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].meta["number"], "7");
+
+    let Page::Read { events, next, .. } = read_page(&agent, &base, 9999, 10) else {
+        panic!("모르는 세션도 읽히기는 한다");
+    };
+    assert!(events.is_empty(), "누구의 것인지 모르면 보내지 않는다");
+    assert_eq!(next, 12);
+
+    fake.set("/api/prs/subscriptions", 500, json!({ "error": "db" }));
+    assert_eq!(read_page(&agent, &base, 4242, 10), Page::Retry);
+    fake.set("/api/sessions", 500, json!({ "error": "agents" }));
+    assert_eq!(read_page(&agent, &base, 4242, 10), Page::Retry);
+}
