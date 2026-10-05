@@ -68,6 +68,20 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 추천은 규칙 세 가지다(최근 15턴, 5턴 미만이면 판단하지 않음). ① 턴 평균 출력이 3,000토큰 이하인데 effort가 xhigh/max면 medium을 권한다. ② 창 안에서 effort를 올린 뒤 턴이 길어졌으면 이미 조정한 것으로 보고 추천하지 않는다. ③ Opus인데 도구 호출이 0이고 출력이 짧으면 Sonnet medium을 권한다. 모델 전환은 다음 작업 경계(커밋 직후)나 새 세션에서 하라고 권한다 — 모델을 바꾸면 쌓인 캐시를 못 쓰고 새로 쌓는다(effort 변경은 캐시를 지킨다). 수치와 규칙 on/off는 `rocky.json`의 `tokens.recommend`로 바꾼다.
 
+### 기본 브랜치 검증
+
+여러 워크트리에서 PR을 연달아 머지하면 "머지된 `main`이 여전히 초록인가"를 누군가 다시 봐야 한다. 데몬이 그 일을 한다 — `rocky.json`의 `verify.targets[]`에 보드와 단계를 적으면, 원격 브랜치를 `git ls-remote`로 보다가(GitHub API 예산을 쓰지 않는다) 새 커밋이 들어오면 전용 워크트리(`<todo dir>/verify/<board>/tree`, detached — 사람·세션의 작업 트리와 브랜치를 건드리지 않는다)에서 단계를 차례로 돈다. 한 번에 하나만 돌고, 도는 사이 커밋이 몰리면 최신 하나만 본다. 실패와 복구(실패 → 통과)만 macOS 배너로 알린다.
+
+```json
+"verify": { "targets": [ { "board": "rocky", "steps": [
+  { "name": "install", "command": ["bun", "install", "--frozen-lockfile"] },
+  { "name": "check", "command": ["bun", "run", "check"] },
+  { "name": "cargo-test", "command": ["cargo", "test", "--workspace"] }
+] } ] }
+```
+
+`rocky verify`(또는 `GET /api/verify`)가 대상마다 마지막 결과를 보여 준다 — 실패면 단계·이유·로그 파일. 명령은 설정 파일에만 있다(화면·REST가 바꾸지 않는다). 데몬이 빌드·테스트를 돌리므로 머신이 그만큼 바빠진다.
+
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
 
 > **v0.19에서 걷어낸 것**: 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅, opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다. 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json`의 `soul` / `callsign` / `opencode` 키도 함께 없어져 이제 거부되니, 예전 설정 파일에 남아 있으면 지운다.
@@ -104,7 +118,7 @@ claude plugin install rocky@rocky-marketplace
 }
 ```
 
-허용하는 top-level 키는 아래 다섯뿐이다. 그 밖의 키는 바로 거부한다(오타 가드). 제거된 `openapi` / `seo`도 거부하니 옛 설정 파일에 남아 있으면 지운다. 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json)과 `crates/rocky-core/src/config.rs`가 함께 정한다.
+허용하는 top-level 키는 아래 여섯뿐이다. 그 밖의 키는 바로 거부한다(오타 가드). 제거된 `openapi` / `seo`도 거부하니 옛 설정 파일에 남아 있으면 지운다. 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json)과 `crates/rocky-core/src/config.rs`가 함께 정한다.
 
 | 키 | 내용 |
 | --- | --- |
@@ -112,6 +126,7 @@ claude plugin install rocky@rocky-marketplace
 | `usage` | 사용 로그. `dir`(기본 `~/.config/rocky/usage`) / `enabled`(기본 true). 표면별 호출을 월별 JSONL로 남기고 `rocky usage`로 읽는다. 내용은 싣지 않는다 |
 | `pr` | PR 감시. `enabled`(기본 true) / `intervalMinutes`(기본 3) / `notify`(기본 true) / `sessionNotify`(기본 true) / `notifiers[]`(알림 브릿지, 예: `bridges/telegram/`). 데몬은 **구독한 PR만** 본다. 동작은 [`docs/board.md`](./docs/board.md) "PR 감시" |
 | `tokens` | Claude Code 토큰 색인. `enabled`(기본 true) / `dir`(트랜스크립트 루트, 기본 `$CLAUDE_CONFIG_DIR/projects` → `~/.claude/projects`) / `recommend`(`window` 15 · `minTurns` 5 · `lowOutputTokens` 3000 · `lowerEffort` · `holdAfterRaise` · `switchToSonnet`) |
+| `verify` | 기본 브랜치 검증(opt-in). `targets[]` — `board`(그 보드 `path`가 레포) / `branch`(기본 `main`) / `steps[]`(`name` · `command` argv · `timeoutMs` 기본 30분) — 와 `intervalSeconds`(기본 60). 아래 "기본 브랜치 검증" |
 | `todo` | 보드 데몬 설정. `port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `inboxAdapters` / `sessionSummary`. Rust 데몬(`crates/`)이 읽는다. 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수

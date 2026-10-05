@@ -17,6 +17,7 @@ pub mod launchd;
 pub mod system;
 pub mod tokens_cmd;
 pub mod usage_cmd;
+pub mod verify_cmd;
 pub mod worklog_mcp;
 
 /// `help` 출력 — TS `src/cli.ts` 의 HELP 를 그대로 옮겼다.
@@ -62,6 +63,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky tokens [--since 30d] [--by model,effort|model|effort|session|branch] [--json]
                                           Claude Code 토큰 합계 — 모델·effort 고를 때 참고 (rocky.json tokens 블록)
   rocky tokens here [--cwd P] [--json]    이 디렉터리의 최근 세션 — 턴별 모델·effort·토큰과 추천
+  rocky verify [--json]                   기본 브랜치 검증 — 대상마다 마지막 결과(rocky.json verify 블록)
   rocky mcp setup                         호스트별 MCP 등록 안내
   rocky mcp worklog                       worklog_* 4 도구 stdio MCP 서버 (플러그인이 띄운다)
   rocky tailscale on|off|status           테일넷 한정 HTTPS 노출 (옵션, 기본 off)

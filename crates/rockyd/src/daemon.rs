@@ -241,6 +241,7 @@ pub async fn run_daemon(
     usage_dir: Option<PathBuf>,
     pr_watch: rocky_core::config::PrWatchConfig,
     tokens: TokensRuntime,
+    verify: rocky_core::verify::VerifyConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
     let base_url = format!("http://127.0.0.1:{}", runtime.port);
@@ -363,6 +364,16 @@ pub async fn run_daemon(
             std::time::Duration::from_secs(pr_watch.interval_minutes() * 60),
         );
     }
+    // 기본 브랜치 검증 — `verify.targets[]` 가 있을 때만. 기동 2분 뒤 처음(업데이트 직후 몰리지 않게), 바퀴가 끝나면 주기만큼 쉰다.
+    let verify_runner = crate::runner::default_runner();
+    crate::verify::spawn_verifier(
+        state.clone(),
+        verify_runner.clone(),
+        crate::verify::osascript_verify_notifier(verify_runner),
+        runtime.dir.join("verify"),
+        verify,
+        std::time::Duration::from_secs(120),
+    );
     let router = build_router(state, ui_dist.as_deref());
 
     std::fs::write(&pid_path, std::process::id().to_string())?;
@@ -474,7 +485,8 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
         transcripts_dir: rocky_core::config::resolve_transcripts_dir(&env, &tokens_block),
         recommend: tokens_block.recommend,
     };
-    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch, tokens).await
+    let verify = rocky_core::verify::load_verify_block(&config_path);
+    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify).await
 }
 
 /// 토큰 색인 — 트랜스크립트 루트(None 이면 끔)와 추천 규칙.

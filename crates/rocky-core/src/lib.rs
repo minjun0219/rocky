@@ -28,6 +28,7 @@ pub mod tokens;
 pub mod transcript;
 pub mod types;
 pub mod usage;
+pub mod verify;
 pub mod version;
 pub mod worklog;
 

@@ -223,6 +223,73 @@
         }
       },
       "additionalProperties": false
+    },
+    "verify": {
+      "type": "object",
+      "description": "기본 브랜치 검증 — 원격 브랜치에 새 커밋이 들어오면 데몬이 전용 워크트리(<todo dir>/verify/<board>/tree, detached)에서 단계를 차례로 돈다. 실패와 복구만 macOS 배너로 알리고, 결과는 `rocky verify` · `GET /api/verify`. 대상이 없으면 꺼진 것이다.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "끄려면 false (기본: targets 가 있으면 켜짐)."
+        },
+        "intervalSeconds": {
+          "type": "integer",
+          "minimum": 10,
+          "description": "원격을 보는 주기(기본 60). 바퀴가 끝난 뒤부터 센다."
+        },
+        "targets": {
+          "type": "array",
+          "description": "검증 대상 — 보드(그 path 가 레포)와 브랜치, 단계들.",
+          "items": {
+            "type": "object",
+            "required": ["board", "steps"],
+            "additionalProperties": false,
+            "properties": {
+              "board": {
+                "type": "string",
+                "minLength": 1,
+                "description": "보드 key — 그 보드의 path 가 레포다(rocky board path)."
+              },
+              "branch": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9/_.-]+$",
+                "description": "원격 브랜치(기본 main)."
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "description": "차례로 돌 단계 — 하나라도 실패하면 거기서 멈춘다.",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "command"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]+$",
+                      "description": "단계 이름(실패 알림에 실린다)."
+                    },
+                    "command": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "argv — 셸을 거치지 않는다. 워크트리에서 돈다."
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "상한(기본 30분). 넘으면 프로세스 그룹째 끝낸다."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

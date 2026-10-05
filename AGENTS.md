@@ -319,6 +319,11 @@ typecheck or tests — pre-push and CI already cover it.*
   뺀다. 조회는 `/api/tokens/{summary,current,sessions/:id,recommendation}`, MCP 두 도구, `rocky tokens`. 추천은 규칙 v1
   세 가지(`tokens.recommend`로 조정)이고, 색인 스레드가 **낸 규칙이 바뀐** 세션만 `GET /api/tokens/events`로 민다(첫 바퀴는
   과거 가져오기라 기준선만). 이 스트림을 전역 `/api/events`와 나눈 것은 그쪽 구독자가 `data:`마다 보드를 다시 읽기 때문이다.
+- **기본 브랜치 검증**(`rocky_core::verify`, `rockyd::verify`, opt-in `rocky.json` `verify.targets[]`): 원격 브랜치를 `git ls-remote`로 보고
+  새 커밋이면 `<todo dir>/verify/<board>/tree`(보드 레포의 **detached** 워크트리 — 사람·세션의 작업 트리·브랜치를 건드리지 않는다)에서
+  단계(argv, 설정 파일에만)를 차례로 돈다. 잡 하나가 대상을 차례로 — 동시 1개, 몰린 커밋은 최신 하나. 단계는 자기 프로세스 그룹으로
+  띄워 시간 초과면 그룹째 끝낸다. 마지막 결과는 `last.json`(도는 중에 데몬이 내려가면 다음 기동에 같은 커밋을 다시 돈다). 실패·복구만
+  배너. 조회는 `GET /api/verify`·`rocky verify`. 결과를 히스토리·웹 "지금"·세션 받은편지함에 싣는 것은 아직 없다.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd`로 정한다. 끼워 넣는 쪽은 `rocky statusline`(`--cwd`·`--session`, 없으면 stdin JSON) — 1초마다 도는
   자리라 사용 로그·데몬 자동 기동을 거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.
