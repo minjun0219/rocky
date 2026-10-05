@@ -1,0 +1,12 @@
+{
+  "why": "경보를 올린 7d 는 70% 아래여도 보인다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin",
+    "alert_percent": 60
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":1789549200},\"seven_day\":{\"used_percentage\":65,\"resets_at\":1789724400}}}",
+  "allow": []
+}

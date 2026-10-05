@@ -1,0 +1,12 @@
+{
+  "why": "alert_percent 0 은 임박 경고를 끈다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin",
+    "alert_percent": 0
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":95,\"resets_at\":1789549200}}}",
+  "allow": []
+}

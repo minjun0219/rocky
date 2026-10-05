@@ -1,0 +1,11 @@
+{
+  "why": "타입이 어긋난 필드만 빈다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"model\":\"Opus 5\",\"effort\":{\"level\":\"low\"},\"context_window\":{\"used_percentage\":\"41\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":\"30\"}}}",
+  "allow": []
+}

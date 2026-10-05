@@ -1,0 +1,11 @@
+{
+  "why": "모델 없음",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"effort\":{\"level\":\"max\"}}",
+  "allow": []
+}
