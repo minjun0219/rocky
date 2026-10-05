@@ -281,7 +281,7 @@ impl TodoMcp {
 
     #[tool(
         name = "token_current_session",
-        description = "지금 세션의 턴별 모델·effort·토큰과 규칙 기반 추천 — cwd(이 디렉터리나 그 아래)에서 가장 최근에 움직인 Claude Code 세션. 추천(suggestions)은 effort 를 낮추거나 Sonnet 으로 바꿀지에 대한 것이고 근거 수치(evidence)를 함께 싣는다; 색인은 1분마다 갱신된다."
+        description = "지금 세션의 턴별 모델·effort·토큰과 규칙 기반 추천 — cwd(이 디렉터리나 그 아래)에서 가장 최근에 움직인 Claude Code 세션. 추천(suggestions)은 effort 를 낮출지, Sonnet 으로 바꿀지, 맥락이 무거우면 기계적인 후속을 새 세션으로 넘길지에 대한 것이고 근거 수치(evidence — 턴 평균 출력·캐시 읽기 등)를 함께 싣는다; 색인은 1분마다 갱신된다."
     )]
     async fn token_current_session(
         &self,

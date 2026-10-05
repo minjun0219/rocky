@@ -612,7 +612,7 @@ pub fn sessions_active_since(conn: &Connection, since: &str) -> rusqlite::Result
     rows.collect()
 }
 
-// ── 추천(규칙 v1) ────────────────────────────────────────────────────────────
+// ── 추천(규칙) ────────────────────────────────────────────────────────────
 
 /// 추천 SSE 이벤트 이름(`GET /api/tokens/events`).
 pub const RECOMMENDATION_EVENT: &str = "tokens.recommendation";
@@ -629,6 +629,12 @@ pub struct RecommendConfig {
     pub lower_effort: bool,
     pub hold_after_raise: bool,
     pub switch_to_sonnet: bool,
+    pub fresh_session: bool,
+    /// 요청당 캐시 읽기(≈ 맥락 크기)가 이 이상이면 "맥락이 무겁다". 턴당 합계로 재면 맥락 × 요청 수라 도구를 많이 부른
+    /// 짧은 맥락의 턴도 걸린다 — 그런 세션은 새로 열어도 줄어드는 게 없다.
+    pub heavy_context_tokens: u64,
+    /// `fresh-session` 의 "출력이 작다" 기준 — `low_output_tokens` 보다 넉넉하다(기계적인 후속도 diff 몇 개는 쓴다).
+    pub fresh_session_output_tokens: u64,
 }
 
 impl Default for RecommendConfig {
@@ -640,6 +646,9 @@ impl Default for RecommendConfig {
             lower_effort: true,
             hold_after_raise: true,
             switch_to_sonnet: true,
+            fresh_session: true,
+            heavy_context_tokens: 200_000,
+            fresh_session_output_tokens: 10_000,
         }
     }
 }
@@ -648,7 +657,7 @@ impl Default for RecommendConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Suggestion {
-    /// `lower-effort` · `switch-to-sonnet`.
+    /// `lower-effort` · `switch-to-sonnet` · `fresh-session`.
     pub rule: &'static str,
     pub message: String,
 }
@@ -659,6 +668,10 @@ pub struct Suggestion {
 pub struct Evidence {
     pub turns: usize,
     pub avg_output_tokens: u64,
+    /// 턴 평균 캐시 읽기 — 긴 세션의 비용은 대부분 여기다(요청마다 맥락 전체를 다시 읽는다).
+    pub avg_cache_read_tokens: u64,
+    /// 요청당 캐시 읽기 — 창 안 캐시 읽기 합 ÷ 요청 수, 대략 지금 맥락의 크기. `fresh-session` 이 이걸로 판정한다.
+    pub avg_context_tokens: u64,
     pub tool_calls: u64,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -687,11 +700,15 @@ pub fn effort_rank(effort: Option<&str>) -> Option<u8> {
     }
 }
 
-fn avg_output(turns: &[TurnStat]) -> u64 {
+fn avg_of(turns: &[TurnStat], field: impl Fn(&TurnStat) -> u64) -> u64 {
     if turns.is_empty() {
         return 0;
     }
-    turns.iter().map(|t| t.output_tokens).sum::<u64>() / turns.len() as u64
+    turns.iter().map(field).sum::<u64>() / turns.len() as u64
+}
+
+fn avg_output(turns: &[TurnStat]) -> u64 {
+    avg_of(turns, |t| t.output_tokens)
 }
 
 fn thousands(n: u64) -> String {
@@ -770,6 +787,9 @@ impl Recommendation {
 /// 1. `lower-effort`: 평균 출력 ≤ 임계이고 지금 effort 가 xhigh/max → medium 고려.
 /// 2. `hold-after-raise`: 창 안에서 사람이 effort 를 올렸고 그 뒤 턴들의 평균 출력이 앞보다 길어졌으면 → 추천 억제.
 /// 3. `switch-to-sonnet`: 지금 모델이 Opus 이고 창의 턴이 전부 도구 호출 0 + 평균 출력 ≤ 임계 → Sonnet medium 고려.
+/// 4. `fresh-session`: 요청당 캐시 읽기(맥락 크기) ≥ 임계이고 평균 출력 ≤ (넉넉한) 임계 → 긴 맥락을 요청마다 다시 읽으며 조금씩 쓰고
+///    있다 — 기계적인 후속은 새 세션(필요하면 Sonnet)으로. 같은 세션에서 모델만 바꾸는 건 권하지 않는다(캐시는 모델별이라
+///    전환 때 맥락 전체를 다시 쓴다).
 pub fn recommend(session_id: &str, turns: &[TurnStat], cfg: &RecommendConfig) -> Recommendation {
     let window = &turns[turns.len().saturating_sub(cfg.window.max(1))..];
     let latest = window.last();
@@ -777,6 +797,12 @@ pub fn recommend(session_id: &str, turns: &[TurnStat], cfg: &RecommendConfig) ->
     let evidence = Evidence {
         turns: window.len(),
         avg_output_tokens: avg,
+        avg_cache_read_tokens: avg_of(window, |t| t.cache_read_tokens),
+        avg_context_tokens: {
+            let requests: u64 = window.iter().map(|t| t.requests).sum();
+            let read: u64 = window.iter().map(|t| t.cache_read_tokens).sum();
+            read.checked_div(requests).unwrap_or(0)
+        },
         tool_calls: window.iter().map(|t| t.tool_calls).sum(),
         model: latest.map(|t| t.model.clone()),
         effort: latest.and_then(|t| t.effort.clone()),
@@ -852,6 +878,22 @@ pub fn recommend(session_id: &str, turns: &[TurnStat], cfg: &RecommendConfig) ->
                 "최근 {n}턴 동안 도구 호출 0, 평균 출력 {} 토큰 — 다음 작업 경계(커밋 직후)나 새 세션에서 {} 대신 Sonnet medium 으로 전환 고려(모델을 바꾸면 캐시를 새로 쌓는다)",
                 thousands(avg),
                 latest.model,
+            ),
+        });
+    }
+    let context = out.evidence.avg_context_tokens;
+    if cfg.fresh_session
+        && context >= cfg.heavy_context_tokens
+        && avg <= cfg.fresh_session_output_tokens
+    {
+        out.suggestions.push(Suggestion {
+            rule: "fresh-session",
+            message: format!(
+                "최근 {n}턴 맥락(요청당 캐시 읽기) {} 토큰(기준 {} 이상), 턴당 캐시 읽기 {} 토큰에 평균 출력 {} 토큰 — 긴 맥락을 요청마다 다시 읽으며 조금씩 쓰고 있다. 기계적인 후속(리뷰 반영·머지 뒤 정리)은 새 세션(필요하면 Sonnet)이나 가벼운 서브에이전트로 넘기는 것을 고려 — 같은 세션에서 모델만 바꾸면 캐시를 처음부터 다시 쓴다",
+                thousands(context),
+                thousands(cfg.heavy_context_tokens),
+                thousands(out.evidence.avg_cache_read_tokens),
+                thousands(avg),
             ),
         });
     }

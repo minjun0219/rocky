@@ -415,6 +415,57 @@ fn rule_switch_to_sonnet_needs_opus_no_tools_and_short_output() {
     assert!(recommend(SID, &sonnet, &cfg).suggestions.is_empty());
 }
 
+/// 맥락 `context` 를 `requests` 번 다시 읽는 턴.
+fn heavy(context: u64, requests: u64, output: u64) -> TurnStat {
+    TurnStat {
+        requests,
+        cache_read_tokens: context * requests,
+        ..turn(output, 4, "claude-opus-5-5", "high")
+    }
+}
+
+#[test]
+fn rule_fresh_session_fires_when_heavy_context_writes_little() {
+    let cfg = RecommendConfig::default();
+    // 50만 맥락을 턴마다 3번 다시 읽으며 4천만 쓴다 — 긴 세션의 기계적인 후속.
+    let turns: Vec<_> = (0..15).map(|_| heavy(500_000, 3, 4_000)).collect();
+    let rec = recommend(SID, &turns, &cfg);
+    assert_eq!(rules(&rec), vec!["fresh-session"]);
+    assert_eq!(rec.evidence.avg_context_tokens, 500_000);
+    assert_eq!(rec.evidence.avg_cache_read_tokens, 1_500_000);
+    let msg = &rec.suggestions[0].message;
+    assert!(msg.contains("500,000"), "{msg}");
+    assert!(msg.contains("새 세션"), "{msg}");
+    assert!(
+        msg.contains("모델만 바꾸면"),
+        "같은 세션에서 모델만 바꾸라고 하지 않는다: {msg}"
+    );
+
+    // 맥락이 가벼우면 도구를 많이 불러 턴당 합계가 커도 내지 않는다 — 새 세션으로 가도 줄어드는 게 없다.
+    let light: Vec<_> = (0..15).map(|_| heavy(80_000, 40, 4_000)).collect();
+    let rec = recommend(SID, &light, &cfg);
+    assert_eq!(rec.evidence.avg_cache_read_tokens, 3_200_000);
+    assert!(rec.suggestions.is_empty());
+    // 무거워도 많이 쓰는 턴(설계·구현)이면 내지 않는다.
+    let writing: Vec<_> = (0..15).map(|_| heavy(500_000, 3, 20_000)).collect();
+    assert!(recommend(SID, &writing, &cfg).suggestions.is_empty());
+
+    // 끄면 내지 않는다; 기준을 낮추면 가벼운 맥락에도 낸다.
+    let off = RecommendConfig {
+        fresh_session: false,
+        ..cfg.clone()
+    };
+    assert!(recommend(SID, &turns, &off).suggestions.is_empty());
+    let lower = RecommendConfig {
+        heavy_context_tokens: 50_000,
+        ..cfg
+    };
+    assert_eq!(
+        rules(&recommend(SID, &light, &lower)),
+        vec!["fresh-session"]
+    );
+}
+
 #[test]
 fn too_few_turns_are_held_and_window_limits_the_view() {
     let cfg = RecommendConfig::default();
