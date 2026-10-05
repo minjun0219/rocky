@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import {
   chmodSync,
   existsSync,
@@ -7,8 +7,10 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -22,6 +24,34 @@ import { join } from 'node:path';
  * "받아야 하는데 못 받는" 상황을 만든다.
  */
 const bin = join(import.meta.dir, '..', 'plugin', 'bin', 'rocky');
+
+// macOS 는 새로 쓴 실행 파일의 첫 실행마다 검사를 거친다 — 평소 100~300ms 인데, 옆에서 다른
+// 세션의 `cargo test`(doctest 마다 새 바이너리)가 돌면 그 줄이 밀려 한 번에 30초~2분까지 걸렸다.
+// 검사는 파일(inode) 단위이고 결과가 프로세스를 넘어 남으므로, 가짜 실행 파일은 실행 사이에도
+// 남는 `fixtures` 에 내용마다 한 번만 쓰고 테스트에는 심볼릭 링크로만 건다 — 이미 검사된 파일을
+// 링크로 띄우면 부하 중에도 10ms 안팎이다. 시간 제한은 그 파일들을 처음 만드는 실행 몫이다.
+setDefaultTimeout(30_000);
+
+const fixtures = join(tmpdir(), 'rocky-bootstrap-fixtures');
+
+/** 내용이 `body` 인 실행 파일 — 내용의 해시를 이름으로 삼아 실행이 바뀌어도 같은 파일을 쓴다. */
+function sharedExec(body: string): string {
+  const path = join(fixtures, Bun.hash(body).toString(16));
+  if (!existsSync(path)) {
+    mkdirSync(fixtures, { recursive: true });
+    // 동시에 도는 다른 실행(데몬 검증과 세션 게이트)이 반쯤 쓴 파일을 띄우지 않게 rename 으로 건다.
+    const tmp = `${path}.${process.pid}`;
+    writeFileSync(tmp, body);
+    chmodSync(tmp, 0o755);
+    renameSync(tmp, path);
+  }
+  return path;
+}
+
+/** `path` 에 내용이 `body` 인 가짜 실행 파일을 건다 — 새 파일 대신 `sharedExec` 로의 링크. */
+function fakeExec(path: string, body: string): void {
+  symlinkSync(sharedExec(body), path);
+}
 
 let dir: string;
 beforeEach(() => {
@@ -78,19 +108,19 @@ async function runAsync(args: string[], env: Record<string, string>) {
  */
 function darwinArm64Path(): string {
   const bin = join(dir, 'fake-uname-bin');
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(
-    join(bin, 'uname'),
-    '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n',
-  );
-  chmodSync(join(bin, 'uname'), 0o755);
+  if (!existsSync(bin)) {
+    mkdirSync(bin);
+    fakeExec(
+      join(bin, 'uname'),
+      '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n',
+    );
+  }
   return `${bin}:${process.env.PATH ?? ''}`;
 }
 
 function fakeBinary(): string {
   const path = join(dir, 'fake-rocky');
-  writeFileSync(path, '#!/bin/sh\necho "fake:$*"\nexit 7\n');
-  chmodSync(path, 0o755);
+  fakeExec(path, '#!/bin/sh\necho "fake:$*"\nexit 7\n');
   return path;
 }
 
@@ -111,8 +141,7 @@ describe('bin/rocky bootstrap', () => {
     );
     const installed = join(dir, 'data', 'rocky', `v${version}`);
     mkdirSync(installed, { recursive: true });
-    writeFileSync(join(installed, 'rocky'), '#!/bin/sh\necho "installed:$*"\n');
-    chmodSync(join(installed, 'rocky'), 0o755);
+    fakeExec(join(installed, 'rocky'), '#!/bin/sh\necho "installed:$*"\n');
 
     const r = run(['ls'], { CLAUDE_PLUGIN_ROOT: root });
     expect(r.err).toBe('');
@@ -131,8 +160,7 @@ describe('bin/rocky bootstrap', () => {
       const root = pluginRoot(version);
       const installDir = join(dir, 'data', 'rocky', `v${version}`);
       mkdirSync(installDir, { recursive: true });
-      writeFileSync(join(installDir, 'rocky'), `#!/bin/sh\necho "${version}:$*"\n`);
-      chmodSync(join(installDir, 'rocky'), 0o755);
+      fakeExec(join(installDir, 'rocky'), `#!/bin/sh\necho "${version}:$*"\n`);
       return root;
     }
     const link = () => join(dir, 'data', 'rocky', 'current');
@@ -187,9 +215,9 @@ describe('bin/rocky bootstrap', () => {
     function fakeRelease(version: string): { base: string; stop: () => void } {
       const stage = join(dir, `stage-${version}`);
       mkdirSync(stage, { recursive: true });
+      // tarball 에도 링크째 담는다 — 풀린 새 파일을 띄우면 검사를 다시 거친다.
       for (const name of ['rocky', 'rockyd']) {
-        writeFileSync(join(stage, name), `#!/bin/sh\necho "${version}:$*"\n`);
-        chmodSync(join(stage, name), 0o755);
+        fakeExec(join(stage, name), `#!/bin/sh\necho "${version}:$*"\n`);
       }
       const asset = `rocky-v${version}-aarch64-apple-darwin.tar.gz`;
       const tgz = join(dir, asset);
