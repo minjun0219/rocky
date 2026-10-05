@@ -89,6 +89,7 @@ fn targets_resolve_like_the_shell() {
         pinned: vec!["repo-a".into(), "~/abs-ish".into()],
         targets: vec![
             "repo-a".into(),
+            "repo-a/".into(),
             "/opt/repo-c/".into(),
             "nested/repo-d".into(),
             " ".into(),
@@ -104,7 +105,7 @@ fn targets_resolve_like_the_shell() {
         vec![
             ("repo-a", "/home/u/dev/workspaces/repo-a", true),
             ("abs-ish", "/home/u/abs-ish", true),
-            ("repo-c", "/opt/repo-c/", false),
+            ("repo-c", "/opt/repo-c", false),
             ("repo-d", "/home/u/dev/workspaces/nested/repo-d", false),
         ]
     );
@@ -118,6 +119,17 @@ fn custom_root_is_used_for_relative_names() {
         targets: vec!["x".into()],
     };
     assert_eq!(resolve_targets(&config, "/home/u")[0].dir, "/srv/ws/x");
+    // 상대 root 는 홈 기준, `~foo` 는 홈이 아니라 root 아래 이름이다.
+    let config = RcConfig {
+        root: Some("ws".into()),
+        pinned: vec![],
+        targets: vec!["x".into(), "~foo".into()],
+    };
+    let dirs: Vec<String> = resolve_targets(&config, "/home/u/")
+        .into_iter()
+        .map(|t| t.dir)
+        .collect();
+    assert_eq!(dirs, vec!["/home/u/ws/x", "/home/u/ws/~foo"]);
 }
 
 #[test]
@@ -196,11 +208,12 @@ fn rows_match_by_dir_string_and_list_strays() {
     assert_eq!(rows[0].pid, Some(10), "먼저 뜬 쪽");
     assert_eq!(rows[0].sessions, 0);
     assert!(!rows[1].running);
+    // 대상 폴더의 두 번째 서버(20)도 사라지지 않고 여기 보인다.
     assert_eq!(
         strays.iter().map(|s| s.pid).collect::<Vec<_>>(),
-        vec![30, 40]
+        vec![20, 30, 40]
     );
-    assert_eq!(strays[0].label, "old-name");
+    assert_eq!(strays[1].label, "old-name");
 }
 
 #[test]

@@ -92,6 +92,9 @@ pub struct RcStatus {
     pub auth: AuthState,
     /// `agy` 가 없으면 None.
     pub antigravity: Option<AgyStatus>,
+    /// 프로브 명령(`ps`·`lsof`)이 실패했으면 그 사유 — 이때 "꺼짐"은 모르는 것이다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_error: Option<String>,
 }
 
 impl RcStatus {
@@ -102,6 +105,7 @@ impl RcStatus {
             strays: Vec::new(),
             auth: AuthState::Unknown,
             antigravity: None,
+            probe_error: None,
         }
     }
 }
@@ -194,23 +198,30 @@ pub fn is_session_command(cmd: &str) -> bool {
         .is_some_and(|i| cmd[i + "--sdk-url".len()..].contains("/code/session"))
 }
 
-/// 설정의 이름 하나 → 디렉터리. `/` 는 그대로, `~` 는 앞의 `~` 만 홈으로, 나머지는 `root` 아래.
-/// 정규화하지 않는다 — `lsof` 의 cwd 와 문자열로 맞대는 자리라 같은 문자열이어야 한다.
+/// 설정의 이름 하나 → 디렉터리. `/` 는 그대로, `~` · `~/…` 는 홈 기준, 나머지는 `root` 아래.
+/// 끝의 `/` 만 뗀다 — `lsof` 의 cwd 에는 붙지 않아 남기면 영영 맞지 않는다. 그 밖은 정규화하지 않는다
+/// (`lsof` 의 cwd 와 문자열로 맞대는 자리라 같은 문자열이어야 한다).
 pub fn resolve_dir(name: &str, home: &str, root: &str) -> String {
-    if name.starts_with('/') {
+    let dir = if name.starts_with('/') {
         name.to_string()
-    } else if let Some(rest) = name.strip_prefix('~') {
-        format!("{home}{rest}")
+    } else if name == "~" {
+        home.to_string()
+    } else if let Some(rest) = name.strip_prefix("~/") {
+        format!("{}/{rest}", home.trim_end_matches('/'))
     } else {
-        format!("{root}/{name}")
+        format!("{}/{name}", root.trim_end_matches('/'))
+    };
+    match dir.trim_end_matches('/') {
+        "" => "/".to_string(),
+        trimmed => trimmed.to_string(),
     }
 }
 
 /// 설정 → 대상 목록. 고정이 먼저, 같은 디렉터리는 한 번(고정이 이긴다), 빈 이름은 버린다.
 pub fn resolve_targets(config: &RcConfig, home: &str) -> Vec<Target> {
     let root_raw = config.root.as_deref().unwrap_or(DEFAULT_ROOT);
-    let root = resolve_dir(root_raw, home, "");
-    let root = root.trim_end_matches('/');
+    // 상대 경로 root 는 홈 기준으로 읽는다(`"ws"` → `~/ws`).
+    let root = resolve_dir(root_raw, home, home);
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let named = config
@@ -223,7 +234,7 @@ pub fn resolve_targets(config: &RcConfig, home: &str) -> Vec<Target> {
         if name.is_empty() {
             continue;
         }
-        let dir = resolve_dir(name, home, root);
+        let dir = resolve_dir(name, home, &root);
         if !seen.insert(dir.clone()) {
             continue;
         }
@@ -294,10 +305,14 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
             }
         })
         .collect();
-    let target_dirs: HashSet<&str> = targets.iter().map(|t| t.dir.as_str()).collect();
+    // 행에 붙은 서버만 뺀다 — 대상 폴더에 서버가 둘이면 나중 것도 여기 보여야 한다.
+    let attached: HashSet<u32> = targets
+        .iter()
+        .filter_map(|t| by_dir.get(t.dir.as_str()).map(|s| s.pid))
+        .collect();
     let strays = sorted
         .into_iter()
-        .filter(|s| !target_dirs.contains(s.dir.as_str()))
+        .filter(|s| !attached.contains(&s.pid))
         .map(|s| StrayRow {
             label: label_of(&s.dir),
             dir: s.dir.clone(),
