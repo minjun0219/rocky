@@ -23,6 +23,9 @@ claude plugin install rocky@rocky-marketplace
 설치 후 SessionStart 훅이 데몬을 기동한다 — 첫 세션에서 MCP 가 `failed` 면 `/mcp` retry
 또는 다음 세션에서 붙는다.
 
+Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install` 로 설치한다 — 데몬을 띄우는
+훅이 없으니 데몬은 따로 떠 있어야 한다(`docs/antigravity.md`).
+
 ## 도구 게이트 (먼저 확인)
 
 - 세션에 `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` MCP 도구가
@@ -70,12 +73,27 @@ claude plugin install rocky@rocky-marketplace
 3. 읽어도 무엇을 원하는지 모호하면 착수 표시를 하기 전에 사용자에게 묻는다 —
    start 는 "지금 내가 잡고 있다" 는 신호라 되돌리는 비용이 있다.
 
+## Antigravity 로 넘기기
+
+사용자가 작업(주로 디자인)을 Antigravity 에 맡기겠다고 하면, 브리프를 파일로 만들지 말고 보드 할 일로
+남긴다 — agy 도 같은 보드를 읽는다.
+
+1. `todo_write` 로 할 일을 만든다. **`description` 이 브리프다** — agy 는 이 세션의 대화를 모르므로
+   목표·범위·건드릴 파일·지킬 문서(예: `web/DESIGN.md`)·끝의 모양(어느 브랜치에 커밋, PR 은 열지 않음 등)을
+   그 안에 다 쓴다. 참고할 PR·이슈는 `links` 로.
+2. `start` 는 하지 않는다 — 착수 표시는 받는 쪽이 `actor: "antigravity"` 로 한다.
+3. 사용자에게 참조(`rocky-42`)를 알려 준다. agy 에서 그 참조를 말하면 위 "참조 하나만" 흐름으로 시작한다.
+4. 받는 쪽은 끝낼 때 결과(브랜치·바뀐 것·남은 것)를 댓글로 남기고 `done` 한다. rocky 는 `antigravity` 를
+   에이전트 목록에 두지 않으므로, 그 댓글과 완료는 Claude Code 세션의 다음 프롬프트에 "호출자의 보드
+   변경"으로 주입된다 — 넘긴 세션은 거기서 이어받는다.
+
 ## 에티켓 (처리중 표시의 핵심)
 
 1. **작업 착수 시 `todo_status { action: "start" }`** — 웹 UI 에 "누가 처리중인지" 앰버
    뱃지로 표시된다. 이것이 호출자가 진행 상황을 인지하는 채널이므로 생략하지 않는다.
 2. 끝나면 `done`, 중간에 손 떼면 `stop`. 30분 넘게 방치된 doing 은 UI 에 stale 로 보인다.
-3. **actor 인자를 항상 넣는다** — `claude-code` (Codex 면 `codex`, opencode 면 `opencode`).
+3. **actor 인자를 항상 넣는다** — `claude-code` (Codex 면 `codex`, opencode 면 `opencode`,
+   Antigravity 면 `antigravity`).
    히스토리와 뱃지에 이 이름이 남는다.
 4. 관련 맥락은 `links` 로 첨부한다 — GitHub 이슈/PR URL, 외부 할 일 앱 항목 URL. 상세 배경은
    `description` (markdown) 에.
@@ -139,8 +157,8 @@ REF 로 알아듣고 처리하면 된다.
 Claude Code 에서는 `UserPromptSubmit` 훅이 "마지막 확인 이후 호출자(사람)의 보드 변경"을
 자동 주입한다 — `# rocky: 마지막 확인 이후 호출자의 보드 변경` 블록이 보이면 그게
 호출자의 웹 편집분이다. 지시로 해석될 수 있는 항목(새 todo 등)은 임의 실행하지 말고
-사용자에게 확인 후 진행한다. 훅이 없는 호스트(Codex/opencode)에서는 작업 단위 시작
-전에 `todo_list` 로 직접 확인한다.
+사용자에게 확인 후 진행한다. 훅이 없는 호스트(Codex/opencode/Antigravity)에서는 작업 단위
+시작 전에 `todo_list` 로 직접 확인한다.
 
 ## statusline 에 얹어 달라고 하면 (Claude Code 전용)
 
