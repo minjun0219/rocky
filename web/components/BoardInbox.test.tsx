@@ -52,7 +52,7 @@ describe('BoardInbox', () => {
     expect(await screen.findByText('새 버그')).toBeTruthy();
     expect(screen.queryByText('올린 것')).toBeNull();
     expect(screen.getByText('수집함 1')).toBeTruthy();
-    expect(screen.getByText('todoist — 실패: exit 1: 토큰 없음')).toBeTruthy();
+    expect(screen.getByText('todoist 실패: exit 1: 토큰 없음')).toBeTruthy();
   });
 
   test('설정 — 어댑터가 알려 준 칸만 그리고 그 칸만 보낸다', async () => {

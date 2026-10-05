@@ -72,7 +72,7 @@ function markdownEditing() {
     markdown({ base: markdownLanguage }),
     syntaxHighlighting(noteHighlight),
     shellMargins,
-    placeholder('마크다운으로 적는다 — ⌘B 굵게 · ⌘K 링크 · "- [ ] " 체크박스'),
+    placeholder('마크다운으로 적는다. ⌘B 굵게 · ⌘K 링크 · "- [ ] " 체크박스'),
     EditorView.lineWrapping,
   ];
 }

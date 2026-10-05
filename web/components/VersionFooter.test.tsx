@@ -20,7 +20,7 @@ describe('VersionFooter', () => {
 
   test('화면을 연 뒤 데몬이 바뀌었으면 새로고침을 권한다', () => {
     renderWithStore(<VersionFooter />, { daemonVersion: '0.34.0', daemonVersionChanged: true });
-    expect(screen.getByRole('button', { name: '데몬이 바뀌었다 · 새로고침' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '데몬 버전이 바뀌었다 · 새로고침' })).toBeTruthy();
   });
 });
 

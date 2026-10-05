@@ -45,12 +45,12 @@ export interface DoingWarning {
  */
 export function doingWarning(todo: TodoView, now = Date.now()): DoingWarning | null {
   if (todo.doingState === 'gone') {
-    return { label: '세션 없음', title: '이 항목을 들고 있던 세션이 사라졌다', tone: 'dead' };
+    return { label: '세션 없음', title: '이 항목을 맡았던 세션이 사라졌다', tone: 'dead' };
   }
   if (todo.doingState === 'idle') {
     return {
       label: '멈춤',
-      title: '세션은 살아 있지만 턴이 끝났고 완료 처리가 없다',
+      title: '세션은 살아 있지만 턴을 끝내고도 완료로 표시하지 않았다',
       tone: 'idle',
     };
   }
@@ -202,7 +202,7 @@ export function boardCommand(ref: string): string {
 export const COPY_FEEDBACK_MS = 1200;
 
 /** clipboard 접근 실패 시 안내하는 prompt 문구 — 기존 네 호출부가 복붙하던 문자열. */
-const CLIPBOARD_UNAVAILABLE_MESSAGE = '클립보드에 접근할 수 없다 — 아래 텍스트를 직접 복사해라:';
+const CLIPBOARD_UNAVAILABLE_MESSAGE = '클립보드에 접근하지 못했다. 아래 텍스트를 직접 복사하자:';
 
 /**
  * `copyRefWithFeedback` 이 의존하는 전역 — {@link CopyRefEnv}(clipboard/document) 에
@@ -607,7 +607,7 @@ export function nowRows(
       group: 'run',
       glyph: known ? 'run' : 'unknown',
       live: known,
-      state: known ? '진행중' : '세션 모름',
+      state: known ? '진행 중' : '세션 모름',
     });
   }
 
@@ -636,8 +636,8 @@ export function nowRows(
         h.status === 'pending'
           ? h.stale
             ? '넘김 · 세션 없음'
-            : '넘김 · 아직 안 집음'
-          : '넘김 · 집었는데 미착수',
+            : '넘김 · 아직 받지 않음'
+          : '넘김 · 받았지만 착수 전',
     });
   }
 
@@ -659,7 +659,7 @@ export function nowRows(
       since: p.updatedAt,
       live: false,
       unread: 0,
-      state: conflict ? 'PR 충돌' : 'PR 확인·머지',
+      state: conflict ? 'PR 충돌' : 'PR 머지 후보',
     });
   }
 
@@ -700,7 +700,7 @@ export function nowRows(
       group: 'mine',
       glyph: 'mine',
       ref: '수집함',
-      title: `${collectSources(input.collectItems)}에 보드로 안 옮긴 항목 ${input.collect}건`,
+      title: `${collectSources(input.collectItems)}에 보드로 옮기지 않은 항목 ${input.collect}건`,
       who: 'YOU',
       live: false,
       unread: 0,
@@ -731,7 +731,7 @@ export function nowRows(
     if (input.expandUnread) {
       rows.push(...restUnreadTodos.map((t) => ({ ...unreadRow(t), extra: true })));
     } else {
-      rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}건 더 보기`, restUnread));
+      rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}개 더 보기`, restUnread));
     }
   }
   // 수집함 행을 펼치면 바로 밑에 항목을 — 행마다 원래 앱(Todoist 등)으로 간다. 개수에는 넣지 않는다
@@ -750,12 +750,12 @@ export function nowRows(
       who: '—',
       live: false,
       unread: 0,
-      state: '보드로 안 옮김',
+      state: '보드로 옮기지 않음',
       extra: true,
     }));
     const rest = (input.collect ?? 0) - items.length;
     if (rest > 0) {
-      extra.push(moreRow('collect:more', `외 ${rest}건 — 수집함 앱에서`, rest));
+      extra.push(moreRow('collect:more', `외 ${rest}건은 수집함 앱에서 본다`, rest));
     }
     rows.splice(at + 1, 0, ...extra);
   }
@@ -917,7 +917,7 @@ export interface PrRow {
 const CI_LABEL: Record<PrSnapshot['ci'], string> = {
   pass: 'CI 통과',
   fail: 'CI 실패',
-  pending: 'CI 도는 중',
+  pending: 'CI 실행 중',
 };
 
 export function prDetail(p: PrSnapshot, status: PrStatus): string {
@@ -925,7 +925,7 @@ export function prDetail(p: PrSnapshot, status: PrStatus): string {
     return '충돌';
   }
   if (status === 'ready') {
-    return '확인·머지';
+    return '머지 후보';
   }
   if (status === 'draft') {
     return '초안';

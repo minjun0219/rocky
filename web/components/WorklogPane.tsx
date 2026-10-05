@@ -91,7 +91,7 @@ export function WorklogPane() {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-[7px] text-sm text-text placeholder:text-faint"
-          placeholder="찾기 — 본문에 들어간 글자"
+          placeholder="본문에서 찾기"
           value={text}
           onChange={(e) => setText(e.target.value)}
           aria-label="작업로그 찾기"
@@ -120,11 +120,13 @@ export function WorklogPane() {
       </div>
       {state === 'unlinked' ? (
         <p className="m-0 text-meta text-faint">
-          이 보드에 폴더(path)가 없어 어느 레포의 기록인지 모른다 — 보드 설정에서 path 를 걸면
+          이 보드에 폴더(path)가 없어 어느 레포의 기록인지 알 수 없다. 보드 설정에서 path를 지정하면
           보인다.
         </p>
       ) : state === 'error' ? (
-        <p className="m-0 text-meta text-faint">작업로그를 못 읽었다 — 데몬을 확인하고 새로고침.</p>
+        <p className="m-0 text-meta text-faint">
+          작업로그를 읽지 못했다. 데몬을 확인하고 새로고침하자.
+        </p>
       ) : state === 'ready' && entries.length === 0 ? (
         <p className="m-0 text-meta text-faint">기록 없음</p>
       ) : (

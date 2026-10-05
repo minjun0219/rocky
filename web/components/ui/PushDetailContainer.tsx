@@ -49,7 +49,7 @@ export function PushDetailContainer({
         <aside
           className={`hidden flex-1 flex-col items-center justify-center border-l border-line p-8 text-center text-sm text-faint md:flex ${className}`}
         >
-          <p>작업을 선택하면 상세 정보가 표시됩니다</p>
+          <p>할 일을 고르면 여기에 상세가 보인다</p>
         </aside>
       );
     }
@@ -57,7 +57,7 @@ export function PushDetailContainer({
     return (
       <aside
         className={`flex flex-1 flex-col border-l border-line bg-surface ${className}`}
-        aria-label="작업 상세"
+        aria-label="할 일 상세"
       >
         <header className="flex h-11 items-center justify-between border-b border-line px-4">
           <span className="font-mono text-chip text-muted">{headerTitle}</span>
@@ -73,7 +73,7 @@ export function PushDetailContainer({
   // 모바일 & cmux 좁은 폭 (Push 슬라이드 오버레이)
   return (
     <section
-      aria-label="작업 상세"
+      aria-label="할 일 상세"
       className={`fixed inset-0 z-30 flex flex-col bg-surface transition-transform duration-250 ease-out md:static ${
         open ? 'translate-x-0' : 'pointer-events-none translate-x-full'
       } ${className}`}

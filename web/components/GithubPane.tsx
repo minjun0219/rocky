@@ -51,11 +51,11 @@ export function GithubPane() {
         </h2>
         {repo === undefined ? (
           <p className="m-0 text-meta text-faint">
-            이 보드에 GitHub 레포가 없다 — 보드 편집에서 GitHub 을 채우면 PR 이 보인다.
+            이 보드에 GitHub 레포가 없다. 보드 편집에서 GitHub 칸을 채우면 PR이 보인다.
           </p>
         ) : repos.length === 0 ? (
           <p className="m-0 text-meta text-faint">
-            구독한 PR 이 없다 — 보드에 GitHub 을 붙이면 레포의 열린 PR 을 여기서 지켜볼 수 있다.
+            구독한 PR이 없다. 보드에 GitHub 레포를 연결하면 열린 PR을 여기서 지켜볼 수 있다.
           </p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -232,7 +232,7 @@ function OtherOpenPrs({ repo }: { repo: string }) {
       )}
       {watched.length > 0 ? (
         <p className="m-0 text-meta text-faint">
-          지켜보기는 다음 확인(3분 안)부터 위 목록에 보인다 — 세션은 깨우지 않는다.
+          지켜보는 PR은 다음 확인(3분 안)부터 위 목록에 보인다. 세션은 깨우지 않는다.
         </p>
       ) : null}
     </div>

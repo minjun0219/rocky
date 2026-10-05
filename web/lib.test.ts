@@ -192,7 +192,7 @@ describe('copyRefWithFeedback', () => {
     expect(copiedCalls).toEqual([]);
     expect(promptCalls).toEqual([
       {
-        message: '클립보드에 접근할 수 없다 — 아래 텍스트를 직접 복사해라:',
+        message: '클립보드에 접근하지 못했다. 아래 텍스트를 직접 복사하자:',
         defaultValue: 'rocky#12',
       },
     ]);
@@ -212,7 +212,7 @@ describe('copyRefWithFeedback', () => {
     });
 
     expect(copiedCalls).toEqual([]);
-    expect(promptCalls).toEqual(['클립보드에 접근할 수 없다 — 아래 텍스트를 직접 복사해라:']);
+    expect(promptCalls).toEqual(['클립보드에 접근하지 못했다. 아래 텍스트를 직접 복사하자:']);
   });
 });
 
@@ -435,7 +435,7 @@ describe('doingWarning', () => {
   test('세션이 사라졌으면 가장 강한 경고다', () => {
     expect(doingWarning(doing({ doingState: 'gone' }), NOW)).toEqual({
       label: '세션 없음',
-      title: '이 항목을 들고 있던 세션이 사라졌다',
+      title: '이 항목을 맡았던 세션이 사라졌다',
       tone: 'dead',
     });
   });
@@ -595,7 +595,7 @@ describe('nowRows', () => {
     const live = rows.find((r) => r.ref === 'a-1');
     expect(live?.unread).toBe(2);
     expect(live?.who).toBe('AGENT');
-    expect([live?.glyph, live?.state, live?.live]).toEqual(['run', '진행중', true]);
+    expect([live?.glyph, live?.state, live?.live]).toEqual(['run', '진행 중', true]);
     // 세션 판정이 없는(unknown) 진행중은 경고가 아니라 무채색 — 모름은 없음이 아니다.
     const human = rows.find((r) => r.ref === 'a-3');
     expect([human?.who, human?.glyph, human?.live]).toEqual(['YOU', 'unknown', false]);
@@ -646,7 +646,7 @@ describe('nowRows', () => {
     ] as unknown as import('./types').HandoffView[];
     const rows = nowRows({ todos, handoffs, seen: {} }, NOW);
     expect(rows.map((r) => `${r.group}:${r.kind}`)).toEqual(['mine:handoff', 'run:doing']);
-    expect(rows[0]?.state).toBe('넘김 · 집었는데 미착수');
+    expect(rows[0]?.state).toBe('넘김 · 받았지만 착수 전');
     expect(rows[0]?.title).toBe('(항목)');
   });
 
@@ -674,7 +674,7 @@ describe('nowRows', () => {
     // 3일 안: c-7(27일)·c-6·c-5 — c-8 은 없다. 행은 3개, 나머지 5건(오래된 것 포함)은 요약.
     expect(rows.map((r) => r.ref)).toEqual(['c-7', 'c-6', 'c-5', '']);
     expect(rows[3]?.group).toBe('more');
-    expect(rows[3]?.title).toContain('5건 더');
+    expect(rows[3]?.title).toContain('5개 더');
     expect(rows[3]?.todoId).toBeUndefined();
     // 펼치면 요약 줄 없이 전부(오래된 c-0 포함) 행으로 — 행마다 할 일로 간다.
     // "내 차례 N개 더"(expanded)는 요약 줄을 펼치지 않는다 — 따로 간다.
@@ -746,7 +746,7 @@ describe('formatAge — DESIGN.md Time Display', () => {
       who: 'AGENT',
       live: true,
       unread: 0,
-      state: '진행중',
+      state: '진행 중',
       ...over,
     });
     expect(needsSecondTick([row({ since: '2026-09-28T03:00:00.000Z' })], NOW)).toBe(true);
@@ -791,7 +791,7 @@ describe('nowRows — PR 감시', () => {
     // 충돌이 머지 가능보다 위다 — 손을 더 급하게 대야 한다.
     expect(rows.map((r) => [r.ref, r.state, r.glyph])).toEqual([
       ['rocky #2', 'PR 충돌', 'dead'],
-      ['rocky #1', 'PR 확인·머지', 'mine'],
+      ['rocky #1', 'PR 머지 후보', 'mine'],
     ]);
     expect(rows[1]?.url).toBe('https://github.com/o/rocky/pull/1');
     expect(rows[1]?.todoId).toBeUndefined();
@@ -859,7 +859,7 @@ describe('prRows — PR 현황', () => {
     expect(parsePrUrl('https://github.com/o/rocky/issues/7')).toBeNull();
     expect(linkedPrStatus('https://github.com/o/rocky/pull/7/files', prs as never)).toEqual({
       status: 'ready',
-      detail: '확인·머지',
+      detail: '머지 후보',
     });
     expect(linkedPrStatus('https://github.com/o/rocky/pull/8', prs as never)).toBeNull();
     expect(linkedPrStatus('https://github.com/o/rocky/pull/9', prs as never)).toBeNull();
@@ -891,8 +891,8 @@ describe('prRows — PR 현황', () => {
       [4, 'waiting'],
       [1, 'waiting'],
     ]);
-    expect(rows[2]?.detail).toBe('CI 도는 중 · 스레드 2');
-    expect(rows[1]?.detail).toBe('확인·머지');
+    expect(rows[2]?.detail).toBe('CI 실행 중 · 스레드 2');
+    expect(rows[1]?.detail).toBe('머지 후보');
     // 전체 보기(null)면 레포와 무관하게.
     expect(prRows(prs, null).map((r) => r.number)).toContain(6);
   });

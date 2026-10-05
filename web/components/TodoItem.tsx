@@ -58,7 +58,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
           // touch-none 이 핵심 — 핸들에서 시작한 터치가 스크롤로 새지 않아야 드래그가 된다.
           // 데스크톱에선 행 hover 에만 보이고, 좁은 화면에선 늘 흐리게 보인다(responsive).
           className="drag-handle shrink-0 cursor-grab touch-none font-mono text-chip text-faint opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label={`${todo.title} 순서 이동 핸들`}
+          aria-label={`${todo.title} 순서 바꾸기`}
           onPointerDown={(e) => onHandleDown(e, todo)}
         >
           <GripVertical size={13} aria-hidden />
@@ -130,8 +130,8 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
             title={unread ? '읽지 않은 댓글이 있다' : '댓글 보기'}
             aria-label={
               unread
-                ? `읽지 않은 댓글 ${todo.commentCount}개 — 눌러서 열기`
-                : `댓글 ${todo.commentCount}개 — 눌러서 열기`
+                ? `읽지 않은 댓글 ${todo.commentCount}개. 눌러서 열기`
+                : `댓글 ${todo.commentCount}개. 눌러서 열기`
             }
             onClick={openDetail}
           >
@@ -142,7 +142,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
         {pendingHandoff ? (
           <span
             className="chip chip-handoff"
-            title={`${pendingHandoff.sessionName ?? pendingHandoff.sessionId} 에게 보냄`}
+            title={`${pendingHandoff.sessionName ?? pendingHandoff.sessionId}에게 보냄`}
           >
             → {pendingHandoff.sessionName ?? '세션'}
           </span>
@@ -152,7 +152,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
             className={`doing-badge tone-${actorTone(todo.doingBy)} ${
               warning ? `is-stale warn-${warning.tone}` : ''
             }`}
-            title={warning ? warning.title : '처리중'}
+            title={warning ? warning.title : '진행 중'}
           >
             <span className="doing-pulse" />
             {todo.doingBy} · {todo.doingSince ? formatElapsed(todo.doingSince) : ''}

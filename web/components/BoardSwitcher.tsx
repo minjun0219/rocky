@@ -104,7 +104,7 @@ export function BoardSwitcher() {
         className="inline-flex min-h-8 max-w-[60vw] items-center gap-1 rounded-md px-2 text-sm font-semibold text-text hover:bg-surface-2"
         aria-haspopup="true"
         aria-expanded={open}
-        aria-label={`보드 — 지금 ${current}. 눌러서 바꾸기`}
+        aria-label={`보드: 지금 ${current}. 눌러서 바꾸기`}
         onClick={() => (open ? close() : setOpen(true))}
       >
         <span className="truncate">{current}</span>

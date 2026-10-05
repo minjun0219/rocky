@@ -150,7 +150,7 @@ export function SessionDelivery() {
                 >
                   <span
                     className={d.ok ? 'text-run' : 'text-dead'}
-                    title={d.ok ? undefined : (d.reason ?? '이유 모름')}
+                    title={d.ok ? undefined : (d.reason ?? '사유 없음')}
                   >
                     {d.ok ? '✓' : '✗'}
                   </span>{' '}

@@ -54,7 +54,7 @@ function App() {
     // REST 만 실패하는 경우 화면에는 아무 신호도 남지 않는다 — 배지는 초록인데 보드만 낡는다.
     // 그때 콘솔이 유일한 단서다.
     const onSyncError = (err: unknown): void => {
-      console.warn('[rocky] 보드 재조회 실패 — 화면이 낡았을 수 있다', err);
+      console.warn('[rocky] 보드를 다시 읽지 못했다. 화면이 최신이 아닐 수 있다', err);
     };
     const sync = (): void => {
       void refetch().catch(onSyncError);

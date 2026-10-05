@@ -88,7 +88,7 @@ describe('NotesRail — 목록', () => {
     };
     renderWithStore(<NotesRail />, { notes: [], selected: 'rocky', addNote });
     await userEvent.click(screen.getByRole('button', { name: '+ 새 노트' }));
-    expect(calls).toEqual([{ board: 'rocky', title: '새 메모' }]);
+    expect(calls).toEqual([{ board: 'rocky', title: '새 노트' }]);
   });
 });
 

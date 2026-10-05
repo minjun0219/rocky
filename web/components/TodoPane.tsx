@@ -211,7 +211,7 @@ export function TodoPane() {
         >
           <input
             className="quick-add-input mb-0 w-full rounded-lg border border-line/80 bg-surface px-3.5 py-2 text-sm text-text shadow-2xs transition-all placeholder:text-faint focus:border-run focus:ring-1 focus:ring-run/30 focus-visible:outline-none"
-            placeholder="+ 새 작업 (Enter 로 추가)"
+            placeholder="+ 새 할 일 (Enter로 추가)"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
@@ -222,8 +222,8 @@ export function TodoPane() {
         <div className="empty-state px-1 py-[18px] text-sm text-faint">
           아직 항목이 없다.{' '}
           {selected === 'all'
-            ? '보드를 골라 작업을 추가해 보자.'
-            : '위 입력창으로 첫 작업을 추가하자.'}
+            ? '보드를 골라 할 일을 추가하자.'
+            : '위 입력창에서 첫 할 일을 추가하자.'}
         </div>
       )}
 
@@ -243,7 +243,7 @@ export function TodoPane() {
             />
           );
         }
-        // 전체 보기: 보드별 그룹 접기 및 보드 내 완료된 작업 접기
+        // 전체 보기: 보드별 그룹 접기 및 보드 내 완료한 할 일 접기
         const folded = collapsed.has(group.key);
         const boardTodos = todos.filter((t) => t.boardId === group.key);
         return (
@@ -329,7 +329,7 @@ function TodoSection({ title, roots, childrenOf, renderTree, labelClass }: TodoS
               aria-hidden
               className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
             />
-            <span>완료된 작업 {totalDoneCount}개</span>
+            <span>완료한 할 일 {totalDoneCount}개</span>
           </button>
           {showDone && doneRoots.length > 0 && (
             <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
@@ -351,7 +351,7 @@ interface BoardGroupProps {
   labelClass: string;
 }
 
-/** 전체 보기 화면에서의 각 보드 그룹 — 보드 자체 접기 + 보드 내 완료된 작업 독립 접기 지원. */
+/** 전체 보기 화면에서의 각 보드 그룹 — 보드 자체 접기 + 보드 내 완료한 할 일 독립 접기 지원. */
 function BoardGroup({
   title,
   roots,
@@ -404,7 +404,7 @@ function BoardGroup({
                   aria-hidden
                   className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
                 />
-                <span>완료된 작업 {totalDoneCount}개</span>
+                <span>완료한 할 일 {totalDoneCount}개</span>
               </button>
               {showDone && doneRoots.length > 0 && (
                 <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>

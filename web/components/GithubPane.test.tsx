@@ -69,7 +69,7 @@ describe('GithubPane — PR 현황', () => {
     const link = screen.getByRole('link', { name: /대기 중인 PR/ });
     expect(link.getAttribute('href')).toBe('https://github.com/o/rocky/pull/1');
     expect(link.textContent).toContain('#7');
-    expect(link.textContent).toContain('CI 도는 중 · 스레드 1');
+    expect(link.textContent).toContain('CI 실행 중 · 스레드 1');
     expect(link.querySelector('[aria-label="대기"] svg')).toBeTruthy();
     expect(screen.queryByText('다른 레포')).toBeNull();
   });
