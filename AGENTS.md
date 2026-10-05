@@ -64,12 +64,14 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
+├── antigravity/                Antigravity(`agy`) 플러그인 번들 — 보드 MCP + board 스킬(plugin/ 의 링크) + 규칙. `agy plugin install`
+│                                 이 복사한다(링크는 풀림). 워크로그는 뺐다 — 이유는 docs/antigravity.md
 ├── bridges/                    수집함 어댑터와 알림 브릿지 — `todo.inbox[]` / `pr.notifiers[]` 에 등록하는 명령
 │                                 (stdout JSON 규약, docs/board.md). 외부 서비스 코드는 여기에만; file/ 이 참조 구현.
 ├── crates/                     ★ 데몬·CLI(worklog MCP + 훅 포함)·코어(docs/rewrite/ 참고)
 ├── rocky.schema.json           `rocky.json` JSON Schema — crates/rocky-core/src/config.rs 와 함께 움직인다
 ├── biome.json                  린트·포맷(.sisyphus, .claude 제외)
-├── docs/                       architecture, daemon(데몬 모델의 근거), codex, opencode, hosts, backlog, board, rewrite/(포팅 기록)
+├── docs/                       architecture, daemon(데몬 모델의 근거), codex, opencode, antigravity, hosts, backlog, board, rewrite/(포팅 기록)
 │   └── design/{specs,plans}/   설계·계획 산출물(구 docs/superpowers/) — 과거분은 그대로 보존
 └── scripts/                    Bun 개발 스크립트 — release-github, sync-plugin-version, check-changesets, bootstrap.test
 ```

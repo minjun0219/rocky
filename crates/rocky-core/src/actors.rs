@@ -26,4 +26,11 @@ mod tests {
         assert!(!is_agent_actor("logan"));
         assert!(!is_agent_actor(""));
     }
+
+    /// Antigravity 로 넘긴 작업의 댓글·완료는 Claude Code 세션에 "호출자의 보드 변경"으로 주입돼야
+    /// 넘긴 세션이 이어받는다 — 에이전트 목록에 넣으면 그 돌아오는 길이 끊긴다(`docs/antigravity.md`).
+    #[test]
+    fn antigravity_stays_out_of_agents() {
+        assert!(!is_agent_actor("antigravity"));
+    }
 }

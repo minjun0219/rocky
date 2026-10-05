@@ -16,7 +16,7 @@ MCP 서버는 둘이다. 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 
 
 stdio 서버는 **rocky 채널**도 겸해, 데몬이 본 PR 전이(머지 후보·충돌)를 그 PR을 구독한 세션에 알린다. 채널 알림은 `claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`로 띄운 세션만 받는다([`docs/board.md`](./docs/board.md) "PR 감시").
 
-Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 서버를 붙이고, Codex와 opencode는 직접 등록해서 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md)에 있다.
+Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 서버를 붙이고, Codex와 opencode는 직접 등록해서 쓴다. Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install`로 깔아 보드만 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md)에 있다.
 
 ### MCP 도구 표면
 
@@ -168,17 +168,18 @@ claude plugin install rocky@rocky-marketplace
 | --- | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | 에이전트 | **단일 기준 문서**: 레이아웃·범위·코딩 규칙·변경 체크리스트·리뷰 기준 |
 | [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐서는 알 수 없는 설계 근거. 필요할 때만 읽는 심화 레퍼런스 |
-| [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스: 세 호스트의 확장 방식과 rocky 표면 커버 현황(실측) |
+| [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스: 호스트별 확장 방식과 rocky 표면 커버 현황(실측) |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그: 보류 항목과 다시 넣을 후보 |
 | [`docs/board.md`](./docs/board.md) | 사람 | 보드 데몬: 설치·기동·CLI·설정·핸드오프·세션 띄우기 |
 | [`docs/rewrite/`](./docs/rewrite/) | 에이전트 | TS → Rust 포팅 기록: `contract.md`(외부 표면 계약, 정본) · `decisions.md` · `rust-notes.md` |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 호스트에서 MCP 서버를 쓰고 싶을 때 |
+| [`docs/antigravity.md`](./docs/antigravity.md) | 사람 | Antigravity에 작업(주로 디자인)을 넘길 때 — 번들 설치와 넘기기 흐름 |
 
 ## 역사 / 아카이브
 
 v0.2까지의 journal / mysql / spec-pact / pr-watch 도메인과 에이전트·스킬은 [`archive/pre-openapi-only-slim`](https://github.com/minjun0219/rocky/tree/archive/pre-openapi-only-slim) 브랜치에 남겨 뒀다. 쓰임새가 잡히는 대로 [`docs/backlog.md`](./docs/backlog.md)의 후보 단위로 다시 넣는다. journal은 v0.6에 되살렸고, v0.9에서 이름을 `worklog`로 바꿨다. notion(v0.5에 되살림)과 openapi · seo는 실사용이 0회라 v0.23에서 다시 걷어냈다. 예전 네이티브 opencode 플러그인은 `.archive/`에 두었다가 지웠으니 필요하면 git 히스토리에서 꺼낸다. 지금의 opencode 지원은 그 플러그인을 되살린 것이 아니라 stdio MCP를 등록하는 방식이다.
 
-> 세 호스트에서 rocky 표면이 어디까지 커버되는지는 [`docs/hosts.md`](./docs/hosts.md)에 있다.
+> 호스트마다 rocky 표면이 어디까지 커버되는지는 [`docs/hosts.md`](./docs/hosts.md)에 있다.
 
 ## 개발
 
