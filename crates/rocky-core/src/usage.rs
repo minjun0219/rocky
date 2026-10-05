@@ -295,6 +295,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/tokens/summary"),
     (UsageSource::Rest, "GET /api/tokens/current"),
     (UsageSource::Rest, "GET /api/tokens/sessions/:ref"),
+    (UsageSource::Rest, "GET /api/tokens/recommendation"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),

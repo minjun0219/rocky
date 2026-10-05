@@ -12,7 +12,7 @@
 
 ## 한눈에
 
-MCP 서버는 둘이다. 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 도구 5개)와 CLI의 stdio 서버(`rocky mcp worklog`, 워크로그 도구 4개)다. 워크로그는 프로젝트별이라 세션의 cwd를 아는 CLI가 연다.
+MCP 서버는 둘이다. 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 도구 5개 + 토큰 도구 2개)와 CLI의 stdio 서버(`rocky mcp worklog`, 워크로그 도구 4개)다. 워크로그는 프로젝트별이라 세션의 cwd를 아는 CLI가 연다.
 
 stdio 서버는 **rocky 채널**도 겸해, 데몬이 본 PR 전이(머지 후보·충돌)를 세션에 알린다. 채널 알림은 `claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`로 띄운 세션만 받는다([`docs/board.md`](./docs/board.md) "PR 감시").
 
@@ -23,6 +23,7 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
 | 도구군 | 개수 | 하는 일 | 등록 조건 |
 | --- | --- | --- | --- |
 | `todo_*` / `note_*` | 5 | 공유 todo와 스크래치패드 보드: `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. Rust 데몬(`crates/rockyd`)의 `/mcp`. 삭제는 없고(보관만), 모든 변경을 히스토리에 남긴다. | 데몬 기동 시 |
+| `token_*` | 2 | Claude Code 토큰 사용 색인 읽기: `token_summary`(모델·effort·세션·브랜치별 합계) / `token_current_session`(cwd의 최근 세션 턴별 모델·effort·토큰 + 추천). 데몬의 `/mcp`. | 데몬 기동 시 |
 | `worklog_*` | 4 | append-only 로컬 JSONL **기록(記錄)** 레이어. 결정·blocker·답변·메모를 턴을 넘겨 남긴다(`append` / `read` / `search` / `status`). 외부 의존 0. | 항상 |
 
 각 도구의 입출력과 부수 효과는 별도 문서가 아니라 **도구 정의 자체**에 있다. `crates/rockyd/src/mcp.rs`(보드)와 `crates/rocky-cli/src/worklog_mcp.rs`(워크로그)의 `#[tool]` 정의를 읽으면 된다.
@@ -45,6 +46,26 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
 - **훅** (`hooks/hooks.json`): `SessionStart`가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit`이 사람이 보드에서 바꾼 것을 세션에 알리고, `Stop`이 핸드오프를 집은 뒤 턴을 워크로그에 자동으로 남긴다(`kind:"turn"`, LLM을 쓰지 않는다, `worklog.autoCapture`로 끈다). 모든 훅은 실패해도 세션을 막지 않는다.
 - **스킬** (`skills/`): `board`는 보드 에티켓(start→done, 링크 첨부, 보관만)과 MCP·CLI 폴백을, `writing-cc-plugin`은 Claude Code 플러그인 작성 가이드와 매니페스트·컴포넌트·배포 레퍼런스를 담는다.
 - **서브에이전트** (`agents/`): `reviewer`는 새 컨텍스트에서 **diff와 요구사항만** 받아 검토하는 읽기 전용 리뷰어다. `/rocky:review-request`가 위험한 변경일 때 요구사항 대비 점검으로 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘"처럼 직접 부를 수도 있다. 돌려 본 것만 통과라고 쓰고, 통과처럼 보이는 실패(false pass)를 따로 챙기며, 파일을 고치거나 머지하지 않는다.
+
+### 토큰 사용 — 모델·effort 고르기
+
+데몬이 Claude Code 세션 트랜스크립트(`~/.claude/projects/**/*.jsonl`)를 1분마다 읽어 응답마다의 모델·effort·토큰·도구 호출을 `logs.db`에 쌓는다. 첫 바퀴가 과거 트랜스크립트 가져오기를 겸하므로 따로 가져올 명령이 없다. **훅 설정은 필요 없다.** 토큰은 훅 입력에 아예 없고 모델은 `SessionStart`에만 실리지만, 트랜스크립트에는 줄마다 둘 다 있다. 그래서 세션 쪽에 붙는 것이 없고, 데몬이 꺼져 있어도 Claude Code는 늦어지지 않는다.
+
+```bash
+rocky tokens                       # 최근 30일, 모델 × effort 별 세션·턴·요청·턴당 출력·토큰·도구 호출
+rocky tokens --since 7d --by branch   # model · effort · session · branch 로도 묶는다
+rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴별 모델·effort·토큰, effort 변경, 추천
+```
+
+| API | 내용 |
+| --- | --- |
+| `GET /api/tokens/summary?groupBy=&from=&to=&days=` | 합계. `groupBy`는 `model,effort`(기본) · `model` · `effort` · `session` · `branch`, 구간은 `from`/`to`(ISO) 또는 `days`(기본 30) |
+| `GET /api/tokens/sessions/:id?limit=` | 세션 머리 + 최근 턴(기본 50) + effort 변경 지점 |
+| `GET /api/tokens/current?cwd=` | 그 디렉터리(또는 그 아래)에서 가장 최근에 움직인 세션의 상세 + 추천 |
+| `GET /api/tokens/recommendation?sessionId=\|cwd=` | 추천과 근거 수치(턴 수·턴 평균 출력·도구 호출·모델·effort) |
+| `GET /api/tokens/events` | SSE. 낸 규칙이 바뀐 세션마다 `event: tokens.recommendation` |
+
+추천은 규칙 세 가지다(최근 15턴, 5턴 미만이면 판단하지 않음). ① 턴 평균 출력이 3,000토큰 이하인데 effort가 xhigh/max면 medium을 권한다. ② 창 안에서 effort를 올린 뒤 턴이 길어졌으면 이미 조정한 것으로 보고 추천하지 않는다. ③ Opus인데 도구 호출이 0이고 출력이 짧으면 Sonnet medium을 권한다. 수치와 규칙 on/off는 `rocky.json`의 `tokens.recommend`로 바꾼다.
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
 
@@ -82,13 +103,14 @@ claude plugin install rocky@rocky-marketplace
 }
 ```
 
-허용하는 top-level 키는 아래 넷뿐이다. 그 밖의 키는 바로 거부한다(오타 가드). 제거된 `openapi` / `seo`도 거부하니 옛 설정 파일에 남아 있으면 지운다. 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json)과 `crates/rocky-core/src/config.rs`가 함께 정한다.
+허용하는 top-level 키는 아래 다섯뿐이다. 그 밖의 키는 바로 거부한다(오타 가드). 제거된 `openapi` / `seo`도 거부하니 옛 설정 파일에 남아 있으면 지운다. 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json)과 `crates/rocky-core/src/config.rs`가 함께 정한다.
 
 | 키 | 내용 |
 | --- | --- |
 | `worklog` | `dir`(env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture`(기본 true) / `captureMaxChars`(기본 800) / `digestThreshold`(기본 40) |
 | `usage` | 사용 로그. `dir`(기본 `~/.config/rocky/usage`) / `enabled`(기본 true). 표면별 호출을 월별 JSONL로 남기고 `rocky usage`로 읽는다. 내용은 싣지 않는다 |
 | `pr` | PR 감시. `enabled`(기본 true) / `intervalMinutes`(기본 3) / `notify`(기본 true) / `sessionNotify`(기본 true) / `notifiers[]`(알림 브릿지, 예: `bridges/telegram/`). 데몬은 **구독한 PR만** 본다. 동작은 [`docs/board.md`](./docs/board.md) "PR 감시" |
+| `tokens` | Claude Code 토큰 색인. `enabled`(기본 true) / `dir`(트랜스크립트 루트, 기본 `$CLAUDE_CONFIG_DIR/projects` → `~/.claude/projects`) / `recommend`(`window` 15 · `minTurns` 5 · `lowOutputTokens` 3000 · `lowerEffort` · `holdAfterRaise` · `switchToSonnet`) |
 | `todo` | 보드 데몬 설정. `port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `inboxAdapters` / `sessionSummary`. Rust 데몬(`crates/`)이 읽는다. 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수
@@ -103,6 +125,7 @@ claude plugin install rocky@rocky-marketplace
 | `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` | `Stop` 훅 턴 자동 기록 on/off. `0`/`false`/`off`/`no`만 끈다 |
 | `ROCKY_USAGE` | `1` | 사용 로그 on/off. `0`/`false`/`off`/`no`만 끈다 |
 | `ROCKY_USAGE_DIR` | `~/.config/rocky/usage` | 사용 로그 JSONL 위치. `usage.dir`보다 우선 |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | 데몬이 토큰 색인할 트랜스크립트 루트(`<값>/projects`). `tokens.dir`가 있으면 그쪽이 우선 |
 
 ## 문서 맵
 

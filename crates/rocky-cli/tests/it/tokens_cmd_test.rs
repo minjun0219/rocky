@@ -16,7 +16,7 @@ fn compact_shortens_big_numbers() {
 fn summary_table_shows_keys_and_per_turn_output() {
     let raw = json!({ "groupBy": "model,effort", "rows": [
         { "model": "claude-opus-5-5", "effort": "medium", "sessions": 3, "turns": 10, "requests": 40,
-          "inputTokens": 100, "outputTokens": 25_000, "cacheReadTokens": 2_000_000, "cacheWriteTokens": 5_000, "toolCalls": 12 }
+          "inputTokens": 100, "outputTokens": 25_000, "mainOutputTokens": 25_000, "cacheReadTokens": 2_000_000, "cacheWriteTokens": 5_000, "toolCalls": 12 }
     ]});
     let text = render_summary(&raw, "7d");
     assert!(text.contains("claude-opus-5-5 · medium"), "{text}");

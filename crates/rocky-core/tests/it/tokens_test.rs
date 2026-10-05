@@ -147,6 +147,26 @@ fn parser_skips_tool_results_meta_synthetic_and_garbage() {
     );
     assert_eq!(parse_line(&synthetic), None);
     assert_eq!(parse_line("{\"type\":\"assistant\""), None);
+    // 하네스가 user 자리에 넣은 것은 턴이 아니다 — 사람이 친 슬래시 커맨드는 턴이다.
+    for injected in [
+        "<task-notification><task-id>x</task-id></task-notification>",
+        "<wake reason=\"external-event\">pr</wake>",
+        "<local-command-stdout>ok</local-command-stdout>",
+    ] {
+        assert_eq!(
+            parse_line(&prompt("p3", "2026-10-01T00:00:00Z", injected)),
+            None,
+            "{injected}"
+        );
+    }
+    assert!(matches!(
+        parse_line(&prompt(
+            "p4",
+            "2026-10-01T00:00:00Z",
+            "<command-name>/review</command-name>"
+        )),
+        Some(TranscriptLine::Prompt(_))
+    ));
     assert_eq!(parse_line("{\"type\":\"attachment\"}"), None);
 }
 
@@ -201,7 +221,7 @@ fn ingest_is_incremental_idempotent_and_dedupes_repeated_message_lines() {
     );
     let db = tmp.path().join("logs.db");
     let mut index = LogIndex::open(&db).unwrap();
-    let touched = index.ingest_transcripts(&root).unwrap();
+    let touched = index.ingest_transcripts(&root).touched;
     assert_eq!(
         touched.into_iter().collect::<Vec<_>>(),
         vec![SID.to_string()]
@@ -240,8 +260,8 @@ fn ingest_is_incremental_idempotent_and_dedupes_repeated_message_lines() {
             true,
         )],
     );
-    index.ingest_transcripts(&root).unwrap();
-    assert!(index.ingest_transcripts(&root).unwrap().is_empty());
+    assert!(index.ingest_transcripts(&root).errors.is_empty());
+    assert!(index.ingest_transcripts(&root).touched.is_empty());
     drop(index);
     let index = LogIndex::open(&db).unwrap();
 
@@ -419,4 +439,166 @@ fn effort_rank_orders_levels() {
     assert!(effort_rank(Some("xhigh")) < effort_rank(Some("max")));
     assert_eq!(effort_rank(Some("turbo")), None);
     assert_eq!(effort_rank(None), None);
+}
+
+#[test]
+fn a_failing_file_does_not_stop_the_rest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("projects");
+    append(
+        &root.join("-a").join(format!("{SID}.jsonl")),
+        &[
+            prompt("p1", "2026-10-01T00:00:00Z", "요청"),
+            assistant(
+                "m1",
+                "2026-10-01T00:00:01Z",
+                "claude-opus-5-5",
+                "high",
+                5,
+                text(),
+                false,
+            ),
+        ],
+    );
+    // 읽을 수 없는 .jsonl — 디렉터리 순서와 무관하게 다른 파일은 옮겨져야 한다.
+    let broken = root.join("-b").join("broken.jsonl");
+    append(&broken, &["{}".to_string()]);
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
+    let ingest = index.ingest_transcripts(&root);
+    std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(ingest.errors.len(), 1, "{:?}", ingest.errors);
+    assert!(ingest.errors[0].contains("broken.jsonl"));
+    assert!(ingest.touched.contains(SID));
+}
+
+#[test]
+fn range_normalizes_offsets_to_utc() {
+    use rocky_core::tokens::range;
+    let now = chrono::Utc::now();
+    let (from, to) = range(
+        Some("2026-10-05T09:00:00+09:00"),
+        Some("2026-10-06"),
+        None,
+        now,
+    );
+    assert_eq!(from, "2026-10-05T00:00:00.000Z");
+    assert_eq!(to, "2026-10-06");
+    let (from, to) = range(None, None, Some(7), now);
+    assert!(from < now.to_rfc3339());
+    assert_eq!(to, "9999");
+}
+
+#[test]
+fn an_open_turn_carries_over_to_the_next_pass_and_exact_cwd_wins() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("projects");
+    let main = root.join("-repo").join(format!("{SID}.jsonl"));
+    let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
+
+    // 첫 바퀴는 프롬프트까지만 — 응답은 다음 바퀴에 읽힌다(1분 경계에 흔하다).
+    append(&main, &[prompt("p1", "2026-10-01T00:00:00Z", "요청")]);
+    index.ingest_transcripts(&root);
+    append(
+        &main,
+        &[assistant(
+            "m1",
+            "2026-10-01T00:00:01Z",
+            "claude-opus-5-5",
+            "high",
+            9,
+            text(),
+            false,
+        )],
+    );
+    index.ingest_transcripts(&root);
+    let turns = recent_turns(index.conn(), SID, 10).unwrap();
+    assert_eq!(
+        turns.len(),
+        1,
+        "커서가 없으면 응답이 턴 밖(turn_id NULL)으로 빠진다"
+    );
+    assert_eq!(turns[0].turn_id, "p1");
+
+    // 파일이 줄어 처음부터 다시 읽으면 열린 턴도 처음부터 — 앞 파일의 턴을 물려받지 않는다.
+    std::fs::write(&main, "").unwrap();
+    append(
+        &main,
+        &[assistant(
+            "m2",
+            "2026-10-01T01:00:00Z",
+            "claude-opus-5-5",
+            "high",
+            9,
+            text(),
+            false,
+        )],
+    );
+    index.ingest_transcripts(&root);
+    assert_eq!(
+        recent_turns(index.conn(), SID, 10).unwrap().len(),
+        1,
+        "m2 는 턴이 없다"
+    );
+
+    // 하위 디렉터리의 더 최근 세션보다 정확히 그 디렉터리의 세션이 먼저다.
+    let sub = root.join("-repo-wt").join("sess-2.jsonl");
+    let mut line: serde_json::Value =
+        serde_json::from_str(&prompt("q1", "2026-10-02T00:00:00Z", "워크트리")).unwrap();
+    line["sessionId"] = json!("sess-2");
+    line["cwd"] = json!("/repo/sub/.worktrees/x");
+    append(&sub, &[line.to_string()]);
+    index.ingest_transcripts(&root);
+    assert_eq!(
+        latest_session_for_cwd(index.conn(), "/repo/sub")
+            .unwrap()
+            .as_deref(),
+        Some(SID)
+    );
+    assert_eq!(
+        latest_session_for_cwd(index.conn(), "/repo/sub/.worktrees")
+            .unwrap()
+            .as_deref(),
+        Some("sess-2")
+    );
+}
+
+#[test]
+fn a_later_line_adding_a_tool_call_marks_the_session_changed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("projects");
+    let main = root.join("-repo").join(format!("{SID}.jsonl"));
+    let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
+    append(
+        &main,
+        &[
+            prompt("p1", "2026-10-01T00:00:00Z", "요청"),
+            assistant(
+                "m1",
+                "2026-10-01T00:00:01Z",
+                "claude-opus-5-5",
+                "high",
+                9,
+                text(),
+                false,
+            ),
+        ],
+    );
+    index.ingest_transcripts(&root);
+    // 같은 메시지의 다음 줄(tool_use 블록)이 다음 바퀴에 읽힌다 — 새 메시지는 없어도 도구 호출이 늘었다.
+    append(
+        &main,
+        &[assistant(
+            "m1",
+            "2026-10-01T00:00:01Z",
+            "claude-opus-5-5",
+            "high",
+            9,
+            tool("tu9"),
+            false,
+        )],
+    );
+    assert!(index.ingest_transcripts(&root).touched.contains(SID));
+    assert_eq!(recent_turns(index.conn(), SID, 5).unwrap()[0].tool_calls, 1);
 }

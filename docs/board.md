@@ -34,7 +34,7 @@ claude plugin install rocky@rocky-marketplace
 런타임에 끄려면 `claude plugin disable rocky`.
 
 설치되면 플러그인이 두 가지를 배선한다:
-- **`mcpServers` (http)** — 데몬의 `/mcp` (streamable HTTP, 도구 5개)를 세션에 등록. 수동
+- **`mcpServers` (http)** — 데몬의 `/mcp` (streamable HTTP, 보드 도구 5개 + 토큰 도구 2개)를 세션에 등록. 수동
   `claude mcp add` 불필요.
 - **hooks** — `SessionStart` 훅이 데몬을 기동하고, `UserPromptSubmit` 훅이 보드의 사람 변경을
   주입하며, `Stop` 훅이 그 세션 앞으로 온 핸드오프 요청을 자동 착수시킨다(아래 "보드→세션
@@ -365,7 +365,7 @@ rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 - `GET /api/summary?cwd=&cached=true` — 위 셋이 쓰는 JSON. `cached=true` 면 수집함을 기다리지 않고,
   캐시가 없으면 `collect`를 생략한다(모름 ≠ 0).
 
-## MCP 도구 5개 (에이전트)
+## MCP 도구 (에이전트)
 
 | 도구 | 하는 일 |
 | --- | --- |
@@ -374,6 +374,8 @@ rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 | `todo_status` | 상태 전환 — `start` / `stop` / `done` / `reopen` / `archive` / `unarchive` |
 | `note_list` | 스크래치패드 메모 조회 (보드 소속 or 글로벌) |
 | `note_write` | 메모 생성/수정/append/archive (`mode`) |
+| `token_summary` | Claude Code 토큰 합계 — 모델·effort(기본)·세션·브랜치별 (README "토큰 사용") |
+| `token_current_session` | `cwd`의 최근 세션 턴별 모델·effort·토큰 + 추천 |
 
 각 도구의 `id` 인자는 아래 "CLI 표면" 의 REF 문법을 그대로 받는다 — 맨숫자(`12`)처럼 보드
 접두사가 없는 번호는 같이 넘기는 `board` 인자가 그 컨텍스트가 된다. `createIssue: true`는
@@ -383,7 +385,8 @@ rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 
 Claude Code 에서는 플러그인 설치로 자동 등록되므로 수동 작업이 필요 없다. **opencode / Codex**는
 플러그인 훅을 돌리지 않으므로 수동 등록한다. 데몬의 MCP 엔드포인트는 `http://127.0.0.1:8636/mcp`
-(streamable HTTP, 도구 5개: `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`).
+(streamable HTTP, 도구 7개: `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write` /
+`token_summary` / `token_current_session`).
 `rocky mcp setup`이 스니펫을 출력한다.
 
 **opencode** (`~/.config/opencode/opencode.json`):

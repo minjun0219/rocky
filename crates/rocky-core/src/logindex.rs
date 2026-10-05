@@ -57,6 +57,13 @@ pub fn todo_ref_from_tags(tags: &[String]) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 트랜스크립트 한 바퀴 — 새 메시지가 들어간 세션(추천을 다시 셀 대상)과 파일별 실패.
+#[derive(Debug, Default)]
+pub struct TranscriptIngest {
+    pub touched: std::collections::BTreeSet<String>,
+    pub errors: Vec<String>,
+}
+
 /// 한 바퀴에 옮긴 것.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct IngestStats {
@@ -116,18 +123,18 @@ impl LogIndex {
     }
 
     /// Claude Code 트랜스크립트 루트(`~/.claude/projects`)를 훑어 새 줄을 옮긴다 — 프로젝트 디렉터리의
-    /// `<session>.jsonl` 과 `<session>/subagents/*.jsonl`. 새 메시지가 들어간 세션 id 를 돌려준다(추천을 다시 셀 대상).
-    pub fn ingest_transcripts(
-        &mut self,
-        root: &Path,
-    ) -> Result<std::collections::BTreeSet<String>, String> {
+    /// `<session>.jsonl` 과 `<session>/subagents/*.jsonl`. 파일 하나가 실패해도(읽는 사이 지워짐·권한) 나머지는 계속
+    /// 옮기고 실패는 `errors` 로 돌려준다 — 한 파일이 뒤 파일들과 이미 옮긴 세션의 추천까지 막지 않게.
+    pub fn ingest_transcripts(&mut self, root: &Path) -> TranscriptIngest {
         let mut files = Vec::new();
         collect_jsonl(root, 0, &mut files);
-        let mut touched = std::collections::BTreeSet::new();
+        let mut out = TranscriptIngest::default();
         for file in files {
-            self.ingest_transcript(&file, &mut touched)?;
+            if let Err(e) = self.ingest_transcript(&file, &mut out.touched) {
+                out.errors.push(e);
+            }
         }
-        Ok(touched)
+        out
     }
 
     fn ingest_transcript(

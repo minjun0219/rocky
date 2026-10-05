@@ -15,8 +15,8 @@
 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
 
 - **데몬 `rockyd`**(`crates/rockyd`) — 머신 전체에 하나, `127.0.0.1:8636`, SQLite는 `~/.config/rocky/todo/`.
-  보드 REST + SSE, `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`를 담은 streamable
-  HTTP MCP, **웹 UI**(`web/`, 릴리스 때 `dist/`로 빌드해 바이너리 옆 `dist/`를 `/`에 서빙)를 낸다.
+  보드 REST + SSE, `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`와 토큰 색인을 읽는
+  `token_summary` / `token_current_session`을 담은 streamable HTTP MCP, **웹 UI**(`web/`, 릴리스 때 `dist/`로 빌드해 바이너리 옆 `dist/`를 `/`에 서빙)를 낸다.
 - **CLI `rocky`**(`crates/rocky-cli`) — 얇은 HTTP 클라이언트 + 훅 입구 네 개(`hook ensure-daemon` /
   `notify-todo` / `handoff-stop` / `log-turn`). `bin/rocky`는 플러그인 버전에 맞는 릴리스 tarball을 받아
   바이너리를 실행하는 sh 부트스트랩이다.
@@ -270,7 +270,7 @@ typecheck or tests — pre-push and CI already cover it.*
   이 턴 시작에 본다. 보관된 todo는 건너뛴다. 쉬는 세션은 깨워야 한다 — 대상 세션이 받은편지함 소켓을
   등록했으면 데몬이 그 문구(`poke`)를 바로 꽂아 턴을 열고(응답 `woke: true`, "보내지 않기" 와 무관), 아니면 라우트가
   `poke`를 돌려준다 — 그 문구를 늘리지 않는다. 대상 = cwd가 보드와 맞는 세션이 하나일 때 그 세션; 아니면 사용자가
-  고른다. TTL은 없다. MCP 도구 수는 5개 그대로.
+  고른다. TTL은 없다. 핸드오프는 MCP 도구를 늘리지 않는다.
 - **핸드오프 라이프사이클 / doing 귀속.** `start`가 가장 오래된 배달 건을 수락하고 `doing_session_id`를
   귀속시킨다; `done`이 완료하고 비운다; 사람이 누른 `start`는 귀속하지 않는다. `resolve_doing_state` →
   `live` / `idle` / `gone` / `unknown`. `rockyd::sweep`는 에이전트가 든 `gone` doing 중 24시간 지난 것만
@@ -307,6 +307,13 @@ typecheck or tests — pre-push and CI already cover it.*
   가 키라 다시 읽어도 중복이 없다). 지워도 다시 만든다. 조회는 `GET /api/logs/worklog` — `spawn_blocking` + 자기 연결.
   보드 ↔ 레포는 보드 `path`로 `default_project_key`를 계산한다. 근거·범위는 `docs/design/specs/2026-10-02-log-index-design.md`.
   *EN: JSONL is the source of truth; logs.db is a rebuildable index written by a dedicated thread — never route writes through the daemon.*
+- **토큰 색인**(`rocky_core::tokens`): 같은 스레드가 Claude Code 트랜스크립트(`~/.claude/projects/**/*.jsonl`,
+  `rocky.json`의 `tokens.dir`)도 `cc_*` 표로 옮긴다 — 모델·effort·토큰은 훅 입력에 없고(토큰은 아예 없고 모델은
+  `SessionStart`에만) 트랜스크립트 줄마다 있어서, **훅을 걸지 않는다**. 같은 `message.id`가 content 블록마다 반복되므로
+  메시지 id로 한 번만 세고, 턴 경계는 사람이 쓴 프롬프트(`isMeta`·압축 요약 제외), 서브에이전트는 토큰엔 넣고 턴 수·추천에서
+  뺀다. 조회는 `/api/tokens/{summary,current,sessions/:id,recommendation}`, MCP 두 도구, `rocky tokens`. 추천은 규칙 v1
+  세 가지(`tokens.recommend`로 조정)이고, 색인 스레드가 **낸 규칙이 바뀐** 세션만 `GET /api/tokens/events`로 민다(첫 바퀴는
+  과거 가져오기라 기준선만). 이 스트림을 전역 `/api/events`와 나눈 것은 그쪽 구독자가 `data:`마다 보드를 다시 읽기 때문이다.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd`로 정한다. 끼워 넣는 쪽은 `rocky statusline`(`--cwd`·`--session`, 없으면 stdin JSON) — 1초마다 도는
   자리라 사용 로그·데몬 자동 기동을 거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.

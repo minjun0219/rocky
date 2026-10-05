@@ -132,6 +132,9 @@ pub struct ServerState {
     usage: UsageSink,
     logs_db: Option<std::path::PathBuf>,
     pub token_recommend: rocky_core::tokens::RecommendConfig,
+    /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
+    /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
+    pub token_events: broadcast::Sender<String>,
     /// SSE 팬아웃 — 스토어 리스너가 밀어 넣는다.
     pub events: broadcast::Sender<String>,
     /// 노트별 문서 스트림(`GET /api/notes/:ref/doc/events`) — CRDT update 와 프레즌스만.
@@ -327,8 +330,6 @@ impl ServerState {
         streams.get(note_id).map_or(0, |s| s.receiver_count())
     }
 
-    /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
-    /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
     /// 로그 색인(`logs.db`)을 읽는 질의 하나 — 블로킹 스레드에서 자기 연결로. 색인이 없으면 `None`.
     pub async fn query_logs<T: Send + 'static, E: std::fmt::Display + Send + 'static>(
         &self,
@@ -349,6 +350,8 @@ impl ServerState {
         .map_err(|e| StoreError::new(format!("{what} 조회: {e}")))
     }
 
+    /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
+    /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
     pub fn broadcast_note(&self, note_id: &str, payload: &serde_json::Value) {
         let mut streams = self.note_streams.lock().expect("note_streams poisoned");
         let Some(sender) = streams.get(note_id) else {
@@ -474,6 +477,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         usage: options.usage.unwrap_or_else(noop_sink),
         logs_db: options.logs_db,
         token_recommend: options.token_recommend,
+        token_events: broadcast::channel::<String>(64).0,
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
@@ -1649,7 +1653,7 @@ async fn dispatch(
                 // 밀리면 끊는다 — 이 구독자는 refetch 가 아니라 update 를 하나씩 적용하므로 한 건이
                 // 빠지면 그 연결이 사는 동안 문서가 낡은 채(뒤 update 는 pending) 남는다. 끊기면
                 // 브라우저가 다시 붙고 `GET doc?sv=` 로 빠진 것을 받는다.
-                return Ok(sse_from(state.subscribe_note(&note.id), OnLag::Close));
+                return Ok(sse_from(state.subscribe_note(&note.id), OnLag::Close, None));
             }
         }
     }
@@ -1882,6 +1886,7 @@ async fn dispatch(
         // 모델×effort(기본) · 모델 · effort · 세션 · 브랜치별 토큰 합계. 구간은 from/to(ISO) 또는 days(기본 30).
         let group_raw = query
             .get("groupBy")
+            .or_else(|| query.get("group_by"))
             .map(String::as_str)
             .unwrap_or("model,effort");
         let Some(group_by) = rocky_core::tokens::GroupBy::parse(group_raw) else {
@@ -1917,12 +1922,10 @@ async fn dispatch(
             return Ok(error_response("cwd 가 필요하다", StatusCode::BAD_REQUEST));
         };
         let limit = token_turn_limit(query);
+        let cfg = state.token_recommend.clone();
         let found = state
             .query_logs("현재 세션", move |index| {
-                match rocky_core::tokens::latest_session_for_cwd(index.conn(), &cwd)? {
-                    Some(id) => rocky_core::tokens::session_detail(index.conn(), &id, limit),
-                    None => Ok(None),
-                }
+                rocky_core::tokens::current_session(index.conn(), &cwd, limit, &cfg)
             })
             .await?
             .flatten();
@@ -1930,6 +1933,50 @@ async fn dispatch(
             Some(detail) => ok_json(&detail),
             None => error_response("이 디렉터리의 세션이 색인에 없다", StatusCode::NOT_FOUND),
         });
+    }
+    if *method == Method::GET && path == "/api/tokens/recommendation" {
+        // 세션 하나의 추천 — sessionId 또는 cwd(그 아래 최근 세션).
+        let pick = |k: &str| {
+            query
+                .get(k)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
+        let (session_id, cwd) = (pick("sessionId"), pick("cwd"));
+        if session_id.is_none() && cwd.is_none() {
+            return Ok(error_response(
+                "sessionId 나 cwd 가 필요하다",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let cfg = state.token_recommend.clone();
+        let found = state
+            .query_logs("토큰 추천", move |index| {
+                let id = match (session_id, cwd) {
+                    (Some(id), _) => {
+                        rocky_core::tokens::session_info(index.conn(), &id)?.map(|s| s.session_id)
+                    }
+                    (None, Some(cwd)) => {
+                        rocky_core::tokens::latest_session_for_cwd(index.conn(), &cwd)?
+                    }
+                    (None, None) => None,
+                };
+                id.map(|id| rocky_core::tokens::recommendation_for(index.conn(), &id, &cfg))
+                    .transpose()
+            })
+            .await?
+            .flatten();
+        return Ok(match found {
+            Some(rec) => ok_json(&rec),
+            None => error_response("세션이 색인에 없다", StatusCode::NOT_FOUND),
+        });
+    }
+    if *method == Method::GET && path == "/api/tokens/events" {
+        return Ok(sse_from(
+            state.token_events.subscribe(),
+            OnLag::Skip,
+            Some(rocky_core::tokens::RECOMMENDATION_EVENT),
+        ));
     }
     if *method == Method::GET {
         if let Some(id) = path.strip_prefix("/api/tokens/sessions/") {
@@ -2874,7 +2921,7 @@ fn token_turn_limit(query: &HashMap<String, String>) -> usize {
 /// GET /api/events — store change 이벤트를 SSE 로 흘린다.
 fn sse_response(state: &Arc<ServerState>) -> Response {
     // 구독자는 payload 를 보지 않고 refetch 만 하므로 밀려도 무해 — 조용히 이어 간다.
-    sse_from(state.events.subscribe(), OnLag::Skip)
+    sse_from(state.events.subscribe(), OnLag::Skip, None)
 }
 
 /// broadcast 가 밀렸을 때(`Lagged`) 어떻게 하나.
@@ -2901,12 +2948,18 @@ pub(crate) fn decode_b64(text: &str) -> Result<Vec<u8>, String> {
 }
 
 /// broadcast 채널 하나를 SSE 응답으로 — 전역 `/api/events` 와 노트별 문서 스트림이 같이 쓴다.
-fn sse_from(receiver: broadcast::Receiver<String>, on_lag: OnLag) -> Response {
+fn sse_from(
+    receiver: broadcast::Receiver<String>,
+    on_lag: OnLag,
+    event: Option<&'static str>,
+) -> Response {
     use tokio_stream::wrappers::BroadcastStream;
     use tokio_stream::StreamExt;
 
-    let frame = |payload: String| {
-        Ok::<_, std::convert::Infallible>(format!("data: {payload}\n\n").into_bytes())
+    // 이름 붙은 이벤트(`event:`)는 EventSource 의 기본 onmessage 로 가지 않는다 — 구독자가 이름으로 고른다.
+    let frame = move |payload: String| {
+        let head = event.map(|e| format!("event: {e}\n")).unwrap_or_default();
+        Ok::<_, std::convert::Infallible>(format!("{head}data: {payload}\n\n").into_bytes())
     };
     let raw = BroadcastStream::new(receiver);
     let stream: std::pin::Pin<

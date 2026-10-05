@@ -107,23 +107,35 @@ pub fn render_summary(raw: &Value, since: &str) -> String {
         .max()
         .unwrap_or(0)
         .max(4);
+    // 한글 머리는 터미널에서 두 칸씩이라 `{:>n}` 로는 어긋난다 — 칸 수를 직접 센다.
+    let header: String = [
+        ("세션", 5usize),
+        ("턴", 5),
+        ("요청", 6),
+        ("턴당출력", 8),
+        ("출력", 7),
+        ("입력", 7),
+        ("캐시읽기", 8),
+        ("캐시쓰기", 7),
+        ("도구", 6),
+    ]
+    .iter()
+    .map(|(label, w)| {
+        let cols: usize = label
+            .chars()
+            .map(|c| if c.is_ascii() { 1 } else { 2 })
+            .sum();
+        format!(" {}{label}", " ".repeat(w.saturating_sub(cols)))
+    })
+    .collect();
     let mut out = vec![format!(
-        "최근 {since} — {}\n{:<width$}  {:>5} {:>5} {:>6} {:>8} {:>7} {:>7} {:>8} {:>7} {:>6}",
+        "최근 {since} — {}\n{:<width$} {header}",
         text(raw, "groupBy"),
         "",
-        "세션",
-        "턴",
-        "요청",
-        "턴당출력",
-        "출력",
-        "입력",
-        "캐시읽기",
-        "캐시쓰기",
-        "도구",
     )];
     for (row, key) in rows.iter().zip(&keys) {
         let turns = num(row, "turns");
-        let per_turn = num(row, "outputTokens")
+        let per_turn = num(row, "mainOutputTokens")
             .checked_div(turns)
             .map_or_else(|| "-".into(), compact);
         out.push(format!(
