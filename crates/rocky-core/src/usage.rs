@@ -132,11 +132,11 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     if segs.len() >= 3 && segs[0] == "api" && !LITERAL_THIRD.contains(&segs[2]) {
         segs[2] = ":ref";
     }
-    // `/api/inbox/sources/:id`·`/api/tokens/sessions/:id` — 셋째 자리가 이름이라 넷째가 id 다.
+    // `/api/inbox/sources/:id`·`/api/tokens/sessions/:id`·`/api/rc/servers/:label/start` — 셋째 자리가 이름이라 넷째가 id 다.
     if segs.len() >= 4
         && matches!(
             (segs[1], segs[2]),
-            ("inbox", "sources") | ("tokens", "sessions")
+            ("inbox", "sources") | ("tokens", "sessions") | ("rc", "servers")
         )
     {
         segs[3] = ":ref";
@@ -305,6 +305,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/rc/servers"),
     (UsageSource::Rest, "POST /api/rc/antigravity/start"),
     (UsageSource::Rest, "POST /api/rc/antigravity/stop"),
+    (UsageSource::Rest, "POST /api/rc/servers/:ref/start"),
+    (UsageSource::Rest, "POST /api/rc/servers/:ref/restart"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
@@ -359,6 +361,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky rc"),
     (UsageSource::Cli, "rocky rc status"),
     (UsageSource::Cli, "rocky rc agy"),
+    (UsageSource::Cli, "rocky rc start"),
+    (UsageSource::Cli, "rocky rc restart"),
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),

@@ -91,6 +91,8 @@ pub struct ServerOptions {
     pub rc: Option<crate::rc::RcProvider>,
     /// `agy remote-control` 켜기·끄기 — `rc` 와 같은 캐시를 쓴다(`rc_handles`). 없으면 그 라우트는 404.
     pub agy_control: Option<crate::rc::AgyControl>,
+    /// rc 서버 띄우기 · 재시작. 없으면 그 라우트는 404(rc 가 꺼진 기기와 같다).
+    pub rc_control: Option<Arc<crate::rc::RcController>>,
 }
 
 impl ServerOptions {
@@ -114,6 +116,7 @@ impl ServerOptions {
             token_recommend: Default::default(),
             rc: None,
             agy_control: None,
+            rc_control: None,
         }
     }
 }
@@ -150,6 +153,7 @@ pub struct ServerState {
     pub token_recommend: rocky_core::tokens::RecommendConfig,
     rc: crate::rc::RcProvider,
     agy_control: Option<crate::rc::AgyControl>,
+    rc_control: Option<Arc<crate::rc::RcController>>,
     /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
     /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
     pub token_events: broadcast::Sender<String>,
@@ -573,6 +577,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         usage: options.usage.unwrap_or_else(noop_sink),
         logs_db: options.logs_db,
         token_recommend: options.token_recommend,
+        rc_control: options.rc_control,
         rc: options.rc.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { rocky_core::rc::RcStatus::unconfigured() }))
         }),
@@ -2024,7 +2029,10 @@ async fn dispatch(
 
     // ── rc 서버 현황(읽기 전용) — 설정의 대상과 떠 있는 `claude rc` 서버를 맞댄 것. 5초 캐시 ──
     if *method == Method::GET && path == "/api/rc/servers" {
-        let status = (state.rc)().await;
+        let mut status = (state.rc)().await;
+        if let Some(control) = &state.rc_control {
+            control.decorate(&mut status);
+        }
         return Ok(json_response(&status, StatusCode::OK));
     }
     // ── agy remote-control 켜기·끄기 — 이 기계의 원격 접속 데몬을 바꾸므로 로컬 전용. 답은 새로 잰 현황 ──
@@ -2049,6 +2057,36 @@ async fn dispatch(
                 Ok(status) => json_response(&status, StatusCode::OK),
                 Err(message) => error_response(&message, StatusCode::BAD_GATEWAY),
             });
+        }
+    }
+    // ── rc 서버 띄우기 · 재시작 — 프로세스를 띄우므로 세션 띄우기와 같은 등급(로컬 전용). 일은 백그라운드, 바로 202 ──
+    if *method == Method::POST {
+        if let Some((label, verb)) = path
+            .strip_prefix("/api/rc/servers/")
+            .and_then(|rest| rest.split_once('/'))
+        {
+            if verb == "start" {
+                return Ok(rc_command_route(
+                    state,
+                    label,
+                    crate::rc::RcCommand::Start,
+                    local,
+                ));
+            }
+            if verb == "restart" {
+                let body = read_optional_body(headers, body).await?;
+                let fresh = body
+                    .as_ref()
+                    .and_then(|b| b.get("fresh"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                return Ok(rc_command_route(
+                    state,
+                    label,
+                    crate::rc::RcCommand::Restart { fresh },
+                    local,
+                ));
+            }
         }
     }
 
@@ -2736,6 +2774,37 @@ async fn wake_session(
         state.forget_inbox(session_id);
     }
     ok
+}
+
+/// POST /api/rc/servers/:label/{start,restart} — 받으면 202, 결과는 현황(`action` · `lastResult`)으로 본다.
+fn rc_command_route(
+    state: &Arc<ServerState>,
+    label: &str,
+    command: crate::rc::RcCommand,
+    local: bool,
+) -> Response {
+    use crate::rc::RcRefusal;
+    if !local {
+        return error_response(NON_LOCAL_SPAWN_MESSAGE, StatusCode::FORBIDDEN);
+    }
+    let Some(control) = state.rc_control.clone() else {
+        return error_response("이 기기에서는 rc 가 꺼져 있다", StatusCode::NOT_FOUND);
+    };
+    let label = percent_decode(label);
+    match control.begin(&label, command) {
+        Ok(target) => {
+            tokio::spawn(async move {
+                control.run(target, command).await;
+            });
+            json_response(
+                &json!({ "label": label, "accepted": true }),
+                StatusCode::ACCEPTED,
+            )
+        }
+        Err(RcRefusal::NotFound(m)) => error_response(&m, StatusCode::NOT_FOUND),
+        Err(RcRefusal::Busy(m)) => error_response(&m, StatusCode::CONFLICT),
+        Err(RcRefusal::Ambiguous(m)) => error_response(&m, StatusCode::CONFLICT),
+    }
 }
 
 /// POST /api/todos/:ref/spawn — 순서가 계약이다 (contract.md 참고).

@@ -187,3 +187,383 @@ pub fn rc_handles(
     });
     (provider, control)
 }
+
+// ── 띄우기 · 재시작 ───────────────────────────────────────────────────────────
+// 서버는 **새 프로세스 그룹**으로 띄우고 핸들을 놓는다(`kill_on_drop` 없음). launchd 가 데몬 잡을 내려도
+// (bootout) 새 그룹의 자식은 정리하지 않는다 — 2026-10-05 실측. 데몬이 먼저 내려가면 서버는 PPID 1 로 넘어간다.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use rocky_core::rc::{LaunchMode, RcAction, RcResult, Registration, Target};
+
+/// (argv, 작업 폴더, stdout 파일, stderr 파일) → pid.
+pub type SpawnDetached =
+    Arc<dyn Fn(&[String], &Path, &Path, &Path) -> std::io::Result<u32> + Send + Sync>;
+
+/// 프로세스를 다루는 손 — 테스트가 가짜를 넣는다.
+#[derive(Clone)]
+pub struct RcOps {
+    pub spawn: SpawnDetached,
+    /// `kill(pid, sig)` 가 성공했나 — `sig == 0` 이면 살아 있나.
+    pub signal: Arc<dyn Fn(u32, i32) -> bool + Send + Sync>,
+    pub sleep: Arc<dyn Fn(Duration) -> BoxFut<()> + Send + Sync>,
+}
+
+pub fn default_ops() -> RcOps {
+    RcOps {
+        spawn: Arc::new(|argv, dir, out, err| {
+            use std::os::unix::process::CommandExt;
+            let (program, args) = argv
+                .split_first()
+                .ok_or_else(|| std::io::Error::other("빈 argv"))?;
+            let mut child = std::process::Command::new(program)
+                .args(args)
+                .current_dir(dir)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::fs::File::create(out)?)
+                .stderr(std::fs::File::create(err)?)
+                // 데몬의 launchd 표식을 물려주지 않는다 — 자식이 자기를 launchd 잡으로 오판한다.
+                .env_remove("XPC_SERVICE_NAME")
+                .process_group(0)
+                .spawn()?;
+            let pid = child.id();
+            // 좀비만 거둔다 — 기다리는 것 말고는 아무것도 하지 않는다(놓는다).
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            Ok(pid)
+        }),
+        signal: Arc::new(|pid, sig| {
+            let Ok(pid) = libc::pid_t::try_from(pid) else {
+                return false;
+            };
+            // SAFETY: 우리가 띄웠거나 `ps` 로 서버라고 확인한 pid 에 신호를 보낸다 — 패턴으로 고르지 않는다.
+            unsafe { libc::kill(pid, sig) == 0 }
+        }),
+        sleep: Arc::new(|d| Box::pin(tokio::time::sleep(d))),
+    }
+}
+
+/// 띄우기인가 재시작인가.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RcCommand {
+    Start,
+    Restart { fresh: bool },
+}
+
+/// 요청을 받지 못한 이유 — 라우트가 상태 코드로 바꾼다.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RcRefusal {
+    /// 이 기기에서 rc 가 꺼져 있거나 그런 라벨이 없다.
+    NotFound(String),
+    /// 같은 대상에 이미 무엇이 진행 중이다.
+    Busy(String),
+    /// 같은 라벨의 대상이 둘이라 고를 수 없다.
+    Ambiguous(String),
+}
+
+pub struct RcController {
+    config: Option<RcConfig>,
+    home: String,
+    log_dir: PathBuf,
+    runner: Runner,
+    ops: RcOps,
+    busy: std::sync::Mutex<HashMap<String, RcAction>>,
+    last: std::sync::Mutex<HashMap<String, RcResult>>,
+}
+
+impl RcController {
+    pub fn new(
+        config: Option<RcConfig>,
+        home: String,
+        log_dir: PathBuf,
+        runner: Runner,
+        ops: RcOps,
+    ) -> Self {
+        RcController {
+            config,
+            home,
+            log_dir,
+            runner,
+            ops,
+            busy: std::sync::Mutex::new(HashMap::new()),
+            last: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// 요청을 받는다 — 대상을 찾고 진행 중 표시를 건다. 실제 일은 `run` 이 백그라운드에서 한다.
+    pub fn begin(&self, label: &str, command: RcCommand) -> Result<Target, RcRefusal> {
+        let Some(config) = &self.config else {
+            return Err(RcRefusal::NotFound("이 기기에서는 rc 가 꺼져 있다".into()));
+        };
+        let matches: Vec<Target> = rc::resolve_targets(config, &self.home)
+            .into_iter()
+            .filter(|t| t.label == label)
+            .collect();
+        let target = match matches.as_slice() {
+            [] => return Err(RcRefusal::NotFound(format!("rc 대상이 아니다: {label}"))),
+            [one] => one.clone(),
+            _ => {
+                return Err(RcRefusal::Ambiguous(format!(
+                    "같은 라벨의 대상이 둘 이상이다: {label} — rocky.json 의 rc 목록을 고친다"
+                )))
+            }
+        };
+        let mut busy = self.busy.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(action) = busy.get(label) {
+            return Err(RcRefusal::Busy(format!(
+                "{label} 은(는) 이미 진행 중이다({action:?})"
+            )));
+        }
+        let action = match command {
+            RcCommand::Start => RcAction::Starting,
+            RcCommand::Restart { .. } => RcAction::Restarting,
+        };
+        busy.insert(label.to_string(), action);
+        Ok(target)
+    }
+
+    /// 현황에 진행 중 표시와 마지막 결과를 얹는다.
+    pub fn decorate(&self, status: &mut RcStatus) {
+        let busy = self.busy.lock().unwrap_or_else(|e| e.into_inner());
+        let last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+        for row in &mut status.servers {
+            row.action = busy.get(&row.label).copied();
+            row.last_result = last.get(&row.label).cloned();
+        }
+    }
+
+    fn set_action(&self, label: &str, action: RcAction) {
+        let mut busy = self.busy.lock().unwrap_or_else(|e| e.into_inner());
+        busy.insert(label.to_string(), action);
+    }
+
+    /// `begin` 이 받은 일을 끝까지 한다 — 결과를 남기고 진행 중 표시를 푼다.
+    pub async fn run(&self, target: Target, command: RcCommand) -> RcResult {
+        let started = std::time::Instant::now();
+        let outcome = self.execute(&target, command).await;
+        let (ok, message) = match outcome {
+            Ok(m) => (true, m),
+            Err(m) => (false, m),
+        };
+        let result = RcResult {
+            ok,
+            message: message.clone(),
+            at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.event(
+            "result",
+            &target.label,
+            serde_json::json!({ "ok": ok, "message": message, "secs": started.elapsed().as_secs() }),
+        );
+        self.last
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(target.label.clone(), result.clone());
+        self.busy
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&target.label);
+        result
+    }
+
+    async fn execute(&self, target: &Target, command: RcCommand) -> Result<String, String> {
+        // 지금 떠 있는지는 캐시 없이 다시 잰다 — 몇 초 전 현황으로 내리면 엉뚱한 pid 를 내린다.
+        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        if let Some(err) = status.probe_error {
+            return Err(format!("현황을 못 읽어 손대지 않았다 — {err}"));
+        }
+        // 확실히 로그아웃일 때만 막는다(모르면 띄워 본다). 데몬이 launchd 로 돌면 셸과 자격을 읽는 곳이 다르다 —
+        // launchd 맥락은 키체인을 읽어서, 셸은 로그인돼 있어도 여기는 로그아웃일 수 있다(2026-10-05 실측).
+        // 그대로 띄우면 서버가 "You must be logged in" 으로 곧 내려가고, 재시작이면 떠 있던 서버까지 잃는다.
+        if status.auth == rc::AuthState::Out {
+            return Err(
+                "데몬 맥락에서 claude 가 로그인돼 있지 않다 — 손대지 않았다. 데몬을 띄운 맥락(launchd 면 키체인)의 자격을 고친 뒤 다시"
+                    .into(),
+            );
+        }
+        let live = status
+            .servers
+            .iter()
+            .find(|s| s.dir == target.dir)
+            .filter(|s| s.running)
+            .and_then(|s| s.pid.map(|pid| (pid, s.sessions)));
+        let mode = match (command, live) {
+            (RcCommand::Start, Some((pid, _))) => {
+                return Err(format!("이미 떠 있다(pid {pid}) — 다시 띄우려면 재시작"))
+            }
+            (RcCommand::Start, None) => rc::START_MODE,
+            (RcCommand::Restart { fresh }, Some((pid, sessions))) => {
+                let mode = rc::restart_mode(target.pinned, sessions > 0, fresh);
+                if !self.stop(&target.label, pid).await {
+                    return Err(format!("내리지 못했다(pid {pid}) — 손대지 않고 둔다"));
+                }
+                (self.ops.sleep)(rc::RESTART_DELAY).await;
+                mode
+            }
+            // 꺼져 있던 것을 재시작하면 그냥 띄운다.
+            (RcCommand::Restart { .. }, None) => rc::START_MODE,
+        };
+        let fresh = matches!(command, RcCommand::Restart { fresh: true });
+        self.launch_until_up(target, mode, fresh).await
+    }
+
+    /// 띄우고 등록까지 본다. `already served` 면 쉬었다 다시, 이어받기가 안 뜨면 새로 한 번 더.
+    async fn launch_until_up(
+        &self,
+        target: &Target,
+        first: LaunchMode,
+        fresh: bool,
+    ) -> Result<String, String> {
+        let mut mode = first;
+        let mut backoff = rc::REGISTRATION_BACKOFF.iter();
+        let mut retried_mode = false;
+        loop {
+            let pid = self.launch(target, mode)?;
+            match self.judge(&target.label, pid).await {
+                Registration::Connected => {
+                    return Ok(format!("떴다 — {}(pid {pid})", rc::mode_note(mode, fresh)))
+                }
+                Registration::Pending if (self.ops.signal)(pid, 0) => {
+                    return Ok(format!(
+                        "떴다(등록은 확인 못 함) — {}(pid {pid})",
+                        rc::mode_note(mode, fresh)
+                    ))
+                }
+                Registration::Served => {
+                    // 곧 스스로 내려가지만 기다리지 않고 내린다 — 다음 기동과 겹치지 않게.
+                    self.stop(&target.label, pid).await;
+                    let Some(wait) = backoff.next() else {
+                        return Err(
+                            "already served — claude.ai 쪽 등록이 3분 넘게 남아 있다. 잠시 뒤 다시"
+                                .into(),
+                        );
+                    };
+                    self.set_action(&target.label, RcAction::Retrying);
+                    self.event(
+                        "retry",
+                        &target.label,
+                        serde_json::json!({ "reason": "served", "waitSecs": wait.as_secs() }),
+                    );
+                    (self.ops.sleep)(*wait).await;
+                }
+                Registration::Pending => {
+                    // 프로세스가 사라졌다.
+                    if rc::may_fail_to_start(mode) && !retried_mode {
+                        retried_mode = true;
+                        mode = rc::retry_mode(target.pinned);
+                        self.set_action(&target.label, RcAction::Retrying);
+                        self.event(
+                            "retry",
+                            &target.label,
+                            serde_json::json!({ "reason": "resume-down", "mode": mode }),
+                        );
+                        continue;
+                    }
+                    let err = self.read_log(&target.label, "err");
+                    let tail = err
+                        .lines()
+                        .rev()
+                        .find(|l| !l.trim().is_empty())
+                        .unwrap_or("");
+                    return Err(format!("뜨자마자 내려갔다 — {}", tail.trim()));
+                }
+            }
+        }
+    }
+
+    fn log_path(&self, label: &str, ext: &str) -> PathBuf {
+        self.log_dir.join(format!("{label}.{ext}"))
+    }
+
+    fn read_log(&self, label: &str, ext: &str) -> String {
+        std::fs::read_to_string(self.log_path(label, ext)).unwrap_or_default()
+    }
+
+    fn launch(&self, target: &Target, mode: LaunchMode) -> Result<u32, String> {
+        std::fs::create_dir_all(&self.log_dir)
+            .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
+        let argv = rc::server_argv(&target.label, mode);
+        let pid = (self.ops.spawn)(
+            &argv,
+            Path::new(&target.dir),
+            &self.log_path(&target.label, "out"),
+            &self.log_path(&target.label, "err"),
+        )
+        .map_err(|e| format!("못 띄웠다({} 에서 {}): {e}", target.dir, argv.join(" ")))?;
+        self.event(
+            "start",
+            &target.label,
+            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir }),
+        );
+        Ok(pid)
+    }
+
+    /// 등록을 기다린다 — `Connected` · `Served` 를 보면 바로, 프로세스가 사라졌으면 `Pending`(호출자가 생존을 다시 본다).
+    async fn judge(&self, label: &str, pid: u32) -> Registration {
+        (self.ops.sleep)(rc::REGISTRATION_FIRST).await;
+        let mut waited = rc::REGISTRATION_FIRST;
+        loop {
+            let reg =
+                rc::read_registration(&self.read_log(label, "out"), &self.read_log(label, "err"));
+            if reg != Registration::Pending
+                || !(self.ops.signal)(pid, 0)
+                || waited >= rc::REGISTRATION_WAIT
+            {
+                return reg;
+            }
+            (self.ops.sleep)(rc::REGISTRATION_POLL).await;
+            waited += rc::REGISTRATION_POLL;
+        }
+    }
+
+    /// SIGTERM → 유예 동안 200ms 간격으로 확인 → 살아 있으면 SIGKILL. 내려갔으면 true.
+    async fn stop(&self, label: &str, pid: u32) -> bool {
+        if !(self.ops.signal)(pid, libc::SIGTERM) {
+            return !(self.ops.signal)(pid, 0);
+        }
+        let step = Duration::from_millis(200);
+        let mut waited = Duration::ZERO;
+        while (self.ops.signal)(pid, 0) {
+            if waited >= rc::STOP_GRACE {
+                (self.ops.signal)(pid, libc::SIGKILL);
+                (self.ops.sleep)(step).await;
+                let down = !(self.ops.signal)(pid, 0);
+                self.event(
+                    "stop",
+                    label,
+                    serde_json::json!({ "pid": pid, "kill": true, "down": down }),
+                );
+                return down;
+            }
+            (self.ops.sleep)(step).await;
+            waited += step;
+        }
+        self.event(
+            "stop",
+            label,
+            serde_json::json!({ "pid": pid, "kill": false, "down": true }),
+        );
+        true
+    }
+
+    /// `<todo dir>/rc/events.jsonl` 에 한 줄 — 옛 CLI 결과와 맞대는 기록이다. 쓰기 실패는 삼킨다(기록이 동작을 막지 않게).
+    fn event(&self, event: &str, label: &str, fields: serde_json::Value) {
+        use std::io::Write;
+        let line = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "event": event,
+            "label": label,
+            "fields": fields,
+        });
+        let _ = std::fs::create_dir_all(&self.log_dir);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.log_dir.join("events.jsonl"))
+        {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}

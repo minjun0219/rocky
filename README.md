@@ -86,20 +86,25 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 ### rc 서버 현황
 
-사용자 설정(`~/.config/rocky/rocky.json`)의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 준다. 지금은 **보기만** 한다. 띄우기·재시작·감시는 다음 단계다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)).
+사용자 설정(`~/.config/rocky/rocky.json`)의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 주고, 사람이 부르면 띄우거나 다시 띄운다. 스스로 되살리는 감시는 다음 단계다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)).
 
 웹 UI에서는 피드 머리 아래 한 줄(`원격 제어 7/13 · 세션 4`)과 **원격 제어** 탭으로 본다(⋯ 메뉴에서 탭을 끌 수 있다). rc 블록이 없거나 `enabled: false`면 둘 다 없다.
 
 **Antigravity 원격 제어**(`agy remote-control`)는 rc 블록과 상관없이 그 기기에 `agy`가 있으면 보이고, 켜고 끌 수 있다 — rc 블록이 없는 기기에서는 원격 제어 탭에 Antigravity 줄만 나온다. 켜기·끄기는 이 기계의 원격 접속 데몬을 바꾸므로 로컬 요청만 된다(폰·테일넷 화면에는 버튼이 없다).
 
 ```bash
-rocky rc            # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 대상 밖 서버, 자격, Antigravity
-rocky rc agy        # Antigravity 원격 제어 상태 한 줄
-rocky rc agy stop   # agy remote-control stop(정지 + 등록 해제) — start 는 등록 + 기동
+rocky rc                         # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 대상 밖 서버, 자격, Antigravity
+rocky rc start repo-a --wait     # 꺼진 대상을 띄운다(세션까지)
+rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으면 이어받기(-c), --fresh 면 새로. 붙은 원격 세션은 끊긴다
+rocky rc agy                     # Antigravity 원격 제어 상태 한 줄
+rocky rc agy stop                # agy remote-control stop(정지 + 등록 해제) — start 는 등록 + 기동
 ```
+
+서버는 데몬과 다른 프로세스 그룹으로 띄워 데몬을 재시작·업데이트해도 살아 있다. 재시작은 SIGTERM 뒤 20초를 기다리고, `already served`(claude.ai 쪽 등록이 남음)면 45초·90초 뒤 다시 띄운다. 기동 로그와 이벤트는 todo 폴더의 `rc/`(`<라벨>.out` · `.err` · `events.jsonl`)에 남는다.
 
 | API | 내용 |
 | --- | --- |
+| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않는다 |
 | `GET /api/rc/servers` | 대상 행(`servers`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 5초 캐시 |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
