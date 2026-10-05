@@ -92,7 +92,8 @@ web/                  rc 서버 현황 — 한 줄씩, 띄우기·재시작 버�
 ```jsonc
 // ~/.config/rocky/rocky.json — 사용자 설정에만(전역 데몬이라 todo 블록과 같은 규칙)
 "rc": {
-  "enabled": false,                 // 감시 루프. 기본 꺼짐 — 옛 CLI와 동시에 띄우지 않게
+  "enabled": true,                  // 기능 전체 스위치(기본 true). false 면 블록이 없을 때와 같다 — rc 를 못 쓰는 기기에서 끈다
+  "supervise": false,               // 감시 루프. 기본 꺼짐 — 옛 CLI와 동시에 띄우지 않게
   "root": "~/dev/workspaces",       // 상대 경로의 기준
   "pinned": ["repo-a", "repo-b"],   // 늘 떠 있어야 하는 것(죽으면 살린다, 세션 모드)
   "targets": ["repo-c"],            // 화면에서 부를 수 있는 것(자동으로 띄우지 않는다, 서버만 모드)
@@ -142,7 +143,7 @@ web/                  rc 서버 현황 — 한 줄씩, 띄우기·재시작 버�
    서버를 건드리지 않으니 옛 CLI와 같이 돌아도 안전하다.
 2. **띄우기·재시작**: 장수 프로세스 경로(새 그룹), 정지 유예, already served 재시도, 기동 판정,
    `POST …/start|restart`(로컬 전용), 웹 버튼, `rocky rc start|restart`.
-3. **감시 루프**: `rc.enabled`, 주기 기동(pinned + 되살림), 자격 프리플라이트·관찰. **이 조각부터 옛 주기 잡을 끈다.**
+3. **감시 루프**: `rc.supervise`, 주기 기동(pinned + 되살림), 자격 프리플라이트·관찰. **이 조각부터 옛 주기 잡을 끈다.**
 4. **야간 재시작**: `claude update`, 쉬는 서버, canary, 네트워크 확인, recover. **옛 야간 잡을 끈다.**
 5. **확인 관문**(8절 결정에 따라) 및 옛 CLI 은퇴.
 

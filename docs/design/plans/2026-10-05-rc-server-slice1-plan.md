@@ -16,7 +16,7 @@
 
 ### 설정 (`config.rs` + `rocky.schema.json`)
 
-이번 조각은 **목록만** 읽는다. `enabled`·`nightly`는 쓰는 조각(3·4)에서 넣는다.
+이번 조각은 목록과 `enabled`(기능 전체 스위치, 기본 true — rc 를 못 쓰는 기기에서 끈다)만 읽는다. `supervise`·`nightly`는 쓰는 조각(3·4)에서 넣는다.
 
 ```jsonc
 "rc": { "root": "~/dev/workspaces", "pinned": ["repo-a"], "targets": ["repo-b"] }
@@ -97,7 +97,7 @@
 
 ## 하지 않는 것(이 조각)
 
-- 서버를 띄우거나 내리는 모든 것, 버전 기록, 되살림 표식, 이벤트 로그, `rc.enabled`.
+- 서버를 띄우거나 내리는 모든 것, 버전 기록, 되살림 표식, 이벤트 로그, `rc.supervise`.
 - MCP 도구(설계 4절).
 
 ## 확인

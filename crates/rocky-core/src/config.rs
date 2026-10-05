@@ -495,7 +495,7 @@ fn parse_target(value: &serde_json::Value) -> Option<VerifyTarget> {
     })
 }
 
-/// `rocky.json` 의 `rc` 블록 — `claude rc` 서버 현황(`rocky_core::rc`). 블록이 없으면 None(기능 꺼짐).
+/// `rocky.json` 의 `rc` 블록 — `claude rc` 서버 현황(`rocky_core::rc`). 블록이 없거나 꺼 두면 None(기능 꺼짐).
 /// 사용자 설정에서만 읽는다 — 데몬은 전역 하나다.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RcConfig {
@@ -507,11 +507,15 @@ pub struct RcConfig {
     pub targets: Vec<String>,
 }
 
-/// 파일 없음 / 파싱 실패 / 블록 없음은 None(fail-open). 모양이 틀린 칸은 빈 값으로 읽는다.
+/// 파일 없음 / 파싱 실패 / 블록 없음 / `enabled: false` 는 None(꺼짐, fail-open). 모양이 틀린 칸은 빈 값으로
+/// 읽는다. `enabled` 는 목록을 남긴 채 이 기기에서만 끄는 스위치다 — rc 를 못 쓰는 기기가 있다.
 pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
     let raw = std::fs::read_to_string(config_path).ok()?;
     let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
     let block = parsed.get("rc")?.as_object()?;
+    if block.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+        return None;
+    }
     let names = |key: &str| -> Vec<String> {
         block
             .get(key)

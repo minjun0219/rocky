@@ -236,6 +236,14 @@ fn rc_block_is_optional_and_lenient() {
             targets: vec![],
         })
     );
+    // 목록을 남긴 채 끈 기기 — 블록이 없을 때와 같다.
+    std::fs::write(&path, r#"{"rc":{"enabled":false,"pinned":["a"]}}"#).unwrap();
+    assert_eq!(load_rc_block(&path), None);
+    std::fs::write(&path, r#"{"rc":{"enabled":true,"pinned":["a"]}}"#).unwrap();
+    assert_eq!(
+        load_rc_block(&path).map(|c| c.pinned),
+        Some(vec!["a".to_string()])
+    );
 }
 
 #[test]
