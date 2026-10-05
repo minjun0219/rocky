@@ -20,7 +20,8 @@ export type WebUsageEvent =
   | 'web:alert-open'
   | 'web:worklog-todo'
   | 'web:rc-start'
-  | 'web:rc-restart';
+  | 'web:rc-restart'
+  | 'web:agent-row';
 
 let actorHeader = 'unknown';
 

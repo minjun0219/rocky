@@ -9,11 +9,12 @@ const LABEL: Record<BoardView, string> = {
   notes: '노트',
   worklog: '작업로그',
   github: 'GitHub',
+  agents: '에이전트',
   rc: '원격 제어',
 };
 
 /**
- * 피드 / 할 일 / 노트 / GitHub 전환. 피드 옆 숫자는 오너가 손댈 것의 수(PR 알림 + 내 차례, `FeedPane`).
+ * 피드 / 할 일 / 노트 / 작업로그 / GitHub / 에이전트 / 원격 제어 전환. 피드 옆 숫자는 오너가 손댈 것의 수(PR 알림 + 내 차례, `FeedPane`).
  * GitHub 탭은 ⋯ 메뉴에서 끄면 안 보인다.
  *
  * 할 일 / 노트 전환 — 노트가 목록 아래 스크롤 너머에 묻히지 않게 화면 맨 위에서 고른다.
@@ -29,9 +30,13 @@ export function ViewSwitch() {
   const feed = useFeedCount();
   // 피드가 맨 앞이자 첫 화면이다(2026-10-02 오너).
   const showRc = useUiStore((s) => s.showRc && rcVisible(s.rc));
+  const showAgents = useUiStore((s) => s.showAgents);
   const kinds: BoardView[] = ['feed', 'todos', 'notes', 'worklog'];
   if (showGithub) {
     kinds.push('github');
+  }
+  if (showAgents) {
+    kinds.push('agents');
   }
   if (showRc) {
     kinds.push('rc');
@@ -49,7 +54,7 @@ export function ViewSwitch() {
             key={kind}
             type="button"
             aria-pressed={isActive}
-            className={`inline-flex min-h-7 flex-1 sm:flex-initial min-w-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md px-1 sm:px-2.5 py-1 text-chip whitespace-nowrap transition-all duration-150 ${
+            className={`inline-flex min-h-7 flex-auto sm:flex-initial min-w-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md px-1 sm:px-2.5 py-1 text-chip whitespace-nowrap transition-all duration-150 ${
               isActive
                 ? 'bg-surface font-semibold text-text shadow-xs'
                 : 'text-muted hover:text-text'
@@ -58,10 +63,10 @@ export function ViewSwitch() {
             aria-label={kind === 'rc' ? LABEL.rc : undefined}
           >
             {kind === 'rc' ? (
-              // 360px 미만에선 탭 여섯이 붙는다 — 이름을 줄인다(읽는 이름은 aria-label 로 그대로).
+              // 400px 미만에선 탭 일곱이 붙는다 — 이름을 줄인다(읽는 이름은 aria-label 로 그대로).
               <>
-                <span className="hidden min-[360px]:inline">{LABEL.rc}</span>
-                <span className="min-[360px]:hidden">원격</span>
+                <span className="hidden min-[400px]:inline">{LABEL.rc}</span>
+                <span className="min-[400px]:hidden">원격</span>
               </>
             ) : (
               LABEL[kind]

@@ -7,6 +7,7 @@ import { WorklogPane } from './components/WorklogPane';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
 import { RcPane, RcSummary } from './components/RcPane';
+import { AgentsPane } from './components/AgentsPane';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { VersionFooter } from './components/VersionFooter';
@@ -180,6 +181,8 @@ function App() {
           <WorklogPane />
         ) : view === 'rc' ? (
           <RcPane />
+        ) : view === 'agents' ? (
+          <AgentsPane />
         ) : (
           <GithubPane />
         )}

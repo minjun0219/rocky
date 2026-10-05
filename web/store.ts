@@ -45,6 +45,8 @@ const GITHUB_HIDDEN_KEY = 'rocky:github-hidden';
 const GITHUB_TAB_KEY = 'rocky:github-tab';
 /** 원격 제어 탭을 보이나 — 기본 켬. 이 기기에서 rc 가 꺼져 있으면(`configured: false`) 이 값과 상관없이 안 보인다. */
 const RC_TAB_KEY = 'rocky:rc-tab';
+/** 에이전트 탭을 보이나 — 기본 켬. */
+const AGENTS_TAB_KEY = 'rocky:agents-tab';
 
 function readHidden(): string[] {
   try {
@@ -79,6 +81,9 @@ function viewOf(route: Route): BoardView {
   }
   const view = route.view ?? 'feed';
   if (view === 'github' && readStored(GITHUB_TAB_KEY) === 'off') {
+    return 'feed';
+  }
+  if (view === 'agents' && readStored(AGENTS_TAB_KEY) === 'off') {
     return 'feed';
   }
   return view === 'rc' && readStored(RC_TAB_KEY) === 'off' ? 'feed' : view;
@@ -180,6 +185,10 @@ interface UiState {
     reason?: string;
     list: SessionRow[];
   };
+  /** 에이전트 탭을 보이나(이 브라우저의 선택). */
+  showAgents: boolean;
+  /** 에이전트 탭의 세션 목록(전 보드) — 아직 못 읽었으면 null. 보내기 패널의 `sessions` 와 따로 둔다. */
+  agents: { available: boolean; reason?: string; list: SessionRow[] } | null;
 
   setSelected: (selection: BoardSelection) => void;
   setShowArchived: (show: boolean) => void;
@@ -187,6 +196,9 @@ interface UiState {
   unhideAllGithub: () => void;
   setShowGithub: (show: boolean) => void;
   setShowRc: (show: boolean) => void;
+  setShowAgents: (show: boolean) => void;
+  /** 에이전트 탭의 세션 목록을 다시 읽는다. 데몬이 안 닿으면 직전 값을 둔다. */
+  loadAgents: () => Promise<void>;
   /** rc 현황을 다시 읽는다(데몬이 5초 캐시). 꺼진 기기에서 원격 제어 탭을 보던 중이면 피드로 돌린다. */
   loadRc: () => Promise<void>;
   /** agy remote-control 을 켜거나 끈다(로컬 전용) — 성공하면 새로 잰 현황으로 바꾸고, 실패하면 사유를 던진다. */
@@ -390,6 +402,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   daemonVersionChanged: false,
   handoffs: [],
   sessions: { available: true, list: [] },
+  showAgents: readStored(AGENTS_TAB_KEY) !== 'off',
+  agents: null,
 
   setSelected: (selected) => {
     logUsage('web:board-tab');
@@ -434,6 +448,31 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (!showRc) {
       const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
       replacePath(pathFor(here));
+    }
+  },
+  setShowAgents: (showAgents) => {
+    writeStored(AGENTS_TAB_KEY, showAgents ? 'on' : 'off');
+    set(
+      showAgents
+        ? { showAgents }
+        : { showAgents, view: get().view === 'agents' ? 'feed' : get().view },
+    );
+    if (!showAgents) {
+      const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
+      replacePath(pathFor(here));
+    }
+  },
+  loadAgents: async () => {
+    try {
+      const result = await api<{ available: boolean; reason?: string; sessions: SessionRow[] }>(
+        '/api/sessions',
+        get().actor,
+      );
+      set({
+        agents: { available: result.available, reason: result.reason, list: result.sessions },
+      });
+    } catch {
+      // 데몬이 잠깐 안 닿으면 직전 값을 둔다 — 끊김은 머리줄이 따로 말한다.
     }
   },
   loadRc: async () => {
