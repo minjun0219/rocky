@@ -14,7 +14,7 @@
   `agy remote-control status` 만 재서 `antigravity` 에 싣는다.
   켜기·끄기(`POST /api/rc/antigravity/{start,stop}`, `rocky rc agy start|stop`)는 로컬 전용이고, 동작 이름은
   `AgyAction` 둘뿐이다 — agy 에 임의 하위 명령·플래그를 넘기지 않는다. 손잡이는 조회와 **같은 캐시**를 잠그고 돌린 뒤 다시
-  잰다(`rc_handles`). agy 데몬은 agy 가 올린 launchd 잡이라 rockyd 의 자식이 아니다. 에이전트가 부를 때의 확인은
+  잰다(`rc_handles`) — 끈 직후의 `status` 는 launchd 중간값(`SIGTERMed`)이라 자리 잡을 때까지 0.5초 간격으로 최대 6번(`AgyAction::settled`). agy 데몬은 agy 가 올린 launchd 잡이라 rockyd 의 자식이 아니다. 에이전트가 부를 때의 확인은
   `permissions.ask` 에 `Bash(rocky rc agy:*)` 로 받는다(설계 8절 3번과 같은 방식).
 - rc 서버는 데몬의 자식이 아니다 — 데몬 재시작·교체가 서버에 닿지 않아야 한다.
 

@@ -375,3 +375,18 @@ fn agy_action_takes_only_start_and_stop() {
         vec!["agy", "remote-control", "stop"]
     );
 }
+
+#[test]
+fn agy_settles_on_running_or_no_state_line() {
+    let at = |state: Option<&str>| AgyStatus {
+        state: state.map(str::to_string),
+        pid: None,
+        instance: Some("mac-1".into()),
+    };
+    assert!(AgyAction::Start.settled(Some(&at(Some("running")))));
+    assert!(!AgyAction::Start.settled(Some(&at(None))));
+    // 끈 직후 launchd 의 중간값 — 아직 아니다. `Daemon status: not running` 이 되면(state 줄 없음) 자리 잡았다.
+    assert!(!AgyAction::Stop.settled(Some(&at(Some("SIGTERMed")))));
+    assert!(AgyAction::Stop.settled(Some(&at(None))));
+    assert!(!AgyAction::Start.settled(None));
+}
