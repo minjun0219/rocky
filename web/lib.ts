@@ -920,7 +920,7 @@ const CI_LABEL: Record<PrSnapshot['ci'], string> = {
   pending: 'CI 도는 중',
 };
 
-function prDetail(p: PrSnapshot, status: PrStatus): string {
+export function prDetail(p: PrSnapshot, status: PrStatus): string {
   if (status === 'conflict') {
     return '충돌';
   }
@@ -938,6 +938,37 @@ function prDetail(p: PrSnapshot, status: PrStatus): string {
     parts.push(`스레드 ${p.unhandled}`);
   }
   return parts.join(' · ');
+}
+
+/** GitHub PR 주소 → `{ repo, number }`. `/files`·`#…`·`?…` 꼬리는 무시한다. PR 이 아니면 null(Rust `parse_pr_url` 과 같은 규칙). */
+export function parsePrUrl(url: string): { repo: string; number: number } | null {
+  const m = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/#?]|$)/.exec(url.trim());
+  if (!m) {
+    return null;
+  }
+  return { repo: `${m[1]}/${m[2]}`, number: Number(m[3]) };
+}
+
+/** 할 일 링크 하나에 붙일 PR 상태 — 데몬이 감시 중(구독·열림)인 PR 만. 감시 밖이면 null(머지된 것은 댓글이 말한다). */
+export function linkedPrStatus(
+  url: string,
+  prs: PrSnapshot[],
+): { status: PrStatus; detail: string } | null {
+  const ref = parsePrUrl(url);
+  if (!ref) {
+    return null;
+  }
+  const p = prs.find(
+    (x) =>
+      x.state === 'OPEN' &&
+      x.number === ref.number &&
+      x.repo.toLowerCase() === ref.repo.toLowerCase(),
+  );
+  if (!p) {
+    return null;
+  }
+  const status = prStatus(p);
+  return { status, detail: prDetail(p, status) };
 }
 
 /**

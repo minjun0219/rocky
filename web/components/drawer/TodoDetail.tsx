@@ -2,11 +2,12 @@ import { Archive, ArchiveRestore, ArrowUpRight, Check, Pause, Play, RotateCcw } 
 import type { EditorView } from '@codemirror/view';
 import { useEffect, useRef, useState } from 'react';
 import { mountMarkdownEditor } from '../../codemirror-editor';
-import { boardCommand, copyRefWithFeedback, linkLabel } from '../../lib';
+import { boardCommand, copyRefWithFeedback, linkLabel, linkedPrStatus } from '../../lib';
 import { useUiStore } from '../../store';
 import { IssueAction } from './IssueAction';
 import { FormatToolbar } from '../FormatToolbar';
 import { Markdown } from '../Markdown';
+import { PR_ICON } from '../NowTable';
 import { SpawnAction } from './SpawnAction';
 
 export function TodoDetail() {
@@ -21,6 +22,7 @@ export function TodoDetail() {
   const fetchSessions = useUiStore((s) => s.fetchSessions);
   const sendHandoff = useUiStore((s) => s.sendHandoff);
   const cancelHandoff = useUiStore((s) => s.cancelHandoff);
+  const prs = useUiStore((s) => s.prs);
   const todo = detail?.todo;
   const [desc, setDesc] = useState(todo?.description ?? '');
   // 편집기의 ⌘Enter 는 편집기를 만들 때 묶인 콜백이라 그 뒤의 `desc` 상태를 못 본다 — 최신 글은 ref 로.
@@ -286,18 +288,30 @@ export function TodoDetail() {
       )}
       {todo.links.length > 0 && (
         <div className="drawer-links">
-          {todo.links.map((link) => (
-            <a
-              key={link.url}
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-              className="chip chip-link"
-            >
-              {link.title ?? linkLabel(link.url)}
-              <ArrowUpRight size={11} aria-hidden className="inline align-[-1px]" />
-            </a>
-          ))}
+          {todo.links.map((link) => {
+            // 데몬이 감시 중인 PR 이면 상태를 옆에 — 머지되면 감시에서 빠지니 그때는 댓글이 말한다.
+            const pr = linkedPrStatus(link.url, prs);
+            const icon = pr ? PR_ICON[pr.status] : null;
+            return (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="chip chip-link"
+                title={pr ? `${icon?.label} — ${pr.detail}` : undefined}
+              >
+                {link.title ?? linkLabel(link.url)}
+                {pr && icon && (
+                  <span className={`chip-link-status ${icon.className}`}>
+                    <icon.Icon size={11} aria-hidden className="inline align-[-1px]" />
+                    <span>{pr.detail}</span>
+                  </span>
+                )}
+                <ArrowUpRight size={11} aria-hidden className="inline align-[-1px]" />
+              </a>
+            );
+          })}
         </div>
       )}
       <div className="drawer-section-label">설명</div>

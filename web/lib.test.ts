@@ -39,6 +39,8 @@ import {
   formatAge,
   needsSecondTick,
   nowRows,
+  linkedPrStatus,
+  parsePrUrl,
 } from './lib';
 
 /** copyRef 의 execCommand 폴백 경로를 DOM 없이 검증하기 위한 fake document. */
@@ -843,6 +845,25 @@ describe('prRows — PR 현황', () => {
     ready: false,
     updatedAt: '2026-09-28T10:00:00Z',
     ...over,
+  });
+
+  test('할 일 링크의 PR 상태 — 감시 중인 열린 PR 만, repo 대소문자·주소 꼬리 무시', () => {
+    const prs = [
+      pr({ repo: 'O/Rocky', number: 7, ready: true, ci: 'pass' }),
+      pr({ number: 8, state: 'MERGED' }),
+    ];
+    expect(parsePrUrl('https://github.com/o/rocky/pull/7/files#diff-x')).toEqual({
+      repo: 'o/rocky',
+      number: 7,
+    });
+    expect(parsePrUrl('https://github.com/o/rocky/issues/7')).toBeNull();
+    expect(linkedPrStatus('https://github.com/o/rocky/pull/7/files', prs as never)).toEqual({
+      status: 'ready',
+      detail: '확인·머지',
+    });
+    expect(linkedPrStatus('https://github.com/o/rocky/pull/8', prs as never)).toBeNull();
+    expect(linkedPrStatus('https://github.com/o/rocky/pull/9', prs as never)).toBeNull();
+    expect(linkedPrStatus('https://example.com', prs as never)).toBeNull();
   });
 
   test('상태 판정 — 충돌이 먼저, 초안은 CI 와 무관하게 초안', () => {

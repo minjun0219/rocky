@@ -183,3 +183,47 @@ describe('DetailDrawer 설명 편집', () => {
     expect(view.state.doc.toString()).toBe('**굵게**');
   });
 });
+
+describe('DetailDrawer 링크 칩의 PR 상태', () => {
+  const snapshot = {
+    repo: 'o/rocky',
+    number: 7,
+    title: 'PR',
+    url: 'https://github.com/o/rocky/pull/7',
+    state: 'OPEN',
+    isDraft: false,
+    base: 'main',
+    head: 'abc',
+    mergeState: 'DIRTY',
+    ci: 'pass',
+    unhandled: 0,
+    decision: 0,
+    ready: false,
+    updatedAt: '2026-09-28T10:00:00Z',
+  };
+
+  test('감시 중인 PR 링크에는 상태가 붙고, 감시 밖 링크에는 없다', () => {
+    renderWithStore(<DetailDrawer />, {
+      detail: {
+        kind: 'todo',
+        todo: todoFixture({
+          links: [
+            { url: 'https://github.com/o/rocky/pull/7/files' },
+            { url: 'https://github.com/o/rocky/pull/8' },
+          ],
+        }),
+        history: [],
+        comments: [],
+      },
+      sections: [],
+      handoffs: [],
+      sessions: { available: false, reason: '테스트', list: [] },
+      prs: [snapshot] as never,
+    });
+    const chips = document.querySelectorAll('.chip-link');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]?.querySelector('.chip-link-status')?.textContent).toBe('충돌');
+    expect(chips[0]?.getAttribute('title')).toBe('충돌 — 충돌');
+    expect(chips[1]?.querySelector('.chip-link-status')).toBeNull();
+  });
+});
