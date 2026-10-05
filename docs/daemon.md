@@ -189,10 +189,12 @@
   `decision: block`으로 그 자리에서 착수하고, `UserPromptSubmit` 훅은 턴이 열릴 때 같은
   큐를 본다. 한 번에 한 건만 배달한다. **보관된 todo의 pending은 집지 않는다**(`claim_handoff`) —
   open 목록·요약에서 빠진 요청이 훅에서만 튀어나와 접은 일을 세션이 착수하게 되는 걸 막는다.
-  **배달은 턴 경계에서만 일어나므로 idle 세션에는 닿지 않는다** — 턴을 여는 건 handoff를
-  호출한 에이전트 몫이다. `POST /api/todos/:ref/handoff`는 그래서 `poke: { to, message }`
-  (`rocky_core::handoff::build_handoff_poke`)를 함께 돌려주고, 호출자가 그대로 `SendMessage`로 보내면 그 턴의
-  `UserPromptSubmit` 훅이 상세 지시를 주입한다. poke 본문을 늘리지 마라 — 같은 턴에
+  **배달은 턴 경계에서만 일어나므로 idle 세션은 누가 턴을 열어야 한다.** 대상 세션이 받은편지함 소켓을
+  등록했으면(`POST /api/sessions/inbox`, PR 알림과 같은 길) 데몬이 `poke`(`rocky_core::handoff::build_handoff_poke`)를
+  그 소켓에 바로 꽂아 턴을 연다(응답 `woke: true`, 전달 기록 `handoff`). 웹의 "에이전트에게 보내기" 는 poke 를
+  보낼 길이 없어 이게 없으면 다음 사람 입력까지 기다렸다. "보내지 않기" 는 자동 알림 스위치라 핸드오프엔 적용하지
+  않는다(사람이 세션을 골라 누른 일). 등록이 없으면 `poke: { to, message }`를 돌려주고, 호출자가 그대로
+  `SendMessage`로 보내면 그 턴의 `UserPromptSubmit` 훅이 상세 지시를 주입한다. poke 본문을 늘리지 마라 — 같은 턴에
   주입문이 따로 오므로 내용이 겹친다.
   세션 목록은 `claude agents --json` (`rockyd::sessions_exec`, 주입 가능 `Runner`) — `claude`
   CLI가 없으면 이 기능만 비활성되고(`available: false` + `reason`) 보드 나머지는 정상이다.

@@ -44,6 +44,8 @@ export function TodoDetail() {
   const [handoffNote, setHandoffNote] = useState('');
   const [handoffSession, setHandoffSession] = useState('');
   const [handoffBusy, setHandoffBusy] = useState(false);
+  // 방금 보낸 핸드오프가 세션을 깨웠나 — 대기 줄에 "바로 전달" / "다음 턴에 집는다" 를 말한다.
+  const [handoffWoke, setHandoffWoke] = useState<boolean | null>(null);
   const [handoffError, setHandoffError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,10 +97,11 @@ export function TodoDetail() {
     setHandoffBusy(true);
     setHandoffError(null);
     try {
-      await sendHandoff(todo.id, {
+      const woke = await sendHandoff(todo.id, {
         sessionId: handoffSession || undefined,
         note: handoffNote || undefined,
       });
+      setHandoffWoke(woke);
       // 성공했을 때만 닫는다 — 실패하면 고쳐서 다시 낼 수 있어야 한다.
       setHandoffOpen(false);
       setHandoffNote('');
@@ -349,6 +352,10 @@ export function TodoDetail() {
       {pending ? (
         <div className="mt-2 flex items-center gap-2 text-handoff">
           <span>대기 중 · {pending.sessionName ?? pending.sessionId} 에게</span>
+          {handoffWoke === true ? <span className="text-muted">세션을 깨웠다</span> : null}
+          {handoffWoke === false ? (
+            <span className="text-muted">세션이 다음 턴에 집는다</span>
+          ) : null}
           {pending.stale ? <span className="text-p1">세션 없음</span> : null}
           <button type="button" onClick={() => void cancelHandoff(pending.id)}>
             취소

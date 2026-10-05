@@ -242,7 +242,8 @@ interface UiState {
 
   fetchSessions: () => Promise<void>;
   /** @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다. */
-  sendHandoff: (todoId: string, input: { sessionId?: string; note?: string }) => Promise<void>;
+  /** 세션의 받은편지함에 바로 꽂아 깨웠으면 true — 아니면 그 세션이 다음 턴에 큐에서 집는다. */
+  sendHandoff: (todoId: string, input: { sessionId?: string; note?: string }) => Promise<boolean>;
   cancelHandoff: (handoffId: string) => Promise<void>;
   /**
    * 그 todo 전용 워크트리에 백그라운드 세션을 띄운다. 이미 도는 세션이 있으면 서버가
@@ -881,11 +882,12 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   sendHandoff: async (todoId, input) => {
     const { actor } = get();
-    await api(`/api/todos/${todoId}/handoff`, actor, {
+    const res = await api<{ woke?: boolean }>(`/api/todos/${todoId}/handoff`, actor, {
       method: 'POST',
       body: JSON.stringify(input),
     });
     await get().refetch();
+    return res?.woke === true;
   },
 
   loadCapabilities: async () => {

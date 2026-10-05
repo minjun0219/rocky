@@ -104,7 +104,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | POST `/api/todos/:ref/issue` | `{repo?}` (옵션 본문) | 201 `{url, todo}` | 중복 409 `{error, url}` (사전·사후 동일 본문). 로컬 전용 |
 | POST `/api/todos/:ref/board` | `{board!}` | `TodoView` | 보드 간 이동 |
 | POST `/api/todos/:ref/move` | `{before!}` — ref 또는 **명시적 null**(맨 끝) | `TodoView` | before 키 부재 400 (null과 빠뜨림 구분) |
-| POST `/api/todos/:ref/handoff` | `{sessionId?, note?}` | 201 `Handoff & {poke: {to, message}}` | 아래 "핸드오프" |
+| POST `/api/todos/:ref/handoff` | `{sessionId?, note?}` | 201 `Handoff & {poke: {to, message}, woke}` | 아래 "핸드오프" |
 | POST `/api/todos/:ref/spawn` | `{note?, path?}` (옵션 본문) | 201 `{handoff, reused, worktreePath, sessionShortId?}` | 아래 "spawn". 로컬 전용 |
 | POST `/api/todos/:ref/comments` | `{body!}` | 201 `Comment` | body 문자열 아니면 400 |
 | PATCH `/api/comments/:id` | `{body!}` | `Comment` | 댓글은 번호 체계 밖 — id 로만 |
@@ -136,7 +136,8 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 2. `sessionId` 타입 오류는 400 (조용한 자동 매칭 전락 금지). 지정했는데 비활성이면 400
 3. 자동 매칭: `matchBoard` 후보 **정확히 1개**일 때만. 0개/복수 → 409
    `{error, candidates}` (0개면 candidates는 전체 세션)
-4. 성공: `createHandoff` + `buildHandoffPoke`를 얹어 201. poke 본문은 늘리지 않는다
+4. 성공: `createHandoff` + `buildHandoffPoke`를 얹어 201. 대상 세션이 받은편지함을 등록했으면 poke 를
+   그 소켓에 꽂고 `woke: true`(Rust 추가 — TS 엔 없던 필드). poke 본문은 늘리지 않는다
    (턴이 열리면 훅이 상세를 주입 — 중복 방지)
 
 ### spawn (POST /api/todos/:ref/spawn) — 순서가 계약이다
