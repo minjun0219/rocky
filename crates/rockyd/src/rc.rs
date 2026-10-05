@@ -374,6 +374,15 @@ impl RcController {
         if let Some(err) = status.probe_error {
             return Err(format!("현황을 못 읽어 손대지 않았다 — {err}"));
         }
+        // 확실히 로그아웃일 때만 막는다(모르면 띄워 본다). 데몬이 launchd 로 돌면 셸과 자격을 읽는 곳이 다르다 —
+        // launchd 맥락은 키체인을 읽어서, 셸은 로그인돼 있어도 여기는 로그아웃일 수 있다(2026-10-05 실측).
+        // 그대로 띄우면 서버가 "You must be logged in" 으로 곧 내려가고, 재시작이면 떠 있던 서버까지 잃는다.
+        if status.auth == rc::AuthState::Out {
+            return Err(
+                "데몬 맥락에서 claude 가 로그인돼 있지 않다 — 손대지 않았다. 데몬을 띄운 맥락(launchd 면 키체인)의 자격을 고친 뒤 다시"
+                    .into(),
+            );
+        }
         let live = status
             .servers
             .iter()

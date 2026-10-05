@@ -94,6 +94,10 @@ fn ops(world: Arc<Mutex<World>>) -> RcOps {
 
 /// `repo-a`(고정)에 서버 100 이 떠 있고, `session` 이면 열린 세션 자식이 있다.
 fn probe_runner(session: bool, running: bool) -> Runner {
+    probe_runner_auth(session, running, true)
+}
+
+fn probe_runner_auth(session: bool, running: bool, logged_in: bool) -> Runner {
     Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
         let mut ps = String::from("    1     0 30-00:00:00 /sbin/launchd\n");
         if running {
@@ -107,7 +111,7 @@ fn probe_runner(session: bool, running: bool) -> Runner {
         let out = match argv[0].as_str() {
             "ps" => ps,
             "lsof" => "p100\nfcwd\nn/w/repo-a\n".to_string(),
-            "claude" => r#"{"loggedIn": true}"#.to_string(),
+            "claude" => format!(r#"{{"loggedIn": {logged_in}}}"#),
             _ => return Box::pin(async { CmdOutput::failure("없음") }),
         };
         Box::pin(async move {
@@ -405,4 +409,30 @@ async fn real_spawn_leaves_a_new_process_group() {
         !(ops.signal)(pid, 0),
         "SIGTERM 으로 내려가고 대기 스레드가 거둔다"
     );
+}
+
+#[tokio::test]
+async fn logged_out_daemon_context_touches_nothing() {
+    // 재시작인데 데몬 맥락이 로그아웃이면 떠 있는 서버를 내리지도 않는다 — 내리면 다시 못 띄운다.
+    let dir = tempfile::tempdir().unwrap();
+    let world = Arc::new(Mutex::new(World {
+        alive: [100].into(),
+        next_pid: 200,
+        ..Default::default()
+    }));
+    let control = RcController::new(
+        Some(config()),
+        "/home/u".into(),
+        dir.path().join("rc"),
+        probe_runner_auth(true, true, false),
+        ops(world.clone()),
+    );
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command).unwrap();
+    let result = control.run(target, command).await;
+    assert!(!result.ok);
+    assert!(result.message.contains("로그인돼 있지 않다"));
+    let w = world.lock().unwrap();
+    assert!(w.signals.is_empty(), "내리지 않았다");
+    assert!(w.spawns.is_empty(), "띄우지 않았다");
 }
