@@ -10,6 +10,7 @@ pub mod github;
 pub mod handoff;
 pub mod ids;
 pub mod inbox;
+pub mod limits;
 pub mod local_request;
 pub mod logindex;
 pub mod migrations;

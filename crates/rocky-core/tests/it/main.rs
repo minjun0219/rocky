@@ -6,6 +6,7 @@ mod config_test;
 mod doing_test;
 mod handoff_test;
 mod inbox_test;
+mod limits_test;
 mod local_request_test;
 mod logindex_test;
 mod migrations_test;
