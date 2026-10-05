@@ -127,12 +127,21 @@ fn fetch_pr_subscriptions(base_url: &str) -> Option<Vec<PrSubscription>> {
 /// 이 세션이 받아들인 다른 세션발 메시지 — 훅 입력의 `transcript_path`. 못 읽으면 빈 목록(빼지 않고 주입한다:
 /// 두 번 받는 쪽이 놓치는 쪽보다 낫다).
 fn absorbed_peer_messages(input: &serde_json::Value) -> Vec<rocky_core::notify::PeerMessage> {
-    input
+    let mut absorbed: Vec<rocky_core::notify::PeerMessage> = input
         .get("transcript_path")
         .and_then(|v| v.as_str())
         .and_then(|path| std::fs::read(path).ok())
         .map(|raw| peer_messages(&String::from_utf8_lossy(&raw)))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // 이번 턴의 프롬프트 — 쉬던 세션은 받은편지함 메시지가 곧 이 턴을 연 프롬프트인데, 이 훅이 도는 시점엔 아직
+    // 트랜스크립트에 없다(그 메시지와 같은 사실을 같은 턴에 또 주입했다). 시각은 지금 — 그 전이보다 늘 뒤다.
+    if let Some(prompt) = input.get("prompt").and_then(|v| v.as_str()) {
+        absorbed.push(rocky_core::notify::PeerMessage {
+            at: chrono::Utc::now().to_rfc3339(),
+            text: prompt.to_string(),
+        });
+    }
+    absorbed
 }
 
 fn fetch_changes(base_url: &str, since_id: i64, limit: i64) -> Option<ChangesSince> {
