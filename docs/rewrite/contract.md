@@ -188,7 +188,8 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
   → rmcp 포팅 시 이 운용이 가능한지가 Phase 2 첫 스파이크
 - cross-site 가드는 GET 외 메서드에 REST와 동일 적용(403 JSON)
 - `allowIssueCreate`는 요청마다 `isLocalRequest`로 접어 주입, 기본 false(fail-closed)
-- 도구 5개 고정: `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`.
+- 도구 5개 고정: `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`. (포팅 뒤 토큰 색인을
+  읽는 `token_summary` / `token_current_session` 이 더해졌다 — 옛 TS 와의 호환 계약은 앞의 5개에만 걸린다.)
   결과는 `{content:[{type:'text', text: JSON.stringify(값)}]}`
 - 도구 스키마(설명 문구 포함)는 `src/mcp.ts` 원문이 정본 — 설명도 계약이다
   (에이전트 행동을 유도하는 문장들)

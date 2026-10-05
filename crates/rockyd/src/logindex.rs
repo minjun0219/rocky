@@ -13,7 +13,9 @@ use rocky_core::tokens::{recommendation_for, RecommendConfig};
 use tokio::sync::broadcast;
 
 /// 토큰 추천 피드 — 새 메시지가 들어간 세션의 추천을 다시 세어, **낸 규칙이 바뀐** 세션만 `GET /api/tokens/events`
-/// 로 민다. 근거 수치는 턴마다 바뀌므로 비교하지 않는다(같은 추천을 턴마다 다시 알리지 않게).
+/// 로 민다. 근거 수치는 턴마다 바뀌므로 비교하지 않는다(같은 추천을 턴마다 다시 알리지 않게). 기준선은 메모리에만
+/// 두므로, 데몬이 다시 뜬 뒤 첫 바퀴에 움직이지 않은 세션은 다음에 움직일 때 같은 추천이 한 번 더 나갈 수 있다 —
+/// 놓치는 것보다 한 번 더 알리는 쪽을 택했다.
 pub struct RecommendationFeed {
     sender: broadcast::Sender<String>,
     cfg: RecommendConfig,
@@ -83,11 +85,16 @@ pub fn spawn_indexer(
                         result = idx.ingest_usage_dir(dir).map(|_| ());
                     }
                     if let (Ok(()), Some(dir)) = (&result, &transcripts_dir) {
-                        result = idx.ingest_transcripts(dir).map(|touched| {
-                            if let Some(feed) = feed.as_mut() {
-                                feed.publish(idx, &touched);
-                            }
-                        });
+                        let ingest = idx.ingest_transcripts(dir);
+                        if let Some(feed) = feed.as_mut() {
+                            feed.publish(idx, &ingest.touched);
+                        }
+                        if let Some(first) = ingest.errors.first() {
+                            result = Err(format!(
+                                "트랜스크립트 {}개 실패(나머지는 옮김) — {first}",
+                                ingest.errors.len()
+                            ));
+                        }
                     }
                     match result {
                         Ok(()) => last_error = None,

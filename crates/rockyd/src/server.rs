@@ -330,8 +330,6 @@ impl ServerState {
         streams.get(note_id).map_or(0, |s| s.receiver_count())
     }
 
-    /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
-    /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
     /// 로그 색인(`logs.db`)을 읽는 질의 하나 — 블로킹 스레드에서 자기 연결로. 색인이 없으면 `None`.
     pub async fn query_logs<T: Send + 'static, E: std::fmt::Display + Send + 'static>(
         &self,
@@ -352,6 +350,8 @@ impl ServerState {
         .map_err(|e| StoreError::new(format!("{what} 조회: {e}")))
     }
 
+    /// 노트 스트림에 한 건 방송. 듣는 이가 없으면 채널을 걷는다(노트 수만큼 채널이 남지 않게).
+    /// 테스트가 직접 부르기도 한다(밀린 연결을 끊는지 보려고).
     pub fn broadcast_note(&self, note_id: &str, payload: &serde_json::Value) {
         let mut streams = self.note_streams.lock().expect("note_streams poisoned");
         let Some(sender) = streams.get(note_id) else {
@@ -1886,6 +1886,7 @@ async fn dispatch(
         // 모델×effort(기본) · 모델 · effort · 세션 · 브랜치별 토큰 합계. 구간은 from/to(ISO) 또는 days(기본 30).
         let group_raw = query
             .get("groupBy")
+            .or_else(|| query.get("group_by"))
             .map(String::as_str)
             .unwrap_or("model,effort");
         let Some(group_by) = rocky_core::tokens::GroupBy::parse(group_raw) else {

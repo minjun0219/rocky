@@ -110,6 +110,31 @@ fn effort_of(v: &Value) -> Option<String> {
     })
 }
 
+/// 사람이 아니라 하네스가 user 자리에 넣은 메시지 — 백그라운드 작업 알림, 데몬이 깨운 것, 셸·로컬 커맨드 출력.
+/// 턴 경계로 치면 짧은 턴이 끼어 평균 출력이 내려가고 추천이 틀어진다(실측: 레포 300개 세션에 task-notification 106 ·
+/// wake 64 · local-command-stdout 11). 사람이 친 슬래시 커맨드(`<command-name>`·`<command-message>`)는 턴이다.
+fn is_harness_message(msg: &Value) -> bool {
+    const TAGS: [&str; 6] = [
+        "<task-notification",
+        "<wake",
+        "<bash-stdout",
+        "<bash-stderr",
+        "<local-command-stdout",
+        "<local-command-caveat",
+    ];
+    let text = match msg.get("content") {
+        Some(Value::String(s)) => s.trim_start(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .find(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+            .and_then(|b| b.get("text").and_then(Value::as_str))
+            .unwrap_or("")
+            .trim_start(),
+        _ => "",
+    };
+    TAGS.iter().any(|t| text.starts_with(t))
+}
+
 /// 한 줄을 읽는다. 색인할 게 아니면 `None` — 손상 줄, 다른 타입, 합성 메시지(`<synthetic>`), 하네스 주입.
 pub fn parse_line(line: &str) -> Option<TranscriptLine> {
     // 대부분의 줄(첨부·도구 결과·시스템)은 큰데 쓸모가 없다 — 파싱 전에 거른다.
@@ -129,7 +154,12 @@ pub fn parse_line(line: &str) -> Option<TranscriptLine> {
         "user" => {
             let injected = v.get("isMeta").and_then(Value::as_bool) == Some(true)
                 || v.get("isCompactSummary").and_then(Value::as_bool) == Some(true);
-            if injected || meta.uuid.is_empty() || !is_real_user_prompt(v.get("message")?) {
+            let msg = v.get("message")?;
+            if injected
+                || meta.uuid.is_empty()
+                || !is_real_user_prompt(msg)
+                || is_harness_message(msg)
+            {
                 return None;
             }
             Some(TranscriptLine::Prompt(meta))
@@ -259,21 +289,27 @@ pub fn ingest_line(
 
 // ── 조회 ─────────────────────────────────────────────────────────────────────
 
-/// 조회 구간 `[from, to)` — 주지 않은 끝은 `days`(기본 30, 1~365)일 전 / 끝없음. 값은 ISO 문자열(날짜만도 된다).
+/// 조회 구간 `[from, to)` — 주지 않은 끝은 `days`(기본 30, 1~365)일 전 / 끝없음. 값은 ISO 문자열(날짜만도 된다 —
+/// 그때는 UTC 날짜로 본다).
 pub fn range(
     from: Option<&str>,
     to: Option<&str>,
     days: Option<i64>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> (String, String) {
+    // 저장된 ts 는 UTC `Z` 라 문자열로 비교한다 — 오프셋이 붙은 값(`+09:00`)은 UTC 로 바꿔야 구간이 맞다.
+    let iso =
+        |t: chrono::DateTime<chrono::Utc>| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let pick = |v: Option<&str>| {
-        v.map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(str::to_string)
+        v.map(str::trim).filter(|v| !v.is_empty()).map(|v| {
+            chrono::DateTime::parse_from_rfc3339(v)
+                .map(|t| iso(t.with_timezone(&chrono::Utc)))
+                .unwrap_or_else(|_| v.to_string())
+        })
     };
     let from = pick(from).unwrap_or_else(|| {
         let days = days.unwrap_or(30).clamp(1, 365);
-        (now - chrono::Duration::days(days)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        iso(now - chrono::Duration::days(days))
     });
     (from, pick(to).unwrap_or_else(|| "9999".to_string()))
 }
@@ -335,6 +371,8 @@ pub struct SummaryRow {
     pub turns: u64,
     /// API 응답 수(서브에이전트 포함).
     pub requests: u64,
+    /// 서브에이전트를 뺀 출력 — 턴당 출력은 이걸 `turns` 로 나눈다(턴 수가 서브에이전트를 빼고 세므로).
+    pub main_output_tokens: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
@@ -360,7 +398,8 @@ pub fn summary(
                 COUNT(DISTINCT CASE WHEN m.sidechain = 0 THEN m.turn_id END),
                 COUNT(*),
                 SUM(m.input_tokens), SUM(m.output_tokens), SUM(m.cache_read_tokens), SUM(m.cache_write_tokens),
-                COALESCE(SUM(t.n), 0)
+                COALESCE(SUM(t.n), 0),
+                SUM(CASE WHEN m.sidechain = 0 THEN m.output_tokens ELSE 0 END)
          FROM cc_messages m {TOOL_COUNTS}
          WHERE m.ts >= ?1 AND m.ts < ?2
          GROUP BY {keys}
@@ -379,6 +418,7 @@ pub fn summary(
             cache_read_tokens: num(5)?,
             cache_write_tokens: num(6)?,
             tool_calls: num(7)?,
+            main_output_tokens: num(8)?,
             ..Default::default()
         };
         for (i, col) in cols.iter().enumerate() {
@@ -546,7 +586,8 @@ pub fn session_detail(
     }))
 }
 
-/// 이 디렉터리(또는 그 아래)에서 가장 최근에 움직인 세션 — "지금 세션".
+/// 이 디렉터리(또는 그 아래)에서 가장 최근에 움직인 세션 — "지금 세션". 정확히 그 디렉터리의 세션이 있으면 그쪽이
+/// 먼저다(레포 아래 워크트리의 다른 세션이 더 최근이어도).
 pub fn latest_session_for_cwd(conn: &Connection, cwd: &str) -> rusqlite::Result<Option<String>> {
     let cwd = cwd.trim_end_matches('/');
     let escaped = cwd
@@ -554,7 +595,7 @@ pub fn latest_session_for_cwd(conn: &Connection, cwd: &str) -> rusqlite::Result<
         .replace('%', "\\%")
         .replace('_', "\\_");
     conn.query_row(
-        "SELECT session_id FROM cc_sessions WHERE cwd = ?1 OR cwd LIKE ?2 ESCAPE '\\' ORDER BY ended_at DESC LIMIT 1",
+        "SELECT session_id FROM cc_sessions WHERE cwd = ?1 OR cwd LIKE ?2 ESCAPE '\\' ORDER BY (cwd = ?1) DESC, ended_at DESC LIMIT 1",
         params![cwd, format!("{escaped}/%")],
         |r| r.get(0),
     )
@@ -682,11 +723,21 @@ pub fn current_session(
     let Some(id) = latest_session_for_cwd(conn, cwd)? else {
         return Ok(None);
     };
-    let Some(detail) = session_detail(conn, &id, limit)? else {
+    session_with_recommendation(conn, &id, limit, cfg)
+}
+
+/// 세션 id 로 상세와 추천. 색인에 없으면 `None`.
+pub fn session_with_recommendation(
+    conn: &Connection,
+    session_id: &str,
+    limit: usize,
+    cfg: &RecommendConfig,
+) -> rusqlite::Result<Option<CurrentSession>> {
+    let Some(detail) = session_detail(conn, session_id, limit)? else {
         return Ok(None);
     };
     Ok(Some(CurrentSession {
-        recommendation: recommendation_for(conn, &id, cfg)?,
+        recommendation: recommendation_for(conn, session_id, cfg)?,
         detail,
     }))
 }

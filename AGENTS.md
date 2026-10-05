@@ -270,7 +270,7 @@ typecheck or tests — pre-push and CI already cover it.*
   이 턴 시작에 본다. 보관된 todo는 건너뛴다. 쉬는 세션은 깨워야 한다 — 대상 세션이 받은편지함 소켓을
   등록했으면 데몬이 그 문구(`poke`)를 바로 꽂아 턴을 열고(응답 `woke: true`, "보내지 않기" 와 무관), 아니면 라우트가
   `poke`를 돌려준다 — 그 문구를 늘리지 않는다. 대상 = cwd가 보드와 맞는 세션이 하나일 때 그 세션; 아니면 사용자가
-  고른다. TTL은 없다. MCP 도구 수는 5개 그대로.
+  고른다. TTL은 없다. 핸드오프는 MCP 도구를 늘리지 않는다.
 - **핸드오프 라이프사이클 / doing 귀속.** `start`가 가장 오래된 배달 건을 수락하고 `doing_session_id`를
   귀속시킨다; `done`이 완료하고 비운다; 사람이 누른 `start`는 귀속하지 않는다. `resolve_doing_state` →
   `live` / `idle` / `gone` / `unknown`. `rockyd::sweep`는 에이전트가 든 `gone` doing 중 24시간 지난 것만

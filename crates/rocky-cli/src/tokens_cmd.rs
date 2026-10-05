@@ -135,7 +135,7 @@ pub fn render_summary(raw: &Value, since: &str) -> String {
     )];
     for (row, key) in rows.iter().zip(&keys) {
         let turns = num(row, "turns");
-        let per_turn = num(row, "outputTokens")
+        let per_turn = num(row, "mainOutputTokens")
             .checked_div(turns)
             .map_or_else(|| "-".into(), compact);
         out.push(format!(

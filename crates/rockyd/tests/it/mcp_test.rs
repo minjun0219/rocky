@@ -788,6 +788,15 @@ async fn token_tools_read_the_transcript_index() {
     assert_eq!(current["session"]["sessionId"], "s-1");
     assert_eq!(current["turns"].as_array().unwrap().len(), 2);
 
+    let by_id = ok_call(
+        &state,
+        "token_current_session",
+        json!({ "cwd": "", "sessionId": "s-1" }),
+    )
+    .await;
+    assert_eq!(by_id["session"]["sessionId"], "s-1");
+    assert!(by_id["recommendation"]["held"].is_string());
+
     let (is_error, _) = tool_call(
         &state,
         "127.0.0.1",

@@ -40,8 +40,7 @@ pub fn indexed_logs(tmp: &std::path::Path) -> std::path::PathBuf {
     let db = tmp.join("logs.db");
     LogIndex::open(&db)
         .unwrap()
-        .ingest_transcripts(&tmp.join("projects"))
-        .unwrap();
+        .ingest_transcripts(&tmp.join("projects"));
     db
 }
 
@@ -68,6 +67,13 @@ async fn summary_groups_by_model_and_effort() {
     .await;
     assert_eq!(body["rows"][0]["sessionId"], "s-1");
     assert_eq!(body["rows"][0]["turns"], 2);
+
+    let (_, body) = get(
+        &state,
+        "/api/tokens/summary?from=2099-01-01&group_by=session",
+    )
+    .await;
+    assert_eq!(body["rows"][0]["sessionId"], "s-1", "snake_case 별칭");
 
     let (status, _) = get(&state, "/api/tokens/summary?groupBy=planet").await;
     assert_eq!(status, 400);
@@ -136,10 +142,7 @@ async fn recommendation_route_and_current_session_carry_suggestions() {
     let projects = tmp.path().join("projects");
     append_turns(&projects, 0, 6, "xhigh");
     let db = tmp.path().join("logs.db");
-    LogIndex::open(&db)
-        .unwrap()
-        .ingest_transcripts(&projects)
-        .unwrap();
+    LogIndex::open(&db).unwrap().ingest_transcripts(&projects);
     let state = rebuild(&f, |o| o.logs_db = Some(db.clone()));
 
     let (status, body) = get(&state, "/api/tokens/recommendation?sessionId=s-2").await;
@@ -180,17 +183,17 @@ fn feed_seeds_on_first_pass_and_pushes_only_rule_changes() {
 
     // 첫 바퀴 — 과거 가져오기: 추천이 있어도 기준선만.
     append_turns(&projects, 0, 6, "xhigh");
-    let touched = index.ingest_transcripts(&projects).unwrap();
+    let touched = index.ingest_transcripts(&projects).touched;
     assert_eq!(feed.publish(&index, &touched), 0);
 
     // 턴이 늘어도 낸 규칙이 같으면 다시 알리지 않는다.
     append_turns(&projects, 6, 1, "xhigh");
-    let touched = index.ingest_transcripts(&projects).unwrap();
+    let touched = index.ingest_transcripts(&projects).touched;
     assert_eq!(feed.publish(&index, &touched), 0);
 
     // effort 를 medium 으로 내리면 lower-effort 가 빠진다 — 바뀌었으니 민다.
     append_turns(&projects, 7, 1, "medium");
-    let touched = index.ingest_transcripts(&projects).unwrap();
+    let touched = index.ingest_transcripts(&projects).touched;
     assert_eq!(feed.publish(&index, &touched), 1);
     let pushed: serde_json::Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(pushed["sessionId"], "s-2");
