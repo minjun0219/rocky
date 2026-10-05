@@ -33,7 +33,11 @@ export type Case = {
   why: string;
   /** stdin 원문 — 객체면 JSON 으로 쓴다. */
   stdin: string | Record<string, unknown>;
-  config?: { source?: string; alert_percent?: number };
+  config?: {
+    source?: string;
+    alert_percent?: number;
+    extra_commands?: { command: string[]; timeout_ms?: number }[];
+  };
   env?: Record<string, string>;
   tz?: 'Asia/Seoul' | 'UTC';
   /** 일부러 다르게 둔 곳 — `expected` 에서 바꿔 끼운 뒤 비교한다. */
@@ -299,6 +303,74 @@ export const CASES: Case[] = [
     stdin: withLimits({ five_hour: win(30) }),
     usage: credits(4500, { limit: 5000 }),
   },
+  // extra_commands — 다른 도구의 줄을 아래에 그대로 붙인다.
+  {
+    name: 'extra-order',
+    why: '설정 순서대로, 공백뿐인 줄은 빼고 나머지는 그대로',
+    stdin: withLimits({ five_hour: win(30) }),
+    config: {
+      extra_commands: [
+        { command: ['sh', '-c', 'sleep 0.1; echo first'], timeout_ms: 2000 },
+        { command: ['printf', 'a\n  \n\n  indented\nb\n'] },
+        { command: ['printf', '\u001b[32mgreen\u001b[0m'] },
+      ],
+    },
+  },
+  {
+    name: 'extra-placeholders',
+    why: '{{session_id}} · {{cwd}} 치환',
+    stdin: withLimits({ five_hour: win(30) }),
+    config: {
+      extra_commands: [
+        { command: ['echo', 'session={{session_id}}'] },
+        { command: ['sh', '-c', 'basename "$1"', 'x', '{{cwd}}'] },
+      ],
+    },
+  },
+  {
+    name: 'extra-skipped',
+    why: '쓰인 placeholder 가 비었거나 command 가 비면 건너뛴다',
+    stdin: { ...base, session_id: '' },
+    config: {
+      extra_commands: [
+        { command: ['echo', 'session={{session_id}}'] },
+        { command: [] },
+        { command: ['echo', 'kept'] },
+      ],
+    },
+  },
+  {
+    name: 'extra-failures',
+    why: '0 이 아닌 종료·실행 파일 없음·출력 없음은 아무것도 붙이지 않는다',
+    stdin: withLimits({ five_hour: win(30) }),
+    config: {
+      extra_commands: [
+        { command: ['sh', '-c', 'echo leaked; exit 3'] },
+        { command: ['/nonexistent/statusline-tool'] },
+        { command: ['true'] },
+        { command: ['echo', 'survivor'] },
+      ],
+    },
+  },
+  {
+    name: 'extra-slow',
+    why: '마감을 넘긴 명령, 백그라운드 자식이 stdout 을 붙잡는 명령은 빠진다',
+    stdin: withLimits({ five_hour: win(30) }),
+    config: {
+      extra_commands: [
+        { command: ['sh', '-c', 'sleep 1; echo late'], timeout_ms: 100 },
+        { command: ['sh', '-c', 'sleep 1 & echo held'] },
+        { command: ['sh', '-c', 'sleep 1 >/dev/null & echo held-stderr'] },
+        { command: ['echo', 'on time'] },
+      ],
+    },
+  },
+  {
+    name: 'extra-bytes',
+    why: 'UTF-8 이 아닌 출력도 바이트 그대로 붙인다',
+    stdin: withLimits({ five_hour: win(30) }),
+    config: { extra_commands: [{ command: ['printf', 'a\\377b\\n'] }] },
+  },
   // git 세그먼트 — 실제 repo 를 만들어 뜬다.
   {
     name: 'git-clean',
@@ -396,7 +468,7 @@ export const CASES: Case[] = [
   },
 ];
 
-function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: string } {
+function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: Buffer } {
   const home = join(dir, 'home');
   mkdirSync(home, { recursive: true });
   const config = join(dir, 'config.json');
@@ -442,7 +514,8 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: st
   if (proc.exitCode !== 0) {
     throw new Error(`${c.name}: cc-usage 종료 코드 ${proc.exitCode} — ${proc.stderr.toString()}`);
   }
-  return { stdin, stdout: proc.stdout.toString() };
+  // 바이트 그대로 — 다른 도구가 UTF-8 이 아닌 출력을 낼 수 있다.
+  return { stdin, stdout: proc.stdout };
 }
 
 if (import.meta.main) {

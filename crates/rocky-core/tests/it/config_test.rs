@@ -446,10 +446,10 @@ fn tokens_block_reads_recommend_rules_and_resolves_transcripts_dir() {
 
 #[test]
 fn statusline_block_reads_source_and_alert_percent() {
-    use rocky_core::limits::{LimitsConfig, Source};
+    use rocky_core::limits::Source;
     let (_dir, path) =
         write_config(r#"{ "statusline": { "source": "none", "alertPercent": 80 } }"#);
-    let c = load_statusline_block(&path);
+    let c = load_statusline_block(&path).limits;
     assert_eq!(c.source, Source::None);
     assert_eq!(c.alert_percent, Some(80.0));
     // 모르는 source 는 기본값(auto), 블록·파일이 없어도 기본값 — todo.statusline(템플릿)과 헷갈리지 않는다.
@@ -461,12 +461,41 @@ fn statusline_block_reads_source_and_alert_percent() {
         let (_dir, path) = write_config(raw);
         assert_eq!(
             load_statusline_block(&path),
-            LimitsConfig::default(),
+            StatuslineConfig::default(),
             "{raw}"
         );
     }
     assert_eq!(
         load_statusline_block(std::path::Path::new("/nonexistent/rocky.json")),
-        LimitsConfig::default()
+        StatuslineConfig::default()
+    );
+}
+
+#[test]
+fn statusline_block_reads_extra_commands_and_skips_malformed_ones() {
+    use rocky_core::statusline::extra::ExtraCommand;
+    let (_dir, path) = write_config(
+        r#"{ "statusline": { "extraCommands": [
+            { "command": ["harness-lm", "line", "-s", "{{session_id}}"] },
+            { "command": ["curl", "-sf"], "timeoutMs": 500 },
+            { "command": "not an array" },
+            { "command": ["ok", 3] },
+            { "timeoutMs": 10 },
+            { "command": [] }
+        ] } }"#,
+    );
+    let got = load_statusline_block(&path).extra_commands;
+    let cmd = |argv: &[&str], timeout_ms| ExtraCommand {
+        command: argv.iter().map(|a| a.to_string()).collect(),
+        timeout_ms,
+    };
+    assert_eq!(
+        got,
+        vec![
+            cmd(&["harness-lm", "line", "-s", "{{session_id}}"], None),
+            cmd(&["curl", "-sf"], Some(500)),
+            // 빈 command 는 남는다 — 실행 단계에서 건너뛴다(cc-usage 와 같다).
+            cmd(&[], None),
+        ]
     );
 }

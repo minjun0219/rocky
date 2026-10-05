@@ -1,0 +1,31 @@
+{
+  "why": "쓰인 placeholder 가 비었거나 command 가 비면 건너뛴다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin",
+    "extra_commands": [
+      {
+        "command": [
+          "echo",
+          "session={{session_id}}"
+        ]
+      },
+      {
+        "command": []
+      },
+      {
+        "command": [
+          "echo",
+          "kept"
+        ]
+      }
+    ]
+  },
+  "stdin": "{\"session_id\":\"\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"}}",
+  "allow": [],
+  "usage": null,
+  "repo": [],
+  "gitEnv": {}
+}

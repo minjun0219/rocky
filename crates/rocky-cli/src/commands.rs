@@ -1627,39 +1627,71 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 }
 
 /// `statusline --full` — cc-usage statusline 과 같은 바이트를 낸다(설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`).
-/// 렌더는 CLI 가 하므로 데몬이 없어도 경로·모델·한도 줄은 남는다. 보드 줄은 그 아래 한 세그먼트일 뿐이고 실패하면
-/// 그 줄만 빠진다. 설정은 `rocky.json` 최상위 `statusline` 블록이다.
+/// 렌더는 CLI 가 하므로 데몬이 없어도 경로·모델·한도 줄은 남는다. 그 아래로 `extraCommands` 의 줄(설정 순서), 맨 아래
+/// 보드 줄 — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
+/// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
 fn statusline_full(ctx: &CliContext) {
     use rocky_core::limits::{alert, credits, select, Input, UsageCache};
+    use rocky_core::statusline::extra::{expand, output_lines, Vars};
     use rocky_core::statusline::full::{lines, Style, View};
 
     let input = Input::parse(&statusline_stdin().unwrap_or_default());
     let cfg = rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
     let now = statusline_now();
-    let (limits, tracking) = select(&cfg, &input, now);
-    let home = std::env::var("HOME").ok();
-    let git = crate::git_status::read(input.dir(), crate::git_status::GIT_TIMEOUT);
-    let view = View {
-        dir: input.dir(),
-        git: git.as_ref(),
-        model: &input.model,
-        effort: &input.effort,
-        context_pct: input.context_pct,
-        limits,
-        tracking,
-        alert: alert(&cfg, &limits),
-        // usage API 캐시는 아직 없다 — 한도가 소진되면 "크레딧 조회 중" 이다.
-        credits: credits(&cfg, &limits, tracking, &UsageCache::default(), now),
-        currency: cfg.currency(),
-        home: home.as_deref(),
-        now,
+    let vars = Vars {
+        session_id: &input.session_id,
+        cwd: input.dir(),
     };
-    let style = Style::from_env(|k| std::env::var(k).ok());
-    let mut out = lines(&view, &style, &chrono::Local);
-    if let Some(board) = board_line(ctx, Some(input.dir()), Some(&input.session_id)) {
-        out.push(board);
-    }
-    println!("{}", out.join("\n"));
+    let out = std::thread::scope(|scope| {
+        let board = scope.spawn(|| board_line(ctx, Some(input.dir()), Some(&input.session_id)));
+        let extras: Vec<_> = cfg
+            .extra_commands
+            .iter()
+            .map(|c| {
+                let argv = expand(&c.command, vars);
+                scope.spawn(move || {
+                    argv.and_then(|argv| crate::bounded::run(&argv, c.timeout()))
+                        .map(|stdout| output_lines(&stdout))
+                        .unwrap_or_default()
+                })
+            })
+            .collect();
+
+        let limits_cfg = &cfg.limits;
+        let (limits, tracking) = select(limits_cfg, &input, now);
+        let home = std::env::var("HOME").ok();
+        let git = crate::git_status::read(input.dir(), crate::git_status::GIT_TIMEOUT);
+        let view = View {
+            dir: input.dir(),
+            git: git.as_ref(),
+            model: &input.model,
+            effort: &input.effort,
+            context_pct: input.context_pct,
+            limits,
+            tracking,
+            alert: alert(limits_cfg, &limits),
+            // usage API 캐시는 아직 없다 — 한도가 소진되면 "크레딧 조회 중" 이다.
+            credits: credits(limits_cfg, &limits, tracking, &UsageCache::default(), now),
+            currency: limits_cfg.currency(),
+            home: home.as_deref(),
+            now,
+        };
+        let style = Style::from_env(|k| std::env::var(k).ok());
+        // 다른 도구의 줄은 바이트 그대로 붙여야 해서(UTF-8 이 아닐 수 있다) 줄을 바이트로 모은다.
+        let mut out: Vec<Vec<u8>> = lines(&view, &style, &chrono::Local)
+            .into_iter()
+            .map(String::into_bytes)
+            .collect();
+        for extra in extras {
+            out.extend(extra.join().unwrap_or_default());
+        }
+        out.extend(board.join().ok().flatten().map(String::into_bytes));
+        out
+    });
+    let mut bytes = out.join(&b'\n');
+    bytes.push(b'\n');
+    use std::io::Write;
+    let _ = std::io::stdout().write_all(&bytes);
 }
 
 /// 테스트 전용 — RFC3339 시각을 주면 "지금" 을 고정한다(골든 대조용, cc-usage 의 `CC_USAGE_NOW` 와 같은 자리).

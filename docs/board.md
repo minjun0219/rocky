@@ -926,8 +926,23 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   줄, 한도가 소진되면 크레딧 줄, 그 아래 보드 줄. 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 같은
   입력에서 cc-usage 와 바이트 단위로 같다(골든 `crates/rocky-core/tests/fixtures/cc-usage/`). 한도 설정은 `rocky.json`
   최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
-  세그먼트만 뺀다). 아직 없는 것: `extra_commands`, usage API 조회(크레딧 금액), 경보 깜빡임, 계정 배지 — 설계
-  `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+  세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
+  300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄은 맨 아래다. 아직 없는 것: usage API 조회(크레딧 금액), 경보 깜빡임,
+  계정 배지 — 설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+
+  cc-usage 의 `extra_commands` 를 그대로 옮기면 된다(키만 `timeout_ms` → `timeoutMs`). rocky 보드 줄을 붙이던 `curl`
+  항목은 빼도 된다 — `--full` 이 직접 붙인다.
+
+  `~/.config/rocky/rocky.json`:
+
+  ```json
+  "statusline": {
+    "source": "stdin",
+    "extraCommands": [{ "command": ["harness-lm", "line", "-s", "{{session_id}}"] }]
+  }
+  ```
+
+  `~/.claude/settings.json`:
 
   ```json
   "statusLine": { "type": "command", "command": "rocky statusline --full" }
