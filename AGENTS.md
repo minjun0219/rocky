@@ -324,7 +324,7 @@ typecheck or tests — pre-push and CI already cover it.*
   레포 전체 `worktree prune` 은 하지 않는다)에서 단계(argv, 설정 파일에만)를 차례로 돈다. 보드 레포의 git 훅은 돌리지 않는다(`core.hooksPath=/dev/null`).
   잡 하나가 대상을 차례로 — 동시 1개, 몰린 커밋은 최신 하나. **fetch·워크트리 준비 실패는 커밋을 빨강으로 남기지 않고** 다음 바퀴에 다시.
   단계는 자기 프로세스 그룹으로 띄우고, 남지 않게 세 겹: 시간 초과면 TERM → 5초 → KILL, 데몬이 작업을 버리면 가드가 KILL, 데몬이 죽어
-  남은 그룹은 `running.pgid` 로 다음 실행 전에 끝낸다. 기록은 `last.json`(도는 중이면 다음 기동에 같은 커밋을 다시)과 `finished.json`(알림
+  남은 그룹은 `running.pgid`(그룹 id + 리더 시작 시각 — 리더가 살아 있는데 시각이 다르면 번호 재사용이라 건드리지 않는다)로 다음 실행 전에 끝낸다. 그룹을 건드린 판단은 전부 데몬 로그와 대상의 `signals.log` 에 남는다(재사용 판별이 맞았는지 나중에 본다). 기록은 `last.json`(도는 중이면 다음 기동에 같은 커밋을 다시)과 `finished.json`(알림
   기준 — 끊겼다 다시 돈 실행도 복구를 알린다). 실패·복구만 배너. 조회는 `GET /api/verify`·`rocky verify`. 히스토리·웹 "지금"·세션
   받은편지함에는 아직 싣지 않는다.
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시

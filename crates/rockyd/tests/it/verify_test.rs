@@ -1,5 +1,6 @@
 //! 기본 브랜치 검증 잡 — 임시 원격(bare) + 보드 레포(clone)로 끝까지 돈다: 통과·실패·같은 커밋 생략·복구 알림·시간 초과.
 
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -227,6 +228,10 @@ async fn a_timed_out_step_takes_its_grandchildren_with_it() {
         .unwrap()
         .success();
     assert!(!alive, "시간 초과면 손자까지 끝낸다(pid {pid})");
+    let signals =
+        std::fs::read_to_string(rockyd::verify::target_dir(&root, &target).join("signals.log"))
+            .unwrap();
+    assert!(signals.contains("시간 초과 step=slow"), "{signals}");
     assert!(!rockyd::verify::target_dir(&root, &target)
         .join("running.pgid")
         .exists());
@@ -298,4 +303,43 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert!(seen[0].contains("다시 초록"), "{seen:?}");
+}
+
+#[tokio::test]
+async fn a_recorded_group_whose_number_was_reused_is_left_alone_and_logged() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    f.store.ensure_board("proj", None, "t").unwrap();
+    f.store
+        .set_board_path("proj", work.to_str().unwrap(), "t")
+        .unwrap();
+    let root = tmp.path().join("verify");
+    let target = VerifyTarget {
+        board: "proj".into(),
+        branch: "main".into(),
+        steps: vec![step("ok", "true", None)],
+    };
+    let dir = rockyd::verify::target_dir(&root, &target);
+    std::fs::create_dir_all(&dir).unwrap();
+    // 남이 쓰는 그룹 — 자기 그룹의 리더로 띄운 sleep. 기록된 시작 시각은 그 프로세스와 다르다(번호 재사용과 같은 상황).
+    let mut other = std::process::Command::new("sleep")
+        .arg("30")
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    std::fs::write(
+        dir.join("running.pgid"),
+        format!("{}\tThu Jan  1 09:00:00 1970", other.id()),
+    )
+    .unwrap();
+    let (notifier, _seen) = capture();
+    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
+    let alive = other.try_wait().unwrap().is_none();
+    let _ = other.kill();
+    let _ = other.wait();
+    assert!(alive, "번호가 재사용된 그룹은 건드리지 않는다");
+    let signals = std::fs::read_to_string(dir.join("signals.log")).unwrap();
+    assert!(signals.contains("건너뜀(번호 재사용)"), "{signals}");
+    assert!(!dir.join("running.pgid").exists());
 }

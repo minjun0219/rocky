@@ -144,6 +144,35 @@ async fn git(runner: &Runner, args: &[&str]) -> Result<String, String> {
     }
 }
 
+/// 프로세스 그룹을 건드린 판단을 남긴다 — 데몬 로그와 대상 디렉터리의 `signals.log`(실행마다 갈리는 로그와 달리
+/// 계속 쌓인다, 64KB 가 넘으면 `signals.log.1` 로 한 번 돌린다). 그룹 id 재사용 판별이 맞았는지 나중에 이걸로 본다.
+fn note_signal(dir: &Path, message: &str) {
+    use std::io::Write;
+    println!("rocky: verify 시그널 — {message}");
+    let file = dir.join("signals.log");
+    if std::fs::metadata(&file)
+        .map(|m| m.len() > 64 * 1024)
+        .unwrap_or(false)
+    {
+        let _ = std::fs::rename(&file, dir.join("signals.log.1"));
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+    {
+        let _ = writeln!(f, "{} {message}", iso_now());
+    }
+}
+
+fn sent(ok: bool) -> &'static str {
+    if ok {
+        "보냄"
+    } else {
+        "대상 없음"
+    }
+}
+
 fn signal_group(pgid: i32, signal: i32) -> bool {
     // SAFETY: killpg 는 프로세스 그룹 id 와 시그널 번호만 받는다 — 메모리를 건드리지 않는다.
     pgid > 1 && unsafe { libc::killpg(pgid, signal) } == 0
@@ -151,6 +180,8 @@ fn signal_group(pgid: i32, signal: i32) -> bool {
 
 /// 단계 그룹을 쥐고 있다가, 놓지 않은 채 버려지면(데몬이 정상 종료하며 작업을 drop) 그룹째 KILL 한다.
 struct GroupGuard {
+    dir: PathBuf,
+    step: String,
     pgid: i32,
     pgid_file: PathBuf,
     armed: bool,
@@ -165,7 +196,16 @@ impl GroupGuard {
 impl Drop for GroupGuard {
     fn drop(&mut self) {
         if self.armed {
-            signal_group(self.pgid, libc::SIGKILL);
+            let ok = signal_group(self.pgid, libc::SIGKILL);
+            note_signal(
+                &self.dir,
+                &format!(
+                    "가드 step={} pgid={}: 데몬이 단계를 버림 → KILL {}",
+                    self.step,
+                    self.pgid,
+                    sent(ok)
+                ),
+            );
         }
         let _ = std::fs::remove_file(&self.pgid_file);
     }
@@ -196,15 +236,35 @@ async fn reap_orphan(dir: &Path) {
     let Ok(pgid) = pgid.trim().parse::<i32>() else {
         return;
     };
-    if let Some(now) = started_at(pgid).await {
-        if now != recorded.trim() {
-            return; // 다른 프로세스가 그 번호를 쓰고 있다
+    let recorded = recorded.trim();
+    let leader = match started_at(pgid).await {
+        Some(now) if now != recorded => {
+            // 다른 프로세스가 그 번호를 쓰고 있다 — 건드리지 않는다.
+            note_signal(
+                dir,
+                &format!("정리 pgid={pgid}: 건너뜀(번호 재사용) — 기록 시작 '{recorded}', 지금 리더 시작 '{now}'"),
+            );
+            return;
         }
-    }
-    if signal_group(pgid, libc::SIGTERM) {
+        Some(_) => "리더 일치",
+        None => "리더 없음(남은 멤버만)",
+    };
+    let term = signal_group(pgid, libc::SIGTERM);
+    let kill = if term {
         tokio::time::sleep(KILL_GRACE).await;
-        signal_group(pgid, libc::SIGKILL);
-    }
+        Some(signal_group(pgid, libc::SIGKILL))
+    } else {
+        None
+    };
+    note_signal(
+        dir,
+        &format!(
+            "정리 pgid={pgid}: {leader}, 기록 시작 '{recorded}' → TERM {}{}",
+            sent(term),
+            kill.map(|k| format!(", KILL {}", sent(k)))
+                .unwrap_or_default()
+        ),
+    );
 }
 
 /// 단계 하나 — 워크트리에서, 출력은 로그 파일로(파이프가 아니라 — 떨어져 나간 손자가 fd 를 물어도 `wait` 가 매달리지
@@ -241,6 +301,8 @@ async fn run_step(dir: &Path, tree: &Path, step: &CommandBridge, log: &Path) -> 
     let leader_start = started_at(pgid).await.unwrap_or_default();
     let _ = std::fs::write(&pgid_file, format!("{pgid}\t{leader_start}"));
     let guard = GroupGuard {
+        dir: dir.to_path_buf(),
+        step: step.name.clone(),
         pgid,
         pgid_file,
         armed: true,
@@ -255,15 +317,32 @@ async fn run_step(dir: &Path, tree: &Path, step: &CommandBridge, log: &Path) -> 
         Ok(Err(e)) => Err(format!("기다리지 못했다: {e}")),
         Err(_) => {
             // TERM 으로 정리할 틈을 주고, 남은 것은 KILL.
-            signal_group(pgid, libc::SIGTERM);
+            let term = signal_group(pgid, libc::SIGTERM);
             let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
-            signal_group(pgid, libc::SIGKILL);
+            let kill = signal_group(pgid, libc::SIGKILL);
             let _ = child.kill().await;
-            Err(format!("{}초 안에 끝나지 않았다", limit.as_secs()))
+            note_signal(
+                dir,
+                &format!(
+                    "시간 초과 step={} pgid={pgid} ({limit:?}): TERM {}, KILL {}",
+                    step.name,
+                    sent(term),
+                    sent(kill)
+                ),
+            );
+            Err(format!("{limit:?} 안에 끝나지 않았다"))
         }
     };
     // 리더가 끝나도 그룹에 손자가 남았을 수 있다 — 단계가 끝났으면 그룹은 더 쓸 데가 없다.
-    signal_group(pgid, libc::SIGKILL);
+    if signal_group(pgid, libc::SIGKILL) {
+        note_signal(
+            dir,
+            &format!(
+                "남은 손자 step={} pgid={pgid}: 리더가 끝난 뒤 그룹에 남아 KILL",
+                step.name
+            ),
+        );
+    }
     guard.release();
     result
 }
