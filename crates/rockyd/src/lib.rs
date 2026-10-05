@@ -10,6 +10,7 @@ pub mod inbox_watch;
 pub mod logindex;
 pub mod mcp;
 pub mod prwatch;
+pub mod rc;
 pub mod runner;
 pub mod server;
 pub mod sessions_exec;

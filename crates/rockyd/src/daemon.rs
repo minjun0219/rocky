@@ -242,6 +242,7 @@ pub async fn run_daemon(
     pr_watch: rocky_core::config::PrWatchConfig,
     tokens: TokensRuntime,
     verify: rocky_core::verify::VerifyConfig,
+    rc: Option<rocky_core::config::RcConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
     let base_url = format!("http://127.0.0.1:{}", runtime.port);
@@ -306,6 +307,12 @@ pub async fn run_daemon(
         usage,
         logs_db: Some(runtime.dir.join("logs.db")),
         token_recommend: tokens.recommend.clone(),
+        rc: Some(crate::rc::cached_rc(
+            crate::runner::default_runner(),
+            rc,
+            std::env::var("HOME").unwrap_or_default(),
+            crate::rc::RC_CACHE_TTL,
+        )),
         ..ServerOptions::new(store)
     });
     // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
@@ -486,7 +493,9 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
         recommend: tokens_block.recommend,
     };
     let verify = rocky_core::verify::load_verify_block(&config_path);
-    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify).await
+    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다.
+    let rc = rocky_core::config::load_rc_block(&config_path);
+    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc).await
 }
 
 /// 토큰 색인 — 트랜스크립트 루트(None 이면 끔)와 추천 규칙.
