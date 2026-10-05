@@ -403,3 +403,40 @@ fn launchd_ownership_is_read_from_the_xpc_service_name() {
         4321
     ));
 }
+
+#[test]
+fn tokens_block_reads_recommend_rules_and_resolves_transcripts_dir() {
+    use rocky_core::tokens::RecommendConfig;
+    let (_dir, path) = write_config(
+        r#"{ "tokens": { "recommend": { "window": 20, "lowOutputTokens": 1500, "switchToSonnet": false, "minTurns": 0 } } }"#,
+    );
+    let c = load_tokens_block(&path);
+    assert_eq!(
+        c.recommend,
+        RecommendConfig {
+            window: 20,
+            low_output_tokens: 1500,
+            switch_to_sonnet: false,
+            ..RecommendConfig::default() // minTurns 0 은 무시하고 기본값
+        }
+    );
+    let env: EnvMap = [("CLAUDE_CONFIG_DIR".to_string(), "/cc".to_string())].into();
+    assert_eq!(
+        resolve_transcripts_dir(&env, &c),
+        Some(std::path::PathBuf::from("/cc/projects"))
+    );
+    assert!(resolve_transcripts_dir(&EnvMap::new(), &c)
+        .unwrap()
+        .ends_with(".claude/projects"));
+
+    let (_dir, path) = write_config(r#"{ "tokens": { "enabled": false, "dir": "/x" } }"#);
+    assert_eq!(
+        resolve_transcripts_dir(&env, &load_tokens_block(&path)),
+        None
+    );
+    let (_dir, path) = write_config(r#"{ "tokens": { "dir": "/x" } }"#);
+    assert_eq!(
+        resolve_transcripts_dir(&env, &load_tokens_block(&path)),
+        Some(std::path::PathBuf::from("/x"))
+    );
+}

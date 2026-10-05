@@ -29,7 +29,7 @@ fn text_of(content: Option<&Value>) -> String {
 }
 
 /// tool_result 만 담긴 user 메시지는 프롬프트 경계가 아니다.
-fn is_real_user_prompt(msg: &Value) -> bool {
+pub fn is_real_user_prompt(msg: &Value) -> bool {
     if msg.get("role").and_then(Value::as_str) != Some("user") {
         return false;
     }

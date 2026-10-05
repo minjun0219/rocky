@@ -173,6 +173,56 @@
         }
       },
       "additionalProperties": false
+    },
+    "tokens": {
+      "type": "object",
+      "description": "Claude Code 토큰 색인 — 데몬이 세션 트랜스크립트에서 모델·effort·토큰을 logs.db 로 옮기고 요약·추천을 낸다(`/api/tokens/*`, `rocky tokens`).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "끄려면 false (기본 true)."
+        },
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "트랜스크립트 루트. 기본 $CLAUDE_CONFIG_DIR/projects, 없으면 ~/.claude/projects."
+        },
+        "recommend": {
+          "type": "object",
+          "description": "규칙 기반 추천(v1). 빠진 칸은 기본값.",
+          "properties": {
+            "window": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "최근 몇 턴을 보나 (기본 15)."
+            },
+            "minTurns": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "이보다 턴이 적으면 판단하지 않는다 (기본 5)."
+            },
+            "lowOutputTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "턴 평균 출력이 이 이하면 짧다고 본다 (기본 3000)."
+            },
+            "lowerEffort": {
+              "type": "boolean",
+              "description": "짧은 턴인데 effort 가 xhigh/max 면 medium 을 권한다 (기본 true)."
+            },
+            "holdAfterRaise": {
+              "type": "boolean",
+              "description": "창 안에서 effort 를 올린 뒤 턴이 길어졌으면 추천을 내지 않는다 (기본 true)."
+            },
+            "switchToSonnet": {
+              "type": "boolean",
+              "description": "Opus 인데 도구 호출 0 + 짧은 턴이면 Sonnet medium 을 권한다 (기본 true)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

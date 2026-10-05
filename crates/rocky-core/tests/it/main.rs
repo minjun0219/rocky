@@ -20,6 +20,7 @@ mod setup_test;
 mod statusline_test;
 mod store_test;
 mod summary_test;
+mod tokens_test;
 mod transcript_test;
 mod usage_test;
 mod version_test;
