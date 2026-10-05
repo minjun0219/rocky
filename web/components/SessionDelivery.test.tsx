@@ -57,6 +57,66 @@ describe('SessionDelivery', () => {
     });
   });
 
+  test('/clear 된 세션을 보이고, 고른 갈래를 데몬에 보낸 뒤 다시 읽는다', async () => {
+    const calls: { path: string; method: string; body?: unknown }[] = [];
+    let decided = false;
+    globalThis.fetch = (async (input: string, init?: RequestInit) => {
+      calls.push({
+        path: input,
+        method: init?.method ?? 'GET',
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      if (input.startsWith('/api/sessions/cleared')) {
+        decided = true;
+        return new Response(JSON.stringify({ sessionId: 'oldsession1', changed: 2 }), {
+          status: 200,
+        });
+      }
+      const body = {
+        sessions: [],
+        subscriptions: [],
+        recent: [],
+        cleared: decided
+          ? []
+          : [
+              {
+                sessionId: 'oldsession1',
+                successorId: 'newsession2',
+                cwd: '/w/rocky',
+                clearedAt: new Date().toISOString(),
+                prs: ['o/r#7'],
+                filters: ['author:@me'],
+                inbox: ['gh-bugs'],
+              },
+            ],
+      };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+    renderWithStore(<SessionDelivery />, { actor: 'me' });
+    expect(await screen.findByText(/\/clear 된 세션 1/)).toBeTruthy();
+    expect(screen.getByText('PR o/r#7 · 필터 author:@me · 수집함 gh-bugs')).toBeTruthy();
+    expect(screen.getByText('newsessi')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '지켜보기만' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '구독 해지' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: '새 세션으로 넘기기' }));
+    await waitFor(() => expect(screen.queryByText(/\/clear 된 세션/)).toBeNull());
+    expect(calls.find((c) => c.method === 'POST')).toEqual({
+      path: '/api/sessions/cleared',
+      method: 'POST',
+      body: { sessionId: 'oldsession1', action: 'handover' },
+    });
+  });
+
+  test('옛 데몬(cleared 없음)이면 그 칸을 그리지 않는다', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ sessions: [], subscriptions: [], recent: [] }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+    renderWithStore(<SessionDelivery />, { actor: 'me' });
+    expect(await screen.findByText(/받은편지함을 등록한 세션이 없어요/)).toBeTruthy();
+    expect(screen.queryByText(/\/clear 된 세션/)).toBeNull();
+  });
+
   test('노출된 화면이면 서버의 거절 사유를 보인다', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: '로컬 요청만' }), {

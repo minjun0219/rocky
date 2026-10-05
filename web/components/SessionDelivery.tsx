@@ -1,7 +1,24 @@
+import { CircleAlert } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { formatAge } from '../lib';
 import { api, useUiStore } from '../store';
-import type { DeliveryStatus } from '../types';
+import type { ClearedAction, ClearedSession, DeliveryStatus } from '../types';
+
+/** `/clear` 된 세션의 세 갈래 — 버튼 이름과 데몬 action. */
+const CLEARED_ACTIONS: { action: ClearedAction; label: string }[] = [
+  { action: 'handover', label: '새 세션으로 넘기기' },
+  { action: 'watch', label: '지켜보기만' },
+  { action: 'unsubscribe', label: '구독 해지' },
+];
+
+/** 남은 구독 한 줄 — `PR o/r#7 · 필터 author:@me · 수집함 gh-bugs`. */
+function clearedSummary(c: ClearedSession): string {
+  return [
+    ...c.prs.map((pr) => `PR ${pr}`),
+    ...c.filters.map((f) => `필터 ${f}`),
+    ...c.inbox.map((s) => `수집함 ${s}`),
+  ].join(' · ');
+}
 
 /** 알림 종류 → 사람이 읽는 말. */
 const KIND: Record<string, string> = {
@@ -20,8 +37,9 @@ function sessionLabel(sessionId: string, cwd?: string): string {
 }
 
 /**
- * 세션 전달 — 데몬이 PR 알림·수집함 알림을 어느 세션에 보내는지, 최근에 무엇을 보냈는지, 그리고 세션별
- * "보내지 않기"(그 보드의 다음 세션이 받는다)와 수집함 구독 해지. 세션 id 가 드러나는 화면이라 로컬에서 연
+ * 세션 전달 — `/clear` 돼 결정을 기다리는 세션(넘기기·지켜보기만·해지), 데몬이 PR 알림·수집함 알림을 어느 세션에
+ * 보내는지, 최근에 무엇을 보냈는지, 그리고 세션별 "보내지 않기"(그 세션에 보내지 않는다 — 다른 세션으로 넘기지
+ * 않는다)와 수집함 구독 해지. 세션 id 가 드러나는 화면이라 로컬에서 연
  * 화면에서만 보인다(서버가 403). 이벤트로 따라가지 않고 열 때와 "새로고침" 때 읽는다.
  */
 export function SessionDelivery() {
@@ -68,7 +86,16 @@ export function SessionDelivery() {
       ),
     );
 
+  const resolveCleared = (sessionId: string, action: ClearedAction) =>
+    act(() =>
+      api('/api/sessions/cleared', actor, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, action }),
+      }),
+    );
+
   const cwdOf = (id: string) => status?.sessions.find((s) => s.sessionId === id)?.cwd;
+  const cleared = status?.cleared ?? [];
 
   return (
     <section className="mb-[26px]" aria-label="세션 전달">
@@ -90,6 +117,54 @@ export function SessionDelivery() {
       ) : null}
       {status ? (
         <>
+          {cleared.length > 0 ? (
+            <section className="mb-3" aria-label="/clear 된 세션">
+              <p className="m-0 mb-1 text-meta text-muted">
+                /clear 된 세션 {cleared.length} — 남은 구독을 정할 때까지 그 세션을 깨우지 않아요.
+              </p>
+              <ul className="m-0 list-none p-0">
+                {cleared.map((c) => (
+                  <li key={c.sessionId} className="py-1.5 text-meta">
+                    <div className="flex items-start gap-2">
+                      <CircleAlert
+                        size={14}
+                        className="mt-[2px] shrink-0 text-mine"
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">
+                          <span className="font-mono">{sessionLabel(c.sessionId, c.cwd)}</span>
+                          <span className="text-muted">
+                            {' '}
+                            · /clear 됨 · {formatAge(c.clearedAt, now)} → 새 세션{' '}
+                            <span className="font-mono">{c.successorId.slice(0, 8)}</span>
+                          </span>
+                        </div>
+                        <div
+                          className="line-clamp-2 text-muted [overflow-wrap:anywhere]"
+                          title={clearedSummary(c)}
+                        >
+                          {clearedSummary(c)}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {CLEARED_ACTIONS.map(({ action, label }) => (
+                            <button
+                              key={action}
+                              type="button"
+                              className="drawer-btn"
+                              onClick={() => void resolveCleared(c.sessionId, action)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {status.sessions.length === 0 ? (
             <p className="m-0 mb-2 text-meta text-faint">받은편지함을 등록한 세션이 없어요.</p>
           ) : (
