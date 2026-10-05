@@ -28,13 +28,19 @@
 - **데몬 맥락이 확실히 로그아웃이면 손대지 않는다**(재시작이면 내리지도 않는다). launchd 로 도는 데몬은 자격을 키체인에서 읽어
   셸과 다를 수 있다 — 셸이 로그인돼 있어도 데몬이 띄운 서버는 "You must be logged in" 으로 곧 내려간다(2026-10-05 실측).
 - 같은 대상에 겹친 요청은 409, 다른 대상은 동시에. 결과는 현황 행의 `action`·`lastResult`(메모리), 기록은 `rc/events.jsonl`.
+- **감시(`rc.supervise`, 기본 꺼짐)**: 2분마다 캐시 없이 재서 **고정이면서 꺼진** 대상만 사람과 같은 길(`begin` → `run`)로 띄운다 —
+  비고정은 띄우지 않는다(옛 CLI 에서 비고정 자동 기동이 반복되던 함정). 프로브 실패 · 확실한 로그아웃이면 아무것도 고르지 않는다.
+  연달아 못 뜬 대상은 2 · 4 · 8 · 16 · 30분 쉰다. 같은 일을 하는 다른 주기 잡이 있으면 **둘을 동시에 켜지 않는다**(켜는 날 그쪽을 끈다).
+- **자격 관찰**: 끊김(`In → Out`)과 회복(`Out → In`)을 바뀐 바퀴에 한 번씩만 배너로 알린다 — 같은 상태가 이어지면 다시 울리지 않는다.
+  기록은 `rc/auth.json`(데몬을 다시 띄워도 회복을 알아채게). 회복 뒤 로그아웃보다 먼저 뜬 서버는 `authSuspect` — 자동으로 재시작하지
+  않는다(세션이 붙어 있을 수 있다). launchd 로 도는 데몬은 키체인을 읽어 셸과 자격이 갈릴 수 있다(2026-10-06 두 번째 재발).
 
 ## 코드
 
 | 무엇 | 어디 |
 | --- | --- |
 | 판정(순수) | `crates/rocky-core/src/rc.rs` |
-| 프로브·기동기(`RcController`)·라우트·agy 손잡이 | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
+| 프로브·기동기(`RcController`)·감시(`supervise_tick`)·라우트·agy 손잡이 | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
 | CLI | `crates/rocky-cli/src/rc_cmd.rs` |
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 

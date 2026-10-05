@@ -308,6 +308,16 @@ pub async fn run_daemon(
         std::env::var("HOME").unwrap_or_default(),
         crate::rc::RC_CACHE_TTL,
     );
+    // 띄우기 · 재시작 — rc 가 켜진 기기에서만. 기동 로그와 이벤트는 todo 폴더의 rc/ 에.
+    let rc_control = rc.clone().map(|config| {
+        Arc::new(crate::rc::RcController::new(
+            Some(config),
+            std::env::var("HOME").unwrap_or_default(),
+            runtime.dir.join("rc"),
+            crate::runner::default_runner(),
+            crate::rc::default_ops(),
+        ))
+    });
     let state = build_server(ServerOptions {
         statusline_template: Some(runtime.statusline_template.clone()),
         inbox_sources: runtime.inbox.clone(),
@@ -317,18 +327,20 @@ pub async fn run_daemon(
         token_recommend: tokens.recommend.clone(),
         rc: Some(rc_status),
         agy_control: Some(agy_control),
-        // 띄우기 · 재시작 — rc 가 켜진 기기에서만. 기동 로그와 이벤트는 todo 폴더의 rc/ 에.
-        rc_control: rc.clone().map(|config| {
-            Arc::new(crate::rc::RcController::new(
-                Some(config),
-                std::env::var("HOME").unwrap_or_default(),
-                runtime.dir.join("rc"),
-                crate::runner::default_runner(),
-                crate::rc::default_ops(),
-            ))
-        }),
+        rc_control: rc_control.clone(),
         ..ServerOptions::new(store)
     });
+    // rc 감시 — `rc.supervise` 일 때만. 꺼진 고정 서버를 2분마다 되살리고, 데몬 맥락의 자격이 끊기거나 돌아오면 배너 한 번.
+    if let (Some(control), Some(true)) = (rc_control, rc.as_ref().map(|c| c.supervise)) {
+        let notify_runner = crate::runner::default_runner();
+        let verify_notify = crate::verify::osascript_verify_notifier(notify_runner);
+        crate::rc::spawn_rc_supervisor(
+            control,
+            Arc::new(move |title, body| verify_notify(title, body)),
+            rocky_core::rc::SUPERVISE_FIRST,
+            rocky_core::rc::SUPERVISE_INTERVAL,
+        );
+    }
     // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
     crate::logindex::spawn_indexer(
         runtime.dir.join("logs.db"),

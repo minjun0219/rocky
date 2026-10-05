@@ -120,6 +120,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
         auth: rc::parse_auth_status(&auth.stdout),
         antigravity,
         probe_error,
+        supervise: None,
     }
 }
 
@@ -284,7 +285,20 @@ pub struct RcController {
     ops: RcOps,
     busy: std::sync::Mutex<HashMap<String, RcAction>>,
     last: std::sync::Mutex<HashMap<String, RcResult>>,
+    supervise: std::sync::Mutex<SuperviseState>,
 }
+
+/// 감시의 메모리 상태 — 켜졌나, 마지막 바퀴, 자격 기록(파일과 같은 값), 대상별 연속 실패와 다음 시도 시각(unix 초).
+#[derive(Default)]
+struct SuperviseState {
+    enabled: bool,
+    last_tick: Option<String>,
+    mark: Option<rc::AuthMark>,
+    failures: HashMap<String, (u32, i64)>,
+}
+
+/// 사람에게 알리는 함수 — (제목, 본문). 기본은 macOS 배너(`osascript`), 테스트는 붙잡는다.
+pub type RcNotifier = Arc<dyn Fn(String, String) + Send + Sync>;
 
 impl RcController {
     pub fn new(
@@ -302,6 +316,7 @@ impl RcController {
             ops,
             busy: std::sync::Mutex::new(HashMap::new()),
             last: std::sync::Mutex::new(HashMap::new()),
+            supervise: std::sync::Mutex::new(SuperviseState::default()),
         }
     }
 
@@ -345,6 +360,156 @@ impl RcController {
             row.action = busy.get(&row.label).copied();
             row.last_result = last.get(&row.label).cloned();
         }
+        drop((busy, last));
+        let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+        if !sup.enabled {
+            return;
+        }
+        let mark = sup.mark.clone().unwrap_or_default();
+        let now = chrono::Utc::now().timestamp();
+        for row in &mut status.servers {
+            row.auth_suspect = row.running && rc::auth_suspect(row.uptime_secs, &mark, now);
+        }
+        status.supervise = Some(rc::SuperviseInfo {
+            last_tick: sup.last_tick.clone(),
+            logged_out: mark.still_out(),
+        });
+    }
+
+    /// 감시를 켠다(`rc.supervise`) — 현황에 감시 상태와 자격 의심이 실린다. 루프는 `spawn_rc_supervisor` 가 돈다.
+    pub fn enable_supervise(&self) {
+        let mut sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+        sup.enabled = true;
+        if sup.mark.is_none() {
+            sup.mark = Some(self.read_mark());
+        }
+    }
+
+    fn mark_path(&self) -> PathBuf {
+        self.log_dir.join("auth.json")
+    }
+
+    /// `rc/auth.json` — 데몬을 다시 띄워도 "끊겼다 돌아왔다" 를 알아채게 남긴다. 없거나 깨졌으면 빈 기록.
+    fn read_mark(&self) -> rc::AuthMark {
+        std::fs::read_to_string(self.mark_path())
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default()
+    }
+
+    fn write_mark(&self, mark: &rc::AuthMark) {
+        let _ = std::fs::create_dir_all(&self.log_dir);
+        if let Ok(raw) = serde_json::to_string(mark) {
+            let _ = std::fs::write(self.mark_path(), raw);
+        }
+    }
+
+    /// 감시 한 바퀴 — 캐시 없이 재고, 자격 관찰을 갱신해 끊김 · 회복을 한 번씩 알리고, 꺼진 고정 서버를 띄운다(연속 실패한
+    /// 대상은 쉬는 동안 건너뛴다). 띄운 라벨을 돌려준다. 띄우기는 사람이 부르는 것과 같은 길(`begin` → `run`)이라 사람이
+    /// 재시작 중인 대상은 `Busy` 로 자연히 건너뛴다.
+    pub async fn supervise_tick(self: &Arc<Self>, notify: &RcNotifier) -> Vec<String> {
+        let now = chrono::Utc::now().timestamp();
+        let mut status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        self.decorate(&mut status);
+
+        let mark = {
+            let mut sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+            if sup.mark.is_none() {
+                sup.mark = Some(self.read_mark());
+            }
+            sup.mark.clone().unwrap_or_default()
+        };
+        let (next, transition) = rc::next_auth_mark(status.auth, &mark, now);
+        if next != mark {
+            self.write_mark(&next);
+            self.supervise
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .mark = Some(next.clone());
+        }
+        match transition {
+            rc::AuthTransition::LoggedOut => {
+                self.event("auth", "", serde_json::json!({ "state": "out" }));
+                notify(
+                    "rocky · rc 감시".into(),
+                    "데몬 맥락의 claude 자격이 끊겼다 — 고정 서버를 되살리지 못한다. 셸이 로그인돼 있어도 launchd 쪽(키체인)은 따로다"
+                        .into(),
+                );
+            }
+            rc::AuthTransition::Recovered => {
+                let suspects = status
+                    .servers
+                    .iter()
+                    .filter(|s| s.running && rc::auth_suspect(s.uptime_secs, &next, now))
+                    .count();
+                self.event(
+                    "auth",
+                    "",
+                    serde_json::json!({ "state": "in", "suspects": suspects }),
+                );
+                let tail = if suspects > 0 {
+                    format!(" — 끊기기 전에 뜬 서버 {suspects}개는 다시 띄우기를 권한다")
+                } else {
+                    String::new()
+                };
+                notify(
+                    "rocky · rc 감시".into(),
+                    format!("데몬 맥락의 claude 자격이 돌아왔다{tail}"),
+                );
+            }
+            rc::AuthTransition::None => {}
+        }
+
+        let due: Vec<String> = {
+            let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+            rc::revive_candidates(&status)
+                .into_iter()
+                .filter(|label| {
+                    sup.failures
+                        .get(label)
+                        .is_none_or(|(_, next_at)| *next_at <= now)
+                })
+                .collect()
+        };
+        let mut started = Vec::new();
+        let mut handles = Vec::new();
+        for label in due {
+            let Ok(target) = self.begin(&label, RcCommand::Start) else {
+                continue;
+            };
+            self.event(
+                "supervise",
+                &label,
+                serde_json::json!({ "reason": "pinned-down" }),
+            );
+            started.push(label.clone());
+            let this = self.clone();
+            handles.push(tokio::spawn(async move {
+                let result = this.run(target, RcCommand::Start).await;
+                this.record_attempt(&label, result.ok);
+            }));
+        }
+        for handle in handles {
+            let _ = handle.await;
+        }
+        self.supervise
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .last_tick = Some(chrono::Utc::now().to_rfc3339());
+        started
+    }
+
+    /// 감시가 띄운 결과 — 뜨면 쉬기를 지우고, 못 뜨면 연속 실패를 세어 다음 시도를 미룬다.
+    fn record_attempt(&self, label: &str, ok: bool) {
+        let mut sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
+        if ok {
+            sup.failures.remove(label);
+            return;
+        }
+        let failures = sup.failures.get(label).map_or(0, |(n, _)| *n) + 1;
+        let next_at =
+            chrono::Utc::now().timestamp() + rc::failure_backoff(failures).as_secs() as i64;
+        sup.failures.insert(label.to_string(), (failures, next_at));
     }
 
     fn set_action(&self, label: &str, action: RcAction) {
@@ -579,4 +744,21 @@ impl RcController {
             let _ = writeln!(f, "{line}");
         }
     }
+}
+
+/// 감시 루프 — `first` 뒤 처음, 그 뒤 바퀴가 끝날 때마다 `every` 쉬고 다시(바퀴가 겹치지 않는다).
+pub fn spawn_rc_supervisor(
+    control: Arc<RcController>,
+    notify: RcNotifier,
+    first: Duration,
+    every: Duration,
+) {
+    control.enable_supervise();
+    tokio::spawn(async move {
+        tokio::time::sleep(first).await;
+        loop {
+            control.supervise_tick(&notify).await;
+            tokio::time::sleep(every).await;
+        }
+    });
 }

@@ -79,3 +79,23 @@ fn result_line_marks_success_or_failure() {
     let bad = json!({"lastResult": {"ok": false, "message": "already served", "at": "t"}});
     assert_eq!(render_result("a", &bad), "✗ a: already served");
 }
+
+#[test]
+fn status_shows_supervise_and_auth_suspect() {
+    let raw = json!({
+        "configured": true,
+        "servers": [
+            {"label": "a", "dir": "/w/a", "pinned": true, "running": true, "sessions": 0, "authSuspect": true}
+        ],
+        "strays": [], "auth": "in", "antigravity": null,
+        "supervise": {"lastTick": "2026-10-06T07:30:05+00:00", "loggedOut": false}
+    });
+    let out = render_status(&raw);
+    assert!(out.contains("● a  고정  ⚠ 자격 의심"), "{out}");
+    // 시각은 이 기기의 시간대로 바뀐다 — 줄 모양만 본다.
+    let last = out.lines().last().unwrap();
+    assert!(
+        last.starts_with("감시: 켜짐 — 마지막 ") && last.ends_with(":30"),
+        "{out}"
+    );
+}
