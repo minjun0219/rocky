@@ -2065,21 +2065,27 @@ async fn dispatch(
             .strip_prefix("/api/rc/servers/")
             .and_then(|rest| rest.split_once('/'))
         {
-            let command = match verb {
-                "start" => Some(crate::rc::RcCommand::Start),
-                "restart" => {
-                    let body = read_optional_body(headers, body).await?;
-                    let fresh = body
-                        .as_ref()
-                        .and_then(|b| b.get("fresh"))
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    Some(crate::rc::RcCommand::Restart { fresh })
-                }
-                _ => None,
-            };
-            if let Some(command) = command {
-                return Ok(rc_command_route(state, label, command, local));
+            if verb == "start" {
+                return Ok(rc_command_route(
+                    state,
+                    label,
+                    crate::rc::RcCommand::Start,
+                    local,
+                ));
+            }
+            if verb == "restart" {
+                let body = read_optional_body(headers, body).await?;
+                let fresh = body
+                    .as_ref()
+                    .and_then(|b| b.get("fresh"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                return Ok(rc_command_route(
+                    state,
+                    label,
+                    crate::rc::RcCommand::Restart { fresh },
+                    local,
+                ));
             }
         }
     }
