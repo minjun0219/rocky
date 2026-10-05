@@ -16,6 +16,8 @@
 - 골든은 cc-usage(기능 동결)에서 `scripts/cc-usage-capture.ts` 로 뜬다. 일부러 다르게 둔 곳은 케이스의 `allow` 에만 적는다.
   테스트 전용 `ROCKY_STATUSLINE_NOW`(RFC3339)가 "지금" 을 고정한다 — 사용자 표면이 아니라 README 표에 올리지 않는다(cc-usage
   쪽 짝은 `CC_USAGE_NOW`).
+- git 세그먼트는 `git status --porcelain=v2` 한 번, 500ms. 넘으면 **프로세스 그룹째** 끊고 그 세그먼트만 뺀다 — git 만 죽이면
+  git 이 띄운 자식이 고아로 남아 1초마다 쌓인다(`crates/rocky-cli/src/git_status.rs`).
 
 ## 코드
 
