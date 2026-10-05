@@ -16,8 +16,10 @@
   `mainOutputTokens / turns`).
 - 조회: `GET /api/tokens/{summary,current,sessions/:id,recommendation}`(`groupBy`·`group_by` 둘 다), MCP `token_summary`·
   `token_current_session`(`cwd` 또는 `sessionId`), `rocky tokens [here]`. "지금 세션"은 정확히 그 cwd 의 세션이 먼저다.
-- **추천 규칙 v1** 세 가지(`tokens.recommend` 로 조정): 짧은 턴인데 effort xhigh/max → medium, effort 를 올린 뒤 길어졌으면 억제,
-  Opus 인데 도구 0 + 짧은 턴 → Sonnet medium. 최소 턴 수 아래는 판단하지 않는다.
+- **추천 규칙** 네 가지(`tokens.recommend` 로 조정): 짧은 턴인데 effort xhigh/max → medium, effort 를 올린 뒤 길어졌으면 억제,
+  Opus 인데 도구 0 + 짧은 턴 → Sonnet medium, 맥락 큼(요청당 캐시 읽기, 기본 20만↑ — 턴당 합계는 맥락 × 요청 수라 도구를 많이 부른 짧은 맥락도 걸려 쓰지 않는다) + 출력 작음(기본 1만↓) → 기계적인 후속은 새 세션
+  (`fresh-session` — 같은 세션에서 모델만 바꾸라고 하지 않는다: 캐시는 모델별이라 전환 때 맥락 전체를 다시 쓴다). 최소 턴 수
+  아래와 effort 를 올린 뒤 길어진 경우는 판단하지 않는다(`held` — 네 규칙 모두). 근거(`evidence`)에 턴 평균 캐시 읽기(비용)와 요청당 캐시 읽기(맥락 크기)를 싣는다.
 - **SSE 는 전역 `/api/events` 와 나눈다**(`GET /api/tokens/events`, `event: tokens.recommendation`) — 그쪽 구독자는 `data:` 마다
   보드를 다시 읽는다. **낸 규칙 집합이 바뀐** 세션만 민다. 첫 바퀴는 과거 가져오기라 기준선만.
 

@@ -215,7 +215,7 @@
         },
         "recommend": {
           "type": "object",
-          "description": "규칙 기반 추천(v1). 빠진 칸은 기본값.",
+          "description": "규칙 기반 추천. 빠진 칸은 기본값.",
           "properties": {
             "window": {
               "type": "integer",
@@ -243,6 +243,20 @@
             "switchToSonnet": {
               "type": "boolean",
               "description": "Opus 인데 도구 호출 0 + 짧은 턴이면 Sonnet medium 을 권한다 (기본 true)."
+            },
+            "freshSession": {
+              "type": "boolean",
+              "description": "맥락이 무거운데(요청당 캐시 읽기) 출력이 작으면 기계적인 후속은 새 세션(필요하면 Sonnet)으로 권한다 (기본 true)."
+            },
+            "heavyContextTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "요청당 캐시 읽기(≈ 맥락 크기)가 이 이상이면 맥락이 무겁다고 본다 (기본 200000)."
+            },
+            "freshSessionOutputTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "freshSession 의 '출력이 작다' 기준 — 턴 평균 출력이 이 이하 (기본 10000)."
             }
           },
           "additionalProperties": false

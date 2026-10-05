@@ -602,6 +602,11 @@ pub fn load_tokens_block(config_path: &Path) -> TokensConfig {
         recommend.lower_effort = flag("lowerEffort", recommend.lower_effort);
         recommend.hold_after_raise = flag("holdAfterRaise", recommend.hold_after_raise);
         recommend.switch_to_sonnet = flag("switchToSonnet", recommend.switch_to_sonnet);
+        recommend.fresh_session = flag("freshSession", recommend.fresh_session);
+        recommend.heavy_context_tokens =
+            num("heavyContextTokens").unwrap_or(recommend.heavy_context_tokens);
+        recommend.fresh_session_output_tokens =
+            num("freshSessionOutputTokens").unwrap_or(recommend.fresh_session_output_tokens);
     }
     TokensConfig {
         enabled: block.get("enabled").and_then(|v| v.as_bool()),
