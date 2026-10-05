@@ -1,0 +1,21 @@
+{
+  "why": "폭을 모르면 크레딧은 상태 줄 끝에 붙는다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":1789549200}}}",
+  "allow": [],
+  "usage": {
+    "usage": {
+      "fetched_at": "2026-09-16T16:40:00+09:00",
+      "extra": {
+        "enabled": true,
+        "used_credits": 1160,
+        "monthly_limit": 5000
+      }
+    }
+  }
+}

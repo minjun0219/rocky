@@ -13,9 +13,9 @@
  *
  * 설계: docs/design/specs/2026-10-05-cc-usage-mirror-design.md
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /** 모든 케이스의 기준 시각 — 2026-09-16 16:40 KST. */
 const NOW = '2026-09-16T16:40:00+09:00';
@@ -38,6 +38,8 @@ export type Case = {
   tz?: 'Asia/Seoul' | 'UTC';
   /** 일부러 다르게 둔 곳 — `expected` 에서 바꿔 끼운 뒤 비교한다. */
   allow?: [string, string][];
+  /** cc-usage 캐시 `usage.json` 에 심을 내용 — usage API 응답과 크레딧 기준선. Rust 테스트도 같은 값을 읽는다. */
+  usage?: Record<string, unknown>;
 };
 
 const base = {
@@ -57,6 +59,21 @@ const withLimits = (rate_limits: Record<string, unknown>, extra: Record<string, 
   rate_limits,
 });
 const EMPTY_ROW: [string, string][] = [['[cc-usage]', '[rocky]']];
+
+/** 크레딧 캐시 — 금액은 cent(cc-usage 기본 `credit_divisor: 100`). 방금 받은 응답이라 stale 이 아니다. */
+const credits = (
+  used: number,
+  opts: { limit?: number; enabled?: boolean; baseline?: number; rising?: boolean } = {},
+) => ({
+  usage: {
+    fetched_at: NOW,
+    extra: { enabled: opts.enabled ?? true, used_credits: used, monthly_limit: opts.limit },
+  },
+  ...(opts.baseline === undefined
+    ? {}
+    : { baseline: { window_key: '5h', credits: opts.baseline, at: NOW } }),
+  ...(opts.rising ? { credits_rising_at: NOW } : {}),
+});
 
 export const CASES: Case[] = [
   { name: 'basic', why: '5h 만, 오늘 안의 리셋', stdin: withLimits({ five_hour: win(30) }) },
@@ -188,6 +205,86 @@ export const CASES: Case[] = [
     why: '1분 안의 리셋',
     stdin: withLimits({ five_hour: win(30, at(0.5)) }),
   },
+  // 폭(COLUMNS)은 크레딧을 상태 줄에 붙일지만 정한다 — 크레딧 금액이 없는 지금 경로에서는 출력이 같아야 한다.
+  {
+    name: 'columns-narrow',
+    why: '좁은 폭 — 줄을 자르지 않는다',
+    env: { COLUMNS: '20' },
+    stdin: withLimits({ five_hour: win(100), seven_day: win(75, at(3000)) }),
+  },
+  {
+    name: 'columns-wide',
+    why: '넓은 폭',
+    env: { COLUMNS: '300' },
+    stdin: withLimits({ five_hour: win(30), seven_day: win(75, at(3000)) }),
+  },
+  {
+    name: 'columns-invalid',
+    why: '읽을 수 없는 폭은 모르는 것',
+    env: { COLUMNS: 'wide' },
+    stdin: withLimits({ five_hour: win(30) }),
+  },
+  // 크레딧이 있으면 폭이 줄 구성을 바꾼다 — 붙이면 넘칠 때(COLUMNS - 40 기준) 제 줄로 내린다.
+  // 상태 줄 "Opus 5 high · ctx 41% · 5h 70% (↻18:00)" 39칸 + " · " 3칸 + "$38.40 ($50)" 12칸 = 54칸.
+  {
+    name: 'credits-attached',
+    why: '폭을 모르면 크레딧은 상태 줄 끝에 붙는다',
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(1160, { limit: 5000 }),
+  },
+  {
+    name: 'credits-fits',
+    why: '54칸 + 여백 40 = 94 — 딱 들어가면 붙인다',
+    env: { COLUMNS: '94' },
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(1160, { limit: 5000 }),
+  },
+  {
+    name: 'credits-overflows',
+    why: '한 칸 모자라면 제 줄로 내린다',
+    env: { COLUMNS: '93' },
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(1160, { limit: 5000 }),
+  },
+  {
+    name: 'credits-wide',
+    why: '넓으면 붙인다',
+    env: { COLUMNS: '300' },
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(1160, { limit: 5000 }),
+  },
+  {
+    name: 'credits-no-limit',
+    why: '한도를 모르면 쓴 금액임을 밝힌다',
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(983),
+  },
+  {
+    name: 'credits-spending',
+    why: '소진 중 — 이번 window 사용분과 강조, 제 줄',
+    env: { COLUMNS: '300' },
+    stdin: withLimits({ five_hour: win(100) }, { context_window: { used_percentage: 42 } }),
+    usage: credits(1080, { limit: 5000, baseline: 1000, rising: true }),
+  },
+  {
+    name: 'credits-hit-idle',
+    why: '한도 소진, 아직 안 깎임 — 다음 prompt 부터',
+    stdin: withLimits({ five_hour: win(100) }),
+    usage: credits(1160, { limit: 5000 }),
+  },
+  {
+    name: 'credits-disabled',
+    why: '크레딧이 꺼진 계정의 소진',
+    stdin: withLimits({ five_hour: win(100) }),
+    usage: credits(0, { enabled: false }),
+  },
+  {
+    name: 'credits-mostly-used',
+    why: '남은 금액 색은 사용률로 — 90% 를 쓰면 빨갛다',
+    env: { TERM: 'xterm-256color' },
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(4500, { limit: 5000 }),
+  },
   {
     name: 'tz-utc',
     why: '리셋 시각은 로컬 시간대로',
@@ -232,6 +329,10 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: st
       credentials_file: join(dir, 'absent.json'),
     }),
   );
+  if (c.usage) {
+    mkdirSync(join(dir, 'cache', 'cc-usage'), { recursive: true });
+    writeFileSync(join(dir, 'cache', 'cc-usage', 'usage.json'), JSON.stringify(c.usage));
+  }
   const stdin = typeof c.stdin === 'string' ? c.stdin : JSON.stringify(c.stdin);
   const proc = Bun.spawnSync([bin, 'statusline'], {
     stdin: new TextEncoder().encode(stdin.replaceAll(HOME, home)),
@@ -254,27 +355,38 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: st
 if (import.meta.main) {
   const bin = process.argv[2] ?? 'cc-usage';
   const root = join(import.meta.dir, '..', 'crates', 'rocky-core', 'tests', 'fixtures', 'cc-usage');
-  rmSync(root, { recursive: true, force: true });
-  for (const c of CASES) {
-    const dir = mkdtempSync(join(tmpdir(), 'cc-usage-capture-'));
-    try {
-      const { stdin, stdout } = capture(bin, c, dir);
-      const out = join(root, c.name);
-      mkdirSync(out, { recursive: true });
-      const meta = {
-        why: c.why,
-        now: NOW,
-        tz: c.tz ?? 'Asia/Seoul',
-        env: c.env ?? {},
-        config: { source: 'stdin', ...c.config },
-        stdin,
-        allow: c.allow ?? [],
-      };
-      writeFileSync(join(out, 'case.json'), `${JSON.stringify(meta, null, 2)}\n`);
-      writeFileSync(join(out, 'expected.txt'), stdout);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+  // 전부 뜬 다음에만 바꿔 끼운다 — 중간에 실패하면 있던 골든이 그대로 남는다. 같은 폴더 안에 떠야 rename 이
+  // 파일 시스템을 건너지 않는다.
+  mkdirSync(dirname(root), { recursive: true });
+  const staging = mkdtempSync(join(dirname(root), '.cc-usage-staging-'));
+  try {
+    for (const c of CASES) {
+      const dir = mkdtempSync(join(tmpdir(), 'cc-usage-capture-'));
+      try {
+        const { stdin, stdout } = capture(bin, c, dir);
+        const out = join(staging, c.name);
+        mkdirSync(out, { recursive: true });
+        const meta = {
+          why: c.why,
+          now: NOW,
+          tz: c.tz ?? 'Asia/Seoul',
+          env: c.env ?? {},
+          config: { source: 'stdin', ...c.config },
+          stdin,
+          allow: c.allow ?? [],
+          usage: c.usage ?? null,
+        };
+        writeFileSync(join(out, 'case.json'), `${JSON.stringify(meta, null, 2)}\n`);
+        writeFileSync(join(out, 'expected.txt'), stdout);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
+  } catch (e) {
+    rmSync(staging, { recursive: true, force: true });
+    throw e;
   }
+  rmSync(root, { recursive: true, force: true });
+  renameSync(staging, root);
   console.log(`${CASES.length}건 → ${root}`);
 }

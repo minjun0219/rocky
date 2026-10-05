@@ -7,5 +7,6 @@
     "source": "stdin"
   },
   "stdin": "{\"model\":{\"display_name\":\"Sonnet 5\"}}",
-  "allow": []
+  "allow": [],
+  "usage": null
 }

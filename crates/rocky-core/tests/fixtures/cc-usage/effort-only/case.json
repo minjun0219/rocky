@@ -7,5 +7,6 @@
     "source": "stdin"
   },
   "stdin": "{\"effort\":{\"level\":\"max\"}}",
-  "allow": []
+  "allow": [],
+  "usage": null
 }

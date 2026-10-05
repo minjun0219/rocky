@@ -1,0 +1,23 @@
+{
+  "why": "한 칸 모자라면 제 줄로 내린다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {
+    "COLUMNS": "93"
+  },
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":1789549200}}}",
+  "allow": [],
+  "usage": {
+    "usage": {
+      "fetched_at": "2026-09-16T16:40:00+09:00",
+      "extra": {
+        "enabled": true,
+        "used_credits": 1160,
+        "monthly_limit": 5000
+      }
+    }
+  }
+}

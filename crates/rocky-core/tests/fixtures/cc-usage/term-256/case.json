@@ -9,5 +9,6 @@
     "source": "stdin"
   },
   "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":85},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":71,\"resets_at\":1789549200},\"seven_day\":{\"used_percentage\":89,\"resets_at\":1789724400}}}",
-  "allow": []
+  "allow": [],
+  "usage": null
 }

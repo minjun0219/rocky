@@ -7,5 +7,6 @@
     "source": "stdin"
   },
   "stdin": "{\"model\":\"Opus 5\",\"effort\":{\"level\":\"low\"},\"context_window\":{\"used_percentage\":\"41\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":\"30\"}}}",
-  "allow": []
+  "allow": [],
+  "usage": null
 }
