@@ -70,7 +70,7 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     expect(screen.queryByText('완료된 작업 항목')).toBeNull();
 
     // 완료 토글 버튼 확인 및 클릭하여 펼치기
-    const toggleButton = screen.getByRole('button', { name: /완료된 작업 1개/ });
+    const toggleButton = screen.getByRole('button', { name: /완료한 할 일 1개/ });
     expect(toggleButton.getAttribute('aria-expanded')).toBe('false');
 
     await userEvent.click(toggleButton);
@@ -139,7 +139,7 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     expect(screen.queryByText('완료된 하위 작업')).toBeNull();
 
     // 완료 토글 버튼(완료된 작업 1개) 누르면 하위 완료 작업 표시
-    const toggleButton = screen.getByRole('button', { name: /완료된 작업 1개/ });
+    const toggleButton = screen.getByRole('button', { name: /완료한 할 일 1개/ });
     await userEvent.click(toggleButton);
     expect(screen.getByText('완료된 하위 작업')).toBeDefined();
 
@@ -178,7 +178,7 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     expect(screen.queryByText('진행중 완료 작업')).toBeNull();
 
     // 두 개의 '완료된 작업 1개' 토글 버튼
-    const buttons = screen.getAllByRole('button', { name: /완료된 작업 1개/ });
+    const buttons = screen.getAllByRole('button', { name: /완료한 할 일 1개/ });
     expect(buttons.length).toBe(2);
     const btn0 = buttons[0]!;
     const btn1 = buttons[1]!;
@@ -221,7 +221,7 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     expect(screen.queryByText('mdwire 완료 작업')).toBeNull();
 
     // rocky 보드의 완료 토글 버튼
-    const buttons = screen.getAllByRole('button', { name: /완료된 작업 1개/ });
+    const buttons = screen.getAllByRole('button', { name: /완료한 할 일 1개/ });
     expect(buttons.length).toBe(2);
 
     // rocky 보드의 완료 토글만 클릭

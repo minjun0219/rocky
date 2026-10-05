@@ -21,7 +21,7 @@ function mountSwitcher(over: Record<string, unknown> = {}) {
   return { setSelected, createBoard };
 }
 
-const trigger = () => screen.getByRole('button', { name: /^보드 — 지금/ });
+const trigger = () => screen.getByRole('button', { name: /^보드: 지금/ });
 
 describe('BoardSwitcher', () => {
   test('머리줄 버튼이 지금 보드를 말하고, 누르면 목록 — 고르면 닫힌다', async () => {

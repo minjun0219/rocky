@@ -69,7 +69,7 @@ export function DetailDrawer() {
           }}
         >
           <Dialog.Title className="sr-only">
-            {detail.kind === 'todo' ? '할 일 상세' : '메모 상세'}
+            {detail.kind === 'todo' ? '할 일 상세' : '노트 상세'}
           </Dialog.Title>
           {detail.kind === 'todo' ? <TodoDetail /> : <NoteDetail />}
           {detail.kind === 'todo' && detail.todo && <CommentComposer todoId={detail.todo.id} />}

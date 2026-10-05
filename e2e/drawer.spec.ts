@@ -47,7 +47,7 @@ test('시작·완료하면 목록에서 접히고, 펼쳐서 보관한다', asyn
   await audit(page, '완료 접힘');
 
   await page
-    .getByRole('button', { name: /완료된 작업 \d+개/ })
+    .getByRole('button', { name: /완료한 할 일 \d+개/ })
     .first()
     .click();
   await row(page, tag).first().click();

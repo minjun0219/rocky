@@ -60,7 +60,7 @@ describe('TodoItem doing 배지', () => {
         doingSince: new Date().toISOString(),
       }),
     );
-    expect(screen.getByTitle('처리중').textContent).toContain('claude-code');
+    expect(screen.getByTitle('진행 중').textContent).toContain('claude-code');
   });
 
   test('세션이 사라졌으면 배지가 그 사실을 말한다', () => {
@@ -72,7 +72,7 @@ describe('TodoItem doing 배지', () => {
         doingState: 'gone',
       }),
     );
-    const badge = screen.getByTitle('이 항목을 들고 있던 세션이 사라졌다');
+    const badge = screen.getByTitle('이 항목을 맡았던 세션이 사라졌어요');
     expect(badge.textContent).toContain('세션 없음');
     expect(badge.className).toContain('warn-dead');
   });
@@ -86,7 +86,7 @@ describe('TodoItem doing 배지', () => {
         doingState: 'live',
       }),
     );
-    expect(screen.getByTitle('처리중').className).not.toContain('is-stale');
+    expect(screen.getByTitle('진행 중').className).not.toContain('is-stale');
   });
 });
 

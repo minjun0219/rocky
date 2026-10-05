@@ -88,7 +88,7 @@ export function NotesRail() {
           onClick={() =>
             void addNote({
               board: selected === 'all' ? undefined : selected,
-              title: '새 메모',
+              title: '새 노트',
             })
           }
         >
@@ -97,7 +97,8 @@ export function NotesRail() {
       </div>
       {notes.length === 0 ? (
         <div className="empty-state px-1 py-[18px] text-sm text-muted">
-          노트가 없다. 사람과 에이전트가 같이 쓰는 스크래치 패드다 — "+ 새 노트" 로 시작.
+          노트가 없어요. 사람과 에이전트가 같이 쓰는 스크래치 패드예요. "+ 새 노트"를 눌러
+          시작하세요.
         </div>
       ) : (
         <>
@@ -293,7 +294,7 @@ function NoteHead({ note, large = false }: { note: NoteView; large?: boolean }) 
           <button
             type="button"
             className="note-action px-1 py-0.5 text-meta text-faint hover:text-text"
-            title="보관 (삭제는 없다)"
+            title="보관 (삭제 기능은 없어요)"
             aria-label="보관"
             onClick={() => void archiveNote(note.id)}
           >
@@ -475,7 +476,7 @@ function NoteEditor({
             {note.content ? (
               <Markdown text={note.content} />
             ) : (
-              <span className="text-faint">눌러서 적는다 — 마크다운</span>
+              <span className="text-faint">눌러서 적기 (마크다운)</span>
             )}
             {live === 'opening' && <span className="text-faint"> …</span>}
           </div>

@@ -13,7 +13,7 @@ test('피드 첫 화면에 내 차례가 보인다', async ({ page }) => {
 
 test('읽지 않은 댓글 요약 줄을 펼친다', async ({ page }) => {
   // 새 브라우저는 댓글을 전부 안 읽은 상태다 — 픽스처의 댓글 5건이 "N건 더 보기" 로 접힌다.
-  const more = page.getByRole('button', { name: /읽지 않은 댓글 \d+건 더 보기/ });
+  const more = page.getByRole('button', { name: /읽지 않은 댓글 \d+개 더 보기/ });
   await more.click();
   await expect(more).toHaveCount(0);
   await audit(page, '읽지 않은 댓글 펼침');

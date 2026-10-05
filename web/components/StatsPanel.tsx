@@ -9,7 +9,7 @@ const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
 /**
  * 통계 — 작업로그 탭 맨 위, 접어 둔다(열 때만 묻는다). 반복해서 보는 질문만 둔다(설계: 처음엔 다섯 개):
- * 회고 — 레포별·요일별 턴, 턴이 몰린 할 일. 개선 — 느린 표면·실패하는 표면·안 쓴 표면(`rocky usage` 와 같은 집계).
+ * 회고 — 레포별·요일별 턴, 턴이 몰린 할 일. 개선 — 느린 표면·실패하는 표면·쓰지 않은 표면(`rocky usage` 와 같은 집계).
  */
 export function StatsPanel() {
   const actor = useUiStore((s) => s.actor);
@@ -49,14 +49,14 @@ export function StatsPanel() {
         <div className="grid gap-4 border-t border-line px-3 py-3 sm:grid-cols-2">
           {failed ? (
             <p className="m-0 text-meta text-faint">
-              통계를 못 읽었다 — 데몬의 로그 색인을 확인한다.
+              통계를 읽지 못했어요. 데몬의 로그 색인을 확인하세요.
             </p>
           ) : !stats ? (
             <p className="m-0 text-meta text-faint">읽는 중…</p>
           ) : (
             <>
               <div>
-                <h3 className={head}>회고 — 턴 {stats.worklog.turns}</h3>
+                <h3 className={head}>회고 · 턴 {stats.worklog.turns}</h3>
                 {stats.worklog.byProject.slice(0, 5).map(([key, n]) => (
                   <div key={key} className={row}>
                     <span className="min-w-0 flex-1 truncate">
@@ -106,7 +106,7 @@ export function StatsPanel() {
                   </div>
                 ))}
                 <details className="mt-1 text-meta text-muted">
-                  <summary>안 쓴 표면 {stats.usage.unused.length}개</summary>
+                  <summary>쓰지 않은 표면 {stats.usage.unused.length}개</summary>
                   <p className="m-0 mt-1 font-mono text-chip text-faint">
                     {stats.usage.unused.map(([, name]) => name).join(' · ')}
                   </p>

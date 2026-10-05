@@ -47,7 +47,7 @@ export function useNow(rows: NowRow[], extra: number): number {
  * Vocabulary"). lucide 아이콘이라 글꼴에 따라 모양이 흔들리지 않는다. 움직이지 않는다.
  */
 const GLYPH: Record<NowGlyph, { Icon: LucideIcon; className: string; label: string }> = {
-  run: { Icon: CircleDot, className: 'text-run', label: '돌고 있음' },
+  run: { Icon: CircleDot, className: 'text-run', label: '실행 중' },
   mine: { Icon: CircleAlert, className: 'text-mine', label: '내 차례' },
   dead: { Icon: CircleOff, className: 'text-dead', label: '세션 없음' },
   unknown: { Icon: CircleHelp, className: 'text-faint', label: '세션 모름' },
@@ -56,7 +56,7 @@ const GLYPH: Record<NowGlyph, { Icon: LucideIcon; className: string; label: stri
 /** PR 상태 아이콘 — 머지 가능·충돌은 내 차례 색, 대기·초안은 무채색. */
 export const PR_ICON: Record<PrStatus, { Icon: LucideIcon; className: string; label: string }> = {
   conflict: { Icon: TriangleAlert, className: 'text-dead', label: '충돌' },
-  ready: { Icon: GitMerge, className: 'text-mine', label: '확인·머지 가능' },
+  ready: { Icon: GitMerge, className: 'text-mine', label: '머지 후보' },
   failing: { Icon: CircleX, className: 'text-dead', label: 'CI 실패' },
   decide: { Icon: CircleAlert, className: 'text-mine', label: '결정 필요' },
   waiting: { Icon: GitPullRequest, className: 'text-muted', label: '대기' },
@@ -149,7 +149,7 @@ export function MineSection() {
 }
 
 /**
- * "돌고 있음" — 할 일 화면 맨 위. 세션이 붙어 진행 중인 일(전 보드). 없으면 자리를 차지하지 않는다.
+ * "실행 중" — 할 일 화면 맨 위. 세션이 붙어 진행 중인 일(전 보드). 없으면 자리를 차지하지 않는다.
  * 손댈 것(내 차례)은 피드로 옮겼다.
  */
 export function NowTable() {
@@ -160,8 +160,8 @@ export function NowTable() {
     return null;
   }
   return (
-    <section className="now border-b border-line px-4 pb-3.5 pt-3" aria-label="돌고 있음">
-      <NowGroupHead title="돌고 있음" count={run.length} tone="run" />
+    <section className="now border-b border-line px-4 pb-3.5 pt-3" aria-label="실행 중">
+      <NowGroupHead title="실행 중" count={run.length} tone="run" />
       <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
         {run.map((row) => (
           <NowItem key={row.key} row={row} now={now} />

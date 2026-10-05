@@ -16,7 +16,7 @@ describe('NowTable', () => {
       { nowTodos: [], nowHandoffs: [], collect: null },
     );
     expect(screen.getByText('내 차례 없음')).toBeTruthy();
-    expect(screen.queryByText('돌고 있음')).toBeNull();
+    expect(screen.queryByText('실행 중')).toBeNull();
     expect(document.querySelector('table')).toBeNull();
   });
 
@@ -68,10 +68,10 @@ describe('NowTable', () => {
     const runRows = [...(run?.querySelectorAll('li') ?? [])];
     expect(runRows).toHaveLength(1);
     expect(runRows[0]?.textContent).toContain('YOU');
-    expect(runRows[0]?.querySelector('[aria-label="돌고 있음"] svg')).toBeTruthy();
+    expect(runRows[0]?.querySelector('[aria-label="실행 중"] svg')).toBeTruthy();
     // 같은 상태를 행마다 배지로 반복하지 않고, 묶음 머리에 개수로 한 번.
     expect(screen.getByRole('heading', { name: /내 차례\s*2/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /돌고 있음\s*1/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /실행 중\s*1/ })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: /검증 실패 응답 통일/ }));
     expect(openTodoDetail).toHaveBeenCalledWith('gone');
   });
@@ -86,7 +86,9 @@ describe('NowTable', () => {
         { source: 'todoist', title: '문제 유형 옵션', url: 'https://app.todoist.com/app/task/b' },
       ],
     });
-    const row = screen.getByRole('button', { name: /todoist 수집함에 보드로 안 옮긴 항목 4건/ });
+    const row = screen.getByRole('button', {
+      name: /todoist 수집함에 보드로 옮기지 않은 항목 4건/,
+    });
     expect(row.getAttribute('aria-expanded')).toBe('false');
     await userEvent.click(row);
     expect(row.getAttribute('aria-expanded')).toBe('true');

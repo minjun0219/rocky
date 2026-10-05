@@ -86,19 +86,19 @@ export function BoardInbox({ board }: { board: string }) {
       </div>
       {error && (
         <p className="m-0 text-sm text-dead" role="alert">
-          수집함을 읽지 못했다 — {error}
+          수집함을 읽지 못했어요: {error}
         </p>
       )}
       {Object.keys(subscribed).length > 0 && (
         <p className="m-0 mb-1 text-meta text-faint">
           {Object.entries(subscribed)
-            .map(([name, n]) => `${name} — 세션 ${n}곳이 구독 중(새 항목을 알림)`)
+            .map(([name, n]) => `${name}: 세션 ${n}개가 구독 중. 새 항목이 오면 알려요`)
             .join(' · ')}
         </p>
       )}
       {failed.map((s) => (
         <p key={s.name} className="m-0 truncate text-meta text-dead">
-          {s.name} — 실패: {(s.reason ?? '사유 없음').split('\n')[0]}
+          {s.name} 실패: {(s.reason ?? '사유 없음').split('\n')[0]}
         </p>
       ))}
       <ul className="m-0 list-none p-0">
@@ -211,12 +211,13 @@ export function InboxSettings({ board, onChanged }: { board: string; onChanged: 
           </li>
         ))}
         {registered.length === 0 && (
-          <li className="text-meta text-faint">이 보드에 등록한 수집함이 없다.</li>
+          <li className="text-meta text-faint">이 보드에 등록한 수집함이 없어요.</li>
         )}
       </ul>
       {adapters && adapters.length === 0 && !notice && (
         <p className="m-0 text-meta text-faint">
-          rocky.json 의 todo.inboxAdapters[] 에 어댑터를 등록하면 여기서 보드마다 조건을 채운다.
+          rocky.json의 todo.inboxAdapters[]에 어댑터를 등록하면 여기서 보드마다 조건을 채울 수
+          있어요.
         </p>
       )}
       {adapters && adapters.length > 0 && (
