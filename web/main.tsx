@@ -6,6 +6,7 @@ import { GithubPane } from './components/GithubPane';
 import { WorklogPane } from './components/WorklogPane';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
+import { RcPane, RcSummary } from './components/RcPane';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { VersionFooter } from './components/VersionFooter';
@@ -24,6 +25,11 @@ function App() {
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
   const view = useUiStore((s) => s.view);
+  const loadRc = useUiStore((s) => s.loadRc);
+  // 탭 줄이 원격 제어 탭을 보일지 알려면 rc 가 이 기기에서 켜졌는지부터 안다 — 기동 때 한 번.
+  useEffect(() => {
+    void loadRc();
+  }, [loadRc]);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const headRef = useRef<HTMLDivElement>(null);
 
@@ -156,6 +162,8 @@ function App() {
           `--app-head-h` 로 알려 아래의 sticky(빠른 추가 · 노트 툴바)가 그 밑에 붙게 한다. */}
       <div ref={headRef} className="app-head sticky top-0 z-20 bg-bg">
         <TopBar />
+        {/* 원격 제어 요약 — 피드에서만, rc 가 꺼진 기기면 그리지 않는다. */}
+        {view === 'feed' ? <RcSummary /> : null}
         {/* 돌고 있음 — 탭과 상관없이 늘 보인다(2026-10-02 오너). 없으면 자리를 차지하지 않는다. */}
         <NowTable />
       </div>
@@ -170,6 +178,8 @@ function App() {
           <NotesRail />
         ) : view === 'worklog' ? (
           <WorklogPane />
+        ) : view === 'rc' ? (
+          <RcPane />
         ) : (
           <GithubPane />
         )}

@@ -232,8 +232,38 @@ export interface PrSnapshot {
   updatedAt: string;
 }
 
-/** 보드 화면의 보기 — 피드(첫 화면) / 할 일 목록 / 노트 / 작업로그 / GitHub. */
-export type BoardView = 'feed' | 'todos' | 'notes' | 'worklog' | 'github';
+/** 보드 화면의 보기 — 피드(첫 화면) / 할 일 목록 / 노트 / 작업로그 / GitHub / 원격 제어(rc 서버). */
+export type BoardView = 'feed' | 'todos' | 'notes' | 'worklog' | 'github' | 'rc';
+
+/** `GET /api/rc/servers` 의 대상 행 — Rust `rocky_core::rc::ServerRow` 의 사본. */
+export interface RcServerRow {
+  label: string;
+  dir: string;
+  pinned: boolean;
+  running: boolean;
+  pid?: number;
+  uptimeSecs?: number;
+  sessions: number;
+}
+
+/** 대상 목록 밖의 폴더에서 도는 서버 — Rust `rocky_core::rc::StrayRow`. */
+export interface RcStrayRow {
+  label: string;
+  dir: string;
+  pid: number;
+  uptimeSecs?: number;
+  sessions: number;
+}
+
+/** `GET /api/rc/servers` — Rust `rocky_core::rc::RcStatus`. `configured` 가 false 면 이 기기에선 rc 가 꺼져 있다. */
+export interface RcStatus {
+  configured: boolean;
+  servers: RcServerRow[];
+  strays: RcStrayRow[];
+  auth: 'in' | 'out' | 'unknown';
+  antigravity: { state?: string; pid?: number; instance?: string } | null;
+  probeError?: string;
+}
 
 /** `GET /api/logs/worklog` 한 줄 — Rust `rocky_core::logindex::IndexedWorklog` 의 사본. */
 export interface WorklogEntry {

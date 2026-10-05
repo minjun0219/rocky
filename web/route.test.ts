@@ -342,6 +342,8 @@ describe('보던 탭 ?view=', () => {
   test('탭을 주소에 싣는다 — 쿼리가 있으면 뒤에 붙인다', () => {
     expect(buildPath({ board: 'rocky', view: 'todos' })).toBe('/rocky?view=todos');
     expect(buildPath({ board: 'all', view: 'github' })).toBe('/?view=github');
+    expect(buildPath({ board: 'all', view: 'rc' })).toBe('/?view=rc');
+    expect(parseRoute('/', '?view=rc').view).toBe('rc');
     expect(buildPath({ board: 'rocky', todo: { board: 'rocky', number: 12 }, view: 'todos' })).toBe(
       '/rocky/12?view=todos',
     );

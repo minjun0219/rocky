@@ -88,6 +88,8 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 사용자 설정(`~/.config/rocky/rocky.json`)의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 준다. 지금은 **보기만** 한다. 띄우기·재시작·감시는 다음 단계다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)).
 
+웹 UI에서는 피드 머리 아래 한 줄(`원격 제어 7/13 · 세션 4`)과 **원격 제어** 탭으로 본다(⋯ 메뉴에서 탭을 끌 수 있다). rc 블록이 없거나 `enabled: false`면 둘 다 없다.
+
 ```bash
 rocky rc            # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 대상 밖 서버, 자격, Antigravity
 ```
