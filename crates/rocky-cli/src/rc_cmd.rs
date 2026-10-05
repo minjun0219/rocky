@@ -54,7 +54,7 @@ fn line(v: &Value, running: bool) -> String {
 
 pub fn render_status(raw: &Value) -> String {
     if raw.get("configured").and_then(Value::as_bool) != Some(true) {
-        return "rc 대상이 없다 — rocky.json 에 \"rc\": { \"pinned\": [...], \"targets\": [...] } 를 둔다".into();
+        return "rc 가 꺼져 있다 — rocky.json 에 \"rc\": { \"pinned\": [...], \"targets\": [...] } 를 두고(enabled 가 false 가 아니게) 데몬을 다시 띄운다".into();
     }
     let list = |key: &str| {
         raw.get(key)

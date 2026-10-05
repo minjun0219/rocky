@@ -330,8 +330,8 @@ typecheck or tests — pre-push and CI already cover it.*
 - **rc 서버 현황**(`rocky_core::rc`, `rockyd::rc`): `rc` 블록(사용자 설정만)의 폴더와 떠 있는 `claude rc` 서버를 맞대
   `GET /api/rc/servers`·`rocky rc`로 낸다 — 지금은 **보기만** 한다(띄우기·감시는 다음 조각, 설계는
   `docs/design/specs/2026-10-05-rc-server-design.md`). 서버 판정은 argv 구조(`claude` + `rc`/`remote-control` + `--name`),
-  자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로; 맞대기는 cwd **문자열**이라 정규화하지 않는다. 블록이 없으면
-  프로브를 돌리지 않는다. *EN: read-only for now; match by the raw cwd string; never probe without an `rc` block.*
+  자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로; 맞대기는 cwd **문자열**이라 정규화하지 않는다. 블록이 없거나
+  `enabled: false`(rc 를 못 쓰는 기기)면 프로브를 돌리지 않는다. *EN: read-only for now; match by the raw cwd string; never probe without an `rc` block.*
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd`로 정한다. 끼워 넣는 쪽은 `rocky statusline`(`--cwd`·`--session`, 없으면 stdin JSON) — 1초마다 도는
   자리라 사용 로그·데몬 자동 기동을 거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.
