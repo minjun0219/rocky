@@ -94,6 +94,7 @@ fn targets_resolve_like_the_shell() {
             "nested/repo-d".into(),
             " ".into(),
         ],
+        supervise: false,
     };
     let got = resolve_targets(&config, "/home/u");
     let view: Vec<(&str, &str, bool)> = got
@@ -117,6 +118,7 @@ fn custom_root_is_used_for_relative_names() {
         root: Some("/srv/ws/".into()),
         pinned: vec![],
         targets: vec!["x".into()],
+        supervise: false,
     };
     assert_eq!(resolve_targets(&config, "/home/u")[0].dir, "/srv/ws/x");
     // 상대 root 는 홈 기준, `~foo` 는 홈이 아니라 root 아래 이름이다.
@@ -124,6 +126,7 @@ fn custom_root_is_used_for_relative_names() {
         root: Some("ws".into()),
         pinned: vec![],
         targets: vec!["x".into(), "~foo".into()],
+        supervise: false,
     };
     let dirs: Vec<String> = resolve_targets(&config, "/home/u/")
         .into_iter()
@@ -234,6 +237,7 @@ fn rc_block_is_optional_and_lenient() {
             root: None,
             pinned: vec!["a".into(), "b".into()],
             targets: vec![],
+            supervise: false,
         })
     );
     // 목록을 남긴 채 끈 기기 — 블록이 없을 때와 같다.
@@ -389,4 +393,144 @@ fn agy_settles_on_running_or_no_state_line() {
     assert!(!AgyAction::Stop.settled(Some(&at(Some("SIGTERMed")))));
     assert!(AgyAction::Stop.settled(Some(&at(None))));
     assert!(!AgyAction::Start.settled(None));
+}
+
+// ── 감시(되살리기) 판정 ──
+
+fn row(label: &str, pinned: bool, running: bool) -> ServerRow {
+    ServerRow {
+        label: label.into(),
+        dir: format!("/w/{label}"),
+        pinned,
+        running,
+        pid: running.then_some(1),
+        uptime_secs: None,
+        sessions: 0,
+        action: None,
+        last_result: None,
+    }
+}
+
+fn status_with(servers: Vec<ServerRow>) -> RcStatus {
+    RcStatus {
+        configured: true,
+        servers,
+        ..RcStatus::unconfigured()
+    }
+}
+
+#[test]
+fn revives_only_stopped_pinned_idle_targets() {
+    let mut busy = row("busy", true, false);
+    busy.action = Some(RcAction::Restarting);
+    let status = status_with(vec![
+        row("up", true, true),
+        row("down", true, false),
+        row("other", false, false),
+        busy,
+    ]);
+    assert_eq!(revive_candidates(&status), vec!["down"]);
+}
+
+#[test]
+fn revives_nothing_when_unsure_or_logged_out() {
+    let base = status_with(vec![row("down", true, false)]);
+    let mut probe_failed = base.clone();
+    probe_failed.probe_error = Some("ps 실패".into());
+    assert!(
+        revive_candidates(&probe_failed).is_empty(),
+        "꺼짐이 모름이다"
+    );
+    let mut logged_out = base.clone();
+    logged_out.auth = AuthState::Out;
+    assert!(
+        revive_candidates(&logged_out).is_empty(),
+        "띄워도 곧 내려간다"
+    );
+    let mut unknown = base.clone();
+    unknown.auth = AuthState::Unknown;
+    assert_eq!(
+        revive_candidates(&unknown),
+        vec!["down"],
+        "모르면 띄워 본다"
+    );
+    let off = RcStatus::unconfigured();
+    assert!(revive_candidates(&off).is_empty());
+}
+
+#[test]
+fn failure_backoff_doubles_to_thirty_minutes() {
+    let mins: Vec<u64> = (0..8).map(|n| failure_backoff(n).as_secs() / 60).collect();
+    assert_eq!(mins, vec![0, 2, 4, 8, 16, 30, 30, 30]);
+    assert_eq!(failure_backoff(u32::MAX), SUPERVISE_BACKOFF_MAX);
+}
+
+#[test]
+fn auth_mark_reports_each_transition_once() {
+    let empty = AuthMark::default();
+    // 처음 본 것이 로그아웃이어도 알린다.
+    let (m, t) = next_auth_mark(AuthState::Out, &empty, 100);
+    assert_eq!(t, AuthTransition::LoggedOut);
+    assert!(m.still_out());
+    // 이어지는 로그아웃은 조용히 시각만 민다.
+    let (m, t) = next_auth_mark(AuthState::Out, &m, 220);
+    assert_eq!((t, m.last_out), (AuthTransition::None, Some(220)));
+    // 모름은 기록을 건드리지 않는다.
+    let (m2, t) = next_auth_mark(AuthState::Unknown, &m, 300);
+    assert_eq!((t, &m2), (AuthTransition::None, &m));
+    // 회복은 한 번.
+    let (m, t) = next_auth_mark(AuthState::In, &m, 400);
+    assert_eq!(t, AuthTransition::Recovered);
+    assert!(m.recovered() && !m.still_out());
+    let (m, t) = next_auth_mark(AuthState::In, &m, 520);
+    assert_eq!((t, m.last_in), (AuthTransition::None, Some(400)));
+    // 다시 끊기면 다시 알린다.
+    let (_, t) = next_auth_mark(AuthState::Out, &m, 600);
+    assert_eq!(t, AuthTransition::LoggedOut);
+    // 로그인만 계속 보던 기기는 아무 일도 없다.
+    let (m, t) = next_auth_mark(AuthState::In, &empty, 100);
+    assert_eq!((t, m), (AuthTransition::None, AuthMark::default()));
+}
+
+#[test]
+fn suspects_servers_started_before_the_logout_only_after_recovery() {
+    let still_out = AuthMark {
+        last_out: Some(1_000),
+        last_in: None,
+    };
+    let recovered = AuthMark {
+        last_out: Some(1_000),
+        last_in: Some(1_500),
+    };
+    // now 2000 — 1500초 떠 있었으면 500 에 떴다(로그아웃 1000 보다 앞).
+    assert!(auth_suspect(Some(1_500), &recovered, 2_000));
+    // 회복 뒤 다시 띄운 서버(300초 전 = 1700 에 떴다)는 의심하지 않는다.
+    assert!(!auth_suspect(Some(300), &recovered, 2_000));
+    // 아직 로그아웃 중이면 의심하지 않는다 — 다른 신호다.
+    assert!(!auth_suspect(Some(1_500), &still_out, 2_000));
+    assert!(!auth_suspect(None, &recovered, 2_000));
+}
+
+#[test]
+fn auth_mark_round_trips_as_camel_case_json() {
+    let mark = AuthMark {
+        last_out: Some(10),
+        last_in: Some(20),
+    };
+    let v = serde_json::to_value(&mark).unwrap();
+    assert_eq!(v, serde_json::json!({"lastOut": 10, "lastIn": 20}));
+    let back: AuthMark = serde_json::from_value(v).unwrap();
+    assert_eq!(back, mark);
+    let empty: AuthMark = serde_json::from_str("{}").unwrap();
+    assert_eq!(empty, AuthMark::default());
+}
+
+#[test]
+fn supervise_is_off_unless_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    std::fs::write(&path, r#"{"rc":{"pinned":["a"]}}"#).unwrap();
+    assert!(!load_rc_block(&path).unwrap().supervise);
+    std::fs::write(&path, r#"{"rc":{"pinned":["a"],"supervise":true}}"#).unwrap();
+    assert!(load_rc_block(&path).unwrap().supervise);
 }
