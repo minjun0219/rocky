@@ -84,7 +84,7 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 ### rc 서버 현황
 
-`rocky.json`의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 준다. 지금은 **보기만** 한다. 띄우기·재시작·감시는 다음 단계다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)).
+사용자 설정(`~/.config/rocky/rocky.json`)의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 준다. 지금은 **보기만** 한다. 띄우기·재시작·감시는 다음 단계다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)).
 
 ```bash
 rocky rc            # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 대상 밖 서버, 자격, Antigravity
@@ -137,7 +137,7 @@ claude plugin install rocky@rocky-marketplace
 | `worklog` | `dir`(env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture`(기본 true) / `captureMaxChars`(기본 800) / `digestThreshold`(기본 40) |
 | `usage` | 사용 로그. `dir`(기본 `~/.config/rocky/usage`) / `enabled`(기본 true). 표면별 호출을 월별 JSONL로 남기고 `rocky usage`로 읽는다. 내용은 싣지 않는다 |
 | `pr` | PR 감시. `enabled`(기본 true) / `intervalMinutes`(기본 3) / `notify`(기본 true) / `sessionNotify`(기본 true) / `notifiers[]`(알림 브릿지, 예: `bridges/telegram/`). 데몬은 **구독한 PR만** 본다. 동작은 [`docs/board.md`](./docs/board.md) "PR 감시" |
-| `rc` | `claude rc` 서버 현황. `enabled`(기본 true — rc 를 못 쓰는 기기에선 false) / `root`(기본 `~/dev/workspaces`, 상대 경로면 홈 기준) / `pinned`(늘 떠 있어야 하는 폴더) / `targets`(부를 수 있는 폴더). 블록이 없거나 꺼 두면 프로브·화면 모두 없다 |
+| `rc` | `claude rc` 서버 현황 — **사용자 설정(`~/.config/rocky/rocky.json`)에서만 읽는다**(프로젝트 `./rocky.json` 의 `rc` 는 무시 — 데몬은 전역 하나다). `enabled`(기본 true — rc 를 못 쓰는 기기에선 false) / `root`(기본 `~/dev/workspaces`, 상대 경로면 홈 기준) / `pinned`(늘 떠 있어야 하는 폴더) / `targets`(부를 수 있는 폴더). 블록이 없거나 꺼 두면 프로브·화면 모두 없다 |
 | `tokens` | Claude Code 토큰 색인. `enabled`(기본 true) / `dir`(트랜스크립트 루트, 기본 `$CLAUDE_CONFIG_DIR/projects` → `~/.claude/projects`) / `recommend`(`window` 15 · `minTurns` 5 · `lowOutputTokens` 3000 · `lowerEffort` · `holdAfterRaise` · `switchToSonnet`) |
 | `verify` | 기본 브랜치 검증(opt-in). `targets[]` — `board`(그 보드 `path`가 레포) / `branch`(기본 `main`) / `steps[]`(`name` · `command` argv · `timeoutMs` 기본 30분) — 와 `intervalSeconds`(기본 60). 아래 "기본 브랜치 검증" |
 | `todo` | 보드 데몬 설정. `port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `inboxAdapters` / `sessionSummary`. Rust 데몬(`crates/`)이 읽는다. 자세한 모양은 [`docs/board.md`](./docs/board.md) |

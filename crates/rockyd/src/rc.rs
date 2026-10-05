@@ -8,13 +8,24 @@ use std::time::{Duration, Instant};
 use rocky_core::config::RcConfig;
 use rocky_core::rc::{self, LiveServer, RcStatus};
 
-use crate::runner::{BoxFut, Runner};
+use crate::runner::{BoxFut, CmdOutput, Runner};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// 화면 폴링이 `ps`·`lsof` 를 매번 부르지 않게.
 pub const RC_CACHE_TTL: Duration = Duration::from_secs(5);
 
 pub type RcProvider = Arc<dyn Fn() -> BoxFut<RcStatus> + Send + Sync>;
+
+/// 프로브 명령 실패를 진단할 수 있게 — 무엇을 물었고(`what`) 어떻게 끝났나(종료 코드·stderr, 비었으면 그렇다고).
+fn probe_failure(what: &str, out: &CmdOutput) -> String {
+    let stderr = out.stderr.trim();
+    let stderr = if stderr.is_empty() {
+        "stderr 없음"
+    } else {
+        stderr
+    };
+    format!("{what} 실패(종료 코드 {}): {stderr}", out.code)
+}
 
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
@@ -45,7 +56,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
             PROBE_TIMEOUT,
         ),
     );
-    let mut probe_error = (!ps.ok()).then(|| format!("ps 실패: {}", ps.stderr.trim()));
+    let mut probe_error = (!ps.ok()).then(|| probe_failure("ps", &ps));
     let rows = rc::parse_ps(&ps.stdout);
     let servers = rc::servers(&rows);
     let live = if servers.is_empty() {
@@ -65,7 +76,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
         .await;
         // 그 사이 끝난 pid 가 하나라도 있으면 lsof 는 1 로 끝나되 나머지는 낸다 — 출력이 비었을 때만 실패다.
         if !lsof.ok() && lsof.stdout.trim().is_empty() {
-            probe_error.get_or_insert_with(|| format!("lsof 실패: {}", lsof.stderr.trim()));
+            probe_error.get_or_insert_with(|| probe_failure(&format!("lsof -p {pids}"), &lsof));
         }
         let cwd = rc::parse_lsof_cwd(&lsof.stdout);
         servers

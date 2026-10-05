@@ -108,7 +108,7 @@ async fn failed_ps_is_reported_not_read_as_stopped() {
     let status = probe(&runner, Some(&config()), "/home/u").await;
     assert_eq!(
         status.probe_error.as_deref(),
-        Some("ps 실패: 10000ms 안에 끝나지 않았다")
+        Some("ps 실패(종료 코드 1): 10000ms 안에 끝나지 않았다")
     );
     assert!(status.servers.iter().all(|s| !s.running));
 }
@@ -177,5 +177,30 @@ async fn concurrent_misses_share_one_probe() {
             .filter(|c| c.starts_with("ps"))
             .count(),
         1
+    );
+}
+
+#[tokio::test]
+async fn silent_lsof_failure_names_the_pids_and_exit_code() {
+    let runner: Runner = Arc::new(|argv: Vec<String>, _stdin, _timeout| {
+        let result = match argv[0].as_str() {
+            "ps" => CmdOutput {
+                code: 0,
+                stdout: PS.to_string(),
+                stderr: String::new(),
+            },
+            "lsof" => CmdOutput {
+                code: 1,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            _ => CmdOutput::failure("No such file or directory"),
+        };
+        Box::pin(async move { result })
+    });
+    let status = probe(&runner, Some(&config()), "/home/u").await;
+    assert_eq!(
+        status.probe_error.as_deref(),
+        Some("lsof -p 100,200 실패(종료 코드 1): stderr 없음")
     );
 }
