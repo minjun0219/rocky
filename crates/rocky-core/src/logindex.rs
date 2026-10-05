@@ -106,7 +106,78 @@ impl LogIndex {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(2))?;
         conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(crate::tokens::SCHEMA)?;
         Ok(LogIndex { conn })
+    }
+
+    /// 조회용 연결 — `tokens` 의 질의 함수들이 받는다.
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
+    /// Claude Code 트랜스크립트 루트(`~/.claude/projects`)를 훑어 새 줄을 옮긴다 — 프로젝트 디렉터리의
+    /// `<session>.jsonl` 과 `<session>/subagents/*.jsonl`. 새 메시지가 들어간 세션 id 를 돌려준다(추천을 다시 셀 대상).
+    pub fn ingest_transcripts(
+        &mut self,
+        root: &Path,
+    ) -> Result<std::collections::BTreeSet<String>, String> {
+        let mut files = Vec::new();
+        collect_jsonl(root, 0, &mut files);
+        let mut touched = std::collections::BTreeSet::new();
+        for file in files {
+            self.ingest_transcript(&file, &mut touched)?;
+        }
+        Ok(touched)
+    }
+
+    fn ingest_transcript(
+        &mut self,
+        path: &Path,
+        touched: &mut std::collections::BTreeSet<String>,
+    ) -> Result<(), String> {
+        use crate::tokens::{ingest_line, load_cursor, parse_line, save_cursor, TranscriptLine};
+        let key = path.to_string_lossy().to_string();
+        let err = |e: rusqlite::Error| format!("트랜스크립트 색인 실패({key}): {e}");
+        let stored: u64 = self
+            .conn
+            .query_row(
+                "SELECT offset FROM log_files WHERE path = ?1",
+                params![key],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(err)?
+            .map(|o| o.max(0) as u64)
+            .unwrap_or(0);
+        let Some(chunk) = read_complete_lines(path, stored)? else {
+            return Ok(());
+        };
+        // 파일이 줄어 처음부터 다시 읽으면 열린 턴도 처음부터.
+        let mut turn = if chunk.restarted {
+            None
+        } else {
+            load_cursor(&self.conn, &key).map_err(err)?
+        };
+        let tx = self.conn.transaction().map_err(err)?;
+        for (_, line) in &chunk.lines {
+            let Some(parsed) = parse_line(line) else {
+                continue;
+            };
+            if ingest_line(&tx, &parsed, &mut turn).map_err(err)? > 0 {
+                if let TranscriptLine::Message(m) = &parsed {
+                    if !m.meta.sidechain {
+                        touched.insert(m.meta.session_id.clone());
+                    }
+                }
+            }
+        }
+        save_cursor(&tx, &key, turn.as_deref()).map_err(err)?;
+        tx.execute(
+            "INSERT INTO log_files (path, offset) VALUES (?1, ?2) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+            params![key, chunk.end as i64],
+        )
+        .map_err(err)?;
+        tx.commit().map_err(err)
     }
 
     /// `<root>/<project-key>/worklog.jsonl` 을 전부 훑어 새 줄을 옮긴다. 디렉터리 이름이 프로젝트 키다.
@@ -379,6 +450,27 @@ impl LogIndex {
 struct Chunk {
     lines: Vec<(u64, String)>,
     end: u64,
+    /// 파일이 저장된 위치보다 작아져 처음부터 읽었다.
+    restarted: bool,
+}
+
+/// `.jsonl` 파일을 모은다 — 트랜스크립트 루트 아래 `<project>/<session>.jsonl`(깊이 1)과
+/// `<project>/<session>/subagents/*.jsonl`(깊이 3). 그보다 깊이는 내려가지 않는다.
+fn collect_jsonl(dir: &Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() && depth < 3 {
+            collect_jsonl(&path, depth + 1, out);
+        } else if kind.is_file() && path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            out.push(path);
+        }
+    }
 }
 
 fn read_complete_lines(path: &Path, from: u64) -> Result<Option<Chunk>, String> {
@@ -409,5 +501,6 @@ fn read_complete_lines(path: &Path, from: u64) -> Result<Option<Chunk>, String> 
     Ok(Some(Chunk {
         lines,
         end: start + complete.len() as u64,
+        restarted: start == 0 && from > 0,
     }))
 }
