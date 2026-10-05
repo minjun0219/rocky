@@ -129,3 +129,16 @@ fn note_does_not_swallow_the_following_ref() {
     assert!(parsed.bool_flag("note"));
     assert!(parsed.positionals.iter().any(|p| p == "rocky#12"));
 }
+
+#[test]
+fn rc_wait_and_fresh_are_boolean_flags() {
+    // `rocky rc restart repo-a --fresh --wait` — 값을 먹지 않고, 모르는 플래그로 거절되지 않는다.
+    let argv: Vec<String> = ["rc", "restart", "repo-a", "--fresh", "--wait"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let parsed = rocky_cli::flags::parse_flags(&argv).expect("알려진 플래그다");
+    assert!(parsed.bool_flag("fresh"));
+    assert!(parsed.bool_flag("wait"));
+    assert_eq!(parsed.positionals, vec!["rc", "restart", "repo-a"]);
+}
