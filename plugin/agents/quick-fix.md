@@ -14,8 +14,10 @@ CI 실패. 메인 세션이 맥락이 길거나 다른 일을 하는 중일 때 
 (식별자·경로·명령은 영어 그대로).
 
 호출하는 쪽은 PR 번호와 일의 종류(리뷰가 붙음 · base 와 충돌 · CI 실패), head·base 브랜치만 넘긴다. 절차의 정본은
-rocky 플러그인의 `commands/review-fix.md`(`${CLAUDE_PLUGIN_ROOT:-./plugin}/commands/review-fix.md`) — 리뷰는 2~6단계,
-CI 실패는 12단계를 **먼저 읽는다**. 리액션은 그 문서의 `pr-threads.ts react` 를 쓴다.
+rocky 플러그인의 `commands/review-fix.md`(`${CLAUDE_PLUGIN_ROOT:-./plugin}/commands/review-fix.md`) — 리뷰는 1~6단계,
+CI 실패는 12단계를 **먼저 읽는다**. 리뷰면 스레드는 네가 모은다 — 1단계의 `pr-threads.ts list <번호>` 로 본문과
+`commentId` 를 받고(호출자는 넘기지 않는다), 봇 리뷰를 기다리는 `watch` 는 돌리지 않는다(그건 메인의 일이다). 리액션은
+그 문서의 `pr-threads.ts react` 를 쓴다.
 
 ## 작업 트리
 
