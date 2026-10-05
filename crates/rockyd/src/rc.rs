@@ -259,11 +259,18 @@ pub fn default_ops() -> RcOps {
     }
 }
 
+/// 기동 버전을 재는 `claude --version` 한도 — 새 바이너리의 첫 실행은 Gatekeeper 검사로 수십 초 멎는다(실측 8~35초).
+const VERSION_TIMEOUT: Duration = Duration::from_secs(40);
+
 /// 띄우기인가 재시작인가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RcCommand {
     Start,
-    Restart { fresh: bool },
+    Restart {
+        fresh: bool,
+    },
+    /// 감시가 꺼진 대상을 정한 방식으로 띄운다 — 그새 누가 띄웠으면 그대로 둔다(실패가 아니다).
+    Revive(LaunchMode),
 }
 
 /// 요청을 받지 못한 이유 — 라우트가 상태 코드로 바꾼다.
@@ -345,7 +352,7 @@ impl RcController {
             )));
         }
         let action = match command {
-            RcCommand::Start => RcAction::Starting,
+            RcCommand::Start | RcCommand::Revive(_) => RcAction::Starting,
             RcCommand::Restart { .. } => RcAction::Restarting,
         };
         busy.insert(label.to_string(), action);
@@ -460,35 +467,52 @@ impl RcController {
             rc::AuthTransition::None => {}
         }
 
-        let due: Vec<String> = {
+        let marked = self.revive_marks();
+        for label in rc::stale_revive_marks(&status, &marked) {
+            let by = if status.servers.iter().any(|s| s.label == label) {
+                "already-running"
+            } else {
+                "not-a-target"
+            };
+            self.clear_revive(&label, by);
+        }
+        let due: Vec<rc::Revive> = {
             let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
-            // 되살림 표식은 야간 재시작이 남긴다 — 그 배선이 붙기 전까지는 고정만 고른다(방식도 `START_MODE` 그대로).
-            rc::revive_candidates(&status, &HashSet::new())
+            rc::revive_candidates(&status, &marked)
                 .into_iter()
-                .map(|revive| revive.label)
-                .filter(|label| {
+                .filter(|revive| {
                     sup.failures
-                        .get(label)
+                        .get(&revive.label)
                         .is_none_or(|(_, next_at)| *next_at <= now)
                 })
                 .collect()
         };
         let mut started = Vec::new();
         let mut handles = Vec::new();
-        for label in due {
-            let Ok(target) = self.begin(&label, RcCommand::Start) else {
+        for rc::Revive { label, mode } in due {
+            let command = RcCommand::Revive(mode);
+            let Ok(target) = self.begin(&label, command) else {
                 continue;
+            };
+            let has_mark = marked.contains(&label);
+            let reason = if has_mark {
+                "revive-mark"
+            } else {
+                "pinned-down"
             };
             self.event(
                 "supervise",
                 &label,
-                serde_json::json!({ "reason": "pinned-down" }),
+                serde_json::json!({ "reason": reason, "mode": mode }),
             );
             started.push(label.clone());
             let this = self.clone();
             handles.push(tokio::spawn(async move {
-                let result = this.run(target, RcCommand::Start).await;
+                let result = this.run(target, command).await;
                 this.record_attempt(&label, result.ok);
+                if result.ok && has_mark {
+                    this.clear_revive(&label, "started");
+                }
             }));
         }
         for handle in handles {
@@ -549,7 +573,10 @@ impl RcController {
     }
 
     async fn execute(&self, target: &Target, command: RcCommand) -> Result<String, String> {
-        // 지금 떠 있는지는 캐시 없이 다시 잰다 — 몇 초 전 현황으로 내리면 엉뚱한 pid 를 내린다.
+        // 기동 버전 기록에 쓸 설치 버전을 먼저 잰다 — 내리기 전에(새 바이너리의 첫 실행이 멎어도 서버가 꺼져 있는 시간이
+        // 늘지 않게), 프로브보다 먼저(멎은 동안 현황이 묵지 않게). 지금 떠 있는지는 그 뒤 캐시 없이 다시 잰다 — 묵은 현황으로
+        // 내리면 엉뚱한 pid 를 내린다.
+        let version = self.claude_version().await;
         let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(format!("현황을 못 읽어 손대지 않았다 — {err}"));
@@ -574,6 +601,10 @@ impl RcController {
                 return Err(format!("이미 떠 있다(pid {pid}) — 다시 띄우려면 재시작"))
             }
             (RcCommand::Start, None) => rc::START_MODE,
+            (RcCommand::Revive(_), Some((pid, _))) => {
+                return Ok(format!("이미 떠 있다(pid {pid}) — 그대로 둔다"))
+            }
+            (RcCommand::Revive(mode), None) => mode,
             (RcCommand::Restart { fresh }, Some((pid, sessions))) => {
                 let mode = rc::restart_mode(target.pinned, sessions > 0, fresh);
                 if !self.stop(&target.label, pid).await {
@@ -586,7 +617,21 @@ impl RcController {
             (RcCommand::Restart { .. }, None) => rc::START_MODE,
         };
         let fresh = matches!(command, RcCommand::Restart { fresh: true });
-        self.launch_until_up(target, mode, fresh).await
+        self.launch_until_up(target, mode, fresh, version.as_deref())
+            .await
+    }
+
+    /// 설치된 claude 버전. 못 재면 None — 기록하지 않고 "모름" 으로 둔다.
+    async fn claude_version(&self) -> Option<String> {
+        let out = (self.runner)(
+            vec!["claude".into(), "--version".into()],
+            String::new(),
+            VERSION_TIMEOUT,
+        )
+        .await;
+        out.ok()
+            .then(|| rc::parse_claude_version(&out.stdout))
+            .flatten()
     }
 
     /// 띄우고 등록까지 본다. `already served` 면 쉬었다 다시, 이어받기가 안 뜨면 새로 한 번 더.
@@ -595,12 +640,13 @@ impl RcController {
         target: &Target,
         first: LaunchMode,
         fresh: bool,
+        version: Option<&str>,
     ) -> Result<String, String> {
         let mut mode = first;
         let mut backoff = rc::REGISTRATION_BACKOFF.iter();
         let mut retried_mode = false;
         loop {
-            let pid = self.launch(target, mode)?;
+            let pid = self.launch(target, mode, version)?;
             match self.judge(&target.label, pid).await {
                 Registration::Connected => {
                     return Ok(format!("떴다 — {}(pid {pid})", rc::mode_note(mode, fresh)))
@@ -661,7 +707,12 @@ impl RcController {
         std::fs::read_to_string(self.log_path(label, ext)).unwrap_or_default()
     }
 
-    fn launch(&self, target: &Target, mode: LaunchMode) -> Result<u32, String> {
+    fn launch(
+        &self,
+        target: &Target,
+        mode: LaunchMode,
+        version: Option<&str>,
+    ) -> Result<u32, String> {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
         let argv = rc::server_argv(&target.label, mode);
@@ -672,12 +723,39 @@ impl RcController {
             &self.log_path(&target.label, "err"),
         )
         .map_err(|e| format!("못 띄웠다({} 에서 {}): {e}", target.dir, argv.join(" ")))?;
+        // 기동 버전 기록 — 야간 재시작이 이것과 설치 버전을 맞대 구버전을 가린다. 못 쟀으면 지운다: 옛 값을 남기면 새
+        // 바이너리로 뜬 서버를 구버전으로 보고, 빈 기록은 "모름" 이라 야간이 건드리지 않는다.
+        let record = self.log_path(&target.label, "version");
+        let _ = match version {
+            Some(v) => std::fs::write(&record, format!("{v}\n")),
+            None => std::fs::remove_file(&record),
+        };
         self.event(
             "start",
             &target.label,
-            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir }),
+            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir, "version": version }),
         );
         Ok(pid)
+    }
+
+    /// 되살림 표식(`rc/<라벨>.revive`)이 있는 라벨 — 야간 재시작이 내리고 못 띄운 대상이다. 감시가 비고정이어도 서버
+    /// 모드로 띄우고, 뜨거나 누가 이미 띄웠으면 지운다.
+    fn revive_marks(&self) -> HashSet<String> {
+        let Ok(entries) = std::fs::read_dir(&self.log_dir) else {
+            return HashSet::new();
+        };
+        entries
+            .filter_map(|e| {
+                let name = e.ok()?.file_name().into_string().ok()?;
+                name.strip_suffix(".revive").map(str::to_string)
+            })
+            .collect()
+    }
+
+    fn clear_revive(&self, label: &str, by: &str) {
+        if std::fs::remove_file(self.log_path(label, "revive")).is_ok() {
+            self.event("revive-cleared", label, serde_json::json!({ "by": by }));
+        }
     }
 
     /// 등록을 기다린다 — `Connected` · `Served` 를 보면 바로, 프로세스가 사라졌으면 `Pending`(호출자가 생존을 다시 본다).

@@ -505,7 +505,8 @@ pub struct RcConfig {
     pub pinned: Vec<String>,
     /// 화면에서 부를 수 있는 폴더.
     pub targets: Vec<String>,
-    /// 감시 — 꺼진 고정 서버를 데몬이 스스로 띄운다. 기본 꺼짐(옛 주기 잡과 동시에 띄우지 않게 켜는 날을 고른다).
+    /// 감시 — 꺼진 고정 서버와, 야간 재시작이 내리고 못 띄워 되살림 표식이 남은 서버를 데몬이 스스로 띄운다. 기본
+    /// 꺼짐(옛 주기 잡과 동시에 띄우지 않게 켜는 날을 고른다).
     pub supervise: bool,
     /// 야간 재시작 — 블록이 있을 때만 돈다(기본 꺼짐).
     pub nightly: Option<NightlyConfig>,

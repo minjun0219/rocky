@@ -602,3 +602,136 @@ async fn status_has_no_supervise_block_when_off() {
     assert!(status.supervise.is_none());
     assert!(status.servers.iter().all(|s| !s.auth_suspect));
 }
+
+// ── 기동 버전 기록 · 되살림 표식 ──
+
+/// `claude --version` 에만 답하는 러너를 씌운다 — None 이면 실패(시간 초과처럼).
+fn with_version(inner: Runner, version: Option<&'static str>) -> Runner {
+    Arc::new(move |argv: Vec<String>, stdin, timeout| {
+        if argv.get(1).map(String::as_str) == Some("--version") {
+            return Box::pin(async move {
+                match version {
+                    Some(v) => CmdOutput {
+                        code: 0,
+                        stdout: v.to_string(),
+                        stderr: String::new(),
+                    },
+                    None => CmdOutput::failure("시간 초과"),
+                }
+            });
+        }
+        inner(argv, stdin, timeout)
+    })
+}
+
+fn controller(dir: &Path, runner: Runner, world: Arc<Mutex<World>>) -> Arc<RcController> {
+    Arc::new(RcController::new(
+        Some(config()),
+        "/home/u".into(),
+        dir.join("rc"),
+        runner,
+        ops(world),
+    ))
+}
+
+#[tokio::test]
+async fn launch_records_the_installed_version_or_forgets_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = Arc::new(Mutex::new(World {
+        next_pid: 200,
+        script: vec![READY, READY].into(),
+        ..Default::default()
+    }));
+    let record = dir.path().join("rc/repo-a.version");
+    let known = controller(
+        dir.path(),
+        with_version(probe_runner(false, false), Some("2.1.300 (Claude Code)\n")),
+        world.clone(),
+    );
+    let target = known.begin("repo-a", RcCommand::Start).unwrap();
+    assert!(known.run(target, RcCommand::Start).await.ok);
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), "2.1.300\n");
+
+    // 못 재면 옛 값을 남기지 않는다 — 새 바이너리로 뜬 서버를 구버전으로 보게 된다.
+    let unknown = controller(
+        dir.path(),
+        with_version(probe_runner(false, false), None),
+        world,
+    );
+    let target = unknown.begin("repo-a", RcCommand::Start).unwrap();
+    assert!(unknown.run(target, RcCommand::Start).await.ok);
+    assert!(!record.exists(), "모름 — 야간이 건드리지 않는다");
+}
+
+#[tokio::test]
+async fn revive_leaves_a_server_that_came_up_meanwhile() {
+    let f = fixture(false, true, vec![]);
+    let command = RcCommand::Revive(rocky_core::rc::LaunchMode::Session);
+    let result = run(&f, "repo-a", command).await;
+    assert!(result.ok, "그새 누가 띄웠으면 실패가 아니다");
+    assert!(result.message.contains("그대로 둔다"));
+    assert!(f.world.lock().unwrap().spawns.is_empty());
+}
+
+#[tokio::test]
+async fn supervise_revives_marked_unpinned_as_server_only_and_clears_marks() {
+    // repo-a(고정)는 떠 있고, repo-b(비고정)는 야간이 내리고 못 띄워 표식이 남았다.
+    let state = Arc::new(Mutex::new((true, true, 600)));
+    let (dir, world, control) = supervisor(state, vec![READY]);
+    let rc_dir = dir.path().join("rc");
+    std::fs::create_dir_all(&rc_dir).unwrap();
+    for label in ["repo-a", "repo-b", "gone"] {
+        std::fs::write(rc_dir.join(format!("{label}.revive")), "/w/x\n").unwrap();
+    }
+    let (notify, _) = notifier();
+    assert_eq!(control.supervise_tick(&notify).await, vec!["repo-b"]);
+    assert_eq!(
+        world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-b",
+            "--no-create-session-in-dir"
+        ]],
+        "사람이 부른 기동이 아니라 서버만"
+    );
+    for label in ["repo-a", "repo-b", "gone"] {
+        assert!(
+            !rc_dir.join(format!("{label}.revive")).exists(),
+            "{label} 표식이 남았다"
+        );
+    }
+    let cleared: Vec<(String, String)> = std::fs::read_to_string(rc_dir.join("events.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .filter(|v| v["event"] == "revive-cleared")
+        .map(|v| {
+            (
+                v["label"].as_str().unwrap().to_string(),
+                v["fields"]["by"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        cleared,
+        vec![
+            ("gone".to_string(), "not-a-target".to_string()),
+            ("repo-a".to_string(), "already-running".to_string()),
+            ("repo-b".to_string(), "started".to_string()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn supervise_keeps_the_mark_when_the_revive_fails() {
+    let state = Arc::new(Mutex::new((true, true, 600)));
+    let (dir, _world, control) = supervisor(state, vec![DIES]);
+    let mark = dir.path().join("rc/repo-b.revive");
+    std::fs::create_dir_all(mark.parent().unwrap()).unwrap();
+    std::fs::write(&mark, "/w/repo-b\n").unwrap();
+    let (notify, _) = notifier();
+    assert_eq!(control.supervise_tick(&notify).await, vec!["repo-b"]);
+    assert!(mark.exists(), "다음 바퀴(쉬기 뒤)에 다시 띄운다");
+}
