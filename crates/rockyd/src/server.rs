@@ -19,9 +19,9 @@ use rocky_core::handoff::{
 use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
 use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
-    is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
-    NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE,
-    NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
+    is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_AGY_MESSAGE,
+    NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE,
+    NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -89,6 +89,8 @@ pub struct ServerOptions {
     pub token_recommend: rocky_core::tokens::RecommendConfig,
     /// rc 서버 현황 조회기(`rocky.json` 의 `rc` 블록). 없으면 "설정 없음" 만 낸다.
     pub rc: Option<crate::rc::RcProvider>,
+    /// `agy remote-control` 켜기·끄기 — `rc` 와 같은 캐시를 쓴다(`rc_handles`). 없으면 그 라우트는 404.
+    pub agy_control: Option<crate::rc::AgyControl>,
 }
 
 impl ServerOptions {
@@ -111,6 +113,7 @@ impl ServerOptions {
             logs_db: None,
             token_recommend: Default::default(),
             rc: None,
+            agy_control: None,
         }
     }
 }
@@ -146,6 +149,7 @@ pub struct ServerState {
     logs_db: Option<std::path::PathBuf>,
     pub token_recommend: rocky_core::tokens::RecommendConfig,
     rc: crate::rc::RcProvider,
+    agy_control: Option<crate::rc::AgyControl>,
     /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
     /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
     pub token_events: broadcast::Sender<String>,
@@ -572,6 +576,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         rc: options.rc.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { rocky_core::rc::RcStatus::unconfigured() }))
         }),
+        agy_control: options.agy_control,
         token_events: broadcast::channel::<String>(64).0,
         events,
         note_streams: Mutex::new(HashMap::new()),
@@ -2021,6 +2026,30 @@ async fn dispatch(
     if *method == Method::GET && path == "/api/rc/servers" {
         let status = (state.rc)().await;
         return Ok(json_response(&status, StatusCode::OK));
+    }
+    // ── agy remote-control 켜기·끄기 — 이 기계의 원격 접속 데몬을 바꾸므로 로컬 전용. 답은 새로 잰 현황 ──
+    if *method == Method::POST {
+        if let Some(name) = path.strip_prefix("/api/rc/antigravity/") {
+            let Some(action) = rocky_core::rc::AgyAction::parse(name) else {
+                return Ok(error_response(
+                    &format!("모르는 동작: {name} — start 나 stop"),
+                    StatusCode::NOT_FOUND,
+                ));
+            };
+            if !local {
+                return Ok(error_response(NON_LOCAL_AGY_MESSAGE, StatusCode::FORBIDDEN));
+            }
+            let Some(control) = state.agy_control.as_ref() else {
+                return Ok(error_response(
+                    "agy 제어가 이 데몬에 연결돼 있지 않다",
+                    StatusCode::NOT_FOUND,
+                ));
+            };
+            return Ok(match control(action).await {
+                Ok(status) => json_response(&status, StatusCode::OK),
+                Err(message) => error_response(&message, StatusCode::BAD_GATEWAY),
+            });
+        }
     }
 
     // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──

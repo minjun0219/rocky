@@ -362,3 +362,16 @@ fn backoff_stays_within_three_minutes() {
     assert!(total <= 180);
     assert!(REGISTRATION_FIRST < REGISTRATION_WAIT);
 }
+#[test]
+fn agy_action_takes_only_start_and_stop() {
+    assert_eq!(AgyAction::parse("start"), Some(AgyAction::Start));
+    assert_eq!(AgyAction::parse("stop"), Some(AgyAction::Stop));
+    // 다른 하위 명령(serve·status)이나 플래그를 라우트로 넘길 수 없다
+    for name in ["serve", "status", "", "start --name x", "START"] {
+        assert_eq!(AgyAction::parse(name), None, "{name:?}");
+    }
+    assert_eq!(
+        AgyAction::Stop.argv(),
+        vec!["agy", "remote-control", "stop"]
+    );
+}

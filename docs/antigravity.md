@@ -50,4 +50,9 @@ agy의 HTTP MCP 클라이언트는 streamable HTTP를 말하고, 데몬의 state
   `agy plugin import`가 Claude Code 플러그인을 가져올 수 있지만 rocky 매니페스트는 `${CLAUDE_PLUGIN_ROOT}`와
   CC 전용 커맨드를 쓰므로 쓰지 않는다.
 
+## 원격 제어(`agy remote-control`)
+
+rocky는 이 기기의 agy 원격 제어 데몬을 보고 켜고 끈다 — `rocky rc agy [start|stop]`(로컬 전용). `rc` 블록과 상관없이
+`agy`가 설치돼 있으면 보인다. 세부는 README의 *rc 서버 현황*.
+
 호스트별 비교는 [`docs/hosts.md`](./hosts.md).
