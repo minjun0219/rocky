@@ -69,7 +69,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     let started = std::time::Instant::now();
     let usage_name = match command {
         "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" | "inbox"
-        | "pr" | "tokens" => match rest.first() {
+        | "pr" | "tokens" | "rc" => match rest.first() {
             Some(sub) => format!("rocky {command} {sub}"),
             None => format!("rocky {command}"),
         },
@@ -110,6 +110,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "usage" => rocky_cli::usage_cmd::cmd_usage(&parsed, &printer),
         "tokens" => rocky_cli::tokens_cmd::cmd_tokens(&ctx, &rest, &parsed, &printer),
         "verify" => rocky_cli::verify_cmd::cmd_verify(&ctx, &printer),
+        "rc" => rocky_cli::rc_cmd::cmd_rc(&ctx, &rest, &printer),
         "mcp" if rest.first().map(String::as_str) == Some("worklog") => {
             rocky_cli::worklog_mcp::serve_stdio()
         }

@@ -8,6 +8,7 @@ mod logindex_test;
 mod mcp_test;
 mod note_doc_test;
 mod prwatch_test;
+mod rc_test;
 mod server_board_inbox_test;
 mod server_handoff_test;
 mod server_inbox_test;

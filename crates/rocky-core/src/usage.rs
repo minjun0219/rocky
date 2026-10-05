@@ -84,6 +84,7 @@ pub fn now_iso() -> String {
 /// 셋째 세그먼트가 id 가 아니라 동작인 라우트.
 const LITERAL_THIRD: &[&str] = &[
     "claim",
+    "servers",
     "adapters",
     "sources",
     "subscriptions",
@@ -297,6 +298,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/tokens/sessions/:ref"),
     (UsageSource::Rest, "GET /api/tokens/recommendation"),
     (UsageSource::Rest, "GET /api/verify"),
+    (UsageSource::Rest, "GET /api/rc/servers"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
@@ -348,6 +350,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky tokens"),
     (UsageSource::Cli, "rocky tokens here"),
     (UsageSource::Cli, "rocky verify"),
+    (UsageSource::Cli, "rocky rc"),
+    (UsageSource::Cli, "rocky rc status"),
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),

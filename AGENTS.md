@@ -327,6 +327,11 @@ typecheck or tests — pre-push and CI already cover it.*
   남은 그룹은 `running.pgid`(그룹 id + 리더 시작 시각 — 리더가 살아 있는데 시각이 다르면 번호 재사용이라 건드리지 않는다)로 다음 실행 전에 끝낸다. 그룹을 건드린 판단은 전부 데몬 로그와 대상의 `signals.log` 에 남는다(재사용 판별이 맞았는지 나중에 본다). 기록은 `last.json`(도는 중이면 다음 기동에 같은 커밋을 다시)과 `finished.json`(알림
   기준 — 끊겼다 다시 돈 실행도 복구를 알린다). 실패·복구만 배너. 조회는 `GET /api/verify`·`rocky verify`. 히스토리·웹 "지금"·세션
   받은편지함에는 아직 싣지 않는다.
+- **rc 서버 현황**(`rocky_core::rc`, `rockyd::rc`): `rc` 블록(사용자 설정만)의 폴더와 떠 있는 `claude rc` 서버를 맞대
+  `GET /api/rc/servers`·`rocky rc`로 낸다 — 지금은 **보기만** 한다(띄우기·감시는 다음 조각, 설계는
+  `docs/design/specs/2026-10-05-rc-server-design.md`). 서버 판정은 argv 구조(`claude` + `rc`/`remote-control` + `--name`),
+  자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로; 맞대기는 cwd **문자열**이라 정규화하지 않는다. 블록이 없거나
+  `enabled: false`(rc 를 못 쓰는 기기)면 프로브를 돌리지 않는다. *EN: read-only for now; match by the raw cwd string; never probe without an `rc` block.*
 - **statusline 세그먼트**(`GET /api/statusline`)는 한 줄 전체를 데몬이 렌더링한다; 이 라우트만 세션 캐시
   TTL이 15초; 실패하면 빈 문자열. 보드는 `board_key_for_cwd`로 정한다. 끼워 넣는 쪽은 `rocky statusline`(`--cwd`·`--session`, 없으면 stdin JSON) — 1초마다 도는
   자리라 사용 로그·데몬 자동 기동을 거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.

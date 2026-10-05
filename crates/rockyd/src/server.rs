@@ -87,6 +87,8 @@ pub struct ServerOptions {
     pub logs_db: Option<std::path::PathBuf>,
     /// 토큰 추천 규칙(`rocky.json` 의 `tokens.recommend`).
     pub token_recommend: rocky_core::tokens::RecommendConfig,
+    /// rc 서버 현황 조회기(`rocky.json` 의 `rc` 블록). 없으면 "설정 없음" 만 낸다.
+    pub rc: Option<crate::rc::RcProvider>,
 }
 
 impl ServerOptions {
@@ -108,6 +110,7 @@ impl ServerOptions {
             usage: None,
             logs_db: None,
             token_recommend: Default::default(),
+            rc: None,
         }
     }
 }
@@ -132,6 +135,7 @@ pub struct ServerState {
     usage: UsageSink,
     logs_db: Option<std::path::PathBuf>,
     pub token_recommend: rocky_core::tokens::RecommendConfig,
+    rc: crate::rc::RcProvider,
     /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
     /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
     pub token_events: broadcast::Sender<String>,
@@ -487,6 +491,9 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         usage: options.usage.unwrap_or_else(noop_sink),
         logs_db: options.logs_db,
         token_recommend: options.token_recommend,
+        rc: options.rc.unwrap_or_else(|| {
+            Arc::new(|| Box::pin(async { rocky_core::rc::RcStatus::unconfigured() }))
+        }),
         token_events: broadcast::channel::<String>(64).0,
         events,
         note_streams: Mutex::new(HashMap::new()),
@@ -1890,6 +1897,12 @@ async fn dispatch(
             .filter(|s| !s.is_empty());
         let filter = store.subscribe_pr_filter(&query_text, session_id)?;
         return Ok(json_response(&filter, StatusCode::CREATED));
+    }
+
+    // ── rc 서버 현황(읽기 전용) — 설정의 대상과 떠 있는 `claude rc` 서버를 맞댄 것. 5초 캐시 ──
+    if *method == Method::GET && path == "/api/rc/servers" {
+        let status = (state.rc)().await;
+        return Ok(json_response(&status, StatusCode::OK));
     }
 
     // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──

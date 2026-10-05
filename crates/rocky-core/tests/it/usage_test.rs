@@ -34,6 +34,10 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         Some("PATCH /api/boards/:ref")
     );
     assert_eq!(
+        normalize_route("GET", "/api/rc/servers").as_deref(),
+        Some("GET /api/rc/servers")
+    );
+    assert_eq!(
         normalize_route("GET", "/api/todos").as_deref(),
         Some("GET /api/todos")
     );
