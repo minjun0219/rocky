@@ -1,9 +1,12 @@
 //! TS `src/notify.test.ts` 포팅.
 
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, filter_human_changes, hold_cursor, merge_context,
-    page_cursor, pr_channel_events, pr_entries_for_board, read_cursor, write_cursor, BoardLookup,
+    build_notify_context, build_pr_context, drop_delivered, filter_human_changes, hold_cursor,
+    merge_context, page_cursor, pr_channel_events, pr_entries_for_board, pr_entries_for_session,
+    read_cursor, subscribed_pr_entries, write_cursor, BoardLookup,
 };
+use rocky_core::peer_inbox::Delivery;
+use rocky_core::prwatch::PrSubscription;
 use rocky_core::types::{ChangeFeedEntry, Changes, HistoryEntity, HistoryEntry};
 use serde_json::json;
 
@@ -416,10 +419,21 @@ fn a_failed_board_lookup_holds_the_cursor_only_when_pr_transitions_are_waiting()
     let with_pr = vec![pr, entry(2, "logan", "update")];
     let without_pr = vec![entry(3, "logan", "update")];
 
-    assert!(hold_cursor(&with_pr, &BoardLookup::Failed));
-    assert!(!hold_cursor(&with_pr, &BoardLookup::Unmatched));
-    assert!(!hold_cursor(&with_pr, &BoardLookup::Found("rocky".into())));
-    assert!(!hold_cursor(&without_pr, &BoardLookup::Failed));
+    assert!(hold_cursor(&with_pr, &BoardLookup::Failed, false));
+    assert!(!hold_cursor(&with_pr, &BoardLookup::Unmatched, false));
+    assert!(!hold_cursor(
+        &with_pr,
+        &BoardLookup::Found("rocky".into()),
+        false
+    ));
+    assert!(!hold_cursor(&without_pr, &BoardLookup::Failed, false));
+    // PR 구독 조회 실패도 같다 — 구독을 모르면 이 세션 것인지 가를 수 없다.
+    assert!(hold_cursor(
+        &with_pr,
+        &BoardLookup::Found("rocky".into()),
+        true
+    ));
+    assert!(!hold_cursor(&without_pr, &BoardLookup::Unmatched, true));
     assert_eq!(BoardLookup::Found("rocky".into()).key(), Some("rocky"));
     assert_eq!(BoardLookup::Failed.key(), None);
 }
@@ -440,4 +454,151 @@ fn quiet_pr_transitions_are_not_injected() {
     let text = build_pr_context(&[pr(1, 11, false), pr(2, 12, true)]).unwrap();
     assert!(text.contains("#11") && !text.contains("#12"));
     assert!(build_pr_context(&[pr(3, 13, true)]).is_none());
+}
+
+fn pr_at(id: i64, action: &str, repo: &str, number: i64, at: &str) -> ChangeFeedEntry {
+    let mut e = with_changes(
+        entry(id, "rocky", action),
+        serde_json::json!({ "number": number, "title": "t", "url": format!("https://github.com/{repo}/pull/{number}"), "repo": repo }),
+    );
+    e.history.entity = HistoryEntity::Board;
+    e.history.at = at.into();
+    e
+}
+
+fn sub(repo: &str, number: i64, session: Option<&str>) -> PrSubscription {
+    PrSubscription {
+        repo: repo.into(),
+        number,
+        session_id: session.map(str::to_string),
+        created_at: "2026-10-05T00:00:00Z".into(),
+        filter_id: None,
+    }
+}
+
+/// 사고 회귀(2026-10-05) — 같은 보드의 모든 세션이 남의 PR(#310·#316 …) 머지 후보를 받았다. 훅 주입은
+/// 받은편지함처럼 **그 PR 을 구독한 세션**에만 간다.
+#[test]
+fn pr_transitions_reach_only_the_subscribing_session() {
+    let at = "2026-10-05T10:00:00.000Z";
+    let entries = vec![
+        pr_at(1, "pr-ready", "o/r", 310, at),
+        pr_at(2, "pr-conflict", "o/r", 316, at),
+        pr_at(3, "pr-ready", "O/R", 320, at),
+        entry(4, "logan", "update"),
+    ];
+    let subs = vec![
+        sub("o/r", 316, Some("mine")),
+        sub("o/r", 320, Some("mine")),
+        sub("o/r", 310, Some("other")),
+        sub("o/r", 999, None),
+    ];
+    let ids: Vec<i64> = subscribed_pr_entries(&entries, "mine", &subs)
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(
+        ids,
+        vec![2, 3],
+        "구독한 #316·#320 만 — 레포 대소문자는 무시, 보드 변경은 다루지 않는다"
+    );
+    let text = build_pr_context(&subscribed_pr_entries(&entries, "mine", &subs)).unwrap();
+    assert!(!text.contains("#310"), "남이 구독한 PR 은 빠진다");
+    assert!(
+        subscribed_pr_entries(&entries, "nobody", &subs).is_empty(),
+        "구독이 없는 세션엔 아무것도"
+    );
+    // 채널도 같은 거름을 쓴다.
+    let events = pr_channel_events(&subscribed_pr_entries(&entries, "other", &subs));
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].meta["number"], "310");
+}
+
+fn delivery(kind: &str, url: &str, session: &str, ok: bool, at: &str) -> Delivery {
+    Delivery {
+        at: at.into(),
+        kind: kind.into(),
+        subject: "s".into(),
+        url: Some(url.into()),
+        session_id: session.into(),
+        ok,
+        reason: (!ok).then(|| "받을 세션 등록 없음".to_string()),
+    }
+}
+
+/// 받은편지함으로 이미 간 전이는 훅이 또 넣지 않는다 — 못 보냈거나, 다른 세션에 갔거나, 그 전이보다
+/// 앞선 전달이면 그대로 둔다.
+#[test]
+fn transitions_already_delivered_to_the_inbox_are_not_injected_again() {
+    let url = |n: i64| format!("https://github.com/o/r/pull/{n}");
+    let entries = vec![
+        pr_at(1, "pr-ready", "o/r", 1, "2026-10-05T10:00:00.400Z"),
+        pr_at(2, "pr-ready", "o/r", 2, "2026-10-05T10:00:00.000Z"),
+        pr_at(3, "pr-ready", "o/r", 3, "2026-10-05T10:00:00.000Z"),
+        pr_at(4, "pr-ready", "o/r", 4, "2026-10-05T10:05:00.000Z"),
+        pr_at(5, "pr-conflict", "o/r", 5, "2026-10-05T10:00:00.000Z"),
+    ];
+    let delivered = vec![
+        // 같은 초에 보냄 — 보낸 것(전이 시각의 밀리초는 버린다).
+        delivery("pr-ready", &url(1), "mine", true, "2026-10-05T10:00:00Z"),
+        delivery("pr-ready", &url(2), "mine", false, "2026-10-05T10:00:01Z"),
+        delivery("pr-ready", &url(3), "other", true, "2026-10-05T10:00:01Z"),
+        // 옛 머지 후보의 전달 — 지금 전이(10:05)보다 앞선다.
+        delivery("pr-ready", &url(4), "mine", true, "2026-10-05T10:00:01Z"),
+        // 같은 PR 이지만 kind 가 다르다.
+        delivery("pr-ready", &url(5), "mine", true, "2026-10-05T10:00:01Z"),
+    ];
+    let ids: Vec<i64> = drop_delivered(&entries, "mine", &delivered)
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(ids, vec![2, 3, 4, 5]);
+}
+
+/// 빼기는 PR 마다 마지막 전이를 고른 **뒤**에 한다 — 먼저 빼면 받은편지함으로 간 "충돌" 뒤에 그 앞의 옛
+/// "머지 후보" 가 살아나 주입된다.
+#[test]
+fn dropping_a_delivered_latest_transition_does_not_resurrect_an_older_one() {
+    let entries = vec![
+        pr_at(1, "pr-ready", "o/r", 7, "2026-10-05T10:00:00.000Z"),
+        pr_at(2, "pr-conflict", "o/r", 7, "2026-10-05T10:01:00.000Z"),
+    ];
+    let delivered = vec![delivery(
+        "pr-conflict",
+        "https://github.com/o/r/pull/7",
+        "mine",
+        true,
+        "2026-10-05T10:01:00Z",
+    )];
+    assert!(build_pr_context(&drop_delivered(&entries, "mine", &delivered)).is_none());
+}
+
+/// 보드가 풀리면 그 보드 것 중 구독한 PR, 안 풀리면(보드 경로 밖 워크트리) 구독한 PR 만으로 — 받은편지함처럼
+/// 보드를 몰라도 구독한 세션은 받는다.
+#[test]
+fn a_session_outside_any_board_still_gets_its_subscribed_prs() {
+    let at = "2026-10-05T10:00:00.000Z";
+    let on = |board: &str, id: i64, number: i64| {
+        let mut e = pr_at(id, "pr-ready", "o/r", number, at);
+        e.board_key = Some(board.into());
+        e
+    };
+    let entries = vec![on("rocky", 1, 10), on("tally", 2, 11), on("rocky", 3, 12)];
+    let subs = vec![sub("o/r", 10, Some("mine")), sub("o/r", 11, Some("mine"))];
+    let ids = |v: Vec<ChangeFeedEntry>| v.iter().map(|e| e.history.id).collect::<Vec<_>>();
+    assert_eq!(
+        ids(pr_entries_for_session(
+            &entries,
+            Some("rocky"),
+            "mine",
+            &subs
+        )),
+        vec![1],
+        "보드가 풀리면 그 보드의 구독한 PR 만"
+    );
+    assert_eq!(
+        ids(pr_entries_for_session(&entries, None, "mine", &subs)),
+        vec![1, 2],
+        "보드를 모르면 구독한 PR 전부 — 구독 안 한 #12 는 빠진다"
+    );
 }

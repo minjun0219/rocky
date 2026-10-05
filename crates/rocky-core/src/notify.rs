@@ -14,6 +14,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::actors::is_agent_actor;
+use crate::peer_inbox::Delivery;
+use crate::prwatch::PrSubscription;
 use crate::types::{ChangeFeedEntry, ChangesSince, HistoryEntity};
 
 /// 사람이 낸 변경만 남긴다 (에이전트 자신의 변경을 주입하는 자기 반향 방지).
@@ -348,6 +350,97 @@ pub fn pr_entries_for_board(
         .collect()
 }
 
+/// PR 전이의 `(repo, number)` — 구독·전달 기록과 대조하는 열쇠.
+fn pr_key(e: &ChangeFeedEntry) -> (&str, Option<i64>) {
+    let changes = e.history.changes.as_ref();
+    (
+        changes
+            .and_then(|c| c.get("repo"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+        changes
+            .and_then(|c| c.get("number"))
+            .and_then(|v| v.as_i64()),
+    )
+}
+
+/// **이 세션이 구독한 PR** 의 전이만 — 보드 기준만으로 거르면 같은 보드의 모든 세션이 남의 PR 머지 후보·충돌을
+/// 받았다(2026-10-05). 받은편지함 알림(`rockyd::prwatch::session_notifier`)과 같은 기준이다. 레포는 대소문자를
+/// 무시한다(구독 저장소와 같다). pr-* 가 아닌 항목은 버린다.
+pub fn subscribed_pr_entries(
+    entries: &[ChangeFeedEntry],
+    session_id: &str,
+    subscriptions: &[PrSubscription],
+) -> Vec<ChangeFeedEntry> {
+    entries
+        .iter()
+        .filter(|e| e.history.action.starts_with("pr-"))
+        .filter(|e| {
+            let (repo, number) = pr_key(e);
+            subscriptions.iter().any(|s| {
+                s.session_id.as_deref() == Some(session_id)
+                    && s.repo.eq_ignore_ascii_case(repo)
+                    && Some(s.number) == number
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// 이 세션이 받을 PR 전이 — 세션 보드가 풀리면 그 보드의 것(보드별 `prAuthors` 판정을 따른다) 중, 안 풀리면
+/// (보드 경로 밖 워크트리 등) 전 보드 중 **이 세션이 구독한 PR** 만. 구독이 이미 "이 세션의 PR" 이라 보드를 모르는
+/// 세션도 받는다 — 받은편지함도 보드를 보지 않고 구독한 세션에 보낸다.
+pub fn pr_entries_for_session(
+    entries: &[ChangeFeedEntry],
+    board_key: Option<&str>,
+    session_id: &str,
+    subscriptions: &[PrSubscription],
+) -> Vec<ChangeFeedEntry> {
+    match board_key {
+        Some(key) => subscribed_pr_entries(
+            &pr_entries_for_board(entries, Some(key)),
+            session_id,
+            subscriptions,
+        ),
+        None => subscribed_pr_entries(entries, session_id, subscriptions),
+    }
+}
+
+/// 받은편지함으로 이미 간 전이를 뺀다 — 구독한 세션은 데몬이 소켓으로 깨운 뒤 다음 턴 훅이 같은 사실을 또
+/// 넣어 두 번 받았다. PR 마다 **마지막 전이**를 먼저 고른 뒤 뺀다(먼저 빼면 그 앞의 옛 전이가 살아난다).
+/// 전달 기록은 히스토리를 쓴 뒤에 남으므로 같은 세션·kind·url 이고 전이 시각(초) 이후에 `ok` 로 간 것만
+/// 보낸 것으로 친다 — 시각을 못 읽으면 보내지 않은 것으로 본다(두 번 받는 쪽이 놓치는 쪽보다 낫다).
+pub fn drop_delivered(
+    entries: &[ChangeFeedEntry],
+    session_id: &str,
+    delivered: &[Delivery],
+) -> Vec<ChangeFeedEntry> {
+    let secs = |at: &str| {
+        chrono::DateTime::parse_from_rfc3339(at)
+            .ok()
+            .map(|t| t.timestamp())
+    };
+    latest_pr_entries(entries)
+        .into_iter()
+        .filter(|e| {
+            let url = e
+                .history
+                .changes
+                .as_ref()
+                .and_then(|c| c.get("url"))
+                .and_then(|v| v.as_str());
+            let at = secs(&e.history.at);
+            !delivered.iter().any(|d| {
+                d.ok && d.session_id == session_id
+                    && d.kind == e.history.action
+                    && d.url.as_deref().is_some_and(|u| Some(u) == url)
+                    && matches!((secs(&d.at), at), (Some(d), Some(e)) if d >= e)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
 /// 세션 보드 조회 결과. 조회가 **실패한 것**(`Failed` — 데몬 응답 없음·본문 깨짐)과 cwd 가 어느
 /// 보드로도 **안 풀리는 것**(`Unmatched`)을 가른다 — 전자에서 커서를 넘기면 그 창의 PR 전이가 이
 /// 세션에 영영 안 온다.
@@ -367,10 +460,15 @@ impl BoardLookup {
     }
 }
 
-/// 이번 턴의 주입을 미루고 커서를 그대로 둘지 — PR 전이가 있는데 보드 조회가 실패했을 때만.
+/// 이번 턴의 주입을 미루고 커서를 그대로 둘지 — PR 전이가 있는데 보드나 PR 구독 조회가 실패했을 때만.
 /// 한 창을 통째로 미루므로(사람 변경 포함) 다음 턴에 같은 창을 다시 읽어도 겹쳐 주입되지 않는다.
-pub fn hold_cursor(entries: &[ChangeFeedEntry], board: &BoardLookup) -> bool {
-    *board == BoardLookup::Failed && entries.iter().any(|e| e.history.action.starts_with("pr-"))
+pub fn hold_cursor(
+    entries: &[ChangeFeedEntry],
+    board: &BoardLookup,
+    subscriptions_failed: bool,
+) -> bool {
+    (*board == BoardLookup::Failed || subscriptions_failed)
+        && entries.iter().any(|e| e.history.action.starts_with("pr-"))
 }
 
 /// 여러 주입 블록을 하나의 additionalContext 로 합친다 — 사람의 보드 변경과 핸드오프

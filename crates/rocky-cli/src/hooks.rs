@@ -11,9 +11,11 @@ use std::time::Duration;
 use rocky_core::config::{load_worklog_config, user_config_path};
 use rocky_core::handoff::build_handoff_prompt;
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, filter_human_changes, hold_cursor, merge_context,
-    pr_entries_for_board, read_cursor, write_cursor, BoardLookup,
+    build_notify_context, build_pr_context, drop_delivered, filter_human_changes, hold_cursor,
+    merge_context, pr_entries_for_session, read_cursor, write_cursor, BoardLookup,
 };
+use rocky_core::peer_inbox::Delivery;
+use rocky_core::prwatch::PrSubscription;
 use rocky_core::transcript::{
     build_turn_content, extract_turn_from_tail, should_capture, TAIL_WINDOW,
 };
@@ -109,6 +111,37 @@ fn session_board_key(base_url: &str, input: &serde_json::Value) -> BoardLookup {
         Some(key) => BoardLookup::Found(key),
         None => BoardLookup::Unmatched,
     }
+}
+
+/// PR 구독 전체 — 못 읽으면 `None`(보드 조회 실패처럼 커서를 붙든다).
+fn fetch_pr_subscriptions(base_url: &str) -> Option<Vec<PrSubscription>> {
+    let mut response = hook_agent()
+        .get(format!("{base_url}/api/prs/subscriptions"))
+        .call()
+        .ok()?;
+    if !(200..300).contains(&response.status().as_u16()) {
+        return None;
+    }
+    response.body_mut().read_json().ok()
+}
+
+/// 데몬이 최근 받은편지함에 보낸 기록 — 못 읽으면 빈 목록(빼지 않고 주입한다: 두 번 받는 쪽이 놓치는 쪽보다 낫다).
+fn fetch_deliveries(base_url: &str) -> Vec<Delivery> {
+    let Ok(mut response) = hook_agent()
+        .get(format!("{base_url}/api/deliveries"))
+        .call()
+    else {
+        return Vec::new();
+    };
+    if !(200..300).contains(&response.status().as_u16()) {
+        return Vec::new();
+    }
+    response
+        .body_mut()
+        .read_json::<serde_json::Value>()
+        .ok()
+        .and_then(|v| serde_json::from_value(v.get("recent")?.clone()).ok())
+        .unwrap_or_default()
 }
 
 fn fetch_changes(base_url: &str, since_id: i64, limit: i64) -> Option<ChangesSince> {
@@ -471,26 +504,45 @@ pub fn hook_notify_todo(ctx: &CliContext, watch_config: Option<bool>) {
         Some(cursor) => {
             if let Some(feed) = fetch_changes(&ctx.base_url, cursor, 100) {
                 // 데몬의 PR 감시 전이(actor rocky)는 사람 변경 필터에 걸리므로 먼저 따로 뽑는다 —
-                // **이 세션의 보드 것만**(다른 레포 세션에 남의 PR 을 알리지 않는다).
+                // **이 세션이 구독한 PR 만**(남의 PR 을 알리지 않는다). 받은편지함으로 이미 간 것은 빼서, 받은편지함이
+                // 못 닿은 경우(등록이 없거나 낡음·쓰기 실패·보내지 않기·`pr.sessionNotify` 꺼짐)의 폴백으로만 남는다.
                 let has_pr = feed
                     .entries
                     .iter()
                     .any(|e| e.history.action.starts_with("pr-"));
-                let board = if has_pr {
-                    session_board_key(&ctx.base_url, &input)
+                // 보드·구독·전달 기록 조회는 서로 독립이라 겹친다 — 순차로 기다리면 느린 데몬에서 1.5s 가 셋 더해져
+                // UserPromptSubmit 한도(5s)를 넘고, 그러면 이미 넘긴 커서의 주입을 잃는다.
+                let (board, subscriptions, delivered) = if has_pr {
+                    let subs_thread = {
+                        let base_url = ctx.base_url.clone();
+                        std::thread::spawn(move || fetch_pr_subscriptions(&base_url))
+                    };
+                    let delivered_thread = {
+                        let base_url = ctx.base_url.clone();
+                        std::thread::spawn(move || fetch_deliveries(&base_url))
+                    };
+                    let board = session_board_key(&ctx.base_url, &input);
+                    (
+                        board,
+                        subs_thread.join().unwrap_or(None),
+                        delivered_thread.join().unwrap_or_default(),
+                    )
                 } else {
-                    BoardLookup::Unmatched
+                    (BoardLookup::Unmatched, Some(Vec::new()), Vec::new())
                 };
-                // 보드 조회가 실패했으면 이 창을 통째로 다음 턴에 미룬다 — 커서를 넘기면 그 PR
+                // 보드나 구독 조회가 실패했으면 이 창을 통째로 다음 턴에 미룬다 — 커서를 넘기면 그 PR
                 // 전이는 이 세션에 다시 오지 않는다.
-                if !hold_cursor(&feed.entries, &board) {
+                if !hold_cursor(&feed.entries, &board, subscriptions.is_none()) {
                     if feed.last_id != cursor {
                         write_cursor(&cursor_file, session_id, feed.last_id);
                     }
-                    if has_pr {
-                        pr_context =
-                            build_pr_context(&pr_entries_for_board(&feed.entries, board.key()));
-                    }
+                    let mine = pr_entries_for_session(
+                        &feed.entries,
+                        board.key(),
+                        session_id,
+                        &subscriptions.unwrap_or_default(),
+                    );
+                    pr_context = build_pr_context(&drop_delivered(&mine, session_id, &delivered));
                     change_context = build_notify_context(&filter_human_changes(feed.entries));
                 }
             }
