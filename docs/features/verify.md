@@ -1,6 +1,7 @@
 # 기본 브랜치 검증 — main 에 들어온 커밋을 다시 돈다
 
-> rocky 를 **고치는** 에이전트용 개발 문서. **쓰는** 법은 README "기본 브랜치 검증".
+> rocky 를 **고치는** 에이전트용 개발 문서. **쓰는** 법은 README "기본 브랜치 검증"과 사용자 스킬
+> [`plugin/skills/branch-verify`](../../plugin/skills/branch-verify/SKILL.md).
 
 ## 규칙
 
