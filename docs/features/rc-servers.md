@@ -15,7 +15,7 @@
   `agy remote-control status` 만 재서 `antigravity` 에 싣고, 웹은 그때도 원격 제어 탭을 보인다(`web/lib.ts` 의 `rcVisible`).
   켜기·끄기(`POST /api/rc/antigravity/{start,stop}`, `rocky rc agy start|stop`)는 로컬 전용이고, 동작 이름은
   `AgyAction` 둘뿐이다 — agy 에 임의 하위 명령·플래그를 넘기지 않는다. 손잡이는 조회와 **같은 캐시**를 잠그고 돌린 뒤 다시
-  잰다(`rc_handles`). agy 데몬은 agy 가 올린 launchd 잡이라 rockyd 의 자식이 아니다. 에이전트가 부를 때의 확인은
+  잰다(`rc_handles`) — 끈 직후의 `status` 는 launchd 중간값(`SIGTERMed`)이라 자리 잡을 때까지 0.5초 간격으로 최대 6번(`AgyAction::settled`). agy 데몬은 agy 가 올린 launchd 잡이라 rockyd 의 자식이 아니다. 에이전트가 부를 때의 확인은
   `permissions.ask` 에 `Bash(rocky rc agy:*)` 로 받는다(설계 8절 3번과 같은 방식).
 - **서버는 새 프로세스 그룹으로 띄우고 놓는다**(`process_group(0)`, `kill_on_drop` 금지, 핸들은 좀비를 거두는 스레드만). launchd 는
   데몬 잡을 bootout 할 때 잡의 프로세스 그룹만 정리한다 — 새 그룹의 자식은 산다(2026-10-05 임시 LaunchAgent 로 실측). 자식 env 에서

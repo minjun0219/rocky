@@ -216,12 +216,20 @@ async fn silent_lsof_failure_names_the_pids_and_exit_code() {
     );
 }
 
-/// agy 를 켜고 끄는 가짜 — 상태를 기억하고, `fail` 이면 start 가 실패한다.
+/// agy 를 켜고 끄는 가짜 — 상태를 기억하고, `fail` 이면 start 가 실패한다. 실측(agy 1.2.14)처럼 끈 직후 첫
+/// 조회는 launchd 의 중간값(`Daemon state = SIGTERMed`)을, 그 뒤로는 state 줄 없는 `Daemon status: not running` 을 낸다.
 fn agy_runner(calls: Arc<Mutex<Vec<String>>>, fail: bool) -> Runner {
     let running = Arc::new(Mutex::new(true));
+    let just_stopped = Arc::new(Mutex::new(false));
     Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
         calls.lock().unwrap().push(argv.join(" "));
         let mut up = running.lock().unwrap();
+        let mut fresh_stop = just_stopped.lock().unwrap();
+        let ok = |stdout: String| CmdOutput {
+            code: 0,
+            stdout,
+            stderr: String::new(),
+        };
         let result = match argv.get(2).map(String::as_str) {
             Some("start") if fail => CmdOutput {
                 code: 1,
@@ -230,28 +238,23 @@ fn agy_runner(calls: Arc<Mutex<Vec<String>>>, fail: bool) -> Runner {
             },
             Some("start") => {
                 *up = true;
-                CmdOutput {
-                    code: 0,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                }
+                ok(String::new())
             }
             Some("stop") => {
                 *up = false;
-                CmdOutput {
-                    code: 0,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                }
+                *fresh_stop = true;
+                ok(String::new())
             }
-            _ => CmdOutput {
-                code: 0,
-                stdout: format!(
-                    "Daemon state = {}\nInstance name: mac-1 (x)\n",
-                    if *up { "running" } else { "stopped" }
-                ),
-                stderr: String::new(),
-            },
+            _ => {
+                let state = if *up {
+                    "Daemon state = running"
+                } else if std::mem::take(&mut *fresh_stop) {
+                    "Daemon state = SIGTERMed"
+                } else {
+                    "Daemon status: not running"
+                };
+                ok(format!("{state}\nInstance name: mac-1 (x)\n"))
+            }
         };
         Box::pin(async move { result })
     })
@@ -277,12 +280,10 @@ async fn agy_stop_and_start_refresh_the_cached_status() {
 
     let (code, body) = post(&state, "/api/rc/antigravity/stop", json!({})).await;
     assert_eq!(code, 200, "{body}");
-    assert_eq!(body["antigravity"]["state"], "stopped");
+    // 끈 직후의 중간값(SIGTERMed)을 내지 않고 자리 잡은 값(state 줄 없음)까지 기다린다.
+    assert_eq!(body["antigravity"]["state"], json!(null), "{body}");
     // TTL 이 길어도 캐시가 새 값이다 — 끈 직후 화면이 5초 동안 옛 값을 보이지 않게.
-    assert_eq!(
-        provider().await.antigravity.unwrap().state.as_deref(),
-        Some("stopped")
-    );
+    assert_eq!(provider().await.antigravity.unwrap().state, None);
     let (code, body) = post(&state, "/api/rc/antigravity/start", json!({})).await;
     assert_eq!(code, 200, "{body}");
     assert_eq!(body["antigravity"]["state"], "running");

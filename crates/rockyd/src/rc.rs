@@ -17,6 +17,9 @@ pub const RC_CACHE_TTL: Duration = Duration::from_secs(5);
 
 /// `agy remote-control` 켜기·끄기 명령 한도 — launchd 등록이 끼어 상태 조회보다 오래 걸린다.
 const AGY_CONTROL_TIMEOUT: Duration = Duration::from_secs(60);
+/// 켜고 끈 뒤 상태가 자리 잡기를 기다리는 횟수·간격 — 끈 직후엔 launchd 의 중간값이 잠깐 보인다.
+const AGY_SETTLE_TRIES: usize = 6;
+const AGY_SETTLE_GAP: Duration = Duration::from_millis(500);
 
 pub type RcProvider = Arc<dyn Fn() -> BoxFut<RcStatus> + Send + Sync>;
 /// agy 를 켜고 끈 뒤 새로 잰 현황. 명령이 실패하면 그 사유.
@@ -179,8 +182,18 @@ pub fn rc_handles(
         Box::pin(async move {
             let mut slot = cache.lock().await;
             let done = agy_control(&runner, action).await;
-            // 실패해도 다시 잰다 — 반쯤 바뀐 상태(등록만 됨 등)가 화면에 남지 않게.
-            let status = probe(&runner, config.as_ref().as_ref(), &home).await;
+            // 실패해도 다시 잰다 — 반쯤 바뀐 상태(등록만 됨 등)가 화면에 남지 않게. 성공했으면 자리 잡을 때까지
+            // 몇 번 더 잰다(못 잡아도 마지막 값을 낸다).
+            let mut status = probe(&runner, config.as_ref().as_ref(), &home).await;
+            if done.is_ok() {
+                for _ in 1..AGY_SETTLE_TRIES {
+                    if action.settled(status.antigravity.as_ref()) {
+                        break;
+                    }
+                    tokio::time::sleep(AGY_SETTLE_GAP).await;
+                    status = probe(&runner, config.as_ref().as_ref(), &home).await;
+                }
+            }
             *slot = Some((Instant::now(), status.clone()));
             done.map(|()| status)
         })

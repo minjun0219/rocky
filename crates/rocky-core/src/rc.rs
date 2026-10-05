@@ -89,6 +89,16 @@ impl AgyAction {
             .map(|s| s.to_string())
             .collect()
     }
+
+    /// 이 동작 뒤의 상태가 자리 잡았나. 끈 직후의 `status` 는 launchd 의 중간값(`Daemon state = SIGTERMed`)을
+    /// 내다가 잠시 뒤 `Daemon status: not running`(state 줄 없음)이 된다 — 실측 agy 1.2.14.
+    pub fn settled(self, status: Option<&AgyStatus>) -> bool {
+        let state = status.and_then(|s| s.state.as_deref());
+        match self {
+            AgyAction::Start => state == Some("running"),
+            AgyAction::Stop => state.is_none(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
