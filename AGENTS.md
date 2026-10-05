@@ -11,8 +11,9 @@
 
 ## rocky가 무엇인가
 
-**rocky**(프로젝트 헤일메리의 로키에서 딴 이름) — 오너의 **개인 에이전트 도구**다. Rust 데몬 + CLI(`crates/`)와
-그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
+**rocky**(프로젝트 헤일메리의 로키에서 딴 이름) — 오너의 **에이전트 운용 툴킷**이다. 보드·하네스·워크로그에서
+시작해, 에이전트를 부리는 데 쓰이는 기능이면 무엇이든 받는다(들이는 방식은 *범위* 참고). 지금 형태는 Rust 데몬 +
+CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
 
 - **데몬 `rockyd`**(`crates/rockyd`) — 머신 전체에 하나, `127.0.0.1:8636`, SQLite는 `~/.config/rocky/todo/`.
   보드 REST + SSE, `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`와 토큰 색인을 읽는
@@ -75,6 +76,10 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 
 **안** — 위 *rocky가 무엇인가*의 전부, 설정 표면(`rocky.json`, 프로젝트 > 사용자), Claude Code 전용 표면.
 표면 세부는 `README.md`, 근거는 `docs/architecture.md`.
+
+**들이는 방식** — 다른 곳(다른 레포·플러그인·스크립트)에 있는 기능을 일괄로 옮기지 않는다. 하나씩, 오너가 정한
+것만 들인다. "가져올 만해 보인다"는 근거가 되지 않는다 — 선 지키기와 같은 규율이다.
+*EN: Never bulk-migrate features from elsewhere — the owner brings them in one at a time.*
 
 **밖** — 명시적 요청 없이 다시 넣지 않는다:
 
