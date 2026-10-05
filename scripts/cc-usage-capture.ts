@@ -40,6 +40,20 @@ export type Case = {
   allow?: [string, string][];
   /** cc-usage 캐시 `usage.json` 에 심을 내용 — usage API 응답과 크레딧 기준선. Rust 테스트도 같은 값을 읽는다. */
   usage?: Record<string, unknown>;
+  /** `{{HOME}}/project` 에 git repo 를 만드는 셸 줄들 — `sh -c` 로 차례로 돈다. Rust 테스트가 `GIT_ENV` 로 똑같이 다시 돈다. */
+  repo?: string[];
+};
+
+/** repo 를 만들 때의 git 환경 — 작성자·날짜를 고정해 커밋 해시까지 같게 하고, 사용자 git 설정을 읽지 않는다. */
+export const GIT_ENV: Record<string, string> = {
+  GIT_AUTHOR_NAME: 'fixture',
+  GIT_AUTHOR_EMAIL: 'fixture@example.com',
+  GIT_AUTHOR_DATE: '2026-09-16T00:00:00+00:00',
+  GIT_COMMITTER_NAME: 'fixture',
+  GIT_COMMITTER_EMAIL: 'fixture@example.com',
+  GIT_COMMITTER_DATE: '2026-09-16T00:00:00+00:00',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_CONFIG_GLOBAL: '/dev/null',
 };
 
 const base = {
@@ -285,6 +299,72 @@ export const CASES: Case[] = [
     stdin: withLimits({ five_hour: win(30) }),
     usage: credits(4500, { limit: 5000 }),
   },
+  // git 세그먼트 — 실제 repo 를 만들어 뜬다.
+  {
+    name: 'git-clean',
+    why: '브랜치만',
+    stdin: withLimits({ five_hour: win(30) }),
+    repo: ['git init -q -b main', 'printf a > a', 'git add a', 'git commit -q -m one'],
+  },
+  {
+    name: 'git-changes',
+    why: 'staged · unstaged · 둘 다 — untracked 는 세지 않는다',
+    stdin: withLimits({ five_hour: win(30) }),
+    repo: [
+      'git init -q -b main',
+      'printf a > a && printf b > b && printf c > c',
+      'git add a b c',
+      'git commit -q -m one',
+      'printf a2 > a',
+      'printf b2 > b && git add b',
+      'printf c2 > c && git add c && printf c3 > c',
+      'printf u > untracked',
+    ],
+  },
+  {
+    name: 'git-conflict',
+    why: '충돌',
+    stdin: base,
+    repo: [
+      'git init -q -b main',
+      'printf base > f && git add f && git commit -q -m base',
+      'git checkout -q -b other && printf other > f && git commit -q -am other',
+      'git checkout -q main && printf main > f && git commit -q -am main',
+      'git merge -q other >/dev/null 2>&1 || true',
+    ],
+  },
+  {
+    name: 'git-detached',
+    why: 'detached — 커밋 7자리',
+    stdin: base,
+    repo: [
+      'git init -q -b main',
+      'printf a > a && git add a && git commit -q -m one',
+      'printf b > a && git commit -q -am two',
+      'git checkout -q HEAD~1',
+    ],
+  },
+  {
+    name: 'git-ahead-behind',
+    why: '업스트림 대비 ⇡1⇣1',
+    stdin: base,
+    repo: [
+      'git init -q --bare -b main ../remote.git',
+      'git init -q -b main',
+      'printf a > a && git add a && git commit -q -m one',
+      'git remote add origin ../remote.git && git push -q -u origin main 2>/dev/null',
+      'git clone -q ../remote.git ../other 2>/dev/null',
+      'cd ../other && printf b > b && git add b && git commit -q -m theirs && git push -q 2>/dev/null',
+      'printf c > c && git add c && git commit -q -m ours',
+      'git fetch -q',
+    ],
+  },
+  {
+    name: 'git-not-a-repo',
+    why: 'repo 가 아니면 세그먼트만 빠진다',
+    stdin: base,
+    repo: ['printf a > a'],
+  },
   {
     name: 'tz-utc',
     why: '리셋 시각은 로컬 시간대로',
@@ -329,6 +409,19 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: st
       credentials_file: join(dir, 'absent.json'),
     }),
   );
+  if (c.repo) {
+    const project = join(home, 'project');
+    mkdirSync(project, { recursive: true });
+    for (const line of c.repo) {
+      const step = Bun.spawnSync(['sh', '-c', line], {
+        cwd: project,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, ...GIT_ENV },
+      });
+      if (step.exitCode !== 0) {
+        throw new Error(`${c.name}: repo 준비 실패 — ${line}: ${step.stderr.toString()}`);
+      }
+    }
+  }
   if (c.usage) {
     mkdirSync(join(dir, 'cache', 'cc-usage'), { recursive: true });
     writeFileSync(join(dir, 'cache', 'cc-usage', 'usage.json'), JSON.stringify(c.usage));
@@ -375,6 +468,8 @@ if (import.meta.main) {
           stdin,
           allow: c.allow ?? [],
           usage: c.usage ?? null,
+          repo: c.repo ?? [],
+          gitEnv: c.repo ? GIT_ENV : {},
         };
         writeFileSync(join(out, 'case.json'), `${JSON.stringify(meta, null, 2)}\n`);
         writeFileSync(join(out, 'expected.txt'), stdout);

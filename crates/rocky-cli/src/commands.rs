@@ -1582,51 +1582,108 @@ fn this_session() -> Result<(String, String), String> {
     }
 }
 
-/// `statusline [--cwd P] [--session S]` — rocky 한 줄(데몬이 렌더). 둘 다 없으면 Claude Code 가 statusline
+/// `statusline [--cwd P] [--session S] [--full]` — rocky 한 줄(데몬이 렌더). 둘 다 없으면 Claude Code 가 statusline
 /// 명령에 주는 stdin JSON(`workspace.current_dir`·`session_id`)에서 읽는다. cc-usage `extra_commands` 에는
 /// `["rocky","statusline","--cwd","{{cwd}}","--session","{{session_id}}"]` 로 넣는다. 보여줄 게 없거나 데몬이
 /// 없으면 아무것도 출력하지 않고 성공으로 끝난다 — statusline 이 에러 줄을 띄우지 않게.
-pub fn cmd_statusline(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) {
+///
+/// `--full` 이면 cc-usage 와 같은 경로·git·모델·한도 줄을 CLI 가 직접 그리고 그 아래에 보드 줄을 붙인다
+/// (`statusline_full`).
+pub fn cmd_statusline(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>, full: bool) {
+    if full {
+        statusline_full(ctx);
+        return;
+    }
     let (cwd, session) = if cwd.is_none() && session.is_none() {
-        statusline_input()
+        let raw = statusline_stdin().unwrap_or_default();
+        let input = serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null);
+        let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_string);
+        (
+            text(
+                input
+                    .pointer("/workspace/current_dir")
+                    .or_else(|| input.get("cwd")),
+            ),
+            text(input.get("session_id")),
+        )
     } else {
         (cwd.map(str::to_string), session.map(str::to_string))
     };
-    let mut query = Vec::new();
-    if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {
-        query.push(format!("cwd={}", encode_query(&cwd)));
-    }
-    if let Some(session) = session.filter(|s| !s.is_empty()) {
-        query.push(format!("session={}", encode_query(&session)));
-    }
-    if let Some(line) = crate::client::statusline_line(&ctx.base_url, &query.join("&")) {
+    if let Some(line) = board_line(ctx, cwd.as_deref(), session.as_deref()) {
         println!("{line}");
     }
 }
 
-/// Claude Code 의 statusline 입력 — 터미널에서 그냥 부르면(stdin 이 TTY) 읽지 않는다.
-fn statusline_input() -> (Option<String>, Option<String>) {
+/// 데몬이 렌더한 보드 줄 — 데몬이 없거나 300ms 안에 못 받으면 `None`.
+fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Option<String> {
+    let mut query = Vec::new();
+    if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {
+        query.push(format!("cwd={}", encode_query(cwd)));
+    }
+    if let Some(session) = session.filter(|s| !s.is_empty()) {
+        query.push(format!("session={}", encode_query(session)));
+    }
+    crate::client::statusline_line(&ctx.base_url, &query.join("&"))
+}
+
+/// `statusline --full` — cc-usage statusline 과 같은 바이트를 낸다(설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`).
+/// 렌더는 CLI 가 하므로 데몬이 없어도 경로·모델·한도 줄은 남는다. 보드 줄은 그 아래 한 세그먼트일 뿐이고 실패하면
+/// 그 줄만 빠진다. 설정은 `rocky.json` 최상위 `statusline` 블록이다.
+fn statusline_full(ctx: &CliContext) {
+    use rocky_core::limits::{alert, credits, select, Input, UsageCache};
+    use rocky_core::statusline::full::{lines, Style, View};
+
+    let input = Input::parse(&statusline_stdin().unwrap_or_default());
+    let cfg = rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+    let now = statusline_now();
+    let (limits, tracking) = select(&cfg, &input, now);
+    let home = std::env::var("HOME").ok();
+    let git = crate::git_status::read(input.dir(), crate::git_status::GIT_TIMEOUT);
+    let view = View {
+        dir: input.dir(),
+        git: git.as_ref(),
+        model: &input.model,
+        effort: &input.effort,
+        context_pct: input.context_pct,
+        limits,
+        tracking,
+        alert: alert(&cfg, &limits),
+        // usage API 캐시는 아직 없다 — 한도가 소진되면 "크레딧 조회 중" 이다.
+        credits: credits(&cfg, &limits, tracking, &UsageCache::default(), now),
+        currency: cfg.currency(),
+        home: home.as_deref(),
+        now,
+    };
+    let style = Style::from_env(|k| std::env::var(k).ok());
+    let mut out = lines(&view, &style, &chrono::Local);
+    if let Some(board) = board_line(ctx, Some(input.dir()), Some(&input.session_id)) {
+        out.push(board);
+    }
+    println!("{}", out.join("\n"));
+}
+
+/// 테스트 전용 — RFC3339 시각을 주면 "지금" 을 고정한다(골든 대조용, cc-usage 의 `CC_USAGE_NOW` 와 같은 자리).
+const STATUSLINE_NOW_ENV: &str = "ROCKY_STATUSLINE_NOW";
+
+fn statusline_now() -> chrono::DateTime<chrono::Utc> {
+    std::env::var(STATUSLINE_NOW_ENV)
+        .ok()
+        .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())
+        .map_or_else(chrono::Utc::now, |t| t.with_timezone(&chrono::Utc))
+}
+
+/// Claude Code 의 statusline 입력 원문 — 터미널에서 그냥 부르면(stdin 이 TTY) 읽지 않는다. 4MB 까지만 읽는다.
+fn statusline_stdin() -> Option<String> {
     use std::io::{IsTerminal, Read};
     if std::io::stdin().is_terminal() {
-        return (None, None);
+        return None;
     }
     let mut raw = String::new();
-    if std::io::stdin().read_to_string(&mut raw).is_err() {
-        return (None, None);
-    }
-    let Ok(input) = serde_json::from_str::<Value>(&raw) else {
-        return (None, None);
-    };
-    let cwd = input
-        .pointer("/workspace/current_dir")
-        .or_else(|| input.get("cwd"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let session = input
-        .get("session_id")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    (cwd, session)
+    std::io::stdin()
+        .take(4 << 20)
+        .read_to_string(&mut raw)
+        .ok()?;
+    Some(raw)
 }
 
 /// 플러그인이 설치되는 마켓플레이스 레포 — 최신 릴리스 태그를 여기서 읽는다.

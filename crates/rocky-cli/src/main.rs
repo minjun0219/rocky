@@ -53,7 +53,12 @@ fn run(argv: &[String]) -> Result<(), String> {
         .contains(&rocky_core::config::ExposeChannel::TailscaleServe);
     // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬 자동 기동을 거치지 않는다.
     if command == "statusline" {
-        commands::cmd_statusline(&ctx, parsed.str_flag("cwd"), parsed.str_flag("session"));
+        commands::cmd_statusline(
+            &ctx,
+            parsed.str_flag("cwd"),
+            parsed.str_flag("session"),
+            parsed.bool_flag("full"),
+        );
         return Ok(());
     }
     let board = parsed

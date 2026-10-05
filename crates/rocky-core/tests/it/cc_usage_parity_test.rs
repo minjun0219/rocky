@@ -87,6 +87,10 @@ fn renders_the_same_bytes_as_cc_usage() {
     for dir in &dirs {
         let case: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("case.json")).unwrap()).unwrap();
+        // git 세그먼트는 실제 repo 가 필요하다 — CLI 를 프로세스째 돌리는 테스트(rocky-cli)가 본다.
+        if case["repo"].as_array().is_some_and(|r| !r.is_empty()) {
+            continue;
+        }
         let (got, want) = (render(&case), expected(dir, &case));
         if got != want {
             failures.push(format!(

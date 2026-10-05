@@ -12,6 +12,7 @@ pub mod config_cmd;
 pub mod context;
 pub mod flags;
 pub mod format;
+pub mod git_status;
 pub mod hooks;
 pub mod launchd;
 pub mod rc_cmd;
@@ -59,6 +60,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky version | --version               설치된 CLI 버전
   rocky update [--check]                  플러그인·데몬을 최신 릴리스로 (--check 는 버전 비교만)
   rocky statusline [--cwd P] [--session S]  rocky 한 줄 — 없으면 stdin 의 Claude Code 입력을 읽는다
+  rocky statusline --full                   경로·git·모델·한도 줄(cc-usage 와 같은 출력) + 보드 줄 — stdin 을 읽는다
   rocky config show|init|link|path [--json] 설치·설정 점검 / 기본 rocky.json 생성 / ~/.local/bin/rocky 링크 / 설정 파일 경로
   rocky usage [--since 30d] [--json]        사용 로그 보고 — 많이 쓴 표면 · 에러 · 안 쓴 표면 (rocky.json usage 블록으로 끔)
   rocky tokens [--since 30d] [--by model,effort|model|effort|session|branch] [--json]
