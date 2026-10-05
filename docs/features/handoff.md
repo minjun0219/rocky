@@ -13,6 +13,8 @@
 - **대상** = cwd 가 보드와 맞는 세션이 하나일 때 그 세션. 아니면 사용자가 고른다.
 - **doing 귀속.** `start` 가 가장 오래된 배달 건을 수락하고 `doing_session_id` 를 귀속시킨다. `done` 이 완료하고 비운다. 사람이
   누른 `start` 는 귀속하지 않는다. `resolve_doing_state` → `live` / `idle` / `gone` / `unknown`.
+  - 세션 목록의 **pid 없는 background 행도 세션이다.** 사람 답을 기다리며 잠든(`state: blocked`) 세션은 `pid`·`status` 없이
+    온다(Claude Code 2.1.289) — 버리면 그 doing 이 `gone` 이 되어 자동 해제된다. `blocked` 는 `idle` 로 읽는다.
 - **자동 해제.** `rockyd::sweep` 는 에이전트가 든 `gone` doing 중 24시간 지난 것만 자동으로 멈추고 이유를 댓글로 남긴다
   (`should_auto_release`). 사람이 든 것·`idle`·`unknown` 은 건드리지 않는다.
 - **닫았는지 묻기.** 핸드오프 주입문은 착수(`start`)와 함께 닫는 법(`done`/`stop`)을 말한다. `Stop` 훅(`handoff-stop`)은 이 세션에

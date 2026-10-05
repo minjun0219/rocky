@@ -170,7 +170,7 @@ fn review_message_asks_the_pr_session_to_run_resolve_reviews() {
 
 fn agent(session_id: &str, pid: i64) -> rocky_core::sessions::AgentSession {
     rocky_core::sessions::AgentSession {
-        pid,
+        pid: Some(pid),
         cwd: "/w/rocky".into(),
         kind: "interactive".into(),
         id: None,

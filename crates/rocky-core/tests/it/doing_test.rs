@@ -9,7 +9,7 @@ use rocky_core::types::*;
 
 fn session() -> AgentSession {
     AgentSession {
-        pid: 1234,
+        pid: Some(1234),
         cwd: "/Users/x/dev/rocky-todo".into(),
         kind: "interactive".into(),
         id: None,
@@ -121,6 +121,23 @@ fn background_state_done_is_gone_even_if_listed() {
     assert_eq!(
         resolve_doing_state(&todo, "rocky-todo", &available(vec![s])),
         DoingState::Gone
+    );
+}
+
+/// spawn 세션은 짧은 id 로 귀속된다. 사람 답을 기다리며 잠든(`blocked`, pid 없음) 세션은 사라진 게 아니다 —
+/// 목록에서 빠지면 `Gone` 이 되어 24시간 뒤 자동 해제된다.
+#[test]
+fn dormant_blocked_background_is_idle_not_gone() {
+    let todo = Todo {
+        doing_session_id: Some("0da6a98a".into()),
+        ..doing_todo()
+    };
+    let sessions = rocky_core::sessions::parse_sessions(
+        r#"[{"id":"0da6a98a","cwd":"/Users/x/dev/rocky-todo/.claude/worktrees/todo-1","kind":"background","startedAt":1,"sessionId":"0da6a98a-ed68-4ca3-a447-9ae91c1be8e9","name":"rocky-todo-1","state":"blocked"}]"#,
+    );
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &sessions),
+        DoingState::Idle
     );
 }
 

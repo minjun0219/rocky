@@ -106,7 +106,7 @@ pub fn restored_registration_live(
         .and_then(|s| s.parse::<i64>().ok());
     sessions
         .iter()
-        .any(|s| s.session_id == registration.session_id && pid.is_none_or(|p| p == s.pid))
+        .any(|s| s.session_id == registration.session_id && pid.is_none_or(|p| s.pid == Some(p)))
 }
 
 /// 데몬이 세션 받은편지함에 보낸 한 건 — 웹의 "세션 전달" 현황용(메모리에만, 최근 몇십 건).

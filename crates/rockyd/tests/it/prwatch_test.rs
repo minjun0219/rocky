@@ -1293,7 +1293,7 @@ async fn inbox_registrations_survive_a_restart_and_failures_say_why() {
     let live = |pid: i64| rocky_core::sessions::SessionsResult {
         available: true,
         sessions: vec![rocky_core::sessions::AgentSession {
-            pid,
+            pid: Some(pid),
             cwd: "/w/rocky".into(),
             kind: "interactive".into(),
             id: None,

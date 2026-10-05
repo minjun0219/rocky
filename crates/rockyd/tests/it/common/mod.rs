@@ -127,7 +127,7 @@ pub async fn patch(state: &Arc<ServerState>, path: &str, body: Value) -> (u16, V
 /// 세션 픽스처 한 줄 생성.
 pub fn sess(pid: i64, cwd: &str, session_id: &str, name: &str, status: &str) -> AgentSession {
     AgentSession {
-        pid,
+        pid: Some(pid),
         cwd: cwd.into(),
         kind: "interactive".into(),
         id: None,

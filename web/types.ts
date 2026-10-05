@@ -155,7 +155,8 @@ export interface HandoffView extends Handoff {
 }
 
 export interface AgentSession {
-  pid: number;
+  /** 프로세스가 없는 background 세션(사람 답을 기다리며 잠든 `blocked` 등)에는 없다. */
+  pid?: number;
   cwd: string;
   /** 'interactive' | 'background' — CLI 가 주는 값을 그대로 둔다. */
   kind: string;
@@ -170,7 +171,7 @@ export interface AgentSession {
   /** 'idle' | 'busy' — CLI 가 주는 값을 그대로 둔다. */
   status: string;
   /**
-   * background 세션의 수명 상태 — 'working' | 'done'. interactive 세션에는 없다.
+   * background 세션의 수명 상태 — 'working' | 'blocked'(사람 답을 기다림) | 'done'. interactive 세션에는 없다.
    * 없음(undefined)은 "죽지 않았다"로 읽는다 — 살아 있는 interactive 세션이 그 꼴이다.
    */
   state?: string;
