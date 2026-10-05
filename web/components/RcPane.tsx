@@ -8,6 +8,7 @@ import {
   Server,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { rcVisible } from '../lib';
 import { useUiStore } from '../store';
 import type { RcServerRow, RcStatus, RcStrayRow } from '../types';
 
@@ -204,24 +205,86 @@ export function RcSummary() {
 }
 
 /**
- * 원격 제어 탭 — 고정 → 부를 수 있음 → 대상 밖 → 환경(로그인 · Antigravity). 보기만 한다: 목록은 `rocky.json` 의
- * `rc` 블록에서 고치고(설정 화면을 패널에 두지 않는다), 띄우기·재시작은 다음 조각이다.
+ * Antigravity 줄 — 상태와, 로컬 요청이면 켜기·끄기 버튼 하나. 끄면 이 기계로 들어오던 원격 세션이 끊기므로
+ * 노출된 화면(폰·테일넷)에는 버튼이 없다(데몬도 403). 실패하면 사유를 줄 아래에 남긴다.
+ */
+function AgyItem({ agy, first }: { agy: NonNullable<RcStatus['antigravity']>; first: boolean }) {
+  const local = useUiStore((s) => s.spawnAllowed);
+  const controlAgy = useUiStore((s) => s.controlAgy);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // 설치돼 응답했다는 것과 도는 것은 다르다 — 데몬이 멈춰 있어도 객체는 온다.
+  const running = agy.state === 'running';
+  const toggle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await controlAgy(running ? 'stop' : 'start');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li className={`px-3.5 py-2.5 ${first ? '' : 'border-t border-line/70'}`}>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className={running ? 'text-run' : 'text-faint'}>
+          {running ? (
+            <CircleDot size={14} aria-hidden="true" />
+          ) : (
+            <Circle size={14} aria-hidden="true" />
+          )}
+        </span>
+        <span className="shrink-0 text-sm text-text">Antigravity</span>
+        <span className="ml-auto min-w-0 truncate font-mono text-chip text-muted">
+          {[agy.state ?? '꺼짐', agy.instance].filter(Boolean).join(' · ')}
+        </span>
+        {local ? (
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-line px-2 py-1 text-meta text-muted hover:border-mine hover:text-text disabled:opacity-60"
+            disabled={busy}
+            onClick={toggle}
+          >
+            {busy ? '바꾸는 중' : running ? '끄기' : '켜기'}
+          </button>
+        ) : null}
+      </div>
+      {error ? <p className="mb-0 mt-1.5 font-mono text-chip text-mine">⚠ {error}</p> : null}
+    </li>
+  );
+}
+
+/**
+ * 원격 제어 탭 — 고정 → 부를 수 있음 → 대상 밖 → 환경(로그인 · Antigravity). claude rc 는 보기만 한다: 목록은
+ * `rocky.json` 의 `rc` 블록에서 고치고(설정 화면을 패널에 두지 않는다), 띄우기·재시작은 다음 조각이다. rc 블록이
+ * 없는 기기에서도 agy 가 있으면 Antigravity 줄만 보인다.
  */
 export function RcPane() {
   const rc = useRcPolling();
   if (!rc) {
     return <p className="px-4 py-6 text-chip text-faint">원격 제어 현황을 읽는 중…</p>;
   }
-  if (!rc.configured) {
+  if (!rcVisible(rc)) {
     return null;
+  }
+  if (!rc.configured) {
+    return (
+      <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-1" aria-label="원격 제어">
+        <Head name="환경" />
+        <Card>{rc.antigravity ? <AgyItem agy={rc.antigravity} first /> : null}</Card>
+        <p className="mt-3 text-chip text-faint">
+          claude rc 서버는 rocky.json 에 rc 블록을 두면 여기 보인다
+        </p>
+      </main>
+    );
   }
   const pinned = rc.servers.filter((s) => s.pinned);
   const others = rc.servers
     .filter((s) => !s.pinned)
     .sort((a, b) => Number(b.running) - Number(a.running));
   const pinnedUp = pinned.filter((s) => s.running).length;
-  // 설치돼 응답했다는 것과 도는 것은 다르다 — 데몬이 멈춰 있어도 객체는 온다.
-  const agyRunning = rc.antigravity?.state === 'running';
   const auth = rc.auth === 'in' ? '로그인됨' : rc.auth === 'out' ? '로그아웃' : '모름';
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-1" aria-label="원격 제어">
@@ -284,23 +347,7 @@ export function RcPane() {
           <span className="text-sm text-text">claude 로그인</span>
           <span className="ml-auto font-mono text-chip text-muted">{auth}</span>
         </li>
-        {rc.antigravity ? (
-          <li className="flex min-w-0 items-center gap-2.5 border-t border-line/70 px-3.5 py-2.5">
-            <span className={agyRunning ? 'text-run' : 'text-faint'}>
-              {agyRunning ? (
-                <CircleDot size={14} aria-hidden="true" />
-              ) : (
-                <Circle size={14} aria-hidden="true" />
-              )}
-            </span>
-            <span className="text-sm text-text">Antigravity</span>
-            <span className="ml-auto min-w-0 truncate font-mono text-chip text-muted">
-              {[rc.antigravity.state ?? '꺼짐', rc.antigravity.instance]
-                .filter(Boolean)
-                .join(' · ')}
-            </span>
-          </li>
-        ) : null}
+        {rc.antigravity ? <AgyItem agy={rc.antigravity} first={false} /> : null}
       </Card>
       <p className="mt-3 text-chip text-faint">목록은 rocky.json 의 rc 블록에서 고친다</p>
     </main>

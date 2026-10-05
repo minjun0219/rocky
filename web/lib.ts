@@ -2,8 +2,16 @@
  * UI 순수 헬퍼 — actor 톤(두 대기 컨셉), 시간 표기, 초경량 markdown 렌더 토큰화.
  */
 import { isAgentActor } from './actors';
-import type { CollectItem, HandoffView, PrSnapshot, TodoView } from './types';
+import type { CollectItem, HandoffView, PrSnapshot, RcStatus, TodoView } from './types';
 import type { Comment, HistoryEntry, SurfaceStat, WorklogEntry } from './types';
+
+/**
+ * 원격 제어 표면(탭·메뉴 스위치)을 보이나 — rc 블록이 켜졌거나 이 기기에 agy 가 있으면. agy 줄은 rc 블록과
+ * 상관없이 설치 여부를 따른다(claude rc 를 못 쓰는 기기에서도 agy 는 켜고 끌 수 있다).
+ */
+export function rcVisible(rc: RcStatus | null | undefined): boolean {
+  return rc?.configured === true || rc?.antigravity != null;
+}
 
 /**
  * actor → 시각 톤. 에이전트는 warm(앰버), 사람은 cool(아이스 블루).

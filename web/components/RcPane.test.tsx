@@ -100,6 +100,44 @@ describe('RcPane', () => {
     expect(row?.textContent).toContain('stopped · mac-1');
   });
 
+  test('rc 블록이 없는 기기 — Antigravity 줄만, claude 로그인 줄은 없다', () => {
+    renderWithStore(<RcPane />, {
+      rc: status({ configured: false, servers: [], strays: [], auth: 'unknown' }),
+      loadRc,
+    });
+    expect(screen.getByText('Antigravity')).toBeTruthy();
+    expect(screen.queryByText('claude 로그인')).toBeNull();
+    expect(screen.getByText(/rc 블록을 두면/)).toBeTruthy();
+  });
+
+  test('로컬이면 켜기·끄기 버튼 — 도는 중이면 끄기를 부른다', async () => {
+    const controlAgy = mock(async (_action: 'start' | 'stop') => {});
+    renderWithStore(<RcPane />, { rc: status(), loadRc, controlAgy, spawnAllowed: true });
+    await userEvent.click(screen.getByRole('button', { name: '끄기' }));
+    expect(controlAgy).toHaveBeenCalledWith('stop');
+    cleanup();
+    renderWithStore(<RcPane />, {
+      rc: status({ antigravity: { state: 'stopped', instance: 'mac-1' } }),
+      loadRc,
+      controlAgy,
+      spawnAllowed: true,
+    });
+    await userEvent.click(screen.getByRole('button', { name: '켜기' }));
+    expect(controlAgy).toHaveBeenLastCalledWith('start');
+  });
+
+  test('노출된 화면에는 버튼이 없고, 실패하면 사유를 줄 아래에 남긴다', async () => {
+    renderWithStore(<RcPane />, { rc: status(), loadRc, spawnAllowed: false });
+    expect(screen.queryByRole('button', { name: '끄기' })).toBeNull();
+    cleanup();
+    const controlAgy = mock(async () => {
+      throw new Error('agy remote-control stop 실패(종료 코드 1): x');
+    });
+    renderWithStore(<RcPane />, { rc: status(), loadRc, controlAgy, spawnAllowed: true });
+    await userEvent.click(screen.getByRole('button', { name: '끄기' }));
+    expect(await screen.findByText(/stop 실패\(종료 코드 1\): x/)).toBeTruthy();
+  });
+
   test('프로브가 실패하면 꺼짐을 믿지 말라고 맨 위에 적는다', () => {
     renderWithStore(<RcPane />, { rc: status({ probeError: 'ps 실패: x' }), loadRc });
     expect(screen.getByText(/ps 실패: x — 꺼짐 표시는 모르는 것이다/)).toBeTruthy();
@@ -107,17 +145,26 @@ describe('RcPane', () => {
 });
 
 describe('원격 제어 탭', () => {
-  test('rc 가 켜진 기기에서만, 메뉴에서 끄지 않았을 때만 보인다', () => {
+  test('rc 가 켜졌거나 agy 가 있는 기기에서만, 메뉴에서 끄지 않았을 때만 보인다', () => {
     renderWithStore(<ViewSwitch />, { view: 'feed', notes: [], rc: status(), showRc: true });
     expect(screen.getByRole('button', { name: '원격 제어' })).toBeTruthy();
     cleanup();
     renderWithStore(<ViewSwitch />, {
       view: 'feed',
       notes: [],
-      rc: status({ configured: false }),
+      rc: status({ configured: false, antigravity: null }),
       showRc: true,
     });
     expect(screen.queryByRole('button', { name: '원격 제어' })).toBeNull();
+    cleanup();
+    // rc 블록이 없어도 agy 가 있으면 탭이 있다 — Antigravity 를 켜고 끄는 자리다.
+    renderWithStore(<ViewSwitch />, {
+      view: 'feed',
+      notes: [],
+      rc: status({ configured: false, servers: [], strays: [] }),
+      showRc: true,
+    });
+    expect(screen.getByRole('button', { name: '원격 제어' })).toBeTruthy();
     cleanup();
     renderWithStore(<ViewSwitch />, { view: 'feed', notes: [], rc: status(), showRc: false });
     expect(screen.queryByRole('button', { name: '원격 제어' })).toBeNull();
