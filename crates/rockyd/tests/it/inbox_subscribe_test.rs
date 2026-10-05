@@ -310,3 +310,123 @@ async fn without_a_live_registration_nothing_is_sent_to_the_stored_socket() {
     let got = drain(&listener).join("");
     assert!(got.contains("버그 3") && got.contains("버그 4"), "{got}");
 }
+
+/// `/clear` — 같은 프로세스(같은 소켓)에서 세션 id 만 바뀌어 새 id 로 등록하면, 데몬은 옛 세션을 `/clear` 된 것으로
+/// 적고 깨우지 않는다(맥락 없는 새 세션이 옛 PR·수집함 알림을 받지 않게). 구독은 그대로 남아 웹 "세션 전달" 에 뜨고,
+/// 사람이 "새 세션으로 넘기기" 를 누르면 그때 새 세션이 받는다.
+#[tokio::test]
+async fn a_cleared_session_waits_for_the_web_to_decide() {
+    let f = fx_sub(Arc::default());
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, socket) = inbox_socket(dir.path());
+    let register = |id: &'static str| {
+        post(
+            &f.state,
+            "/api/sessions/inbox",
+            json!({ "sessionId": id, "socket": socket, "cwd": "/w/x" }),
+        )
+    };
+    assert_eq!(register("before-clear").await.0, 204);
+    post(
+        &f.state,
+        "/api/inbox/subscriptions",
+        json!({ "source": "gh-bugs", "sessionId": "before-clear", "socket": socket }),
+    )
+    .await;
+    let (status, res) = post(
+        &f.state,
+        "/api/prs/subscriptions",
+        json!({ "repo": "o/r", "number": 7, "sessionId": "before-clear" }),
+    )
+    .await;
+    assert_eq!(status, 201, "{res}");
+
+    assert_eq!(register("after-clear").await.0, 204);
+
+    // 기다리는 동안 — 구독은 옛 id 에 남고(PR 감시는 이어진다) 아무도 깨우지 않는다.
+    let (_, prs) = get(&f.state, "/api/prs/subscriptions").await;
+    assert_eq!(prs[0]["sessionId"], "before-clear", "{prs}");
+    let (_, status) = get(&f.state, "/api/deliveries").await;
+    let cleared = &status["cleared"][0];
+    assert_eq!(cleared["sessionId"], "before-clear", "{status}");
+    assert_eq!(cleared["successorId"], "after-clear");
+    assert_eq!(cleared["prs"][0], "o/r#7");
+    assert_eq!(cleared["inbox"][0], "gh-bugs");
+    assert_eq!(rockyd::inbox_watch::tick(&f.state).await, 0);
+    assert!(
+        drain(&listener).is_empty(),
+        "맥락 없는 새 세션을 깨우지 않는다"
+    );
+    assert_eq!(rockyd::inbox_watch::tick(&f.state).await, 0);
+    let (_, inbox) = get(&f.state, "/api/inbox/subscriptions").await;
+    assert_eq!(
+        inbox.as_array().unwrap().len(),
+        1,
+        "정할 때까지 걷지 않는다"
+    );
+
+    // 사람이 넘기기를 누른다.
+    let (status, res) = post(
+        &f.state,
+        "/api/sessions/cleared",
+        json!({ "sessionId": "before-clear", "action": "handover" }),
+    )
+    .await;
+    assert_eq!(status, 200, "{res}");
+    let (_, prs) = get(&f.state, "/api/prs/subscriptions").await;
+    assert_eq!(prs[0]["sessionId"], "after-clear", "{prs}");
+    let (_, status) = get(&f.state, "/api/deliveries").await;
+    assert!(status["cleared"].as_array().unwrap().is_empty());
+    assert_eq!(rockyd::inbox_watch::tick(&f.state).await, 1);
+    assert_eq!(drain(&listener).len(), 1);
+
+    // 두 번 정할 수는 없다.
+    let (status, _) = post(
+        &f.state,
+        "/api/sessions/cleared",
+        json!({ "sessionId": "before-clear", "action": "watch" }),
+    )
+    .await;
+    assert_eq!(status, 404);
+    let (status, _) = post(
+        &f.state,
+        "/api/sessions/cleared",
+        json!({ "sessionId": "x", "action": "nope" }),
+    )
+    .await;
+    assert_eq!(status, 400);
+}
+
+/// 소켓 이름은 pid 라 프로세스가 끝나고 pid 가 재사용되면 같은 경로가 남의 세션 것이 된다 — 지금 프로세스(소켓 파일)가
+/// 생기기 전의 등록이면 구독을 넘기지 않는다.
+#[tokio::test]
+async fn a_recycled_socket_path_does_not_inherit_subscriptions() {
+    let f = fx_sub(Arc::default());
+    let dir = tempfile::tempdir().unwrap();
+    let (_listener, socket) = inbox_socket(dir.path());
+    let an_hour_ago = chrono::Utc::now().timestamp() - 3600;
+    f.state
+        .register_inbox(rocky_core::peer_inbox::InboxRegistration {
+            session_id: "dead".into(),
+            socket: socket.clone(),
+            cwd: "/w/x".into(),
+            seen_at: an_hour_ago,
+            restored: false,
+        });
+    post(
+        &f.state,
+        "/api/prs/subscriptions",
+        json!({ "repo": "o/r", "number": 7, "sessionId": "dead" }),
+    )
+    .await;
+
+    post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "stranger", "socket": socket, "cwd": "/w/x" }),
+    )
+    .await;
+
+    let (_, prs) = get(&f.state, "/api/prs/subscriptions").await;
+    assert_eq!(prs[0]["sessionId"], "dead", "{prs}");
+}

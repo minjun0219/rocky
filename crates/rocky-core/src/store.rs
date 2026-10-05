@@ -139,6 +139,12 @@ CREATE TABLE IF NOT EXISTS session_inboxes (
   cwd TEXT NOT NULL,
   seen_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cleared_sessions (
+  session_id TEXT PRIMARY KEY,
+  successor_id TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  cleared_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pr_watch_repos (
   repo TEXT PRIMARY KEY,
   baselined_at TEXT NOT NULL
@@ -675,18 +681,28 @@ impl TodoStore {
     }
 
     /// 필터로 걸린 PR 을 구독한다 — 이미 누가(직접이든 다른 필터든) 구독한 PR 은 건드리지 않는다(빼앗지 않는다).
-    /// 새로 넣었으면 true.
+    /// 세션은 **넣는 순간의 필터 행**에서 읽는다 — 검색을 기다리는 사이 필터가 다른 세션으로 넘어가거나(`/clear` 결정)
+    /// 세션이 떨어지거나 해지됐을 수 있다(해지됐으면 넣지 않는다). 새로 넣었으면 true.
     pub fn subscribe_pr_via_filter(
         &self,
         repo: &str,
         number: i64,
-        session_id: Option<&str>,
         filter_id: &str,
     ) -> StoreResult<bool> {
         if !crate::prwatch::is_repo_slug(repo) || number <= 0 {
             return Ok(false);
         }
         let conn = self.lock();
+        let Some(session_id): Option<Option<String>> = conn
+            .query_row(
+                "SELECT session_id FROM pr_filter_subscriptions WHERE id = ?1",
+                params![filter_id],
+                |r| r.get(0),
+            )
+            .optional()?
+        else {
+            return Ok(false);
+        };
         if get_pr_subscription_conn(&conn, repo, number)?.is_some() {
             return Ok(false);
         }
@@ -2207,6 +2223,44 @@ impl TodoStore {
         Ok(())
     }
 
+    /// 있는 구독의 기준선만 다시 잡는다(소스의 실행 argv 가 바뀌었을 때) — 구독이 그새 걷히거나 넘어갔으면(`/clear`
+    /// 결정) 아무것도 하지 않는다. `subscribe_inbox` 는 없으면 만들어 걷힌 구독을 되살린다. 다시 잡았으면 true.
+    pub fn rebaseline_inbox_subscription(
+        &self,
+        source: &str,
+        session_id: &str,
+        fingerprint: &str,
+        baseline: &[String],
+    ) -> StoreResult<bool> {
+        let conn = self.lock();
+        let at = now_iso();
+        conn.execute_batch("BEGIN")?;
+        let applied = (|| -> StoreResult<bool> {
+            let updated = conn.execute(
+                "UPDATE inbox_subscriptions SET fingerprint = ?3 WHERE source = ?1 AND session_id = ?2",
+                params![source, session_id, fingerprint],
+            )?;
+            if updated > 0 {
+                conn.execute(
+                    "DELETE FROM inbox_seen WHERE source = ?1 AND session_id = ?2",
+                    params![source, session_id],
+                )?;
+                for id in baseline {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO inbox_seen (source, session_id, item_id, seen_at) VALUES (?1, ?2, ?3, ?4)",
+                        params![source, session_id, id, at],
+                    )?;
+                }
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(updated > 0)
+        })();
+        if applied.is_err() {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+        applied
+    }
+
     /// 세션을 수집함 소스의 구독자로 — 이미 있으면 소켓·지문을 갱신하고 기준선을 다시 잡는다. `baseline` 은
     /// 구독 시점에 이미 있던 항목 id 로, **이 세션에게** "본 것" 이 된다(세션마다 따로 — 한 세션의 구독이
     /// 다른 세션이 아직 못 받은 항목을 삼키지 않게). `fingerprint` 는 소스의 실행 argv 지문(바뀌면 감시가
@@ -2262,6 +2316,17 @@ impl TodoStore {
         )?)
     }
 
+    /// 이 세션이 이 소스를 아직 구독하고 있나 — 수집함 감시가 어댑터를 기다리는 사이 구독이 걷히거나 다른 세션
+    /// id 로 넘어갔으면(`/clear`) 옛 id 로 쓰지 않으려고 쓴다.
+    pub fn has_inbox_subscription(&self, source: &str, session_id: &str) -> StoreResult<bool> {
+        let conn = self.lock();
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM inbox_subscriptions WHERE source = ?1 AND session_id = ?2)",
+            params![source, session_id],
+            |r| r.get(0),
+        )?)
+    }
+
     /// 구독 전부 — 소스·만든 순.
     pub fn inbox_subscriptions(&self) -> StoreResult<Vec<crate::inbox::InboxSubscription>> {
         let conn = self.lock();
@@ -2311,9 +2376,13 @@ impl TodoStore {
     ) -> StoreResult<()> {
         let conn = self.lock();
         let at = now_iso();
+        // 그 세션의 구독이 아직 있을 때만 — 보내는 사이 구독이 걷히거나 넘어갔으면(`/clear` 결정) 옛 id 로 본 항목을
+        // 남기지 않는다(고아 행이 남고, 넘겨받은 세션은 같은 항목을 다시 받는다).
         for id in ids {
             conn.execute(
-                "INSERT OR IGNORE INTO inbox_seen (source, session_id, item_id, seen_at) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT OR IGNORE INTO inbox_seen (source, session_id, item_id, seen_at) \
+                 SELECT ?1, ?2, ?3, ?4 WHERE EXISTS \
+                   (SELECT 1 FROM inbox_subscriptions WHERE source = ?1 AND session_id = ?2)",
                 params![source, session_id, id, at],
             )?;
         }
@@ -2358,6 +2427,167 @@ impl TodoStore {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
+    }
+
+    /// `/clear`(·세션 안 `/resume`)로 세션 id 만 바뀐 옛 세션을 적는다(`peer_inbox::superseded_sessions`) — 구독이 남아
+    /// 있을 때만(정할 게 없으면 적지 않는다). 옛 받은편지함 등록은 지워 데몬이 다시 떠도 그 세션을 깨우지 않게 하고,
+    /// 옛 세션을 후계로 둔 기록(연달아 `/clear`)은 새 세션으로 옮긴다. 적었으면 true.
+    pub fn mark_session_cleared(&self, from: &str, to: &str, cwd: &str) -> StoreResult<bool> {
+        let conn = self.lock();
+        conn.execute_batch("BEGIN")?;
+        let applied = (|| -> StoreResult<bool> {
+            conn.execute(
+                "UPDATE cleared_sessions SET successor_id = ?2 WHERE successor_id = ?1",
+                params![from, to],
+            )?;
+            conn.execute(
+                "DELETE FROM session_inboxes WHERE session_id = ?1",
+                params![from],
+            )?;
+            let has_subscriptions: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pr_subscriptions WHERE session_id = ?1) \
+                   OR EXISTS(SELECT 1 FROM pr_filter_subscriptions WHERE session_id = ?1) \
+                   OR EXISTS(SELECT 1 FROM inbox_subscriptions WHERE session_id = ?1)",
+                params![from],
+                |r| r.get(0),
+            )?;
+            if has_subscriptions {
+                conn.execute(
+                    "INSERT INTO cleared_sessions (session_id, successor_id, cwd, cleared_at) VALUES (?1, ?2, ?3, ?4) \
+                     ON CONFLICT(session_id) DO UPDATE SET successor_id = excluded.successor_id",
+                    params![from, to, cwd, now_iso()],
+                )?;
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(has_subscriptions)
+        })();
+        if applied.is_err() {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+        applied
+    }
+
+    /// 이 세션이 `/clear` 돼 웹의 결정을 기다리나 — 그동안은 깨우지 않는다.
+    pub fn is_session_cleared(&self, session_id: &str) -> StoreResult<bool> {
+        let conn = self.lock();
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cleared_sessions WHERE session_id = ?1)",
+            params![session_id],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// 결정을 기다리는 `/clear` 된 세션들과 남은 구독 — 오래된 것부터. 남은 구독이 없어진 기록(머지로 PR 구독이
+    /// 풀리는 등)은 여기서 걷는다.
+    pub fn cleared_sessions(&self) -> StoreResult<Vec<crate::peer_inbox::ClearedSession>> {
+        let conn = self.lock();
+        let rows: Vec<(String, String, String, String)> = conn
+            .prepare(
+                "SELECT session_id, successor_id, cwd, cleared_at FROM cleared_sessions ORDER BY cleared_at",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let list = |sql: &str, id: &str| -> StoreResult<Vec<String>> {
+            Ok(conn
+                .prepare(sql)?
+                .query_map(params![id], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?)
+        };
+        let mut out = Vec::new();
+        for (session_id, successor_id, cwd, cleared_at) in rows {
+            let prs = list(
+                "SELECT repo || '#' || number FROM pr_subscriptions WHERE session_id = ?1 ORDER BY repo, number",
+                &session_id,
+            )?;
+            let filters = list(
+                "SELECT query FROM pr_filter_subscriptions WHERE session_id = ?1 ORDER BY created_at",
+                &session_id,
+            )?;
+            let inbox = list(
+                "SELECT source FROM inbox_subscriptions WHERE session_id = ?1 ORDER BY source",
+                &session_id,
+            )?;
+            if prs.is_empty() && filters.is_empty() && inbox.is_empty() {
+                conn.execute(
+                    "DELETE FROM cleared_sessions WHERE session_id = ?1",
+                    params![session_id],
+                )?;
+                continue;
+            }
+            out.push(crate::peer_inbox::ClearedSession {
+                session_id,
+                successor_id,
+                cwd,
+                cleared_at,
+                prs,
+                filters,
+                inbox,
+            });
+        }
+        Ok(out)
+    }
+
+    /// `/clear` 된 세션의 구독을 정한다(웹의 세 버튼) — 넘기기는 후계 세션으로(`hand_over_conn`), 지켜보기는 PR·필터
+    /// 구독의 세션만 떼고 수집함 구독은 지우고, 해지는 전부 지운다. 기록도 지운다. 한 트랜잭션. 바뀐 구독 수 —
+    /// 기록이 없으면 None(이미 정했거나 모르는 세션). 넘기기면 후계 세션 id 도 돌려준다("보내지 않기" 를 옮기라고).
+    pub fn resolve_cleared_session(
+        &self,
+        session_id: &str,
+        action: crate::peer_inbox::ClearedAction,
+    ) -> StoreResult<Option<(usize, String)>> {
+        use crate::peer_inbox::ClearedAction;
+        let conn = self.lock();
+        let Some(successor): Option<String> = conn
+            .query_row(
+                "SELECT successor_id FROM cleared_sessions WHERE session_id = ?1",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        conn.execute_batch("BEGIN")?;
+        let applied = (|| -> StoreResult<usize> {
+            let changed = match action {
+                ClearedAction::Handover => hand_over_conn(&conn, session_id, &successor)?,
+                ClearedAction::Watch => {
+                    let mut n = conn.execute(
+                        "UPDATE pr_subscriptions SET session_id = NULL WHERE session_id = ?1",
+                        params![session_id],
+                    )?;
+                    n += conn.execute(
+                        "UPDATE pr_filter_subscriptions SET session_id = NULL WHERE session_id = ?1",
+                        params![session_id],
+                    )?;
+                    n + drop_inbox_subscriptions_conn(&conn, session_id)?
+                }
+                ClearedAction::Unsubscribe => {
+                    let mut n = conn.execute(
+                        "DELETE FROM pr_subscriptions WHERE session_id = ?1",
+                        params![session_id],
+                    )?;
+                    n += conn.execute(
+                        "DELETE FROM pr_filter_subscriptions WHERE session_id = ?1",
+                        params![session_id],
+                    )?;
+                    n + drop_inbox_subscriptions_conn(&conn, session_id)?
+                }
+            };
+            conn.execute(
+                "DELETE FROM cleared_sessions WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            conn.execute_batch("COMMIT")?;
+            Ok(changed)
+        })();
+        match applied {
+            Ok(changed) => Ok(Some((changed, successor))),
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
     }
 
     pub fn delete_session_inbox(&self, session_id: &str) -> StoreResult<()> {
@@ -3230,6 +3460,67 @@ fn board_id_of_todo_conn(conn: &Connection, todo_id: &str) -> StoreResult<Option
             |r| r.get(0),
         )
         .optional()?)
+}
+
+/// 세션 id 만 바뀐 같은 세션에 구독을 넘긴다 — PR 구독·PR 필터 구독·수집함 구독(본 항목 포함)과 아직 안 집힌
+/// 핸드오프. 옛 받은편지함 등록은 지운다. 새 세션이 이미 같은 수집함 소스·같은 조건의 필터를 가졌으면 합친다. 호출자의
+/// 트랜잭션 안에서. 넘긴 구독 수.
+fn hand_over_conn(conn: &Connection, from: &str, to: &str) -> StoreResult<usize> {
+    let mut moved = conn.execute(
+        "UPDATE pr_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+        params![from, to],
+    )?;
+    // 새 세션이 같은 조건의 필터를 이미 가졌으면 합친다 — 그 필터로 들어온 PR 구독을 새 필터로 옮기고
+    // 옛 필터는 지운다(같은 검색을 tick 마다 두 번 돌리지 않게, 해지 한 번으로 다 걷히게).
+    conn.execute(
+        "UPDATE pr_subscriptions SET filter_id = (\
+           SELECT n.id FROM pr_filter_subscriptions n JOIN pr_filter_subscriptions o ON n.query = o.query \
+           WHERE o.id = pr_subscriptions.filter_id AND n.session_id = ?2) \
+         WHERE filter_id IN (SELECT o.id FROM pr_filter_subscriptions o WHERE o.session_id = ?1 AND EXISTS \
+           (SELECT 1 FROM pr_filter_subscriptions n WHERE n.session_id = ?2 AND n.query = o.query))",
+        params![from, to],
+    )?;
+    moved += conn.execute(
+        "DELETE FROM pr_filter_subscriptions WHERE session_id = ?1 AND EXISTS \
+           (SELECT 1 FROM pr_filter_subscriptions n WHERE n.session_id = ?2 AND n.query = pr_filter_subscriptions.query)",
+        params![from, to],
+    )?;
+    moved += conn.execute(
+        "UPDATE pr_filter_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+        params![from, to],
+    )?;
+    // 아직 안 집힌 핸드오프 — 옛 id 로는 영영 집히지 않는다(TTL 없음). 지시문을 들고 가므로 새 맥락에서도 성립한다.
+    conn.execute(
+        "UPDATE handoffs SET session_id = ?2 WHERE session_id = ?1 AND status = 'pending'",
+        params![from, to],
+    )?;
+    moved += conn.execute(
+        "UPDATE OR IGNORE inbox_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+        params![from, to],
+    )?;
+    conn.execute(
+        "UPDATE OR IGNORE inbox_seen SET session_id = ?2 WHERE session_id = ?1",
+        params![from, to],
+    )?;
+    for table in ["inbox_subscriptions", "inbox_seen", "session_inboxes"] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE session_id = ?1"),
+            params![from],
+        )?;
+    }
+    Ok(moved)
+}
+
+/// 이 세션의 수집함 구독과 본 항목을 지운다 — 호출자의 트랜잭션 안에서. 지운 구독 수.
+fn drop_inbox_subscriptions_conn(conn: &Connection, session_id: &str) -> StoreResult<usize> {
+    conn.execute(
+        "DELETE FROM inbox_seen WHERE session_id = ?1",
+        params![session_id],
+    )?;
+    Ok(conn.execute(
+        "DELETE FROM inbox_subscriptions WHERE session_id = ?1",
+        params![session_id],
+    )?)
 }
 
 // ── handoffs ────────────────────────────────────────────────────────────────

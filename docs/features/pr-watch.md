@@ -33,6 +33,16 @@
   소켓 경로는 다른 세션이 다시 쓸 수 있다).
 - 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리, 못 보낸 건은 `reason`), `POST /api/deliveries/mute` 로 세션별 "보내지
   않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용.
+- **`/clear` 뒤의 구독은 웹에서 사람이 정한다.** `/clear`·세션 안 `/resume` 은 세션 id 만 바꾸고 프로세스·소켓(`<pid>.sock`)은
+  그대로다(Claude Code 2.1.288 실측). 받은편지함 등록 때 같은 소켓으로 **지금 프로세스가 뜬 뒤**(소켓 파일 mtime = 프로세스 시작, 실측)
+  등록했던 다른 id 가 있으면, 구독이 남은 그 세션을 `cleared_sessions` 에 적고 등록을 걷는다(`peer_inbox::superseded_sessions`·
+  `store.mark_session_cleared`; 그 전의 등록은 pid 재사용이라 적지 않는다). 적힌 세션은 **깨우지 않는다** — 그대로 두면 맥락 없는
+  새 세션이 옛 PR 의 "리뷰가 붙었다" 를 받는다. 구독은 남아 감시·보드 상태·머지 시 할 일 완료는 이어지고, 전달 기록에는
+  "세션이 /clear 됨" 으로 남는다. 웹 "세션 전달" 카드(`GET /api/deliveries` 의 `cleared`)에서 **넘기기**(PR·필터·수집함 구독과 안
+  집힌 핸드오프, 겹치면 합친다) · **지켜보기만**(PR·필터는 세션만 떼고 수집함 구독은 지운다) · **해지**(전부)를 고른다
+  (`POST /api/sessions/cleared`, 로컬 전용; `store.resolve_cleared_session`).
+- **늦게 끝나는 쓰기는 지금 주인으로**: 필터 검색 결과는 넣는 순간의 필터 행에서 세션을 읽고(해지됐으면 넣지 않는다), 수집함 본
+  항목·기준선은 그 세션의 구독이 아직 있을 때만 쓴다 — 기다리는 사이 주인이 바뀌어도 옛 id 로 쓰지 않는다.
 
 ### 무엇을 뜻하나
 - `ready` 는 **머지 후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:review-fix` 8단계). 머지 뒤에 붙은 리뷰는 다음 PR 로
@@ -53,6 +63,7 @@
 | 순수 판정(전이·쿼리·예산·할 일 정리 `linked_todo_action`) | `crates/rocky-core/src/prwatch.rs` |
 | 주입·채널 이벤트(`build_pr_context`·`pr_channel_events`·`pr_entries_for_session`) | `crates/rocky-core/src/notify.rs` |
 | 받은편지함 문구·흡수 판정(`peer_messages`·`drop_absorbed`) | `crates/rocky-core/src/peer_inbox.rs` |
+| `/clear` 판정(`superseded_sessions`)·기록·결정(`mark_session_cleared`·`resolve_cleared_session`) | `crates/rocky-core/src/peer_inbox.rs`, `crates/rocky-core/src/store.rs` |
 | 잡·전달기·`settle_linked_todos` | `crates/rockyd/src/prwatch.rs` |
 | 훅·채널 | `crates/rocky-cli/src/hooks.rs`, `crates/rocky-cli/src/channel.rs` |
 

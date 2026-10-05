@@ -15,6 +15,7 @@
   받고(`validate_params`), 명령 자체를 화면이 바꾸게 하지 않는다. 쓰기는 로컬 전용([security](security.md)).
 - **수집함 구독**(`rocky inbox subscribe`)은 세션을 소스의 구독자로 적고(`inbox_subscriptions`, 기준선은 `inbox_seen`),
   `rockyd::inbox_watch` 가 구독된 소스만 5분마다 읽어 새 항목을 그 세션 받은편지함에 보낸다 — 알리기만, 착수는 사람.
+  `/clear` 된 세션의 구독은 깨우지 않고 웹에서 정할 때까지 걷지 않는다([pr-watch](./pr-watch.md) "`/clear` 뒤의 구독").
 
 ## 코드
 

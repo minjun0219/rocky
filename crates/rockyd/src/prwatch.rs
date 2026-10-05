@@ -128,6 +128,8 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
                 && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
         });
         let (kind_r, subject_r, url_r) = (kind.clone(), subject.clone(), url.clone());
+        let cleared =
+            target.is_none() && state.store.is_session_cleared(&session_id).unwrap_or(false);
         let record = move |state: &ServerState, reason: Option<String>| {
             state.record_delivery(rocky_core::peer_inbox::Delivery {
                 at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -141,7 +143,13 @@ pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
         };
         let Some(target) = target else {
             // 구독한 세션이 끝났다(등록이 없거나 오래됐다) — 못 보냈다는 사실만 전달 기록에 남긴다.
-            record(&state, Some("받을 세션 등록 없음".to_string()));
+            // `/clear` 된 세션이면 그 사실을 남긴다 — 웹 "세션 전달" 에서 정할 때까지 깨우지 않는 것이 의도다.
+            let reason = if cleared {
+                "세션이 /clear 됨 — 웹에서 정할 때까지 보내지 않는다"
+            } else {
+                "받을 세션 등록 없음"
+            };
+            record(&state, Some(reason.to_string()));
             return;
         };
         let state = state.clone();
@@ -501,12 +509,9 @@ async fn sync_filters(
             Ok((data, seen)) => {
                 accumulate(limit, seen);
                 for (repo, number) in rocky_core::prwatch::parse_filter_search(&data) {
-                    let _ = state.store.subscribe_pr_via_filter(
-                        &repo,
-                        number,
-                        filter.session_id.as_deref(),
-                        &filter.id,
-                    );
+                    let _ = state
+                        .store
+                        .subscribe_pr_via_filter(&repo, number, &filter.id);
                 }
                 if limit.as_ref().is_some_and(RateLimit::exhausted) {
                     return Err(());

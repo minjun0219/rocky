@@ -82,11 +82,20 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
             if state.is_muted(&sub.session_id) {
                 continue;
             }
+            // 어댑터를 기다리는 사이 구독이 걷혔거나 `/clear` 로 새 세션 id 에 넘어갔으면 옛 id 로 쓰지 않는다 —
+            // 기준선을 다시 잡으면 지운 구독이 되살아나고, 본 것으로 적으면 새 id 는 같은 항목을 또 받는다.
+            if !state
+                .store
+                .has_inbox_subscription(&name, &sub.session_id)
+                .unwrap_or(false)
+            {
+                continue;
+            }
             if sub.fingerprint != fingerprint {
-                if let Err(error) = state.store.subscribe_inbox(
+                // 있는 구독만 — 기다리는 사이 걷히거나 넘어간 구독을 되살리지 않는다.
+                if let Err(error) = state.store.rebaseline_inbox_subscription(
                     &name,
                     &sub.session_id,
-                    &sub.socket,
                     &fingerprint,
                     &ids,
                 ) {
@@ -120,7 +129,13 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
                             now - t.timestamp() > rocky_core::peer_inbox::REGISTRATION_TTL_SECS
                         })
                         .unwrap_or(false);
-                    if stale {
+                    // `/clear` 된 세션의 구독은 웹에서 정할 때까지 둔다.
+                    if stale
+                        && !state
+                            .store
+                            .is_session_cleared(&sub.session_id)
+                            .unwrap_or(true)
+                    {
                         let _ = state.store.unsubscribe_inbox(None, &sub.session_id);
                     }
                     continue;

@@ -2,7 +2,7 @@
 
 use rocky_core::peer_inbox::{
     inbox_line, is_inbox_socket_path, pick_session, pr_session_message, review_session_message,
-    session_candidates, InboxRegistration, REGISTRATION_TTL_SECS,
+    session_candidates, superseded_sessions, InboxRegistration, REGISTRATION_TTL_SECS,
 };
 use rocky_core::prwatch::{PrEvent, PrEventKind};
 use rocky_core::statusline::BoardLocation;
@@ -205,4 +205,39 @@ fn restored_registrations_need_a_live_session_owning_the_socket() {
         restored_registration_live(&r, &[agent("s1", 1)]),
         "이름이 숫자가 아니면 세션만 본다"
     );
+}
+
+fn on_socket(session: &str, socket: &str, seen_at: i64) -> InboxRegistration {
+    InboxRegistration {
+        session_id: session.into(),
+        socket: socket.into(),
+        cwd: "/w".into(),
+        seen_at,
+        restored: false,
+    }
+}
+
+/// `/clear` 는 같은 프로세스·소켓에서 세션 id 만 바꾼다 — 지금 프로세스가 뜬 뒤 같은 소켓으로 등록했던 다른 세션이
+/// 옛 세션이다. 프로세스가 뜨기 전의 등록은 pid 재사용(남의 세션)이라 고르지 않고, 시작 시각을 모르면 아무것도.
+#[test]
+fn superseded_sessions_are_earlier_ids_of_the_same_process() {
+    let sock = "/tmp/cc-socks/42.sock";
+    let new = on_socket("s-new", sock, 1_000);
+    let regs = vec![
+        on_socket("s-cleared", sock, 900),
+        on_socket("s-recycled", sock, 400),
+        on_socket("s-other", "/tmp/cc-socks/43.sock", 950),
+        on_socket("s-new", sock, 990),
+    ];
+    assert_eq!(
+        superseded_sessions(&regs, &new, Some(500)),
+        vec!["s-cleared".to_string()],
+        "프로세스가 뜬 500 이후의 같은 소켓 등록만"
+    );
+    assert_eq!(
+        superseded_sessions(&regs, &new, Some(900)),
+        vec!["s-cleared".to_string()],
+        "시작과 같은 초도 같은 프로세스"
+    );
+    assert!(superseded_sessions(&regs, &new, None).is_empty());
 }

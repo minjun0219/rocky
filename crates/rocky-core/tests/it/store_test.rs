@@ -1,5 +1,6 @@
 //! TS 원본 `src/store.test.ts` 포팅.
 
+use rocky_core::peer_inbox::ClearedAction;
 use rocky_core::refs::ref_of;
 use rocky_core::store::{StoreResult, TodoStore};
 use rocky_core::types::*;
@@ -3609,6 +3610,320 @@ fn pr_subscriptions_round_trip_and_hand_over() {
     assert!(f.store.pr_subscription("o/r", 3).unwrap().is_none());
 }
 
+/// `/clear` 된 세션을 "새 세션으로 넘기기" 로 정하면 구독이 새 id 로 간다 — PR·필터·수집함(본 항목 포함). 새 세션이
+/// 이미 같은 소스를 구독했으면 그쪽을 두고, 다른 세션의 구독은 건드리지 않는다. 옛 받은편지함 등록은 적을 때 지운다.
+#[test]
+fn hand_over_session_moves_every_subscription_to_the_new_id() {
+    let f = fx();
+    f.store.subscribe_pr("o/r", 3, Some("old")).unwrap();
+    f.store.subscribe_pr("o/r", 4, Some("other")).unwrap();
+    f.store
+        .subscribe_pr_filter("repo:o/r author:@me", Some("old"))
+        .unwrap();
+    f.store
+        .subscribe_inbox(
+            "gh-bugs",
+            "old",
+            "/tmp/cc-socks/1.sock",
+            "fp",
+            &["a".into()],
+        )
+        .unwrap();
+    f.store
+        .subscribe_inbox(
+            "todoist",
+            "old",
+            "/tmp/cc-socks/1.sock",
+            "fp",
+            &["x".into()],
+        )
+        .unwrap();
+    f.store
+        .subscribe_inbox(
+            "todoist",
+            "new",
+            "/tmp/cc-socks/1.sock",
+            "fp2",
+            &["y".into()],
+        )
+        .unwrap();
+    f.store
+        .save_session_inbox(&rocky_core::peer_inbox::InboxRegistration {
+            session_id: "old".into(),
+            socket: "/tmp/cc-socks/1.sock".into(),
+            cwd: "/w".into(),
+            seen_at: 100,
+            restored: false,
+        })
+        .unwrap();
+
+    assert!(f.store.mark_session_cleared("old", "new", "/w").unwrap());
+    assert_eq!(
+        f.store
+            .resolve_cleared_session("old", ClearedAction::Handover)
+            .unwrap(),
+        Some((3, "new".to_string()))
+    );
+
+    let prs: Vec<(i64, Option<String>)> = f
+        .store
+        .pr_subscriptions()
+        .unwrap()
+        .into_iter()
+        .map(|s| (s.number, s.session_id))
+        .collect();
+    assert_eq!(
+        prs,
+        vec![(3, Some("new".into())), (4, Some("other".into()))]
+    );
+    assert_eq!(
+        f.store.pr_filter_subscriptions().unwrap()[0]
+            .session_id
+            .as_deref(),
+        Some("new")
+    );
+    let inbox: Vec<(String, String, String)> = f
+        .store
+        .inbox_subscriptions()
+        .unwrap()
+        .into_iter()
+        .map(|s| (s.source, s.session_id, s.fingerprint))
+        .collect();
+    assert_eq!(
+        inbox,
+        vec![
+            ("gh-bugs".into(), "new".into(), "fp".into()),
+            ("todoist".into(), "new".into(), "fp2".into()),
+        ],
+        "겹친 소스는 새 세션 것을 둔다"
+    );
+    assert!(
+        f.store
+            .unseen_inbox_ids("gh-bugs", "new", &["a".into(), "b".into()])
+            .unwrap()
+            .eq(&vec!["b".to_string()]),
+        "본 항목도 따라간다"
+    );
+    assert!(f.store.load_session_inboxes(0).unwrap().is_empty());
+}
+
+/// 새 세션이 같은 조건의 필터를 이미 가졌으면 합친다 — 같은 검색을 두 번 돌리지 않고, 해지 한 번으로 그 필터로 들어온
+/// PR 구독이 다 걷힌다. 아직 안 집힌 핸드오프도 새 id 로 가서 다음 턴에 집힌다.
+#[test]
+fn hand_over_session_merges_duplicate_filters_and_moves_pending_handoffs() {
+    let f = fx();
+    let old_filter = f
+        .store
+        .subscribe_pr_filter("author:@me", Some("old"))
+        .unwrap();
+    let new_filter = f
+        .store
+        .subscribe_pr_filter("author:@me", Some("new"))
+        .unwrap();
+    f.store
+        .subscribe_pr_filter("label:review", Some("old"))
+        .unwrap();
+    f.store.subscribe_pr("o/r", 9, Some("old")).unwrap();
+    // 필터 검색이 넣은 구독처럼 — 출처를 옛 필터로.
+    Connection::open(&f.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE pr_subscriptions SET filter_id = ?1 WHERE number = 9",
+            [&old_filter.id],
+        )
+        .unwrap();
+    let todo = create(&f.store, "rocky", "넘길 일", "logan");
+    f.store
+        .create_handoff(&handoff_input(&todo.id, "old", "logan"))
+        .unwrap();
+
+    f.store.mark_session_cleared("old", "new", "/w").unwrap();
+    f.store
+        .resolve_cleared_session("old", ClearedAction::Handover)
+        .unwrap()
+        .unwrap();
+
+    let filters: Vec<(String, Option<String>)> = f
+        .store
+        .pr_filter_subscriptions()
+        .unwrap()
+        .into_iter()
+        .map(|x| (x.query, x.session_id))
+        .collect();
+    assert_eq!(
+        filters,
+        vec![
+            ("author:@me".into(), Some("new".into())),
+            ("label:review".into(), Some("new".into())),
+        ],
+        "겹친 필터는 하나로"
+    );
+    assert_eq!(
+        f.store.unsubscribe_pr_filter(&new_filter.id).unwrap(),
+        Some(1),
+        "옛 필터로 들어온 PR 구독도 합친 필터 소속이라 같이 걷힌다"
+    );
+    assert!(f
+        .store
+        .claim_handoff("new", HandoffVia::Prompt)
+        .unwrap()
+        .is_some());
+}
+
+/// `/clear` 를 적는 것은 구독이 남았을 때만 — 정할 게 없으면 기록하지 않는다. 연달아 `/clear` 하면 후계가 따라간다.
+/// "지켜보기만" 은 PR·필터 구독의 세션만 떼고(감시는 이어진다) 수집함 구독은 지우고, "해지" 는 전부 지운다. 정하면
+/// 기록이 사라지고 다시 정하면 None.
+#[test]
+fn cleared_sessions_wait_for_a_decision_and_resolve_three_ways() {
+    let f = fx();
+    assert!(!f.store.mark_session_cleared("bare", "next", "/w").unwrap());
+    assert!(f.store.cleared_sessions().unwrap().is_empty());
+
+    for id in ["watcher", "quitter"] {
+        f.store
+            .subscribe_pr("o/r", if id == "watcher" { 1 } else { 2 }, Some(id))
+            .unwrap();
+        f.store
+            .subscribe_pr_filter(&format!("label:{id}"), Some(id))
+            .unwrap();
+        f.store
+            .subscribe_inbox("gh-bugs", id, "/tmp/cc-socks/1.sock", "fp", &[])
+            .unwrap();
+    }
+    assert!(f
+        .store
+        .mark_session_cleared("watcher", "mid", "/w/rocky")
+        .unwrap());
+    assert!(f
+        .store
+        .mark_session_cleared("quitter", "q2", "/w/rocky")
+        .unwrap());
+    // 후계(mid)가 또 /clear — 기다리는 기록의 후계도 따라간다.
+    f.store
+        .mark_session_cleared("mid", "last", "/w/rocky")
+        .unwrap();
+    let cleared = f.store.cleared_sessions().unwrap();
+    assert_eq!(cleared.len(), 2);
+    assert_eq!(cleared[0].session_id, "watcher");
+    assert_eq!(cleared[0].successor_id, "last");
+    assert_eq!(cleared[0].prs, vec!["o/r#1".to_string()]);
+    assert_eq!(cleared[0].filters, vec!["label:watcher".to_string()]);
+    assert_eq!(cleared[0].inbox, vec!["gh-bugs".to_string()]);
+    assert!(f.store.is_session_cleared("watcher").unwrap());
+
+    f.store
+        .resolve_cleared_session("watcher", ClearedAction::Watch)
+        .unwrap()
+        .unwrap();
+    let pr1 = f.store.pr_subscription("o/r", 1).unwrap().unwrap();
+    assert_eq!(pr1.session_id, None, "지켜보기 — 감시는 남고 세션만 뗀다");
+    assert!(f
+        .store
+        .pr_filter_subscriptions()
+        .unwrap()
+        .iter()
+        .any(|x| x.query == "label:watcher" && x.session_id.is_none()));
+    assert!(!f
+        .store
+        .has_inbox_subscription("gh-bugs", "watcher")
+        .unwrap());
+
+    f.store
+        .resolve_cleared_session("quitter", ClearedAction::Unsubscribe)
+        .unwrap()
+        .unwrap();
+    assert!(f.store.pr_subscription("o/r", 2).unwrap().is_none());
+    assert!(!f
+        .store
+        .pr_filter_subscriptions()
+        .unwrap()
+        .iter()
+        .any(|x| x.query == "label:quitter"));
+
+    assert!(f.store.cleared_sessions().unwrap().is_empty());
+    assert!(!f.store.is_session_cleared("watcher").unwrap());
+    assert_eq!(
+        f.store
+            .resolve_cleared_session("watcher", ClearedAction::Handover)
+            .unwrap(),
+        None
+    );
+}
+
+/// 기다리는 사이(GraphQL 검색·어댑터·소켓 쓰기) 구독 주인이 바뀐 경우 — 옛 스냅숏의 세션 id 로 쓰지 않는다: 필터로
+/// 넣는 PR 구독은 넣는 순간의 필터 행에서 세션을 읽고(해지됐으면 넣지 않는다), 본 항목·기준선은 그 세션의 구독이
+/// 아직 있을 때만 쓴다.
+#[test]
+fn late_writes_follow_the_current_owner_not_a_stale_snapshot() {
+    let f = fx();
+    let filter = f
+        .store
+        .subscribe_pr_filter("author:@me", Some("old"))
+        .unwrap();
+    f.store
+        .subscribe_inbox("gh-bugs", "old", "/tmp/cc-socks/1.sock", "fp", &[])
+        .unwrap();
+    f.store.mark_session_cleared("old", "new", "/w").unwrap();
+    f.store
+        .resolve_cleared_session("old", ClearedAction::Handover)
+        .unwrap()
+        .unwrap();
+
+    assert!(f
+        .store
+        .subscribe_pr_via_filter("o/r", 1, &filter.id)
+        .unwrap());
+    assert_eq!(
+        f.store
+            .pr_subscription("o/r", 1)
+            .unwrap()
+            .unwrap()
+            .session_id
+            .as_deref(),
+        Some("new"),
+        "검색이 끝난 뒤의 필터 주인"
+    );
+    f.store.unsubscribe_pr_filter(&filter.id).unwrap();
+    assert!(!f
+        .store
+        .subscribe_pr_via_filter("o/r", 2, &filter.id)
+        .unwrap());
+
+    f.store
+        .mark_inbox_seen("gh-bugs", "old", &["a".into()])
+        .unwrap();
+    assert!(!f
+        .store
+        .rebaseline_inbox_subscription("gh-bugs", "old", "fp2", &["b".into()])
+        .unwrap());
+    assert!(
+        !f.store.has_inbox_subscription("gh-bugs", "old").unwrap(),
+        "되살리지 않는다"
+    );
+    assert_eq!(
+        f.store
+            .unseen_inbox_ids("gh-bugs", "new", &["a".into()])
+            .unwrap(),
+        vec!["a".to_string()],
+        "옛 id 로 적은 본 항목이 없다 — 새 세션은 a 를 아직 안 봤다"
+    );
+    assert!(f
+        .store
+        .rebaseline_inbox_subscription("gh-bugs", "new", "fp2", &["b".into()])
+        .unwrap());
+}
+
+/// 기다리는 동안 남은 구독이 다 없어지면(머지로 PR 구독이 풀림 등) 기록도 걷힌다.
+#[test]
+fn a_cleared_session_with_nothing_left_drops_out() {
+    let f = fx();
+    f.store.subscribe_pr("o/r", 5, Some("old")).unwrap();
+    assert!(f.store.mark_session_cleared("old", "new", "/w").unwrap());
+    f.store.unsubscribe_pr("o/r", 5).unwrap();
+    assert!(f.store.cleared_sessions().unwrap().is_empty());
+    assert!(!f.store.is_session_cleared("old").unwrap());
+}
+
 #[test]
 fn snapshots_of_unsubscribed_prs_are_dropped() {
     let f = fx();
@@ -3667,15 +3982,15 @@ fn filter_subscriptions_feed_pr_subscriptions_without_stealing() {
     f.store.subscribe_pr("o/r", 1, Some("other")).unwrap();
     assert!(!f
         .store
-        .subscribe_pr_via_filter("o/r", 1, Some("s1"), &filter.id)
+        .subscribe_pr_via_filter("o/r", 1, &filter.id)
         .unwrap());
     assert!(f
         .store
-        .subscribe_pr_via_filter("o/r", 2, Some("s1"), &filter.id)
+        .subscribe_pr_via_filter("o/r", 2, &filter.id)
         .unwrap());
     assert!(f
         .store
-        .subscribe_pr_via_filter("o/r", 3, Some("s1"), &filter.id)
+        .subscribe_pr_via_filter("o/r", 3, &filter.id)
         .unwrap());
     // 세션이 3 을 직접 맡으면 필터 출처가 지워진다 — 필터를 해지해도 남는다.
     f.store.subscribe_pr("o/r", 3, Some("s1")).unwrap();

@@ -280,11 +280,38 @@ impl ServerState {
             .clone()
     }
 
-    /// 세션 받은편지함 등록 — 같은 세션이면 덮어쓴다(cwd·소켓이 바뀌었을 수 있다).
+    /// 세션 받은편지함 등록 — 같은 세션이면 덮어쓴다(cwd·소켓이 바뀌었을 수 있다). 같은 프로세스에서 세션 id 만
+    /// 바뀌었으면(`/clear`·세션 안 `/resume`) 옛 세션을 `/clear` 된 것으로 적고 그 등록을 걷는다 — 옛 등록이 남으면 같은
+    /// 소켓이라 맥락 없는 새 세션이 옛 세션의 PR 알림을 받는다. 남은 구독은 웹에서 사람이 정한다.
     pub fn register_inbox(&self, registration: rocky_core::peer_inbox::InboxRegistration) {
         let mut inboxes = self.inboxes.lock().expect("inboxes poisoned");
         let now = registration.seen_at;
         inboxes.retain(|_, r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS);
+        // 소켓 파일은 프로세스가 뜰 때 생기고 그 뒤로 mtime 이 바뀌지 않는다(실측: 세션 시작 시각과 같다).
+        let started = std::fs::metadata(&registration.socket)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        let current: Vec<_> = inboxes.values().cloned().collect();
+        for old in rocky_core::peer_inbox::superseded_sessions(&current, &registration, started) {
+            match self
+                .store
+                .mark_session_cleared(&old, &registration.session_id, &registration.cwd)
+            {
+                // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
+                Ok(true) => eprintln!(
+                    "rocky: 세션이 /clear 됐다 — 남은 구독은 웹 \"세션 전달\" 에서 정할 때까지 깨우지 않는다"
+                ),
+                Ok(false) => {}
+                // 옛 등록을 그대로 둔다 — 다음 등록(다음 턴)에 다시 적는다.
+                Err(e) => {
+                    eprintln!("rocky: 세션이 /clear 됐는데 적지 못했다 — {e}");
+                    continue;
+                }
+            }
+            inboxes.remove(&old);
+        }
         if let Err(e) = self.store.save_session_inbox(&registration) {
             // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
             eprintln!("rocky: 받은편지함 등록을 저장하지 못했다 — {e}");
@@ -1225,8 +1252,46 @@ async fn dispatch(
             "sessions": sessions,
             "subscriptions": subscriptions,
             "recent": state.deliveries(),
+            "cleared": state.store.cleared_sessions()?,
         })));
     }
+    // `/clear` 된 세션의 남은 구독을 정한다 — 넘기기·지켜보기만·해지. 세션을 조종하는 동작이라 로컬 전용.
+    if path == "/api/sessions/cleared" && *method == Method::POST {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_INBOX_SOURCE_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let session_id = str_field(&body, "sessionId").unwrap_or("").trim();
+        let action = body
+            .get("action")
+            .cloned()
+            .and_then(|a| serde_json::from_value::<rocky_core::peer_inbox::ClearedAction>(a).ok());
+        let (false, Some(action)) = (session_id.is_empty(), action) else {
+            return Ok(error_response(
+                "sessionId 와 action(handover|watch|unsubscribe) 이 필요하다",
+                StatusCode::BAD_REQUEST,
+            ));
+        };
+        let Some((changed, successor)) = state.store.resolve_cleared_session(session_id, action)?
+        else {
+            return Ok(error_response(
+                &format!("/clear 로 결정을 기다리는 세션이 아니다: {session_id}"),
+                StatusCode::NOT_FOUND,
+            ));
+        };
+        // 넘기면 "보내지 않기" 도 따라간다 — 사람이 그 세션에 꺼 둔 것이다.
+        if action == rocky_core::peer_inbox::ClearedAction::Handover && state.is_muted(session_id) {
+            state.set_muted(&successor, true);
+        }
+        state.set_muted(session_id, false);
+        return Ok(ok_json(
+            &json!({ "sessionId": session_id, "changed": changed }),
+        ));
+    }
+
     if path == "/api/deliveries/mute" && *method == Method::POST {
         if !local {
             return Ok(error_response(
