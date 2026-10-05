@@ -248,6 +248,8 @@ export interface RcServerRow {
   action?: 'starting' | 'restarting' | 'retrying';
   /** 마지막 띄우기 · 재시작 결과(데몬이 다시 뜨면 사라진다). */
   lastResult?: { ok: boolean; message: string; at: string };
+  /** 자격이 끊겼다 돌아오기 전에 뜬 서버 — 죽은 토큰을 들고 있을 수 있다(감시가 켜져 있을 때만). */
+  authSuspect?: boolean;
 }
 
 /** 대상 목록 밖의 폴더에서 도는 서버 — Rust `rocky_core::rc::StrayRow`. */
@@ -267,6 +269,8 @@ export interface RcStatus {
   auth: 'in' | 'out' | 'unknown';
   antigravity: { state?: string; pid?: number; instance?: string } | null;
   probeError?: string;
+  /** 감시(`rc.supervise`)가 켜져 있으면 그 상태 — 꺼져 있으면 없다. */
+  supervise?: { lastTick?: string; loggedOut: boolean };
 }
 
 /** `GET /api/logs/worklog` 한 줄 — Rust `rocky_core::logindex::IndexedWorklog` 의 사본. */

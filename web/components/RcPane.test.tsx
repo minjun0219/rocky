@@ -219,3 +219,30 @@ describe('원격 제어 — 띄우기 · 재시작', () => {
     expect(screen.getByText('✗ 뜨자마자 내려갔다 — x')).toBeTruthy();
   });
 });
+
+describe('원격 제어 — 감시', () => {
+  test('감시가 켜져 있으면 요약 줄에 감시 중, 데몬 자격이 끊기면 그 사실을 배지로', () => {
+    renderWithStore(<RcSummary />, {
+      rc: status({ supervise: { lastTick: 't', loggedOut: false } }),
+      loadRc,
+    });
+    expect(screen.getByText('감시 중')).toBeTruthy();
+    cleanup();
+    renderWithStore(<RcSummary />, {
+      rc: status({ supervise: { loggedOut: true } }),
+      loadRc,
+    });
+    expect(screen.getByText('자격 끊김')).toBeTruthy();
+    expect(screen.queryByText('감시 중')).toBeNull();
+    cleanup();
+    renderWithStore(<RcSummary />, { rc: status(), loadRc });
+    expect(screen.queryByText(/감시 중|자격 끊김/)).toBeNull();
+  });
+
+  test('자격 의심 서버에는 다시 띄우기를 권하는 줄', () => {
+    const rc = status();
+    rc.servers[0] = { ...(rc.servers[0] as RcServerRow), authSuspect: true };
+    renderWithStore(<RcPane />, { rc, loadRc, spawnAllowed: true });
+    expect(screen.getByText(/자격 의심 — 끊기기 전에 떴다/)).toBeTruthy();
+  });
+});
