@@ -1,0 +1,25 @@
+{
+  "why": "repo 가 아니면 세그먼트만 빠진다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"}}",
+  "allow": [],
+  "usage": null,
+  "repo": [
+    "printf a > a"
+  ],
+  "gitEnv": {
+    "GIT_AUTHOR_NAME": "fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@example.com",
+    "GIT_AUTHOR_DATE": "2026-09-16T00:00:00+00:00",
+    "GIT_COMMITTER_NAME": "fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.com",
+    "GIT_COMMITTER_DATE": "2026-09-16T00:00:00+00:00",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null"
+  }
+}

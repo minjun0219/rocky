@@ -19,5 +19,7 @@
         "monthly_limit": 5000
       }
     }
-  }
+  },
+  "repo": [],
+  "gitEnv": {}
 }

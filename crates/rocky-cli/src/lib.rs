@@ -12,6 +12,7 @@ pub mod config_cmd;
 pub mod context;
 pub mod flags;
 pub mod format;
+pub mod git_status;
 pub mod hooks;
 pub mod launchd;
 pub mod rc_cmd;

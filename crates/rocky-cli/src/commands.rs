@@ -1638,9 +1638,10 @@ fn statusline_full(ctx: &CliContext) {
     let now = statusline_now();
     let (limits, tracking) = select(&cfg, &input, now);
     let home = std::env::var("HOME").ok();
+    let git = crate::git_status::read(input.dir(), crate::git_status::GIT_TIMEOUT);
     let view = View {
         dir: input.dir(),
-        git: None,
+        git: git.as_ref(),
         model: &input.model,
         effort: &input.effort,
         context_pct: input.context_pct,

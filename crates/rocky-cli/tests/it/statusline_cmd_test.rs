@@ -146,7 +146,7 @@ fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
 }
 
 /// `statusline --full` 을 프로세스째 돌려 cc-usage 골든(`rocky-core/tests/fixtures/cc-usage`)과 바이트 단위로 비교한다 —
-/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기까지 실제 경로를 탄다. 크레딧 캐시를 심은 케이스는 CLI 가 아직
+/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 실행까지 실제 경로를 탄다. 크레딧 캐시를 심은 케이스는 CLI 가 아직
 /// usage 캐시를 읽지 않아 건너뛴다(렌더는 `rocky-core` 의 대조 테스트가 본다).
 #[test]
 fn full_replays_cc_usage_goldens() {
@@ -170,6 +170,29 @@ fn full_replays_cc_usage_goldens() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
+        // 캡처 때와 같은 셸 줄·git 환경으로 repo 를 다시 만든다(작성자·날짜 고정이라 커밋 해시까지 같다).
+        let repo = case["repo"].as_array().unwrap();
+        if !repo.is_empty() {
+            let project = home.join("project");
+            std::fs::create_dir_all(&project).unwrap();
+            for line in repo {
+                let mut step = Command::new("sh");
+                step.args(["-c", line.as_str().unwrap()])
+                    .current_dir(&project)
+                    .env_clear()
+                    .env("PATH", std::env::var("PATH").unwrap_or_default())
+                    .env("HOME", &home);
+                for (k, v) in case["gitEnv"].as_object().unwrap() {
+                    step.env(k, v.as_str().unwrap());
+                }
+                let out = step.output().unwrap();
+                assert!(
+                    out.status.success(),
+                    "{line}: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
         let config = dir.path().join("rocky.json");
         let statusline = serde_json::json!({
             "source": case["config"]["source"],
@@ -234,4 +257,83 @@ fn full_replays_cc_usage_goldens() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// git 이 멈추면 500ms 에서 **프로세스 그룹째** 끊고 git 세그먼트만 뺀다. 가짜 git 은 자식을 하나 띄워 두는데,
+/// git 프로세스만 죽이면 그 자식이 고아로 남는다 — 1초마다 도는 자리라 쌓인다.
+#[test]
+fn full_kills_a_hung_git_with_its_process_group() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let git = bin.join("git");
+    let child_pid = dir.path().join("child.pid");
+    std::fs::write(
+        &git,
+        format!(
+            "#!/bin/sh\n[ \"$1\" = warm ] && exit 0\nsleep 10 &\necho $! > {}\nsleep 10\n",
+            child_pid.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // 새 실행 파일의 첫 실행은 macOS 검사(syspolicyd)로 수백 ms 늦을 수 있다 — 마감 전에 시작하도록 한 번 데워 둔다.
+    assert!(Command::new(&git).arg("warm").status().unwrap().success());
+    let config = dir.path().join("rocky.json");
+    std::fs::write(
+        &config,
+        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"}}"#,
+    )
+    .unwrap();
+
+    let started = std::time::Instant::now();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rocky"))
+        .env_clear()
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", dir.path())
+        .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
+        .env("ROCKY_CONFIG", &config)
+        .env("NO_COLOR", "1")
+        .args(["statusline", "--full"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            br#"{"workspace":{"current_dir":"/somewhere"},"model":{"display_name":"Opus 5"}}"#,
+        )
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    let elapsed = started.elapsed();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "/somewhere\nOpus 5 · usage …\n"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(3),
+        "마감에서 끊지 못했다 — {elapsed:?}"
+    );
+    // 가짜 git 이 띄운 자식도 같이 죽었다 — kill(pid, 0) 이 실패해야 한다(SIGKILL 이 도착할 틈을 잠깐 준다).
+    let pid: libc::pid_t = std::fs::read_to_string(&child_pid)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // SAFETY: 시그널 0 은 존재 확인만 한다.
+    let alive = unsafe { libc::kill(pid, 0) } == 0;
+    if alive {
+        // SAFETY: 테스트가 남긴 고아를 치운다.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    assert!(!alive, "git 이 띄운 자식({pid})이 고아로 남았다");
 }
