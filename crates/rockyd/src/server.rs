@@ -220,6 +220,34 @@ impl ServerState {
         inboxes.insert(registration.session_id.clone(), registration);
     }
 
+    /// 이 세션에 지금 보내도 되는 등록 — TTL 안이고, DB 에서 되살린 것이면 그 세션이 살아 있고 소켓이 그 세션의
+    /// 것일 때만(`restored_registration_live`, 세션 목록은 캐시 없이). 목록을 못 읽으면 되살린 등록은 쓰지 않는다.
+    pub async fn live_inbox(
+        &self,
+        session_id: &str,
+    ) -> Result<rocky_core::peer_inbox::InboxRegistration, &'static str> {
+        let now = chrono::Utc::now().timestamp();
+        let Some(target) = self.inboxes().into_iter().find(|r| {
+            r.session_id == session_id
+                && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
+        }) else {
+            return Err("받을 세션 등록 없음");
+        };
+        if !target.restored {
+            return Ok(target);
+        }
+        let sessions = self.fresh_sessions().await;
+        if !sessions.available {
+            return Err("되살린 등록 — 세션 목록을 못 읽어 확인 못 함");
+        }
+        if rocky_core::peer_inbox::restored_registration_live(&target, &sessions.sessions) {
+            Ok(target)
+        } else {
+            self.forget_inbox(session_id);
+            Err("되살린 등록 — 그 세션이 끝났거나 소켓 주인이 다르다")
+        }
+    }
+
     /// 지금 등록된 세션들(사본).
     pub fn inboxes(&self) -> Vec<rocky_core::peer_inbox::InboxRegistration> {
         self.inboxes
@@ -1016,6 +1044,7 @@ async fn dispatch(
             socket: socket.clone(),
             cwd: str_field(&body, "cwd").unwrap_or("").to_string(),
             seen_at: chrono::Utc::now().timestamp(),
+            restored: false,
         });
         return Ok(ok_json(&json!({
             "source": source_name,
@@ -1707,6 +1736,7 @@ async fn dispatch(
             socket: socket.to_string(),
             cwd: cwd.to_string(),
             seen_at: chrono::Utc::now().timestamp(),
+            restored: false,
         });
         return Ok(Response::builder()
             .status(StatusCode::NO_CONTENT)
@@ -2303,11 +2333,7 @@ async fn wake_session(
     text: &str,
     subject: String,
 ) -> bool {
-    let now = chrono::Utc::now().timestamp();
-    let Some(target) = state.inboxes().into_iter().find(|r| {
-        r.session_id == session_id
-            && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
-    }) else {
+    let Ok(target) = state.live_inbox(session_id).await else {
         return false;
     };
     let line = rocky_core::peer_inbox::inbox_line(text);

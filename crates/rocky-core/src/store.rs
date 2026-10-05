@@ -2353,6 +2353,7 @@ impl TodoStore {
                     socket: r.get(1)?,
                     cwd: r.get(2)?,
                     seen_at: r.get(3)?,
+                    restored: true,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;

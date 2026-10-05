@@ -31,6 +31,29 @@ pub struct InboxRegistration {
     pub cwd: String,
     /// 마지막 등록 시각(유닉스 초) — "가장 최근에 쓰인 세션" 을 고르는 기준.
     pub seen_at: i64,
+    /// 데몬이 다시 뜰 때 DB 에서 되살린 것 — 훅이 다시 등록하기 전까지는 살아 있는 세션인지
+    /// (`restored_registration_live`) 확인하고서만 쓴다.
+    #[serde(skip)]
+    pub restored: bool,
+}
+
+/// 되살린 등록을 써도 되나 — 그 세션이 지금 살아 있고, 소켓 이름(`<pid>.sock`)이 그 세션의 pid 와 같을 때만.
+/// 끝난 세션의 소켓 경로를 다른 세션이 다시 쓸 수 있어서(이름이 프로세스 번호) 등록 시각만으로는 믿지 않는다.
+/// 이름이 숫자가 아니면 pid 비교는 건너뛴다. 되살린 것이 아니면 늘 참.
+pub fn restored_registration_live(
+    registration: &InboxRegistration,
+    sessions: &[crate::sessions::AgentSession],
+) -> bool {
+    if !registration.restored {
+        return true;
+    }
+    let pid = std::path::Path::new(&registration.socket)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.parse::<i64>().ok());
+    sessions
+        .iter()
+        .any(|s| s.session_id == registration.session_id && pid.is_none_or(|p| p == s.pid))
 }
 
 /// 데몬이 세션 받은편지함에 보낸 한 건 — 웹의 "세션 전달" 현황용(메모리에만, 최근 몇십 건).

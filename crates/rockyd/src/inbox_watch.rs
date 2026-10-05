@@ -43,10 +43,26 @@ pub async fn tick(state: &Arc<ServerState>) -> usize {
     // 보낼 곳은 **살아 있는 등록**(훅이 턴마다 갱신, TTL 안)의 소켓뿐이다. 구독 때 적은 소켓으로 보내지
     // 않는다 — 소켓 이름이 숫자라, 끝난 세션의 경로를 다른 세션이 다시 쓰고 있으면 엉뚱한 세션에 간다.
     let now = chrono::Utc::now().timestamp();
-    let live: HashMap<String, String> = state
+    let registrations: Vec<_> = state
         .inboxes()
         .into_iter()
         .filter(|r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS)
+        .collect();
+    // DB 에서 되살린 등록은 그 세션이 살아 있고 소켓이 그 세션의 것일 때만 — 목록을 못 읽으면 쓰지 않는다.
+    let sessions = if registrations.iter().any(|r| r.restored) {
+        let result = state.fresh_sessions().await;
+        result.available.then_some(result.sessions)
+    } else {
+        None
+    };
+    let live: HashMap<String, String> = registrations
+        .into_iter()
+        .filter(|r| {
+            !r.restored
+                || sessions
+                    .as_deref()
+                    .is_some_and(|list| rocky_core::peer_inbox::restored_registration_live(r, list))
+        })
         .map(|r| (r.session_id, r.socket))
         .collect();
     let mut sent = 0;
