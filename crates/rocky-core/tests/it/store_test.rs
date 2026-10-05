@@ -3609,6 +3609,156 @@ fn pr_subscriptions_round_trip_and_hand_over() {
     assert!(f.store.pr_subscription("o/r", 3).unwrap().is_none());
 }
 
+/// `/clear` 로 세션 id 만 바뀌면 그 세션의 구독이 새 id 로 간다 — PR·필터·수집함(본 항목 포함). 새 세션이 이미 같은
+/// 소스를 구독했으면 그쪽을 두고, 다른 세션의 구독은 건드리지 않는다. 옛 받은편지함 등록은 지운다.
+#[test]
+fn hand_over_session_moves_every_subscription_to_the_new_id() {
+    let f = fx();
+    f.store.subscribe_pr("o/r", 3, Some("old")).unwrap();
+    f.store.subscribe_pr("o/r", 4, Some("other")).unwrap();
+    f.store
+        .subscribe_pr_filter("repo:o/r author:@me", Some("old"))
+        .unwrap();
+    f.store
+        .subscribe_inbox(
+            "gh-bugs",
+            "old",
+            "/tmp/cc-socks/1.sock",
+            "fp",
+            &["a".into()],
+        )
+        .unwrap();
+    f.store
+        .subscribe_inbox(
+            "todoist",
+            "old",
+            "/tmp/cc-socks/1.sock",
+            "fp",
+            &["x".into()],
+        )
+        .unwrap();
+    f.store
+        .subscribe_inbox(
+            "todoist",
+            "new",
+            "/tmp/cc-socks/1.sock",
+            "fp2",
+            &["y".into()],
+        )
+        .unwrap();
+    f.store
+        .save_session_inbox(&rocky_core::peer_inbox::InboxRegistration {
+            session_id: "old".into(),
+            socket: "/tmp/cc-socks/1.sock".into(),
+            cwd: "/w".into(),
+            seen_at: 100,
+            restored: false,
+        })
+        .unwrap();
+
+    assert_eq!(f.store.hand_over_session("old", "new").unwrap(), 3);
+
+    let prs: Vec<(i64, Option<String>)> = f
+        .store
+        .pr_subscriptions()
+        .unwrap()
+        .into_iter()
+        .map(|s| (s.number, s.session_id))
+        .collect();
+    assert_eq!(
+        prs,
+        vec![(3, Some("new".into())), (4, Some("other".into()))]
+    );
+    assert_eq!(
+        f.store.pr_filter_subscriptions().unwrap()[0]
+            .session_id
+            .as_deref(),
+        Some("new")
+    );
+    let inbox: Vec<(String, String, String)> = f
+        .store
+        .inbox_subscriptions()
+        .unwrap()
+        .into_iter()
+        .map(|s| (s.source, s.session_id, s.fingerprint))
+        .collect();
+    assert_eq!(
+        inbox,
+        vec![
+            ("gh-bugs".into(), "new".into(), "fp".into()),
+            ("todoist".into(), "new".into(), "fp2".into()),
+        ],
+        "겹친 소스는 새 세션 것을 둔다"
+    );
+    assert!(
+        f.store
+            .unseen_inbox_ids("gh-bugs", "new", &["a".into(), "b".into()])
+            .unwrap()
+            .eq(&vec!["b".to_string()]),
+        "본 항목도 따라간다"
+    );
+    assert!(f.store.load_session_inboxes(0).unwrap().is_empty());
+}
+
+/// 새 세션이 같은 조건의 필터를 이미 가졌으면 합친다 — 같은 검색을 두 번 돌리지 않고, 해지 한 번으로 그 필터로 들어온
+/// PR 구독이 다 걷힌다. 아직 안 집힌 핸드오프도 새 id 로 가서 다음 턴에 집힌다.
+#[test]
+fn hand_over_session_merges_duplicate_filters_and_moves_pending_handoffs() {
+    let f = fx();
+    let old_filter = f
+        .store
+        .subscribe_pr_filter("author:@me", Some("old"))
+        .unwrap();
+    let new_filter = f
+        .store
+        .subscribe_pr_filter("author:@me", Some("new"))
+        .unwrap();
+    f.store
+        .subscribe_pr_filter("label:review", Some("old"))
+        .unwrap();
+    f.store.subscribe_pr("o/r", 9, Some("old")).unwrap();
+    // 필터 검색이 넣은 구독처럼 — 출처를 옛 필터로.
+    Connection::open(&f.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE pr_subscriptions SET filter_id = ?1 WHERE number = 9",
+            [&old_filter.id],
+        )
+        .unwrap();
+    let todo = create(&f.store, "rocky", "넘길 일", "logan");
+    f.store
+        .create_handoff(&handoff_input(&todo.id, "old", "logan"))
+        .unwrap();
+
+    f.store.hand_over_session("old", "new").unwrap();
+
+    let filters: Vec<(String, Option<String>)> = f
+        .store
+        .pr_filter_subscriptions()
+        .unwrap()
+        .into_iter()
+        .map(|x| (x.query, x.session_id))
+        .collect();
+    assert_eq!(
+        filters,
+        vec![
+            ("author:@me".into(), Some("new".into())),
+            ("label:review".into(), Some("new".into())),
+        ],
+        "겹친 필터는 하나로"
+    );
+    assert_eq!(
+        f.store.unsubscribe_pr_filter(&new_filter.id).unwrap(),
+        Some(1),
+        "옛 필터로 들어온 PR 구독도 합친 필터 소속이라 같이 걷힌다"
+    );
+    assert!(f
+        .store
+        .claim_handoff("new", HandoffVia::Prompt)
+        .unwrap()
+        .is_some());
+}
+
 #[test]
 fn snapshots_of_unsubscribed_prs_are_dropped() {
     let f = fx();

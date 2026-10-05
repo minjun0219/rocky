@@ -37,6 +37,28 @@ pub struct InboxRegistration {
     pub restored: bool,
 }
 
+/// `/clear`·resume 으로 세션 id 만 바뀐 **같은 프로세스**의 옛 세션들 — 새 등록과 같은 소켓으로, 지금 프로세스가 뜬
+/// 뒤(`process_started_at`, 유닉스 초 — 소켓 파일이 생긴 시각) 등록했던 다른 세션 id. Claude Code 는 `/clear` 에
+/// 세션 id 를 새로 매기지만 프로세스·소켓은 그대로다(2.1.288 실측). 소켓 이름이 pid 라 프로세스가 끝나고 pid 가
+/// 재사용되면 같은 경로가 남의 세션 것이 되므로, 프로세스가 뜨기 전의 등록은 넘기지 않는다. 시작 시각을 모르면
+/// 아무것도 고르지 않는다 — 남의 구독을 받느니 놓친다.
+pub fn superseded_sessions(
+    registrations: &[InboxRegistration],
+    new: &InboxRegistration,
+    process_started_at: Option<i64>,
+) -> Vec<String> {
+    let Some(started) = process_started_at else {
+        return Vec::new();
+    };
+    registrations
+        .iter()
+        .filter(|r| {
+            r.socket == new.socket && r.session_id != new.session_id && r.seen_at >= started
+        })
+        .map(|r| r.session_id.clone())
+        .collect()
+}
+
 /// 되살린 등록을 써도 되나 — 그 세션이 지금 살아 있고, 소켓 이름(`<pid>.sock`)이 그 세션의 pid 와 같을 때만.
 /// 끝난 세션의 소켓 경로를 다른 세션이 다시 쓸 수 있어서(이름이 프로세스 번호) 등록 시각만으로는 믿지 않는다.
 /// 이름이 숫자가 아니면 pid 비교는 건너뛴다. 되살린 것이 아니면 늘 참.

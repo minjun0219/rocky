@@ -195,7 +195,9 @@ POST /api/notes/:ref/presence {client,state}  누가 보고 있는지 — 저장
 구독이 풀린다. PR 하나씩이 아니라 **조건으로도** 구독한다 — `rocky pr subscribe --filter "repo:o/r author:@me"`(GitHub 검색
 조건 그대로 — `label:`·`project:org/5`·`review-requested:@me` …). 데몬이 3분마다 그 조건으로 검색해(1포인트) 걸린 열린 PR
 을 그 세션의 구독으로 넣는다. 다른 세션이 이미 맡은 PR은 건드리지 않고, `rocky pr unsubscribe --filter ID`로 해지하면 그
-필터로 들어온 구독도 걷힌다. 목록은 `rocky pr subscriptions`. 웹 GitHub 탭은 구독한 PR을 레포별로 보이고, 레포의
+필터로 들어온 구독도 걷힌다. 목록은 `rocky pr subscriptions`. `/clear`(·세션 안 `/resume`)로 세션 id가 바뀌어도 구독은 그
+세션을 따라간다 — 같은 프로세스가 새 id로 받은편지함을 등록하면(`/clear` 뒤 첫 프롬프트) 데몬이 옛 id의 PR·필터·수집함 구독,
+아직 안 집힌 핸드오프, "보내지 않기" 를 넘긴다. 웹 GitHub 탭은 구독한 PR을 레포별로 보이고, 레포의
 "열린 PR" 을 펼치면 그때만 그 레포의 열린 PR을 물어(`GET /api/prs/open`, 1포인트·60초 캐시) "지켜보기" 로 구독한다. 레포 목록은 보지 않으니 구독하지 않은 PR은 상시로 보이지 않는다 — 그만큼 비용이 구독한 PR 수에만
 비례한다(설계 `docs/design/specs/2026-10-01-pr-subscriptions-design.md`). 열려 있고
 draft가 아니고 main을 향하고(스택의 맨 아래) 충돌이 없고 CI가 통과했고 리뷰 스레드가 전부
@@ -656,7 +658,8 @@ rocky는 읽어서 보여주고 사용자가 고른 것을 보드로 올리며(�
 `CLAUDE_CODE_SESSION_ID`·`CLAUDE_CODE_MESSAGING_SOCKET`으로) 데몬이 그 세션을 구독자로 적는다. 구독 시점의 항목은
 "본 것"(기준선)이라 몰려오지 않고, 데몬이 **구독된 소스만** 5분마다 읽어 처음 보는 항목(이미 보드에 올라간 것 제외)을
 그 세션 받은편지함에 한 줄씩 보낸다 — PR 알림과 같은 소켓이다. 메시지는 **알리기만** 하라고 적는다(착수·보드에
-올리기는 사람이 정한다). 받은편지함에 못 쓴 세션(끝난 세션)은 구독을 걷는다. 구독·해지는 로컬 요청 전용이고, 소켓은
+올리기는 사람이 정한다). 받은편지함에 못 쓴 세션(끝난 세션)은 구독을 걷는다. `/clear` 뒤에는 PR 구독처럼 새 세션 id로
+넘어간다. 구독·해지는 로컬 요청 전용이고, 소켓은
 Claude Code 받은편지함 모양만 받는다. 라우트: `GET/POST/DELETE /api/inbox/subscriptions`. 웹 보드의 수집함 머리에
 구독 중인 목록이 보인다.
 

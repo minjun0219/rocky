@@ -2262,6 +2262,17 @@ impl TodoStore {
         )?)
     }
 
+    /// 이 세션이 이 소스를 아직 구독하고 있나 — 수집함 감시가 어댑터를 기다리는 사이 구독이 걷히거나 다른 세션
+    /// id 로 넘어갔으면(`/clear`) 옛 id 로 쓰지 않으려고 쓴다.
+    pub fn has_inbox_subscription(&self, source: &str, session_id: &str) -> StoreResult<bool> {
+        let conn = self.lock();
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM inbox_subscriptions WHERE source = ?1 AND session_id = ?2)",
+            params![source, session_id],
+            |r| r.get(0),
+        )?)
+    }
+
     /// 구독 전부 — 소스·만든 순.
     pub fn inbox_subscriptions(&self) -> StoreResult<Vec<crate::inbox::InboxSubscription>> {
         let conn = self.lock();
@@ -2358,6 +2369,64 @@ impl TodoStore {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
+    }
+
+    /// 세션 id 만 바뀐 같은 세션(`/clear`·세션 안 `/resume` — `peer_inbox::superseded_sessions`)에 구독을 넘긴다: PR
+    /// 구독·PR 필터 구독·수집함 구독(본 항목 포함)과 아직 안 집힌 핸드오프. 옛 받은편지함 등록은 지운다. 새 세션이 이미
+    /// 같은 수집함 소스·같은 조건의 필터를 가졌으면 합친다. 한 트랜잭션. 넘긴 구독 수.
+    pub fn hand_over_session(&self, from: &str, to: &str) -> StoreResult<usize> {
+        let conn = self.lock();
+        conn.execute_batch("BEGIN")?;
+        let applied = (|| -> StoreResult<usize> {
+            let mut moved = conn.execute(
+                "UPDATE pr_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+                params![from, to],
+            )?;
+            // 새 세션이 같은 조건의 필터를 이미 가졌으면 합친다 — 그 필터로 들어온 PR 구독을 새 필터로 옮기고
+            // 옛 필터는 지운다(같은 검색을 tick 마다 두 번 돌리지 않게, 해지 한 번으로 다 걷히게).
+            conn.execute(
+                "UPDATE pr_subscriptions SET filter_id = (\
+                   SELECT n.id FROM pr_filter_subscriptions n JOIN pr_filter_subscriptions o ON n.query = o.query \
+                   WHERE o.id = pr_subscriptions.filter_id AND n.session_id = ?2) \
+                 WHERE filter_id IN (SELECT o.id FROM pr_filter_subscriptions o WHERE o.session_id = ?1 AND EXISTS \
+                   (SELECT 1 FROM pr_filter_subscriptions n WHERE n.session_id = ?2 AND n.query = o.query))",
+                params![from, to],
+            )?;
+            moved += conn.execute(
+                "DELETE FROM pr_filter_subscriptions WHERE session_id = ?1 AND EXISTS \
+                   (SELECT 1 FROM pr_filter_subscriptions n WHERE n.session_id = ?2 AND n.query = pr_filter_subscriptions.query)",
+                params![from, to],
+            )?;
+            moved += conn.execute(
+                "UPDATE pr_filter_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+                params![from, to],
+            )?;
+            // 아직 안 집힌 핸드오프 — 옛 id 로는 영영 집히지 않는다(TTL 없음). 지시문을 들고 가므로 새 맥락에서도 성립한다.
+            conn.execute(
+                "UPDATE handoffs SET session_id = ?2 WHERE session_id = ?1 AND status = 'pending'",
+                params![from, to],
+            )?;
+            moved += conn.execute(
+                "UPDATE OR IGNORE inbox_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+                params![from, to],
+            )?;
+            conn.execute(
+                "UPDATE OR IGNORE inbox_seen SET session_id = ?2 WHERE session_id = ?1",
+                params![from, to],
+            )?;
+            for table in ["inbox_subscriptions", "inbox_seen", "session_inboxes"] {
+                conn.execute(
+                    &format!("DELETE FROM {table} WHERE session_id = ?1"),
+                    params![from],
+                )?;
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(moved)
+        })();
+        if applied.is_err() {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+        applied
     }
 
     pub fn delete_session_inbox(&self, session_id: &str) -> StoreResult<()> {

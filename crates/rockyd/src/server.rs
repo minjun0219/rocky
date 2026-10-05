@@ -229,11 +229,38 @@ impl ServerState {
             .clone()
     }
 
-    /// 세션 받은편지함 등록 — 같은 세션이면 덮어쓴다(cwd·소켓이 바뀌었을 수 있다).
+    /// 세션 받은편지함 등록 — 같은 세션이면 덮어쓴다(cwd·소켓이 바뀌었을 수 있다). 같은 프로세스에서 세션 id 만
+    /// 바뀌었으면(`/clear`·resume) 옛 세션의 구독·"보내지 않기" 를 새 세션으로 넘긴다 — 안 그러면 구독이 옛 id 에
+    /// 묶여 알림이 아무 데도 가지 않는다.
     pub fn register_inbox(&self, registration: rocky_core::peer_inbox::InboxRegistration) {
         let mut inboxes = self.inboxes.lock().expect("inboxes poisoned");
         let now = registration.seen_at;
         inboxes.retain(|_, r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS);
+        // 소켓 파일은 프로세스가 뜰 때 생기고 그 뒤로 mtime 이 바뀌지 않는다(실측: 세션 시작 시각과 같다).
+        let started = std::fs::metadata(&registration.socket)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        let current: Vec<_> = inboxes.values().cloned().collect();
+        for old in rocky_core::peer_inbox::superseded_sessions(&current, &registration, started) {
+            match self.store.hand_over_session(&old, &registration.session_id) {
+                // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
+                Ok(moved) => {
+                    eprintln!("rocky: 세션 id 가 바뀌었다(/clear 등) — 구독 {moved}건을 넘겼다")
+                }
+                // 옛 등록·보내지 않기를 그대로 둔다 — 다음 등록(다음 턴)에 다시 넘긴다.
+                Err(e) => {
+                    eprintln!("rocky: 세션 id 가 바뀌었는데 구독을 넘기지 못했다 — {e}");
+                    continue;
+                }
+            }
+            if self.is_muted(&old) {
+                self.set_muted(&old, false);
+                self.set_muted(&registration.session_id, true);
+            }
+            inboxes.remove(&old);
+        }
         if let Err(e) = self.store.save_session_inbox(&registration) {
             // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
             eprintln!("rocky: 받은편지함 등록을 저장하지 못했다 — {e}");

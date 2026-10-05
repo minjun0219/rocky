@@ -310,3 +310,88 @@ async fn without_a_live_registration_nothing_is_sent_to_the_stored_socket() {
     let got = drain(&listener).join("");
     assert!(got.contains("버그 3") && got.contains("버그 4"), "{got}");
 }
+
+/// `/clear` — 같은 프로세스(같은 소켓)에서 세션 id 만 바뀌어 새 id 로 등록하면, 옛 세션의 PR·수집함 구독과 "보내지
+/// 않기" 가 새 세션으로 간다. 안 그러면 구독이 옛 id 에 묶여 알림이 아무 데도 가지 않는다.
+#[tokio::test]
+async fn subscriptions_follow_the_session_across_clear() {
+    let f = fx_sub(Arc::default());
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, socket) = inbox_socket(dir.path());
+    let register = |id: &'static str| {
+        post(
+            &f.state,
+            "/api/sessions/inbox",
+            json!({ "sessionId": id, "socket": socket, "cwd": "/w/x" }),
+        )
+    };
+    assert_eq!(register("before-clear").await.0, 204);
+    post(
+        &f.state,
+        "/api/inbox/subscriptions",
+        json!({ "source": "gh-bugs", "sessionId": "before-clear", "socket": socket }),
+    )
+    .await;
+    let (status, res) = post(
+        &f.state,
+        "/api/prs/subscriptions",
+        json!({ "repo": "o/r", "number": 7, "sessionId": "before-clear" }),
+    )
+    .await;
+    assert_eq!(status, 201, "{res}");
+    f.state.set_muted("before-clear", true);
+
+    assert_eq!(register("after-clear").await.0, 204);
+
+    let (_, prs) = get(&f.state, "/api/prs/subscriptions").await;
+    assert_eq!(prs[0]["sessionId"], "after-clear", "{prs}");
+    let (_, inbox) = get(&f.state, "/api/inbox/subscriptions").await;
+    assert_eq!(inbox[0]["sessionId"], "after-clear", "{inbox}");
+    assert!(f.state.is_muted("after-clear") && !f.state.is_muted("before-clear"));
+    assert!(
+        f.state
+            .inboxes()
+            .iter()
+            .all(|r| r.session_id != "before-clear"),
+        "옛 등록은 걷힌다"
+    );
+
+    // 수집함 새 항목이 새 세션 이름으로 그 소켓에 간다(보내지 않기를 풀고).
+    f.state.set_muted("after-clear", false);
+    assert_eq!(rockyd::inbox_watch::tick(&f.state).await, 1);
+    assert_eq!(drain(&listener).len(), 1);
+}
+
+/// 소켓 이름은 pid 라 프로세스가 끝나고 pid 가 재사용되면 같은 경로가 남의 세션 것이 된다 — 지금 프로세스(소켓 파일)가
+/// 생기기 전의 등록이면 구독을 넘기지 않는다.
+#[tokio::test]
+async fn a_recycled_socket_path_does_not_inherit_subscriptions() {
+    let f = fx_sub(Arc::default());
+    let dir = tempfile::tempdir().unwrap();
+    let (_listener, socket) = inbox_socket(dir.path());
+    let an_hour_ago = chrono::Utc::now().timestamp() - 3600;
+    f.state
+        .register_inbox(rocky_core::peer_inbox::InboxRegistration {
+            session_id: "dead".into(),
+            socket: socket.clone(),
+            cwd: "/w/x".into(),
+            seen_at: an_hour_ago,
+            restored: false,
+        });
+    post(
+        &f.state,
+        "/api/prs/subscriptions",
+        json!({ "repo": "o/r", "number": 7, "sessionId": "dead" }),
+    )
+    .await;
+
+    post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "stranger", "socket": socket, "cwd": "/w/x" }),
+    )
+    .await;
+
+    let (_, prs) = get(&f.state, "/api/prs/subscriptions").await;
+    assert_eq!(prs[0]["sessionId"], "dead", "{prs}");
+}
