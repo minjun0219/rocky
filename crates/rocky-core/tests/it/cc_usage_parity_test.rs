@@ -4,8 +4,9 @@
 use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Utc};
-use rocky_core::limits::{alert, select, Input, LimitsConfig, Source};
+use rocky_core::limits::{alert, credits, select, Input, LimitsConfig, Source, UsageCache};
 use rocky_core::statusline::full::{abbrev_home, duration, lines, Style, View};
+use rocky_core::statusline::width::display_width;
 use serde_json::Value;
 
 /// 픽스처의 `{{HOME}}` 자리 — 캡처 때는 임시 HOME 이었다.
@@ -19,7 +20,10 @@ fn render(case: &Value) -> String {
             .and_then(Source::parse)
             .unwrap_or_default(),
         alert_percent: case["config"]["alert_percent"].as_f64(),
+        ..Default::default()
     };
+    // 캡처 때 cc-usage 캐시에 심은 usage.json — 없으면 빈 캐시.
+    let cache: UsageCache = serde_json::from_value(case["usage"].clone()).unwrap_or_default();
     let now = DateTime::parse_from_rfc3339(case["now"].as_str().unwrap())
         .unwrap()
         .with_timezone(&Utc);
@@ -42,6 +46,8 @@ fn render(case: &Value) -> String {
         limits,
         tracking,
         alert: alert(&cfg, &limits),
+        credits: credits(&cfg, &limits, tracking, &cache, now),
+        currency: cfg.currency(),
         home: Some(HOME),
         now,
     };
@@ -119,4 +125,52 @@ fn abbrev_home_only_at_a_path_boundary() {
     assert_eq!(abbrev_home("/home/me/x", Some("/home/me")), "~/x");
     assert_eq!(abbrev_home("/home/meow", Some("/home/me")), "/home/meow");
     assert_eq!(abbrev_home("/home/me/x", None), "/home/me/x");
+}
+
+/// cc-usage `render_test.go` 의 폭 케이스 — 배지·크레딧 배치가 이 계산에 기댄다.
+#[test]
+fn display_width_matches_cc_usage() {
+    for (s, want) in [
+        ("", 0),
+        ("5h 70%", 6),
+        ("\x1b[32m70%\x1b[0m", 3),
+        ("🏢 $11.60", 9),
+        ("크레딧 소진 중", 14),
+        ("\x1b[90m(1h 20m→10:17)\x1b[0m", 14),
+        ("→", 1),
+        ("⎇ main", 6),
+    ] {
+        assert_eq!(display_width(s), want, "{s:?}");
+    }
+    for e in [
+        "💳",
+        "🏢",
+        "🚀",
+        "🟠",
+        "🧠",
+        "🪄",
+        "⚡",
+        "✅",
+        "⌛",
+        "⚡️",
+        "❤️",
+        "👨‍👩‍👧",
+        "🏳️‍🌈",
+    ] {
+        assert_eq!(display_width(e), 2, "{e}");
+    }
+    for a in ["⎇", "⇡", "⇣", "↻", "·"] {
+        assert_eq!(display_width(a), 1, "{a}");
+    }
+    // 텍스트 표현이 기본인 글자는 1칸, VS16 이 붙으면 2칸.
+    for (s, want) in [
+        ("🛠", 1),
+        ("🛠️", 2),
+        ("🛰", 1),
+        ("🛰️", 2),
+        ("🚀", 2),
+        ("🛬", 2),
+    ] {
+        assert_eq!(display_width(s), want, "{s}");
+    }
 }

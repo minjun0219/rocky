@@ -5,7 +5,8 @@
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc};
 
 use super::git::GitStatus;
-use crate::limits::{Alert, AlertLevel, Limits, Tracking, Window};
+use super::width::display_width;
+use crate::limits::{Alert, AlertLevel, CreditView, Limits, Tracking, Window};
 
 /// 색을 어디까지 쓰나 — `NO_COLOR` · `COLORTERM` · `TERM` 으로 정한다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -15,6 +16,8 @@ pub struct Style {
     pub true_color: bool,
     /// 가운데 단계 — statusline 프로세스에는 `COLORTERM` 이 오지 않고 `TERM` 만 온다(실측).
     pub color256: bool,
+    /// 터미널 폭(`COLUMNS`), 0 이면 모름 — statusline 은 stdout 이 파이프라 직접 잴 수 없다.
+    pub width: usize,
 }
 
 impl Style {
@@ -24,6 +27,10 @@ impl Style {
             color: get("NO_COLOR").unwrap_or_default().is_empty(),
             true_color: colorterm == "truecolor" || colorterm == "24bit",
             color256: get("TERM").unwrap_or_default().contains("256color"),
+            // 없거나 읽을 수 없거나 음수면 0 — 폭 판단을 건너뛴다.
+            width: get("COLUMNS")
+                .and_then(|c| c.parse::<i64>().ok())
+                .map_or(0, |w| w.max(0) as usize),
         }
     }
 
@@ -90,6 +97,10 @@ const MAGENTA: &str = "\x1b[1;35m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 const RED_BG: &str = "\x1b[41;97m";
+const BOLD: &str = "\x1b[1m";
+
+/// statusline 이 쓰지 않고 비워 두는 오른쪽 칸 — Claude Code 가 그 자리에 배지·알림을 얹는다(실측 38칸 + 여유).
+const RIGHT_MARGIN: usize = 40;
 
 const CTX_CURVE: f64 = 2.2;
 const CTX_MID_AT: f64 = 80.0;
@@ -137,6 +148,9 @@ pub struct View<'a> {
     pub limits: Limits,
     pub tracking: Tracking,
     pub alert: Alert,
+    pub credits: CreditView,
+    /// 통화 기호.
+    pub currency: &'a str,
     /// `~` 로 줄일 홈 디렉터리.
     pub home: Option<&'a str>,
     pub now: DateTime<Utc>,
@@ -169,19 +183,96 @@ pub fn lines<Tz: TimeZone>(v: &View, s: &Style, tz: &Tz) -> Vec<String> {
     if !dir.is_empty() {
         out.push(dir);
     }
-    let row = parts.join(&s.c(DIM, " · "));
+    // 크레딧은 평소엔 상태 줄 끝에 붙는다 — statusline 의 세로 칸이 곧 프롬프트가 밀리는 양이다.
+    let sep = s.c(DIM, " · ");
+    let mut row = parts.join(&sep);
+    let credit = credit_line(v, s);
+    let standalone = !credit.is_empty() && credit_standalone(v, s, &row, &credit, &sep);
+    if !credit.is_empty() && !standalone {
+        if row.is_empty() {
+            row = credit.clone();
+        } else {
+            row = format!("{row}{sep}{credit}");
+        }
+    }
     if !row.is_empty() {
         out.push(row);
     }
-    // 한도가 소진됐는데 크레딧을 아직 모른다 — 줄이 하나 느는 것 자체가 신호라 제 줄로 낸다.
-    if v.tracking == Tracking::Empty && v.limits.exhausted() {
-        out.push(s.c(YELLOW, "한도 소진 · 크레딧 조회 중…"));
+    if standalone {
+        out.push(credit);
     }
     if out.is_empty() {
         // 모든 세그먼트가 비어도 무엇이 도는지는 보이게 한다.
         out.push(s.c(DIM, "[rocky]"));
     }
     out
+}
+
+/// 크레딧을 제 줄로 내리나. 강조가 붙는 상태(소진 중 · 한도 소진 · 조회 중 · 비활성)는 늘 내리고 — 줄이 하나
+/// 느는 것 자체가 신호다 —, 폭을 알면 붙였을 때 오른쪽 여백(`RIGHT_MARGIN`)을 침범하는지 본다.
+fn credit_standalone(v: &View, s: &Style, row: &str, credit: &str, sep: &str) -> bool {
+    let cv = &v.credits;
+    if !cv.enabled || cv.spending || v.limits.exhausted() {
+        return true;
+    }
+    if s.width == 0 {
+        return false;
+    }
+    let mut w = display_width(row) + display_width(credit);
+    if !row.is_empty() {
+        w += display_width(sep);
+    }
+    w + RIGHT_MARGIN > s.width
+}
+
+/// 크레딧 줄 — **남은 금액**(한도 − 사용). 한도를 모르면 쓴 금액임을 밝힌다.
+fn credit_line(v: &View, s: &Style) -> String {
+    let cv = &v.credits;
+    if !cv.show {
+        return String::new();
+    }
+    if !cv.enabled {
+        if cv.disabled {
+            return s.c(DIM, "크레딧 비활성 — 한도 reset까지 대기");
+        }
+        return s.c(YELLOW, "한도 소진 · 크레딧 조회 중…");
+    }
+    let cur = v.currency;
+    let mut t = match cv.limit.filter(|l| *l > 0.0) {
+        Some(limit) => {
+            let tone = s.pct_color(cv.used / limit * 100.0);
+            s.c(&tone, &money(cur, limit - cv.used))
+                + &s.c(DIM, &format!(" ({})", money_short(cur, limit)))
+        }
+        None => s.c(DIM, &money(cur, cv.used)) + &s.c(DIM, " 사용"),
+    };
+    let mut tail = String::new();
+    if cv.spent_window > 0.0 {
+        tail += &format!(" · 이번 window +{}", money(cur, cv.spent_window));
+    }
+    if cv.spending {
+        t += &s.c(&format!("{BOLD}{RED}"), &format!("{tail} · 크레딧 소진 중"));
+    } else if v.limits.exhausted() {
+        t += &s.c(YELLOW, &format!("{tail} · 다음 prompt부터 크레딧 사용"));
+    } else {
+        t += &s.c(DIM, &tail);
+    }
+    t
+}
+
+/// 금액 — 매 렌더 바뀌는 값이라 소수점을 늘 둔다(폭이 흔들리지 않게).
+fn money(cur: &str, v: f64) -> String {
+    format!("{cur}{:.2}", v.max(0.0))
+}
+
+/// 한도처럼 잘 안 바뀌는 값 — `.00` 을 뗀다.
+fn money_short(cur: &str, v: f64) -> String {
+    let v = v.max(0.0);
+    if v == v.trunc() {
+        format!("{cur}{v:.0}")
+    } else {
+        format!("{cur}{v:.2}")
+    }
 }
 
 /// 모델 이름 뒤에 effort 를 흐리게 붙인다 — effort 는 모델의 속성이라 세그먼트로 떼지 않는다.
@@ -320,5 +411,19 @@ mod tests {
         }
         assert_eq!(cube256(0, 0, 0), 16);
         assert_eq!(cube256(255, 255, 255), 231);
+    }
+
+    #[test]
+    fn money_short_drops_zero_fraction_only() {
+        for (v, want) in [
+            (100.0, "$100"),
+            (100.5, "$100.50"),
+            (0.0, "$0"),
+            (33.33, "$33.33"),
+        ] {
+            assert_eq!(money_short("$", v), want);
+        }
+        assert_eq!(money("$", 100.0), "$100.00");
+        assert_eq!(money("$", -3.0), "$0.00");
     }
 }

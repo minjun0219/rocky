@@ -5,7 +5,8 @@
 //!
 //! 지금은 캐시(usage API 응답·state)가 없는 경로까지만 옮겼다. 캐시를 읽는 판정은 그 캐시를 쓰는 조각에서 더한다.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, TimeDelta, Utc};
+use serde::Deserialize;
 use serde_json::Value;
 
 /// 한도를 어디서 읽나 — cc-usage 설정의 `source` 와 같은 값.
@@ -39,6 +40,12 @@ pub struct LimitsConfig {
     pub source: Source,
     /// "임박" 임계. 없으면 90, `0` 이면 임박 경고를 끈다(소진 강조는 남는다).
     pub alert_percent: Option<f64>,
+    /// `used_credits` 단위 환산 — 없거나 0 이하면 100(cent 가정).
+    pub credit_divisor: Option<f64>,
+    /// 통화 기호 — 없거나 비면 `$`.
+    pub currency: Option<String>,
+    /// 크레딧이 0 이어도 줄을 낸다.
+    pub always_show_credits: bool,
 }
 
 impl LimitsConfig {
@@ -49,6 +56,17 @@ impl LimitsConfig {
             Some(p) if !(0.0..=100.0).contains(&p) => 0.0,
             Some(p) => p,
         }
+    }
+
+    pub fn credit_divisor(&self) -> f64 {
+        self.credit_divisor.filter(|d| *d > 0.0).unwrap_or(100.0)
+    }
+
+    pub fn currency(&self) -> &str {
+        self.currency
+            .as_deref()
+            .filter(|c| !c.is_empty())
+            .unwrap_or("$")
     }
 }
 
@@ -248,4 +266,99 @@ pub fn alert(cfg: &LimitsConfig, lim: &Limits) -> Alert {
         }
     }
     best
+}
+
+/// 크레딧 사용이 "오르는 중" 으로 보는 시간 — 그 안에 `used_credits` 가 늘었으면 소진 중이다.
+const RISING_WINDOW: TimeDelta = TimeDelta::minutes(15);
+
+/// usage API 캐시 중 크레딧 판정이 읽는 것 — cc-usage `usage.json` 과 같은 모양이다. 읽고 쓰는 배선은 아직 없고,
+/// 골든 픽스처의 `usage` 를 이 모양으로 읽는다.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct UsageCache {
+    pub usage: Option<CachedUsage>,
+    pub baseline: Option<CreditBaseline>,
+    /// `used_credits` 가 마지막으로 늘어난 시각(RFC3339). Go 의 zero 시각(`0001-01-01`)·읽을 수 없는 값은 없음으로 본다.
+    pub credits_rising_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct CachedUsage {
+    pub extra: Option<ExtraUsage>,
+}
+
+/// 응답의 `extra_usage` — 크레딧.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct ExtraUsage {
+    pub enabled: bool,
+    pub used_credits: Option<f64>,
+    pub monthly_limit: Option<f64>,
+}
+
+/// 한도가 처음 소진된 순간의 `used_credits` — "이번 window 에서 쓴 크레딧" 의 기준.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct CreditBaseline {
+    pub credits: f64,
+}
+
+/// 크레딧 줄을 그릴 재료. 금액은 `credit_divisor` 로 환산한 값이다.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CreditView {
+    pub show: bool,
+    pub enabled: bool,
+    /// 응답이 크레딧이 꺼진 계정이라고 알렸다 — "조회 중" 이 아니라 "비활성" 이다.
+    pub disabled: bool,
+    pub used: f64,
+    pub limit: Option<f64>,
+    /// 기준선 이후 쓴 크레딧 — 한도가 소진됐을 때만.
+    pub spent_window: f64,
+    pub spending: bool,
+}
+
+/// 크레딧 줄을 낼지, 무엇을 낼지. 한도를 다루지 않으면(`Tracking::Off`) 아무것도 없다.
+pub fn credits(
+    cfg: &LimitsConfig,
+    lim: &Limits,
+    tracking: Tracking,
+    cache: &UsageCache,
+    now: DateTime<Utc>,
+) -> CreditView {
+    if tracking == Tracking::Off {
+        return CreditView::default();
+    }
+    let hit = lim.exhausted();
+    let extra = cache.usage.as_ref().and_then(|u| u.extra.as_ref());
+    let Some((extra, used)) =
+        extra.and_then(|e| e.used_credits.filter(|_| e.enabled).map(|u| (e, u)))
+    else {
+        // 한도는 소진됐는데 크레딧을 아직 모른다.
+        return CreditView {
+            show: hit,
+            disabled: extra.is_some_and(|e| !e.enabled),
+            ..CreditView::default()
+        };
+    };
+    let div = cfg.credit_divisor();
+    let spent_window = match &cache.baseline {
+        Some(b) if hit => (used - b.credits) / div,
+        _ => 0.0,
+    };
+    let rising = cache
+        .credits_rising_at
+        .as_deref()
+        .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+        .is_some_and(|at| at.year() > 1 && now - at.with_timezone(&Utc) < RISING_WINDOW);
+    let spending = spent_window > 0.0 || rising;
+    CreditView {
+        show: hit || spending || cfg.always_show_credits || used / div > 0.0,
+        enabled: true,
+        disabled: false,
+        used: used / div,
+        limit: extra.monthly_limit.map(|l| l / div),
+        spent_window,
+        spending,
+    }
 }
