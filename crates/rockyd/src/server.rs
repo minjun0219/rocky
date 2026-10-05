@@ -1430,7 +1430,7 @@ async fn dispatch(
             return Ok(ok_json(&with_ref_todo(store, moved)?));
         }
         if let Some((r, _)) = seg2_match(path, "/api/todos/", &["handoff"]) {
-            return handoff_route(state, &r, query, headers, body, actor).await;
+            return handoff_route(state, &r, query, headers, body, actor, local).await;
         }
         if let Some((r, _)) = seg2_match(path, "/api/todos/", &["spawn"]) {
             return spawn_route(state, &r, query, headers, body, actor, local).await;
@@ -2155,6 +2155,7 @@ async fn issue_route(
 }
 
 /// POST /api/todos/:ref/handoff — 자동 매칭은 후보 정확히 1개일 때만.
+#[allow(clippy::too_many_arguments)]
 async fn handoff_route(
     state: &Arc<ServerState>,
     r: &str,
@@ -2162,6 +2163,7 @@ async fn handoff_route(
     headers: &HeaderMap,
     body: Body,
     actor: &str,
+    local: bool,
 ) -> StoreResult<Response> {
     let store = &state.store;
     let body = read_body(headers, body).await?;
@@ -2260,9 +2262,58 @@ async fn handoff_route(
         todo_ref: &todo_ref,
         todo_title: &todo.title,
     });
+    // 그 세션이 받은편지함 소켓을 등록했으면 poke 를 바로 꽂아 턴을 연다 — 웹의 "에이전트에게 보내기" 는
+    // poke 를 보낼 길이 없어, 쉬는 세션은 다음 턴(사람이 뭔가 칠 때)까지 집지 못했다. 열린 턴의
+    // UserPromptSubmit 훅이 큐에서 집어 전체 지시를 주입한다. 등록이 없으면 지금처럼 큐에서 기다린다.
+    // 세션을 깨워 턴을 여는 건 세션을 움직이는 일이라 로컬 요청만 한다(세션 띄우기와 같은 경계) — 노출된 주소
+    // (tailscale·Cloudflare)로 온 핸드오프는 큐에만 넣고 그 세션의 다음 턴을 기다린다.
+    let woke = local
+        && wake_session(
+            state,
+            &target.session_id,
+            &poke.message,
+            format!("{todo_ref} {}", todo.title),
+        )
+        .await;
     let mut out = serde_json::to_value(&handoff).map_err(|e| StoreError::new(e.to_string()))?;
     out["poke"] = serde_json::to_value(&poke).map_err(|e| StoreError::new(e.to_string()))?;
+    out["woke"] = json!(woke);
     Ok(json_response(&out, StatusCode::CREATED))
+}
+
+/// 핸드오프 대상 세션의 받은편지함에 한 줄 — 썼으면 true. "보내지 않기" 는 보지 않는다: 그건 자동 알림을 끄는
+/// 스위치이고, 핸드오프는 사람이 그 세션을 골라 누른 것이다. 전달 기록(`/api/deliveries`)에 `handoff` 로 남긴다.
+async fn wake_session(
+    state: &Arc<ServerState>,
+    session_id: &str,
+    text: &str,
+    subject: String,
+) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let Some(target) = state.inboxes().into_iter().find(|r| {
+        r.session_id == session_id
+            && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
+    }) else {
+        return false;
+    };
+    let line = rocky_core::peer_inbox::inbox_line(text);
+    let socket = target.socket.clone();
+    let ok = tokio::task::spawn_blocking(move || crate::prwatch::write_inbox(&socket, &line))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false);
+    state.record_delivery(rocky_core::peer_inbox::Delivery {
+        at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        kind: "handoff".to_string(),
+        subject,
+        url: None,
+        session_id: session_id.to_string(),
+        ok,
+    });
+    if !ok {
+        state.forget_inbox(session_id);
+    }
+    ok
 }
 
 /// POST /api/todos/:ref/spawn — 순서가 계약이다 (contract.md 참고).

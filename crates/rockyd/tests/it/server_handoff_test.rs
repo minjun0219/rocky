@@ -613,6 +613,108 @@ async fn claim_accepts_local_hook() {
     assert_eq!(body["handoff"]["deliveredVia"], "prompt");
 }
 
+/// Claude Code 받은편지함 모양의 소켓(`…/cc-socks-*/<숫자>.sock`).
+fn inbox_socket(dir: &std::path::Path) -> (std::os::unix::net::UnixListener, String) {
+    let socks = dir.join("cc-socks-test");
+    std::fs::create_dir_all(&socks).unwrap();
+    let path = socks.join("42.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    (listener, path.to_string_lossy().to_string())
+}
+
+fn drain(listener: &std::os::unix::net::UnixListener) -> Vec<String> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    while let Ok((mut stream, _)) = listener.accept() {
+        stream.set_nonblocking(false).unwrap();
+        let mut text = String::new();
+        stream.read_to_string(&mut text).unwrap();
+        out.push(text);
+    }
+    out
+}
+
+#[tokio::test]
+async fn handoff_wakes_a_session_that_registered_its_inbox() {
+    // 웹의 "에이전트에게 보내기" 는 poke 를 보낼 길이 없다 — 데몬이 그 세션의 받은편지함에 꽂아 턴을 연다.
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(fixture_sessions()))
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, socket) = inbox_socket(dir.path());
+    post(
+        &state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "sess-1", "socket": socket, "cwd": "/w/rocky-todo" }),
+    )
+    .await;
+    let todo = create(&f, "rocky-todo", "깨워서 넘긴다");
+    let (status, body) = post(
+        &state,
+        &format!("/api/todos/{}/handoff", todo.id),
+        json!({"sessionId":"sess-1"}),
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(body["woke"], true);
+    let lines = drain(&listener);
+    assert_eq!(lines.len(), 1);
+    assert!(
+        lines[0].contains("보드에서 작업 요청이 도착했다"),
+        "{}",
+        lines[0]
+    );
+    assert!(lines[0].contains("깨워서 넘긴다"));
+    // 큐에도 그대로 있다 — 열린 턴의 훅이 여기서 집어 전체 지시를 주입한다.
+    assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_some());
+
+    // 받은편지함을 등록하지 않은 세션은 지금처럼 큐에서 다음 턴을 기다린다.
+    let other = create(&f, "forses", "등록 없는 세션");
+    let (status, body) = post(
+        &state,
+        &format!("/api/todos/{}/handoff", other.id),
+        json!({"sessionId":"sess-2"}),
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(body["woke"], false);
+}
+
+#[tokio::test]
+async fn a_remote_handoff_is_queued_but_does_not_wake_the_session() {
+    // 노출된 주소(프록시 헤더)로 온 핸드오프는 세션을 움직이지 않는다 — 큐에만 넣는다(세션 띄우기와 같은 경계).
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(fixture_sessions()))
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, socket) = inbox_socket(dir.path());
+    post(
+        &state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "sess-1", "socket": socket, "cwd": "/w/rocky-todo" }),
+    )
+    .await;
+    let todo = create(&f, "rocky-todo", "원격에서 넘김");
+    let (status, body) = call(
+        &state,
+        "POST",
+        &format!("/api/todos/{}/handoff", todo.id),
+        Some(json!({"sessionId":"sess-1"})),
+        ReqOptions {
+            headers: vec![("x-forwarded-for", "100.64.0.9")],
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(body["woke"], false);
+    assert!(drain(&listener).is_empty());
+    assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_some());
+}
+
 #[tokio::test]
 async fn handoff_picks_its_target_from_the_uncached_session_list() {
     // 읽기 라우트의 목록(지난 값)엔 sess-1 이 살아 있지만 캐시 없는 목록에선 이미 끝났다 —

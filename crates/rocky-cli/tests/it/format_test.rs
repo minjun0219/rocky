@@ -372,6 +372,7 @@ fn handoff_says_plainly_that_delivery_has_not_happened() {
             to: "rocky-todo-1e".into(),
             message: "# rocky: ...".into(),
         }),
+        woke: false,
     };
     let out = render_handoff_created("rocky-12", &created);
     assert!(out.contains("큐에 넣음"), "{out}");
@@ -386,11 +387,29 @@ fn handoff_without_poke_explains_the_version_gap() {
     let created = HandoffCreated {
         handoff: handoff_fixture(),
         poke: None,
+        woke: false,
     };
     let out = render_handoff_created("rocky-12", &created);
     assert!(out.contains("poke 를 주지 않는다"), "{out}");
     assert!(out.contains("daemon stop"), "{out}");
     assert!(!out.contains("SendMessage"), "{out}");
+}
+
+/// 데몬이 이미 깨웠으면 손으로 깨우라고 하지 않는다 — 따라 하면 같은 세션에 턴이 두 번 열린다.
+#[test]
+fn handoff_that_woke_the_session_does_not_ask_for_a_manual_poke() {
+    let created = HandoffCreated {
+        handoff: handoff_fixture(),
+        poke: Some(HandoffPokeView {
+            to: "rocky-todo-1e".into(),
+            message: "# rocky: ...".into(),
+        }),
+        woke: true,
+    };
+    let out = render_handoff_created("rocky-12", &created);
+    assert!(out.contains("깨웠다"), "{out}");
+    assert!(!out.contains("SendMessage"), "{out}");
+    assert!(!out.contains("아직 배달 전"), "{out}");
 }
 
 // ── TS 오라클 대조 ──────────────────────────────────────────────────────────

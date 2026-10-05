@@ -359,6 +359,9 @@ pub struct HandoffCreated {
     /// 있고, 그때 이 필드는 오지 않는다.
     #[serde(default)]
     pub poke: Option<HandoffPokeView>,
+    /// 데몬이 대상 세션의 받은편지함에 poke 를 바로 꽂았나 — true 면 손으로 깨우지 않는다(두 번 깨운다).
+    #[serde(default)]
+    pub woke: bool,
 }
 
 /// 대상 세션을 깨우는 poke.
@@ -380,6 +383,9 @@ pub fn render_handoff_created(r#ref: &str, created: &HandoffCreated) -> String {
         .session_name
         .as_deref()
         .unwrap_or(&created.handoff.session_id);
+    if created.woke {
+        return format!("✓ {ref} → {target} 에 보냄 (데몬이 그 세션을 깨웠다 — 따로 깨울 필요 없다)", ref = r#ref);
+    }
     let head = format!("✓ {ref} → {target} 큐에 넣음 (아직 배달 전 — 대상의 다음 턴에 주입된다)", ref = r#ref);
     let Some(poke) = &created.poke else {
         // 구버전 데몬이다. 없는 poke 를 지어내지 않고 무엇이 어긋났는지와 두 갈래를 그대로

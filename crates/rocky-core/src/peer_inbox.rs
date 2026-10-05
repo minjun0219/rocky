@@ -39,7 +39,7 @@ pub struct InboxRegistration {
 pub struct Delivery {
     /// RFC 3339.
     pub at: String,
-    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox`.
+    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox` · `handoff`.
     pub kind: String,
     /// 무엇을 — `owner/repo#12 제목` 또는 `gh-bugs 새 항목 2건`.
     pub subject: String,
