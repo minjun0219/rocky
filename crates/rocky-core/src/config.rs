@@ -620,10 +620,20 @@ pub fn load_tokens_block(config_path: &Path) -> TokensConfig {
     }
 }
 
-/// `rocky.json` 최상위 `statusline` 블록 — `rocky statusline --full` 의 한도 판정 설정(`rocky_core::limits`).
-/// 보드 줄 템플릿(`todo.statusline`)과는 다른 자리다. 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open).
-pub fn load_statusline_block(config_path: &Path) -> crate::limits::LimitsConfig {
-    let mut cfg = crate::limits::LimitsConfig::default();
+/// `rocky.json` 최상위 `statusline` 블록 — `rocky statusline --full` 의 설정. 보드 줄 템플릿(`todo.statusline`)과는
+/// 다른 자리다.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StatuslineConfig {
+    /// 한도 판정(`source` · `alertPercent`).
+    pub limits: crate::limits::LimitsConfig,
+    /// 아래에 덧붙일 다른 도구의 줄(`extraCommands[]`).
+    pub extra_commands: Vec<crate::statusline::extra::ExtraCommand>,
+}
+
+/// 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open). `extraCommands` 에서 모양이 틀린 항목(`command` 가
+/// 문자열 배열이 아님)은 건너뛴다 — statusline 이 설정 한 줄 때문에 비면 안 된다.
+pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
+    let mut cfg = StatuslineConfig::default();
     let Ok(raw) = std::fs::read_to_string(config_path) else {
         return cfg;
     };
@@ -638,9 +648,26 @@ pub fn load_statusline_block(config_path: &Path) -> crate::limits::LimitsConfig 
         .and_then(|v| v.as_str())
         .and_then(crate::limits::Source::parse)
     {
-        cfg.source = source;
+        cfg.limits.source = source;
     }
-    cfg.alert_percent = block.get("alertPercent").and_then(|v| v.as_f64());
+    cfg.limits.alert_percent = block.get("alertPercent").and_then(|v| v.as_f64());
+    let extras = block.get("extraCommands").and_then(|v| v.as_array());
+    cfg.extra_commands = extras
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let command = item
+                .get("command")?
+                .as_array()?
+                .iter()
+                .map(|a| a.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()?;
+            Some(crate::statusline::extra::ExtraCommand {
+                command,
+                timeout_ms: item.get("timeoutMs").and_then(|v| v.as_u64()),
+            })
+        })
+        .collect();
     cfg
 }
 

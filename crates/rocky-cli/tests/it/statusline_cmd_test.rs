@@ -146,7 +146,7 @@ fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
 }
 
 /// `statusline --full` 을 프로세스째 돌려 cc-usage 골든(`rocky-core/tests/fixtures/cc-usage`)과 바이트 단위로 비교한다 —
-/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 실행까지 실제 경로를 탄다. 크레딧 캐시를 심은 케이스는 CLI 가 아직
+/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 과 `extraCommands` 실행까지 실제 경로를 탄다. 크레딧 캐시를 심은 케이스는 CLI 가 아직
 /// usage 캐시를 읽지 않아 건너뛴다(렌더는 `rocky-core` 의 대조 테스트가 본다).
 #[test]
 fn full_replays_cc_usage_goldens() {
@@ -194,9 +194,17 @@ fn full_replays_cc_usage_goldens() {
             }
         }
         let config = dir.path().join("rocky.json");
+        // cc-usage 설정 키(snake_case)를 rocky.json 의 키(camelCase)로 옮긴다.
+        let extra_commands: Vec<serde_json::Value> = case["config"]["extra_commands"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|c| serde_json::json!({ "command": c["command"], "timeoutMs": c["timeout_ms"] }))
+            .collect();
         let statusline = serde_json::json!({
             "source": case["config"]["source"],
             "alertPercent": case["config"]["alert_percent"],
+            "extraCommands": extra_commands,
         });
         std::fs::write(
             &config,
@@ -237,12 +245,19 @@ fn full_replays_cc_usage_goldens() {
             .write_all(stdin.as_bytes())
             .unwrap();
         let out = child.wait_with_output().unwrap();
-        let mut want = std::fs::read_to_string(case_dir.join("expected.txt")).unwrap();
+        // 바이트로 비교한다 — extra 출력은 UTF-8 이 아닐 수 있다(extra-bytes).
+        let mut want = std::fs::read(case_dir.join("expected.txt")).unwrap();
         for pair in case["allow"].as_array().unwrap() {
-            want = want.replace(pair[0].as_str().unwrap(), pair[1].as_str().unwrap());
+            let (from, to) = (pair[0].as_str().unwrap(), pair[1].as_str().unwrap());
+            want = String::from_utf8(want)
+                .unwrap()
+                .replace(from, to)
+                .into_bytes();
         }
-        let got = String::from_utf8_lossy(&out.stdout);
-        if got != want || !out.status.success() {
+        let (got_bytes, want_bytes) = (out.stdout.clone(), want.clone());
+        let want = String::from_utf8_lossy(&want_bytes);
+        let got = String::from_utf8_lossy(&got_bytes);
+        if got_bytes != want_bytes || !out.status.success() {
             failures.push(format!(
                 "{}\n  want {want:?}\n  got  {got:?}\n  err  {}",
                 case_dir.file_name().unwrap().to_string_lossy(),

@@ -211,6 +211,27 @@
         "alertPercent": {
           "type": "number",
           "description": "이 사용률(%)부터 임박 배지. 0 이면 임박 경고를 끄고 소진(100%)만 강조, 0~100 밖도 끈 것. 기본 90."
+        },
+        "extraCommands": {
+          "type": "array",
+          "description": "다른 도구의 statusline 줄을 rocky 줄 아래(보드 줄 위)에 설정 순서대로 붙인다. 나란히 돌고, 늦거나 실패하거나 출력이 없으면 그 명령만 빠진다.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "argv 배열(셸을 거치지 않는다). {{cwd}} · {{session_id}} 를 치환하고, 쓰인 값이 비었으면 그 명령은 건너뛴다."
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "마감(ms). 넘기면 프로세스 그룹째 끊는다. 기본 300."
+              }
+            },
+            "required": ["command"],
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

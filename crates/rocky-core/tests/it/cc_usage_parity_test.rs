@@ -91,6 +91,10 @@ fn renders_the_same_bytes_as_cc_usage() {
         if case["repo"].as_array().is_some_and(|r| !r.is_empty()) {
             continue;
         }
+        // extra_commands 도 프로세스를 돌려야 한다 — 같은 곳이 본다.
+        if case["config"]["extra_commands"].is_array() {
+            continue;
+        }
         let (got, want) = (render(&case), expected(dir, &case));
         if got != want {
             failures.push(format!(
@@ -177,4 +181,37 @@ fn display_width_matches_cc_usage() {
     ] {
         assert_eq!(display_width(s), want, "{s}");
     }
+}
+
+/// cc-usage `internal/extra` 의 치환 규칙 — 쓰인 placeholder 가 비면 건너뛰고, 안 쓰인 placeholder 는 비어도 된다.
+#[test]
+fn extra_expand_skips_only_when_a_used_placeholder_is_empty() {
+    use rocky_core::statusline::extra::{expand, output_lines, Vars};
+    let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let full = Vars {
+        session_id: "s1",
+        cwd: "/w",
+    };
+    assert_eq!(
+        expand(&argv(&["t", "-s", "{{session_id}}", "--cwd={{cwd}}"]), full),
+        Some(argv(&["t", "-s", "s1", "--cwd=/w"]))
+    );
+    let no_session = Vars {
+        session_id: "",
+        cwd: "/w",
+    };
+    assert_eq!(expand(&argv(&["t", "{{session_id}}"]), no_session), None);
+    assert_eq!(
+        expand(&argv(&["t", "{{cwd}}"]), no_session),
+        Some(argv(&["t", "/w"]))
+    );
+    assert_eq!(expand(&[], full), None);
+
+    assert_eq!(
+        output_lines(b"a\n  \n\n  b\n\x1b[32mc\x1b[0m\n\n"),
+        [&b"a"[..], b"  b", b"\x1b[32mc\x1b[0m"]
+    );
+    // UTF-8 이 아닌 바이트는 그대로 두고, 공백으로 보지 않는다.
+    assert_eq!(output_lines(b"a\xffb\n\xff\n"), [&b"a\xffb"[..], b"\xff"]);
+    assert!(output_lines(b"").is_empty());
 }
