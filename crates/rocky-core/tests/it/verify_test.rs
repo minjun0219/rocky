@@ -32,15 +32,11 @@ fn verify_block_is_opt_in_and_drops_bad_targets() {
     assert_eq!(c.interval_seconds(), 60, "10초 밑은 기본값");
     assert_eq!(
         c.targets.len(),
-        2,
-        "단계가 없거나 전부 잘못된 대상은 버린다"
+        1,
+        "단계가 없거나 전부 잘못됐거나 브랜치가 잘못된 대상은 버린다"
     );
     assert_eq!(c.targets[0].branch, "main");
     assert_eq!(c.targets[0].steps[0].timeout_ms, Some(1000));
-    assert_eq!(
-        c.targets[1].branch, "main",
-        "옵션처럼 보이는 브랜치는 받지 않는다"
-    );
 
     let (_d, path) = config(
         r#"{ "verify": { "enabled": false, "targets": [ { "board": "r", "steps": [ { "name": "t", "command": ["true"] } ] } ] } }"#,

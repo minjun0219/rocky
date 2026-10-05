@@ -35,7 +35,10 @@ pub fn render_verify(raw: &Value) -> String {
         let sha = text(r, "sha");
         let short = &sha[..sha.len().min(7)];
         let subject = text(r, "subject");
-        let when = text(r, "finishedAt").get(11..16).unwrap_or("");
+        // 기록은 UTC — 사람이 읽는 시각은 이 머신의 로컬 시계로.
+        let when = chrono::DateTime::parse_from_rfc3339(text(r, "finishedAt"))
+            .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+            .unwrap_or_default();
         let line = match text(r, "state") {
             "passed" => format!("✓ {head} {short} 통과 {when} · {subject}"),
             "failed" => format!(

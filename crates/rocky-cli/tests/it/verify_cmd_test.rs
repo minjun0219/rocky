@@ -12,8 +12,13 @@ fn renders_each_target_state() {
         { "board": "bare", "branch": "main", "error": "보드 bare 에 path 가 없다" }
     ]});
     let text = render_verify(&raw);
+    let local = chrono::DateTime::parse_from_rfc3339("2026-10-05T12:03:00.000Z")
+        .unwrap()
+        .with_timezone(&chrono::Local)
+        .format("%H:%M")
+        .to_string();
     assert!(
-        text.contains("✓ rocky main abcdef1 통과 12:03 · feat: x"),
+        text.contains(&format!("✓ rocky main abcdef1 통과 {local} · feat: x")),
         "{text}"
     );
     assert!(

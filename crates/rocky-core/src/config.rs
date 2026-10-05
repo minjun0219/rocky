@@ -471,13 +471,17 @@ fn parse_target(value: &serde_json::Value) -> Option<VerifyTarget> {
     if board.is_empty() {
         return None;
     }
-    let branch = obj
-        .get("branch")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|b| crate::verify::is_branch_name(b))
-        .unwrap_or("main")
-        .to_string();
+    // 브랜치를 주지 않으면 main. 잘못된 이름이면 대상을 버린다 — 조용히 main 으로 바꾸면 다른 브랜치를 검증하는 줄 모른다.
+    let branch = match obj.get("branch") {
+        None => "main".to_string(),
+        Some(v) => {
+            let b = v.as_str()?.trim();
+            if !crate::verify::is_branch_name(b) {
+                return None;
+            }
+            b.to_string()
+        }
+    };
     let steps: Vec<InboxSource> = obj
         .get("steps")?
         .as_array()?

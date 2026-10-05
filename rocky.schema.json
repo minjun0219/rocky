@@ -226,7 +226,7 @@
     },
     "verify": {
       "type": "object",
-      "description": "기본 브랜치 검증 — 원격 브랜치에 새 커밋이 들어오면 데몬이 전용 워크트리(<todo dir>/verify/<board>/tree, detached)에서 단계를 차례로 돈다. 실패와 복구만 macOS 배너로 알리고, 결과는 `rocky verify` · `GET /api/verify`. 대상이 없으면 꺼진 것이다.",
+      "description": "기본 브랜치 검증 — 원격 브랜치에 새 커밋이 들어오면 데몬이 전용 워크트리(<todo dir>/verify/<board>/<branch>/tree, detached)에서 단계를 차례로 돈다. 실패와 복구만 macOS 배너로 알리고, 결과는 `rocky verify` · `GET /api/verify`. 대상이 없으면 꺼진 것이다.",
       "properties": {
         "enabled": {
           "type": "boolean",
@@ -252,7 +252,7 @@
               },
               "branch": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9/_.-]+$",
+                "pattern": "^(?!-)(?!.*\\.\\.)[A-Za-z0-9/_.-]+$",
                 "description": "원격 브랜치(기본 main)."
               },
               "steps": {

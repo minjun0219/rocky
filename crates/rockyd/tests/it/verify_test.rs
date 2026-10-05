@@ -101,7 +101,7 @@ async fn verifies_new_commits_in_its_own_worktree_and_notifies_failure_and_recov
     assert_eq!(rec.state, VerifyState::Passed, "{status:?}");
     assert_eq!(rec.subject.as_deref(), Some("첫 커밋"));
     assert!(
-        root.join("proj/tree/ok.txt").exists(),
+        root.join("proj/main/tree/ok.txt").exists(),
         "전용 워크트리에서 돈다"
     );
     assert!(std::fs::read_to_string(&rec.log)
@@ -183,4 +183,104 @@ async fn a_step_past_its_timeout_fails_and_a_board_without_path_is_reported() {
     let bare = status.iter().find(|s| s.board == "bare").unwrap();
     assert!(bare.error.as_deref().unwrap().contains("path"), "{bare:?}");
     assert!(bare.record.is_none());
+}
+
+#[tokio::test]
+async fn a_timed_out_step_takes_its_grandchildren_with_it() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    f.store.ensure_board("proj", None, "t").unwrap();
+    f.store
+        .set_board_path("proj", work.to_str().unwrap(), "t")
+        .unwrap();
+    let root = tmp.path().join("verify");
+    let pid_file = tmp.path().join("grandchild.pid");
+    // sh 가 손자(sleep)를 띄우고 기다린다 — 리더만 죽이면 손자가 남는다.
+    let script = format!("sleep 60 & echo $! > {}; wait", pid_file.display());
+    let (notifier, _seen) = capture();
+    let target = VerifyTarget {
+        board: "proj".into(),
+        branch: "main".into(),
+        steps: vec![step("slow", &script, Some(500))],
+    };
+    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
+    let pid: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let alive = std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .unwrap()
+        .success();
+    assert!(!alive, "시간 초과면 손자까지 끝낸다(pid {pid})");
+    assert!(!root.join("proj/main/running.pgid").exists());
+}
+
+#[tokio::test]
+async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    f.store.ensure_board("proj", None, "t").unwrap();
+    f.store
+        .set_board_path("proj", work.to_str().unwrap(), "t")
+        .unwrap();
+    let root = tmp.path().join("verify");
+    let dir = root.join("proj/main");
+    let target = VerifyTarget {
+        board: "proj".into(),
+        branch: "main".into(),
+        steps: vec![step("has-ok", "test -f ok.txt", None)],
+    };
+    let (notifier, seen) = capture();
+
+    // 준비 실패(트리 자리에 지울 수 없는 것) — 커밋을 빨강으로 남기지 않고 error 만, 알림 없음.
+    std::fs::create_dir_all(dir.join("tree")).unwrap();
+    std::fs::write(dir.join("tree/.git"), "gitdir: /nowhere").unwrap();
+    let locked = dir.join("tree");
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o555)).unwrap();
+    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let status = f.state.verify()[0].clone();
+    assert!(
+        status.error.as_deref().unwrap_or("").contains("준비 실패"),
+        "{status:?}"
+    );
+    assert!(status.record.is_none(), "준비 실패는 기록을 만들지 않는다");
+    assert!(seen.lock().unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&locked);
+
+    // 앞 커밋이 실패로 끝났고, 지금 커밋은 도는 중에 데몬이 내려갔다(last=Running, finished=Failed).
+    let head = String::from_utf8(
+        std::process::Command::new("git")
+            .args(["-C", work.to_str().unwrap(), "rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let rec = |sha: &str, state: &str| {
+        serde_json::json!({ "board": "proj", "branch": "main", "sha": sha, "state": state,
+                            "startedAt": "2026-10-05T00:00:00.000Z", "log": "/tmp/x.log" })
+        .to_string()
+    };
+    std::fs::write(
+        dir.join("finished.json"),
+        rec("0000000000000000000000000000000000000000", "failed"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("last.json"), rec(&head, "running")).unwrap();
+    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
+    assert_eq!(
+        f.state.verify()[0].record.clone().unwrap().state,
+        VerifyState::Passed
+    );
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].contains("다시 초록"), "{seen:?}");
 }
