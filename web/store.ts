@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { CollectItem, HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
-import type { AgentSession, BoardView } from './types';
+import type { AgentSession, BoardView, RcStatus } from './types';
 import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
 import {
   advanceSeen,
@@ -42,6 +42,8 @@ const NOTES_SEEN_KEY = 'rocky:notes-seen';
 const GITHUB_HIDDEN_KEY = 'rocky:github-hidden';
 /** GitHub 탭을 보이나 — 끄면 탭도 GitHub 줄도 안 보인다. 기본 켬. */
 const GITHUB_TAB_KEY = 'rocky:github-tab';
+/** 원격 제어 탭을 보이나 — 기본 켬. 이 기기에서 rc 가 꺼져 있으면(`configured: false`) 이 값과 상관없이 안 보인다. */
+const RC_TAB_KEY = 'rocky:rc-tab';
 
 function readHidden(): string[] {
   try {
@@ -75,7 +77,10 @@ function viewOf(route: Route): BoardView {
     return 'notes';
   }
   const view = route.view ?? 'feed';
-  return view === 'github' && readStored(GITHUB_TAB_KEY) === 'off' ? 'feed' : view;
+  if (view === 'github' && readStored(GITHUB_TAB_KEY) === 'off') {
+    return 'feed';
+  }
+  return view === 'rc' && readStored(RC_TAB_KEY) === 'off' ? 'feed' : view;
 }
 
 /** 지금 보는 탭을 실은 주소 — store 가 주소를 쓸 때는 늘 이것으로(탭이 주소에서 빠지지 않게). */
@@ -125,6 +130,10 @@ interface UiState {
   githubHidden: string[];
   /** GitHub 탭을 보이나. 끄면 GitHub 줄은 어디에도 안 보인다. */
   showGithub: boolean;
+  /** 원격 제어 탭을 보이나(이 브라우저의 선택). 실제로 보이려면 `rc.configured` 도 참이어야 한다. */
+  showRc: boolean;
+  /** rc 서버 현황 — 아직 못 읽었으면 null. `configured` 가 false 면 rc 표면을 그리지 않는다. */
+  rc: RcStatus | null;
   actor: string;
   /**
    * 사용자의 테마 **의도**(auto/dark/light).
@@ -176,6 +185,9 @@ interface UiState {
   hideGithub: (key: string) => void;
   unhideAllGithub: () => void;
   setShowGithub: (show: boolean) => void;
+  setShowRc: (show: boolean) => void;
+  /** rc 현황을 다시 읽는다(데몬이 5초 캐시). 꺼진 기기에서 원격 제어 탭을 보던 중이면 피드로 돌린다. */
+  loadRc: () => Promise<void>;
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
@@ -348,6 +360,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   showArchived: false,
   githubHidden: readHidden(),
   showGithub: readStored(GITHUB_TAB_KEY) !== 'off',
+  showRc: readStored(RC_TAB_KEY) !== 'off',
+  rc: null,
   actor: localStorage.getItem(ACTOR_KEY) ?? 'logan',
   themePref: readThemePref(
     (() => {
@@ -407,6 +421,22 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (!showGithub) {
       const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
       replacePath(pathFor(here));
+    }
+  },
+  setShowRc: (showRc) => {
+    writeStored(RC_TAB_KEY, showRc ? 'on' : 'off');
+    set(showRc ? { showRc } : { showRc, view: get().view === 'rc' ? 'feed' : get().view });
+    if (!showRc) {
+      const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
+      replacePath(pathFor(here));
+    }
+  },
+  loadRc: async () => {
+    try {
+      const rc = await api<RcStatus>('/api/rc/servers', get().actor);
+      set(!rc.configured && get().view === 'rc' ? { rc, view: 'feed' } : { rc });
+    } catch {
+      // 데몬이 잠깐 안 닿으면 직전 값을 둔다 — 화면이 깜박이지 않게.
     }
   },
   setShowArchived: (showArchived) => {
