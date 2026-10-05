@@ -96,6 +96,7 @@ fn record(sha: &str, state: VerifyState) -> VerifyRecord {
         finished_at: None,
         log: "/tmp/x.log".into(),
         attempt: 1,
+        rerun: false,
     }
 }
 
@@ -170,19 +171,25 @@ fn the_attempt_count_is_written_only_after_a_retry() {
 #[test]
 fn run_lines_name_the_outcome_and_stay_flat_for_errors() {
     let at = "2026-10-05T01:00:00.000Z".to_string();
-    let interrupted = VerifyRun::of(at.clone(), record("aaa", VerifyState::Running), false);
+    let interrupted = VerifyRun::of(at.clone(), record("aaa", VerifyState::Running));
     assert_eq!(interrupted.event, VerifyRunEvent::Interrupted);
-    let failed = VerifyRun::of(at.clone(), record("aaa", VerifyState::Failed), true);
+    let failed = VerifyRun::of(
+        at.clone(),
+        VerifyRecord {
+            rerun: true,
+            ..record("aaa", VerifyState::Failed)
+        },
+    );
     let line = serde_json::to_value(&failed).unwrap();
     assert_eq!(line["event"], "failed");
-    assert_eq!(line["rerun"], true);
+    assert_eq!(line["record"]["rerun"], true);
     assert_eq!(line["record"]["failedStep"], "cargo-test");
 
     let error = serde_json::to_value(VerifyRun::error(at, "원격을 못 읽음".into())).unwrap();
     assert_eq!(
         error,
         serde_json::json!({ "at": "2026-10-05T01:00:00.000Z", "event": "error", "error": "원격을 못 읽음" }),
-        "rerun:false·record 없음은 줄에 싣지 않는다"
+        "record 없음은 줄에 싣지 않는다"
     );
     let back: VerifyRun = serde_json::from_value(line).unwrap();
     assert_eq!(back, failed);

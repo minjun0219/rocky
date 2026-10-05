@@ -94,6 +94,9 @@ pub struct VerifyRecord {
     /// 몇 번째 시도인가(1 부터). 실패한 첫 시도는 `runs.jsonl` 에만 남고, 두 번째 결과가 기록이 된다.
     #[serde(default = "first_attempt", skip_serializing_if = "is_first_attempt")]
     pub attempt: u32,
+    /// 사람이 다시 돌려 달라고 해서 돈 실행 — `last.json` 에 같이 남아, 도중에 끊겨도 이력에 그대로 실린다.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rerun: bool,
 }
 
 fn first_attempt() -> u32 {
@@ -132,9 +135,6 @@ pub enum VerifyRunEvent {
 pub struct VerifyRun {
     pub at: String,
     pub event: VerifyRunEvent,
-    /// 사람이 다시 돌려 달라고 해서 돈 실행.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub rerun: bool,
     /// `error` 의 이유.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -145,7 +145,7 @@ pub struct VerifyRun {
 
 impl VerifyRun {
     /// 끝난 실행 — 기록의 상태에서 종류를 정한다(도는 중이면 끊긴 것).
-    pub fn of(at: String, record: VerifyRecord, rerun: bool) -> Self {
+    pub fn of(at: String, record: VerifyRecord) -> Self {
         let event = match record.state {
             VerifyState::Passed => VerifyRunEvent::Passed,
             VerifyState::Failed => VerifyRunEvent::Failed,
@@ -154,7 +154,6 @@ impl VerifyRun {
         Self {
             at,
             event,
-            rerun,
             error: None,
             record: Some(record),
         }
@@ -164,7 +163,6 @@ impl VerifyRun {
         Self {
             at,
             event: VerifyRunEvent::Error,
-            rerun: false,
             error: Some(reason),
             record: None,
         }

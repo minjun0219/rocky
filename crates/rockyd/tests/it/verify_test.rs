@@ -294,7 +294,10 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
         rec("0000000000000000000000000000000000000000", "failed"),
     )
     .unwrap();
-    std::fs::write(dir.join("last.json"), rec(&head, "running")).unwrap();
+    // 끊긴 실행은 사람이 다시 돌려 달라고 한 것이었다 — 그 표시도 이력에 그대로 실린다.
+    let mut running: serde_json::Value = serde_json::from_str(&rec(&head, "running")).unwrap();
+    running["rerun"] = true.into();
+    std::fs::write(dir.join("last.json"), running.to_string()).unwrap();
     verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
     assert_eq!(
         f.state.verify()[0].record.clone().unwrap().state,
@@ -309,6 +312,12 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
         events,
         [r#""error""#, r#""interrupted""#, r#""passed""#],
         "{events:?}"
+    );
+    let lines = runs(&dir);
+    assert_eq!(lines[1]["record"]["rerun"], true);
+    assert!(
+        lines[2]["record"].get("rerun").is_none(),
+        "이어 돈 실행은 자동이다"
     );
 }
 
@@ -375,6 +384,13 @@ async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
     )
     .await;
     assert_eq!(code, 404, "{body}");
+    for bad in [
+        serde_json::json!({ "board": 123 }),
+        serde_json::json!({ "board": "  " }),
+    ] {
+        let (code, body) = post(&f.state, "/api/verify/rerun", bad.clone()).await;
+        assert_eq!(code, 400, "잘못 준 필터는 '전부' 가 아니다: {bad} → {body}");
+    }
     assert!(!f.state.verify_rerun_requested("proj", "main"));
 
     let (code, body) = call(
@@ -404,11 +420,11 @@ async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
     assert_eq!(lines[0]["event"], "failed");
     assert_eq!(lines[0]["record"]["failedStep"], "env");
     assert!(lines[0]["record"].get("attempt").is_none());
-    assert!(lines[0].get("rerun").is_none());
+    assert!(lines[0]["record"].get("rerun").is_none());
     assert_eq!(lines[1]["event"], "failed");
     assert_eq!(lines[1]["record"]["attempt"], 2);
     assert_eq!(lines[2]["event"], "passed");
-    assert_eq!(lines[2]["rerun"], true);
+    assert_eq!(lines[2]["record"]["rerun"], true);
     assert_eq!(lines[0]["record"]["sha"], lines[2]["record"]["sha"]);
 
     // 데몬이 죽어 `running` 기록만 남은 대상은 도는 중이 아니다 — 맡는다.
@@ -418,10 +434,10 @@ async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
     let (code, body) = post(&f.state, "/api/verify/rerun", serde_json::json!({})).await;
     assert_eq!(code, 200, "{body}");
     assert_eq!(body["queued"][0]["board"], "proj");
-    f.state.clear_verify_rerun("proj", "main");
 
-    // 실제로 도는 중인 대상은 맡지 않는다.
-    f.state.set_verify_in_flight(Some(("proj", "main")));
+    // 실제로 도는 중인 대상은 맡지 않는다 — 돌기 시작하며 앞서 맡긴 요청은 흡수된다.
+    f.state.begin_verify("proj", "main");
+    assert!(!f.state.verify_rerun_requested("proj", "main"));
     let (code, body) = post(
         &f.state,
         "/api/verify/rerun",
@@ -489,6 +505,15 @@ async fn the_same_reason_for_not_verifying_is_kept_once() {
     for _ in 0..3 {
         verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
     }
+    // 데몬이 다시 떠도(상태를 파일에서 다시 읽음) 이어지는 같은 이유는 다시 쓰지 않는다.
+    let cfg = rocky_core::verify::VerifyConfig {
+        enabled: None,
+        interval_seconds: None,
+        targets: vec![target.clone()],
+    };
+    f.state
+        .set_verify(rockyd::verify::load_statuses(&cfg, &root));
+    verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
     let lines = runs(&rockyd::verify::target_dir(&root, &target));
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["event"], "error");

@@ -47,6 +47,10 @@ pub struct VerifyTargetStatus {
     /// 검증을 하지 못한 이유(보드에 path 없음·원격을 못 읽음·준비 실패) — 다음 바퀴에 다시 한다.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// `runs.jsonl` 에 마지막으로 남긴 이유 — 같은 이유를 또 쓰지 않으려고. 기동 때 그 파일의 마지막 줄에서 되살려,
+    /// 데몬이 다시 떠도 이어지는 같은 이유를 다시 쓰지 않는다. 검증이 되면 비운다(다시 나면 다시 쓴다).
+    #[serde(skip)]
+    pub logged_error: Option<String>,
 }
 
 /// 사람에게 알리는 함수 — (제목, 본문). 기본은 osascript, 테스트는 붙잡는다.
@@ -104,8 +108,18 @@ pub fn load_statuses(cfg: &VerifyConfig, root: &Path) -> Vec<VerifyTargetStatus>
             branch: t.branch.clone(),
             record: read_record(&target_dir(root, t), "last.json"),
             error: None,
+            logged_error: last_logged_error(&target_dir(root, t)),
         })
         .collect()
+}
+
+/// `runs.jsonl` 의 마지막 줄이 검증을 못 한 이유면 그 이유.
+fn last_logged_error(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join("runs.jsonl")).ok()?;
+    let run: VerifyRun = serde_json::from_str(text.lines().last()?).ok()?;
+    (run.event == rocky_core::verify::VerifyRunEvent::Error)
+        .then_some(run.error)
+        .flatten()
 }
 
 fn set_status(state: &ServerState, status: VerifyTargetStatus) {
@@ -425,16 +439,14 @@ pub async fn verify_target(
     let dir = target_dir(root, target);
     let report = |record: Option<VerifyRecord>, error: Option<String>| {
         // 검증을 못 한 이유는 바뀌었을 때만 남긴다 — 원격이 안 닿으면 바퀴마다 같은 말이다.
-        if let Some(e) = &error {
-            let before = state
-                .verify()
-                .into_iter()
-                .find(|s| s.board == target.board && s.branch == target.branch)
-                .and_then(|s| s.error);
-            if before.as_deref() != Some(e.as_str()) {
-                println!("rocky: verify {} {} — {e}", target.board, target.branch);
-                note_run(&dir, &VerifyRun::error(iso_now(), e.clone()));
-            }
+        let before = state
+            .verify()
+            .into_iter()
+            .find(|s| s.board == target.board && s.branch == target.branch)
+            .and_then(|s| s.logged_error);
+        if let Some(e) = error.as_ref().filter(|e| before.as_ref() != Some(*e)) {
+            println!("rocky: verify {} {} — {e}", target.board, target.branch);
+            note_run(&dir, &VerifyRun::error(iso_now(), e.clone()));
         }
         set_status(
             state,
@@ -442,6 +454,7 @@ pub async fn verify_target(
                 board: target.board.clone(),
                 branch: target.branch.clone(),
                 record,
+                logged_error: error.clone(),
                 error,
             },
         );
@@ -505,7 +518,7 @@ pub async fn verify_target(
     }
     // 여기서부터 이 커밋을 돈다 — 끝을 못 본 지난 실행을 이력에 남긴다.
     if let Some(prev) = last.filter(|r| r.state == VerifyState::Running) {
-        note_run(&dir, &VerifyRun::of(iso_now(), prev, false));
+        note_run(&dir, &VerifyRun::of(iso_now(), prev));
     }
     let tree_s = tree.to_string_lossy().to_string();
     let log = dir.join(format!("{}.log", &remote[..remote.len().min(12)]));
@@ -528,13 +541,12 @@ pub async fn verify_target(
         finished_at: None,
         log: log.to_string_lossy().to_string(),
         attempt: 1,
+        rerun,
     };
     write_record(&dir, "last.json", &record);
     report(Some(record.clone()), None);
-    state.set_verify_in_flight(Some((&target.board, &target.branch)));
-    // 다시 돌리기 요청은 받은 것으로 친다 — 여기까지 온 요청은 이번 실행이 흡수하고, 이 뒤의 요청은 "도는 중" 으로 거절된다.
-    // 위 둘 사이에 await 가 없어야 한다(그 틈에 온 요청이 지워지지 않고 남아 같은 커밋을 또 돈다).
-    state.clear_verify_rerun(&target.board, &target.branch);
+    // 도는 중으로 바꾸며 다시 돌리기 요청을 받은 것으로 친다(한 락 안에서) — 이 뒤의 요청은 "도는 중" 으로 거절된다.
+    state.begin_verify(&target.board, &target.branch);
 
     // 실패하면 그 자리에서 다시 — 첫 실패는 이력에만 남기고 알리지 않는다. 출력은 같은 로그 파일에 이어 쌓인다.
     let outcome = loop {
@@ -556,7 +568,7 @@ pub async fn verify_target(
         failed.failed_step = Some(step.clone());
         failed.reason = Some(reason.clone());
         failed.finished_at = Some(iso_now());
-        note_run(&dir, &VerifyRun::of(iso_now(), failed, rerun));
+        note_run(&dir, &VerifyRun::of(iso_now(), failed));
         println!(
             "rocky: verify {} {} {step} 실패({reason}) — 한 번 더 돈다",
             target.board, target.branch
@@ -571,7 +583,7 @@ pub async fn verify_target(
         write_record(&dir, "last.json", &record);
         report(Some(record.clone()), None);
     };
-    state.set_verify_in_flight(None);
+    state.end_verify();
     match outcome {
         Ok(()) => record.state = VerifyState::Passed,
         Err((step, reason)) => {
@@ -585,7 +597,7 @@ pub async fn verify_target(
     let finished_before = read_record(&dir, "finished.json");
     write_record(&dir, "last.json", &record);
     write_record(&dir, "finished.json", &record);
-    note_run(&dir, &VerifyRun::of(iso_now(), record.clone(), rerun));
+    note_run(&dir, &VerifyRun::of(iso_now(), record.clone()));
     prune_logs(&dir);
     report(Some(record.clone()), None);
     if let Some((title, body)) = notification(finished_before.as_ref(), &record) {
@@ -609,7 +621,7 @@ pub async fn tick(
 }
 
 /// 기동 뒤 `first_after` 지나 처음, 이후 바퀴가 끝날 때마다 `interval_seconds` 쉬고 다시. 다시 돌리기 요청이 오면
-/// 쉬는 중이라도 바로 다음 바퀴로 간다(`verify_wake`).
+/// 쉬는 중이라도(기동 직후의 첫 대기 포함) 바로 다음 바퀴로 간다(`verify_wake`).
 pub fn spawn_verifier(
     state: Arc<ServerState>,
     runner: Runner,
@@ -623,7 +635,10 @@ pub fn spawn_verifier(
     }
     state.set_verify(load_statuses(&cfg, &root));
     tokio::spawn(async move {
-        tokio::time::sleep(first_after).await;
+        tokio::select! {
+            _ = tokio::time::sleep(first_after) => {}
+            _ = state.verify_wake.notified() => {}
+        }
         loop {
             tick(&state, &runner, &notifier, &root, &cfg).await;
             tokio::select! {
