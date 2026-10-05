@@ -1,6 +1,7 @@
 # 토큰 색인 — 모델·effort·토큰과 추천
 
-> rocky 를 **고치는** 에이전트용 개발 문서. **쓰는** 법(모델 고르기)은 README "토큰 사용"과 플러그인 스킬 쪽.
+> rocky 를 **고치는** 에이전트용 개발 문서. **쓰는** 법(모델 고르기)은 README "토큰 사용"과 사용자 스킬
+> [`plugin/skills/token-usage`](../../plugin/skills/token-usage/SKILL.md).
 
 ## 규칙
 

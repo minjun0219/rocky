@@ -1,7 +1,7 @@
 # PR 감시 — 구독·전이·전달·할 일 정리
 
 > rocky 를 **고치는** 에이전트용 개발 문서. 받은 메시지에 **어떻게 대응하나**는 `/rocky:review-fix`(`plugin/commands/review-fix.md`)와
-> 플러그인 스킬 쪽. 설계: [`2026-09-28-pr-watch-design.md`](../design/specs/2026-09-28-pr-watch-design.md),
+> 사용자 스킬 [`plugin/skills/pull-request`](../../plugin/skills/pull-request/SKILL.md). 설계: [`2026-09-28-pr-watch-design.md`](../design/specs/2026-09-28-pr-watch-design.md),
 > [`2026-10-01-pr-subscriptions-design.md`](../design/specs/2026-10-01-pr-subscriptions-design.md).
 
 ## 규칙

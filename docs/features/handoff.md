@@ -1,6 +1,7 @@
 # 핸드오프와 doing 귀속 — 보드 → 세션
 
-> rocky 를 **고치는** 에이전트용 개발 문서. 받은 세션이 **어떻게 행동하나**는 플러그인 스킬 쪽, 근거는
+> rocky 를 **고치는** 에이전트용 개발 문서. 받은 세션이 **어떻게 행동하나**는 사용자 스킬
+> [`plugin/skills/handoff`](../../plugin/skills/handoff/SKILL.md), 근거는
 > [`docs/daemon.md`](../daemon.md).
 
 ## 규칙
