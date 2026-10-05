@@ -37,3 +37,17 @@ fn probe_error_comes_first() {
     let raw = json!({"configured": true, "servers": [], "strays": [], "auth": "unknown", "probeError": "ps 실패: x"});
     assert!(render_status(&raw).starts_with("⚠ ps 실패: x — "));
 }
+
+#[test]
+fn unconfigured_still_shows_agy() {
+    // rc 블록이 없는 기기에서도 agy 줄은 보인다(설치 여부를 따른다).
+    let out = render_status(&json!({
+        "configured": false,
+        "antigravity": {"state": "stopped", "instance": "mac-1"}
+    }));
+    assert!(out.ends_with("\nantigravity: stopped (mac-1)"), "{out}");
+    assert_eq!(
+        rocky_cli::rc_cmd::agy_line(&json!({"antigravity": null})),
+        None
+    );
+}

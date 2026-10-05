@@ -57,6 +57,40 @@ pub struct AgyStatus {
     pub instance: Option<String>,
 }
 
+/// `agy remote-control` 손잡이 — `start`(등록 + 기동)와 `stop`(정지 + 등록 해제). 데몬은 agy 가 launchd 잡으로
+/// 올리므로 rockyd 의 자식이 아니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgyAction {
+    Start,
+    Stop,
+}
+
+impl AgyAction {
+    /// 라우트·CLI 의 동작 이름. 모르는 이름은 None — 임의의 하위 명령을 agy 에 넘기지 않는다.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "start" => Some(AgyAction::Start),
+            "stop" => Some(AgyAction::Stop),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgyAction::Start => "start",
+            AgyAction::Stop => "stop",
+        }
+    }
+
+    /// 돌릴 명령. `--name`·`--session` 은 넘기지 않는다 — 기기 이름·등록 범위는 agy 쪽에서 정한 값을 그대로 쓴다.
+    pub fn argv(self) -> Vec<String> {
+        ["agy", "remote-control", self.as_str()]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerRow {
@@ -86,12 +120,12 @@ pub struct StrayRow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RcStatus {
-    /// `rc` 블록이 있나 — 없으면 프로브를 돌리지 않고 나머지는 비어 있다.
+    /// `rc` 블록이 있나 — 없으면 `claude rc` 프로브를 돌리지 않고 servers·strays·auth 는 비어 있다.
     pub configured: bool,
     pub servers: Vec<ServerRow>,
     pub strays: Vec<StrayRow>,
     pub auth: AuthState,
-    /// `agy` 가 없으면 None.
+    /// `agy` 가 없으면 None. `rc` 블록과 상관없이 `agy` 설치 여부를 따른다(그 기기에서 agy 를 쓰면 보인다).
     pub antigravity: Option<AgyStatus>,
     /// 프로브 명령(`ps`·`lsof`)이 실패했으면 그 사유 — 이때 "꺼짐"은 모르는 것이다.
     #[serde(skip_serializing_if = "Option::is_none")]

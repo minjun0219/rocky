@@ -90,13 +90,18 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 웹 UI에서는 피드 머리 아래 한 줄(`원격 제어 7/13 · 세션 4`)과 **원격 제어** 탭으로 본다(⋯ 메뉴에서 탭을 끌 수 있다). rc 블록이 없거나 `enabled: false`면 둘 다 없다.
 
+**Antigravity 원격 제어**(`agy remote-control`)는 rc 블록과 상관없이 그 기기에 `agy`가 있으면 보이고, 켜고 끌 수 있다. 켜기·끄기는 이 기계의 원격 접속 데몬을 바꾸므로 로컬 요청만 된다.
+
 ```bash
 rocky rc            # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 대상 밖 서버, 자격, Antigravity
+rocky rc agy        # Antigravity 원격 제어 상태 한 줄
+rocky rc agy stop   # agy remote-control stop(정지 + 등록 해제) — start 는 등록 + 기동
 ```
 
 | API | 내용 |
 | --- | --- |
-| `GET /api/rc/servers` | 대상 행(`servers`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, 없으면 `null`). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 5초 캐시 |
+| `GET /api/rc/servers` | 대상 행(`servers`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 5초 캐시 |
+| `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
 

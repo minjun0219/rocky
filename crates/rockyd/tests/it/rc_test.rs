@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rocky_core::config::RcConfig;
-use rockyd::rc::{cached_rc, probe};
+use rockyd::rc::{cached_rc, probe, rc_handles};
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::json;
 
@@ -121,12 +121,23 @@ async fn missing_agy_is_null() {
 }
 
 #[tokio::test]
-async fn unconfigured_runs_nothing() {
+async fn unconfigured_probes_only_agy() {
+    // rc 블록이 없는 기기 — claude rc 쪽(ps·lsof·claude)은 돌리지 않고, agy 줄은 설치 여부를 따른다.
     let calls = Arc::new(Mutex::new(Vec::new()));
     let runner = fake_runner(calls.clone(), true);
     let status = probe(&runner, None, "/home/u").await;
     assert!(!status.configured);
-    assert!(calls.lock().unwrap().is_empty());
+    assert!(status.servers.is_empty());
+    assert_eq!(
+        status.antigravity.unwrap().state.as_deref(),
+        Some("running")
+    );
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec!["agy remote-control status".to_string()]
+    );
+    let runner = fake_runner(Arc::new(Mutex::new(Vec::new())), false);
+    assert_eq!(probe(&runner, None, "/home/u").await.antigravity, None);
 
     // 주입이 없는 서버도 같은 모양을 낸다.
     let f = fx();
@@ -202,5 +213,146 @@ async fn silent_lsof_failure_names_the_pids_and_exit_code() {
     assert_eq!(
         status.probe_error.as_deref(),
         Some("lsof -p 100,200 실패(종료 코드 1): stderr 없음")
+    );
+}
+
+/// agy 를 켜고 끄는 가짜 — 상태를 기억하고, `fail` 이면 start 가 실패한다.
+fn agy_runner(calls: Arc<Mutex<Vec<String>>>, fail: bool) -> Runner {
+    let running = Arc::new(Mutex::new(true));
+    Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
+        calls.lock().unwrap().push(argv.join(" "));
+        let mut up = running.lock().unwrap();
+        let result = match argv.get(2).map(String::as_str) {
+            Some("start") if fail => CmdOutput {
+                code: 1,
+                stdout: String::new(),
+                stderr: "not logged in".into(),
+            },
+            Some("start") => {
+                *up = true;
+                CmdOutput {
+                    code: 0,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }
+            }
+            Some("stop") => {
+                *up = false;
+                CmdOutput {
+                    code: 0,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                }
+            }
+            _ => CmdOutput {
+                code: 0,
+                stdout: format!(
+                    "Daemon state = {}\nInstance name: mac-1 (x)\n",
+                    if *up { "running" } else { "stopped" }
+                ),
+                stderr: String::new(),
+            },
+        };
+        Box::pin(async move { result })
+    })
+}
+
+#[tokio::test]
+async fn agy_stop_and_start_refresh_the_cached_status() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let f = fx();
+    let (status, control) = rc_handles(
+        agy_runner(calls.clone(), false),
+        None,
+        "/home/u".into(),
+        Duration::from_secs(600),
+    );
+    let provider = status.clone();
+    let state = rebuild(&f, move |o| {
+        o.rc = Some(status);
+        o.agy_control = Some(control);
+    });
+    let (_, body) = get(&state, "/api/rc/servers").await;
+    assert_eq!(body["antigravity"]["state"], "running");
+
+    let (code, body) = post(&state, "/api/rc/antigravity/stop", json!({})).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["antigravity"]["state"], "stopped");
+    // TTL 이 길어도 캐시가 새 값이다 — 끈 직후 화면이 5초 동안 옛 값을 보이지 않게.
+    assert_eq!(
+        provider().await.antigravity.unwrap().state.as_deref(),
+        Some("stopped")
+    );
+    let (code, body) = post(&state, "/api/rc/antigravity/start", json!({})).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["antigravity"]["state"], "running");
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| !c.ends_with("status"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec!["agy remote-control stop", "agy remote-control start"]
+    );
+}
+
+#[tokio::test]
+async fn agy_control_is_local_only_and_named() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let f = fx();
+    let (status, control) = rc_handles(
+        agy_runner(calls.clone(), false),
+        None,
+        "/home/u".into(),
+        Duration::ZERO,
+    );
+    let state = rebuild(&f, move |o| {
+        o.rc = Some(status);
+        o.agy_control = Some(control);
+    });
+    // 프록시를 거친(노출된) 요청은 이 기계의 원격 접속 데몬을 바꾸지 못한다.
+    let (code, _) = call(
+        &state,
+        "POST",
+        "/api/rc/antigravity/stop",
+        Some(json!({})),
+        ReqOptions {
+            headers: vec![("x-forwarded-for", "203.0.113.7")],
+            ..ReqOptions::default()
+        },
+    )
+    .await;
+    assert_eq!(code, 403);
+    // start·stop 밖의 하위 명령은 넘기지 않는다.
+    let (code, _) = post(&state, "/api/rc/antigravity/serve", json!({})).await;
+    assert_eq!(code, 404);
+    assert!(calls.lock().unwrap().is_empty(), "아무 명령도 돌지 않았다");
+
+    // 손잡이가 없는 서버는 404.
+    let (code, _) = post(&f.state, "/api/rc/antigravity/start", json!({})).await;
+    assert_eq!(code, 404);
+}
+
+#[tokio::test]
+async fn failed_agy_start_says_what_failed() {
+    let f = fx();
+    let (status, control) = rc_handles(
+        agy_runner(Arc::new(Mutex::new(Vec::new())), true),
+        None,
+        "/home/u".into(),
+        Duration::ZERO,
+    );
+    let state = rebuild(&f, move |o| {
+        o.rc = Some(status);
+        o.agy_control = Some(control);
+    });
+    let (code, body) = post(&state, "/api/rc/antigravity/start", json!({})).await;
+    assert_eq!(code, 502);
+    assert!(
+        body.to_string()
+            .contains("agy remote-control start 실패(종료 코드 1): not logged in"),
+        "{body}"
     );
 }

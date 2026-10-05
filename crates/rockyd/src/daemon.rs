@@ -302,6 +302,12 @@ pub async fn run_daemon(
     if integrity != "ok" {
         eprintln!("rocky: ⚠ DB 무결성 이상 — {integrity}");
     }
+    let (rc_status, agy_control) = crate::rc::rc_handles(
+        crate::runner::default_runner(),
+        rc,
+        std::env::var("HOME").unwrap_or_default(),
+        crate::rc::RC_CACHE_TTL,
+    );
     let state = build_server(ServerOptions {
         statusline_template: Some(runtime.statusline_template.clone()),
         inbox_sources: runtime.inbox.clone(),
@@ -309,12 +315,8 @@ pub async fn run_daemon(
         usage,
         logs_db: Some(runtime.dir.join("logs.db")),
         token_recommend: tokens.recommend.clone(),
-        rc: Some(crate::rc::cached_rc(
-            crate::runner::default_runner(),
-            rc,
-            std::env::var("HOME").unwrap_or_default(),
-            crate::rc::RC_CACHE_TTL,
-        )),
+        rc: Some(rc_status),
+        agy_control: Some(agy_control),
         ..ServerOptions::new(store)
     });
     // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.

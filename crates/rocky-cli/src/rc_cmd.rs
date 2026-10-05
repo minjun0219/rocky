@@ -1,7 +1,9 @@
 //! `rocky rc [status] [--json]` — `claude rc` 서버 현황. 데몬의 `GET /api/rc/servers` 를 읽어 찍는다.
-//! 대상 목록은 `rocky.json` 의 `rc` 블록이다. 띄우기·재시작은 아직 없다(보기만).
+//! 대상 목록은 `rocky.json` 의 `rc` 블록이다. `claude rc` 띄우기·재시작은 아직 없다(보기만).
+//! `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 
-use serde_json::Value;
+use rocky_core::rc::AgyAction;
+use serde_json::{json, Value};
 
 use crate::client::{request_value, CliContext};
 use crate::commands::Printer;
@@ -13,8 +15,24 @@ pub fn cmd_rc(ctx: &CliContext, rest: &[String], printer: &Printer) -> Result<()
             printer.emit(&raw, || render_status(&raw));
             Ok(())
         }
+        Some("agy") => {
+            let raw = match rest.get(1).map(String::as_str) {
+                None => request_value(ctx, "GET", "/api/rc/servers", None)?,
+                Some(name) => {
+                    let action = AgyAction::parse(name).ok_or_else(|| {
+                        format!("usage: rocky rc agy [start|stop] — 모르는 동작: {name}")
+                    })?;
+                    let path = format!("/api/rc/antigravity/{}", action.as_str());
+                    request_value(ctx, "POST", &path, Some(&json!({})))?
+                }
+            };
+            printer.emit(&raw, || {
+                agy_line(&raw).unwrap_or_else(|| "antigravity: agy 가 설치돼 있지 않다".into())
+            });
+            Ok(())
+        }
         Some(sub) => Err(format!(
-            "usage: rocky rc [status] [--json] — 모르는 하위 명령: {sub}"
+            "usage: rocky rc [status|agy [start|stop]] [--json] — 모르는 하위 명령: {sub}"
         )),
     }
 }
@@ -52,9 +70,25 @@ fn line(v: &Value, running: bool) -> String {
     parts.join("  ")
 }
 
+/// `antigravity: running (mac-1)` — agy 가 없으면 None.
+pub fn agy_line(raw: &Value) -> Option<String> {
+    let agy = raw.get("antigravity").filter(|v| !v.is_null())?;
+    let state = agy.get("state").and_then(Value::as_str).unwrap_or("꺼짐");
+    Some(match agy.get("instance").and_then(Value::as_str) {
+        Some(name) => format!("antigravity: {state} ({name})"),
+        None => format!("antigravity: {state}"),
+    })
+}
+
 pub fn render_status(raw: &Value) -> String {
     if raw.get("configured").and_then(Value::as_bool) != Some(true) {
-        return "rc 가 꺼져 있다 — rocky.json 에 \"rc\": { \"pinned\": [...], \"targets\": [...] } 를 두고(enabled 가 false 가 아니게) 데몬을 다시 띄운다".into();
+        let hint = "rc 가 꺼져 있다 — rocky.json 에 \"rc\": { \"pinned\": [...], \"targets\": [...] } 를 두고(enabled 가 false 가 아니게) 데몬을 다시 띄운다";
+        // agy 줄은 rc 블록과 상관없이 보인다.
+        return [Some(hint.to_string()), agy_line(raw)]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n");
     }
     let list = |key: &str| {
         raw.get(key)
@@ -83,13 +117,6 @@ pub fn render_status(raw: &Value) -> String {
         "out" => "자격: ⚠ 로그아웃 — 새로 띄우는 서버가 로그인 안 된 채 뜬다".into(),
         _ => "자격: 확인 못 함".into(),
     });
-    if let Some(agy) = raw.get("antigravity").filter(|v| !v.is_null()) {
-        let state = agy.get("state").and_then(Value::as_str).unwrap_or("꺼짐");
-        let instance = agy.get("instance").and_then(Value::as_str);
-        out.push(match instance {
-            Some(name) => format!("antigravity: {state} ({name})"),
-            None => format!("antigravity: {state}"),
-        });
-    }
+    out.extend(agy_line(raw));
     out.join("\n")
 }
