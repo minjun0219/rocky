@@ -216,6 +216,45 @@
           "type": "number",
           "description": "이 사용률(%)부터 임박 배지. 0 이면 임박 경고를 끄고 소진(100%)만 강조, 0~100 밖도 끈 것. 기본 90."
         },
+        "pollSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "usage API 폴링 주기(초). 기본 300. 가장 급한 창이 70% 아래면 3배(stale 경계를 넘지 않게), 소진이면 creditPollSeconds."
+        },
+        "creditPollSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "한도 소진 뒤 크레딧 조회 주기(초). 기본 300."
+        },
+        "creditDivisor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "used_credits 단위 환산. 기본 100(cent)."
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "description": "통화 기호. 기본 $."
+        },
+        "alwaysShowCredits": {
+          "type": "boolean",
+          "description": "크레딧이 0 이어도 줄을 낸다. stdin 모드에서는 한도 전에도 usage API 를 부르게 된다. 기본 false."
+        },
+        "keychainService": {
+          "type": "string",
+          "minLength": 1,
+          "description": "토큰을 읽을 macOS keychain 항목. 기본은 기본 설정 폴더(~/.claude)일 때만 Claude Code-credentials — 다른 폴더에서 기본 이름을 읽으면 기본 계정의 토큰을 집는다."
+        },
+        "credentialsFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "토큰 파일. 기본 <configDir>/.credentials.json."
+        },
+        "tokenEnv": {
+          "type": "string",
+          "minLength": 1,
+          "description": "이 환경 변수에 토큰이 있으면 먼저 쓴다."
+        },
         "configDir": {
           "type": "string",
           "minLength": 1,

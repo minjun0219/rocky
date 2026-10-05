@@ -52,6 +52,13 @@ fn run(argv: &[String]) -> Result<(), String> {
         .expose
         .contains(&rocky_core::config::ExposeChannel::TailscaleServe);
     // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬 자동 기동을 거치지 않는다.
+    // statusline 이 detached 로 띄우는 갱신 — 사람이 부를 일은 없다(도움말에도 없다).
+    if command == "statusline" && rest.first().map(String::as_str) == Some("refresh") {
+        let cfg =
+            rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+        rocky_cli::statusline_refresh::run(&cfg, commands::statusline_now());
+        return Ok(());
+    }
     if command == "statusline" {
         commands::cmd_statusline(
             &ctx,

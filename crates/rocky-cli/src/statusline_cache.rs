@@ -110,6 +110,7 @@ pub fn write<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
 /// 계정 캐시에서 이메일을 꺼내 그 계정의 캐시를 읽고 한도를 고른다. 계정 파일은 한도 숫자가 바뀌었거나 1분이 지났을
 /// 때만 다시 읽고, 이메일이 바뀌었으면(같은 폴더 안의 전환 — claude-swap · `/login`) 그 계정의 캐시로 갈아탄다.
 /// 못 읽으면 계정 캐시를 덮지 않는다. stdin 에 한도가 있으면 그 관측을 `state.json` 에 남긴다(6시간 폴백·`auto` 판단).
+/// usage API 응답이 필요하면(`need_refresh`) `rocky statusline refresh` 를 detached 로 띄운다.
 pub fn observe(
     cfg: &rocky_core::limits::LimitsConfig,
     configured_dir: Option<&str>,
@@ -117,7 +118,8 @@ pub fn observe(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<(rocky_core::limits::Limits, rocky_core::limits::UsageCache)> {
     use rocky_core::limits::{
-        account_cached, need_account_check, select, AccountCache, Source, StateFile, UsageCache,
+        account_cached, need_account_check, need_refresh, select, use_stdin, AccountCache, Source,
+        StateFile, UsageCache,
     };
 
     if cfg.source == Source::None {
@@ -158,11 +160,24 @@ pub fn observe(
         }
     }
 
-    if input.five_hour.is_some() || input.seven_day.is_some() {
+    let stdin_present = input.five_hour.is_some() || input.seven_day.is_some();
+    let stdin_side = use_stdin(cfg, &state, stdin_present, now);
+    let mut dirty = false;
+    if stdin_present {
         state.observed_at = Some(now);
         state.stdin_limits_seen = Some(now);
         state.five_hour = input.five_hour;
         state.seven_day = input.seven_day;
+        dirty = true;
+    }
+    // 갱신은 띄우고 기다리지 않는다 — 결과는 다음 렌더가 usage.json 에서 읽는다.
+    if need_refresh(cfg, stdin_side, &lim, &state, &usage, now)
+        && crate::statusline_refresh::spawn_detached()
+    {
+        state.spawned_at = Some(now);
+        dirty = true;
+    }
+    if dirty {
         let _ = write(&state_file(&bucket), &state);
     }
     Some((lim, usage))

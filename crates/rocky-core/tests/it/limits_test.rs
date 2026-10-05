@@ -549,3 +549,32 @@ fn git_status_parses_porcelain_v2() {
         assert_eq!(GitStatus::parse(out), want, "{out:?}");
     }
 }
+
+#[test]
+fn usage_response_parse_keeps_optional_fields_optional() {
+    use rocky_core::limits::parse_usage_response;
+    let u = parse_usage_response(
+        br#"{"five_hour":{"utilization":42,"resets_at":"2026-09-16T09:00:00Z"},"seven_day":{"utilization":null},
+            "extra_usage":{"is_enabled":true,"used_credits":1160},"unknown":1}"#,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(u.fetched_at, Some(now()));
+    assert_eq!(u.five_hour.unwrap().percent, 42.0);
+    assert!(u.five_hour.unwrap().resets_at.is_some());
+    assert_eq!(u.seven_day, None, "utilization 이 없으면 창이 없다");
+    let extra = u.extra.unwrap();
+    assert_eq!(
+        (extra.enabled, extra.used_credits, extra.monthly_limit),
+        (true, Some(1160.0), None)
+    );
+    // 리셋 시각을 못 읽으면 리셋 없음, 타입이 틀리면 응답 전체가 실패.
+    let u = parse_usage_response(
+        br#"{"five_hour":{"utilization":1,"resets_at":"soon"}}"#,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(u.five_hour.unwrap().resets_at, None);
+    let err = parse_usage_response(br#"{"five_hour":{"utilization":"1"}}"#, now()).unwrap_err();
+    assert!(err.starts_with("parse usage: "), "{err}");
+}

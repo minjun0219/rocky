@@ -499,3 +499,33 @@ fn statusline_block_reads_extra_commands_and_skips_malformed_ones() {
         ]
     );
 }
+
+#[test]
+fn statusline_block_reads_refresh_and_credit_settings() {
+    let (_dir, path) = write_config(
+        r#"{ "statusline": { "configDir": "~/work", "keychainService": "K", "credentialsFile": "~/c.json",
+             "tokenEnv": "T", "pollSeconds": 600, "creditPollSeconds": 60, "creditDivisor": 1,
+             "currency": "₩", "alwaysShowCredits": true } }"#,
+    );
+    let c = load_statusline_block(&path);
+    assert_eq!(
+        (
+            c.config_dir.as_deref(),
+            c.keychain_service.as_deref(),
+            c.credentials_file.as_deref(),
+            c.token_env.as_deref()
+        ),
+        (Some("~/work"), Some("K"), Some("~/c.json"), Some("T"))
+    );
+    assert_eq!(c.limits.poll(), chrono::TimeDelta::seconds(600));
+    assert_eq!(c.limits.credit_poll(), chrono::TimeDelta::seconds(60));
+    assert_eq!((c.limits.credit_divisor(), c.limits.currency()), (1.0, "₩"));
+    assert!(c.limits.always_show_credits);
+    // 빈 문자열·0 은 기본값.
+    let (_dir, path) =
+        write_config(r#"{ "statusline": { "configDir": " ", "pollSeconds": 0, "currency": "" } }"#);
+    let c = load_statusline_block(&path);
+    assert_eq!(c.config_dir, None);
+    assert_eq!(c.limits.poll(), chrono::TimeDelta::seconds(300));
+    assert_eq!(c.limits.currency(), "$");
+}

@@ -18,6 +18,7 @@ pub mod hooks;
 pub mod launchd;
 pub mod rc_cmd;
 pub mod statusline_cache;
+pub mod statusline_refresh;
 pub mod system;
 pub mod tokens_cmd;
 pub mod usage_cmd;

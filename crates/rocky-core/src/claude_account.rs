@@ -109,3 +109,80 @@ fn short_hash(s: &str) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+/// 기본 설정 폴더의 keychain 항목 이름 — 접미사가 없어 폴더와 무관하게 같은 값이다.
+pub const DEFAULT_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+/// 토큰을 읽을 keychain 항목 — 설정에 있으면 그것, 없으면 **기본 설정 폴더일 때만** 기본 이름.
+///
+/// 비기본 폴더에서 기본 이름을 읽으면 반드시 기본 계정의 토큰을 집는다(cc-usage 가 실측한 함정). 그래서 비기본
+/// 폴더는 keychain 을 건너뛰고 `<config_dir>/.credentials.json` 을 본다 — 못 찾으면 숫자가 안 나오지만, 틀린 계정의
+/// 숫자보다 낫다.
+pub fn keychain_service(
+    configured: Option<&str>,
+    config_dir: &Path,
+    home: &Path,
+) -> Option<String> {
+    if let Some(name) = configured.filter(|n| !n.is_empty()) {
+        return Some(name.to_string());
+    }
+    (clean(config_dir) == default_config_dir(home)).then(|| DEFAULT_KEYCHAIN_SERVICE.to_string())
+}
+
+/// 토큰 파일 — 설정에 있으면 그것, 없으면 `<config_dir>/.credentials.json`.
+pub fn credentials_file(configured: Option<&str>, config_dir: &Path, home: &Path) -> PathBuf {
+    configured
+        .filter(|p| !p.is_empty())
+        .map_or_else(|| config_dir.join(".credentials.json"), |p| expand(p, home))
+}
+
+/// Claude Code 의 OAuth 토큰. 읽기만 한다 — 만료돼도 갱신하지 않는다(Claude Code 가 다음 요청에서 갱신한다).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OauthToken {
+    pub access_token: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 만료된 토큰의 에러 문구.
+pub const TOKEN_EXPIRED: &str = "oauth token expired (Claude Code를 한 번 사용하면 갱신됩니다)";
+
+/// keychain 값이나 `.credentials.json` 내용 → 토큰. `{` 로 시작하지 않으면 토큰 그 자체로 본다.
+pub fn parse_token(raw: &str) -> Result<OauthToken, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("empty".into());
+    }
+    if !raw.starts_with('{') {
+        return Ok(OauthToken {
+            access_token: raw.to_string(),
+            expires_at: None,
+        });
+    }
+    let v: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    let oauth = v.get("claudeAiOauth");
+    let access = oauth
+        .and_then(|o| o.get("accessToken"))
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+        .ok_or("claudeAiOauth.accessToken missing")?;
+    let expires_at = oauth
+        .and_then(|o| o.get("expiresAt"))
+        .and_then(Value::as_i64)
+        .filter(|ms| *ms > 0)
+        .and_then(chrono::DateTime::from_timestamp_millis);
+    Ok(OauthToken {
+        access_token: access.to_string(),
+        expires_at,
+    })
+}
+
+/// 만료됐으면 에러.
+pub fn check_token(
+    token: OauthToken,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<OauthToken, String> {
+    if token.expires_at.is_some_and(|at| now > at) {
+        return Err(TOKEN_EXPIRED.into());
+    }
+    Ok(token)
+}

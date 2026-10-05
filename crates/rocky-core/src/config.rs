@@ -633,6 +633,12 @@ pub struct StatuslineConfig {
     pub extra_commands: Vec<crate::statusline::extra::ExtraCommand>,
     /// Claude Code 설정 폴더(`configDir`) — 세션의 `CLAUDE_CONFIG_DIR` 가 있으면 그쪽이 이긴다. 기본 `~/.claude`.
     pub config_dir: Option<String>,
+    /// 토큰 keychain 항목(`keychainService`) — 없으면 기본 설정 폴더일 때만 `Claude Code-credentials`.
+    pub keychain_service: Option<String>,
+    /// 토큰 파일(`credentialsFile`) — 없으면 `<config_dir>/.credentials.json`.
+    pub credentials_file: Option<String>,
+    /// 이 환경 변수에 토큰이 있으면 그것을 먼저 쓴다(`tokenEnv`).
+    pub token_env: Option<String>,
 }
 
 /// 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open). `extraCommands` 에서 모양이 틀린 항목(`command` 가
@@ -656,12 +662,26 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
         cfg.limits.source = source;
     }
     cfg.limits.alert_percent = block.get("alertPercent").and_then(|v| v.as_f64());
-    cfg.config_dir = block
-        .get("configDir")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
+    let text = |key: &str| {
+        block
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    cfg.config_dir = text("configDir");
+    cfg.keychain_service = text("keychainService");
+    cfg.credentials_file = text("credentialsFile");
+    cfg.token_env = text("tokenEnv");
+    cfg.limits.currency = text("currency");
+    cfg.limits.credit_divisor = block.get("creditDivisor").and_then(|v| v.as_f64());
+    cfg.limits.poll_seconds = block.get("pollSeconds").and_then(|v| v.as_u64());
+    cfg.limits.credit_poll_seconds = block.get("creditPollSeconds").and_then(|v| v.as_u64());
+    cfg.limits.always_show_credits = block
+        .get("alwaysShowCredits")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let extras = block.get("extraCommands").and_then(|v| v.as_array());
     cfg.extra_commands = extras
         .into_iter()

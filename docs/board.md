@@ -927,8 +927,13 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   입력에서 cc-usage 와 바이트 단위로 같다(골든 `crates/rocky-core/tests/fixtures/cc-usage/`). 한도 설정은 `rocky.json`
   최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
   세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
-  300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄은 맨 아래다. 아직 없는 것: usage API 조회(크레딧 금액), 경보 깜빡임,
-  계정 배지 — 설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+  300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄은 맨 아래다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
+  읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 아직
+  없는 것: 경보 깜빡임, 계정 배지 — 설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+
+  계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
+  로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. 기본이 아닌 설정 폴더는 keychain
+  을 건너뛰고 `<configDir>/.credentials.json` 을 본다 — 그 폴더의 keychain 이름을 알면 `keychainService` 에 적는다.
 
   cc-usage 의 `extra_commands` 를 그대로 옮기면 된다(키만 `timeout_ms` → `timeoutMs`). rocky 보드 줄을 붙이던 `curl`
   항목은 빼도 된다 — `--full` 이 직접 붙인다.
