@@ -563,3 +563,42 @@ fn an_open_turn_carries_over_to_the_next_pass_and_exact_cwd_wins() {
         Some("sess-2")
     );
 }
+
+#[test]
+fn a_later_line_adding_a_tool_call_marks_the_session_changed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("projects");
+    let main = root.join("-repo").join(format!("{SID}.jsonl"));
+    let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
+    append(
+        &main,
+        &[
+            prompt("p1", "2026-10-01T00:00:00Z", "요청"),
+            assistant(
+                "m1",
+                "2026-10-01T00:00:01Z",
+                "claude-opus-5-5",
+                "high",
+                9,
+                text(),
+                false,
+            ),
+        ],
+    );
+    index.ingest_transcripts(&root);
+    // 같은 메시지의 다음 줄(tool_use 블록)이 다음 바퀴에 읽힌다 — 새 메시지는 없어도 도구 호출이 늘었다.
+    append(
+        &main,
+        &[assistant(
+            "m1",
+            "2026-10-01T00:00:01Z",
+            "claude-opus-5-5",
+            "high",
+            9,
+            tool("tu9"),
+            false,
+        )],
+    );
+    assert!(index.ingest_transcripts(&root).touched.contains(SID));
+    assert_eq!(recent_turns(index.conn(), SID, 5).unwrap()[0].tool_calls, 1);
+}

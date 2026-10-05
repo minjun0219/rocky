@@ -791,7 +791,7 @@ async fn token_tools_read_the_transcript_index() {
     let by_id = ok_call(
         &state,
         "token_current_session",
-        json!({ "cwd": "", "sessionId": "s-1" }),
+        json!({ "sessionId": "s-1" }),
     )
     .await;
     assert_eq!(by_id["session"]["sessionId"], "s-1");

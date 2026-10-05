@@ -234,8 +234,9 @@ fn touch_session(tx: &Transaction, meta: &LineMeta) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// 한 줄을 넣는다. `turn` 은 이 파일에서 지금 열린 턴(프롬프트면 갱신된다). 넣은 새 메시지 수를 돌려준다 —
-/// 같은 메시지의 둘째 줄부터는 0(도구 호출 id 만 더한다).
+/// 한 줄을 넣는다. `turn` 은 이 파일에서 지금 열린 턴(프롬프트면 갱신된다). 새로 들어간 행 수(메시지 + 도구 호출)를
+/// 돌려준다 — 0 이 아니면 그 세션의 집계가 바뀐 것이다. 같은 메시지의 뒤 줄이 앞 바퀴와 다른 바퀴에 읽혀도 새 도구 호출은
+/// 바뀜으로 친다(추천 규칙 ③이 도구 호출 수를 본다).
 pub fn ingest_line(
     tx: &Transaction,
     line: &TranscriptLine,
@@ -276,13 +277,14 @@ pub fn ingest_line(
                     params![m.message_id, m.stop_reason],
                 )?;
             }
+            let mut changed = inserted;
             for id in &m.tool_use_ids {
-                tx.execute(
+                changed += tx.execute(
                     "INSERT OR IGNORE INTO cc_tool_uses (tool_use_id, message_id) VALUES (?1, ?2)",
                     params![id, m.message_id],
                 )?;
             }
-            Ok(inserted)
+            Ok(changed)
         }
     }
 }

@@ -182,7 +182,7 @@ pub struct TokenSummaryArgs {
 #[derive(Deserialize, JsonSchema)]
 pub struct TokenCurrentSessionArgs {
     /// working directory of the session (absolute path) — the session in exactly this directory wins, else the latest one under it
-    pub cwd: String,
+    pub cwd: Option<String>,
     /// pick this Claude Code session id instead (e.g. when two sessions share the cwd); cwd is then ignored
     #[serde(rename = "sessionId")]
     #[schemars(rename = "sessionId")]
@@ -326,9 +326,9 @@ impl TodoMcp {
         &self,
         args: TokenCurrentSessionArgs,
     ) -> Result<CallToolResult, StoreError> {
-        let cwd = args.cwd.trim().to_string();
+        let cwd = args.cwd.as_deref().unwrap_or("").trim().to_string();
         if cwd.is_empty() && args.session_id.is_none() {
-            return Err(StoreError::new("cwd 가 필요하다"));
+            return Err(StoreError::new("cwd 나 sessionId 가 필요하다"));
         }
         let limit = args.turns.unwrap_or(20).clamp(1, 500);
         let lookup = cwd.clone();
