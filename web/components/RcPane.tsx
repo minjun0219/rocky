@@ -1,4 +1,12 @@
-import { ChevronDown, ChevronRight, Circle, CircleAlert, CircleDot, Server } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  CircleAlert,
+  CircleDot,
+  CircleHelp,
+  Server,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useUiStore } from '../store';
 import type { RcServerRow, RcStatus, RcStrayRow } from '../types';
@@ -23,7 +31,10 @@ export function rcUptime(secs: number | undefined): string {
   return `${Math.floor(secs / 86_400)}일`;
 }
 
-/** 요약 줄의 숫자 — 대상 중 실행 수, 꺼진 고정 수, 열린 세션 수(대상 밖 포함). */
+/**
+ * 요약 줄의 숫자 — 대상 중 실행 수, 꺼진 고정 수, 열린 세션 수(대상 밖 포함). 프로브가 실패했으면(`probeError`)
+ * "꺼짐" 은 모르는 것이라 꺼진 고정으로 세지 않는다.
+ */
 export function rcCounts(rc: RcStatus): {
   running: number;
   total: number;
@@ -33,7 +44,7 @@ export function rcCounts(rc: RcStatus): {
   return {
     running: rc.servers.filter((s) => s.running).length,
     total: rc.servers.length,
-    pinnedOff: rc.servers.filter((s) => s.pinned && !s.running).length,
+    pinnedOff: rc.probeError ? 0 : rc.servers.filter((s) => s.pinned && !s.running).length,
     sessions: [...rc.servers, ...rc.strays].reduce((sum, s) => sum + s.sessions, 0),
   };
 }
@@ -50,22 +61,32 @@ function useRcPolling(): RcStatus | null {
   return rc;
 }
 
-function ServerItem({ row, stray }: { row: RcServerRow | RcStrayRow; stray?: boolean }) {
+function ServerItem({
+  row,
+  stray,
+  unknown,
+}: {
+  row: RcServerRow | RcStrayRow;
+  stray?: boolean;
+  /** 프로브가 실패했다 — 떠 있지 않은 것으로 나온 행은 "꺼짐" 이 아니라 "모름" 이다. */
+  unknown?: boolean;
+}) {
   const pinned = 'pinned' in row && row.pinned;
   const running = !('running' in row) || row.running;
-  const down = pinned && !running;
+  const unsure = unknown === true && !running;
+  const down = pinned && !running && !unsure;
   const meta = [
     pinned ? '고정' : null,
-    running ? null : down ? '꺼짐 — 감시가 다시 띄운다' : '꺼짐',
+    running ? null : unsure ? '모름' : '꺼짐',
     row.sessions > 0 ? `세션 ${row.sessions}` : null,
     rcUptime(row.uptimeSecs) || null,
     stray ? row.dir.replace(/^\/(?:Users|home)\/[^/]+/, '~') : null,
   ]
     .filter(Boolean)
     .join(' · ');
-  const Icon = down ? CircleAlert : running ? CircleDot : Circle;
+  const Icon = unsure ? CircleHelp : down ? CircleAlert : running ? CircleDot : Circle;
   const tone = down ? 'text-mine' : running ? 'text-run' : 'text-faint';
-  const label = down ? '고정인데 꺼짐' : running ? '실행 중' : '꺼짐';
+  const label = unsure ? '모름' : down ? '고정인데 꺼짐' : running ? '실행 중' : '꺼짐';
   return (
     <li className="border-t border-line/70 first:border-t-0">
       <div className="flex w-full items-start gap-2.5 px-3.5 py-2.5" title={row.dir}>
@@ -162,7 +183,7 @@ export function RcSummary() {
             {rc.servers
               .filter((s) => s.pinned)
               .map((s) => (
-                <ServerItem key={s.dir} row={s} />
+                <ServerItem key={s.dir} row={s} unknown={Boolean(rc.probeError)} />
               ))}
             {showRc ? (
               <li className="border-t border-line/70 first:border-t-0">
@@ -199,6 +220,8 @@ export function RcPane() {
     .filter((s) => !s.pinned)
     .sort((a, b) => Number(b.running) - Number(a.running));
   const pinnedUp = pinned.filter((s) => s.running).length;
+  // 설치돼 응답했다는 것과 도는 것은 다르다 — 데몬이 멈춰 있어도 객체는 온다.
+  const agyRunning = rc.antigravity?.state === 'running';
   const auth = rc.auth === 'in' ? '로그인됨' : rc.auth === 'out' ? '로그아웃' : '모름';
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-1" aria-label="원격 제어">
@@ -212,11 +235,11 @@ export function RcPane() {
           <Head
             name="고정"
             count={`${pinnedUp}/${pinned.length}`}
-            tone={pinnedUp < pinned.length ? 'mine' : 'run'}
+            tone={pinnedUp < pinned.length && !rc.probeError ? 'mine' : 'run'}
           />
           <Card>
             {pinned.map((s) => (
-              <ServerItem key={s.dir} row={s} />
+              <ServerItem key={s.dir} row={s} unknown={Boolean(rc.probeError)} />
             ))}
           </Card>
         </>
@@ -229,7 +252,7 @@ export function RcPane() {
           />
           <Card>
             {others.map((s) => (
-              <ServerItem key={s.dir} row={s} />
+              <ServerItem key={s.dir} row={s} unknown={Boolean(rc.probeError)} />
             ))}
           </Card>
         </>
@@ -263,8 +286,12 @@ export function RcPane() {
         </li>
         {rc.antigravity ? (
           <li className="flex min-w-0 items-center gap-2.5 border-t border-line/70 px-3.5 py-2.5">
-            <span className="text-run">
-              <CircleDot size={14} aria-hidden="true" />
+            <span className={agyRunning ? 'text-run' : 'text-faint'}>
+              {agyRunning ? (
+                <CircleDot size={14} aria-hidden="true" />
+              ) : (
+                <Circle size={14} aria-hidden="true" />
+              )}
             </span>
             <span className="text-sm text-text">Antigravity</span>
             <span className="ml-auto min-w-0 truncate font-mono text-chip text-muted">

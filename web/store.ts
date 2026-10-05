@@ -434,7 +434,17 @@ export const useUiStore = create<UiState>((set, get) => ({
   loadRc: async () => {
     try {
       const rc = await api<RcStatus>('/api/rc/servers', get().actor);
-      set(!rc.configured && get().view === 'rc' ? { rc, view: 'feed' } : { rc });
+      if (!rc.configured && get().view === 'rc') {
+        // 주소도 피드로 — `?view=rc` 가 남으면 새로고침·뒤로가기마다 rc 를 골랐다 튕긴다.
+        set({ rc, view: 'feed' });
+        const { view: _was, ...here } = parseRoute(
+          window.location.pathname,
+          window.location.search,
+        );
+        replacePath(pathFor(here));
+        return;
+      }
+      set({ rc });
     } catch {
       // 데몬이 잠깐 안 닿으면 직전 값을 둔다 — 화면이 깜박이지 않게.
     }

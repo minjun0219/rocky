@@ -75,9 +75,29 @@ describe('RcPane', () => {
     const heads = [...document.querySelectorAll('h2')].map((h) => h.textContent);
     expect(heads).toEqual(['고정1/2', '부를 수 있음0/1', '대상 밖1', '환경']);
     expect(screen.getByRole('img', { name: '고정인데 꺼짐' })).toBeTruthy();
+    // 아직 없는 감시를 약속하지 않는다.
+    expect(document.body.textContent).not.toContain('감시');
     expect(screen.getByText(/~\/w\/old/)).toBeTruthy();
     expect(screen.getByText('로그인됨')).toBeTruthy();
     expect(screen.getByText('running · mac-1')).toBeTruthy();
+  });
+
+  test('프로브가 실패하면 떠 있지 않은 행은 꺼짐이 아니라 모름 — 꺼진 고정 경고도 없다', () => {
+    const rc = status({ probeError: 'ps 실패: x' });
+    expect(rcCounts(rc).pinnedOff).toBe(0);
+    renderWithStore(<RcPane />, { rc, loadRc });
+    expect(screen.queryByRole('img', { name: '고정인데 꺼짐' })).toBeNull();
+    expect(screen.getAllByRole('img', { name: '모름' }).length).toBe(2);
+  });
+
+  test('Antigravity 는 running 일 때만 실행 표시 — 꺼진 데몬도 객체는 온다', () => {
+    renderWithStore(<RcPane />, {
+      rc: status({ antigravity: { state: 'stopped', instance: 'mac-1' } }),
+      loadRc,
+    });
+    const row = screen.getByText('Antigravity').closest('li');
+    expect(row?.querySelector('.text-run')).toBeNull();
+    expect(row?.textContent).toContain('stopped · mac-1');
   });
 
   test('프로브가 실패하면 꺼짐을 믿지 말라고 맨 위에 적는다', () => {
