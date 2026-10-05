@@ -522,7 +522,23 @@ pub async fn verify_target(
     }
     let tree_s = tree.to_string_lossy().to_string();
     let log = dir.join(format!("{}.log", &remote[..remote.len().min(12)]));
-    let _ = std::fs::write(&log, "");
+    // 같은 커밋을 또 도는 것(다시 돌리기·끊긴 실행)이면 비우지 않고 이어 쓴다 — 이력의 앞 줄이 가리키는 출력이 남게.
+    if std::fs::metadata(&log)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+    {
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&log) {
+            use std::io::Write;
+            let why = if rerun {
+                "다시 돌리기 요청"
+            } else {
+                "끊긴 실행을 이어서"
+            };
+            let _ = writeln!(f, "\n### 같은 커밋을 다시 — {why} ({})", iso_now());
+        }
+    } else {
+        let _ = std::fs::write(&log, "");
+    }
     // 단계 출력이 쌓이는 곳 — 소유자만 읽는다.
     let _ = std::fs::set_permissions(&log, std::os::unix::fs::PermissionsExt::from_mode(0o600));
     let mut record = VerifyRecord {

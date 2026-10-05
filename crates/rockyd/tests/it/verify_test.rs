@@ -426,6 +426,14 @@ async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
     assert_eq!(lines[2]["event"], "passed");
     assert_eq!(lines[2]["record"]["rerun"], true);
     assert_eq!(lines[0]["record"]["sha"], lines[2]["record"]["sha"]);
+    // 다시 돌린 실행은 같은 로그에 이어 쓴다 — 앞선 실패의 출력이 남는다.
+    assert_eq!(lines[0]["record"]["log"], lines[2]["record"]["log"]);
+    let log = std::fs::read_to_string(lines[2]["record"]["log"].as_str().unwrap()).unwrap();
+    assert!(log.contains("### 자동 재시도 — env 실패"), "{log}");
+    assert!(
+        log.contains("### 같은 커밋을 다시 — 다시 돌리기 요청"),
+        "{log}"
+    );
 
     // 데몬이 죽어 `running` 기록만 남은 대상은 도는 중이 아니다 — 맡는다.
     let mut status = f.state.verify();
