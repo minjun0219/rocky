@@ -2180,7 +2180,9 @@ async fn handoff_route(
         ));
     }
 
-    let result = (state.sessions)().await;
+    // 핸드오프는 큐에 쓰는 일이라 캐시 없는 목록으로 대상을 고른다 — 지난 목록이면 이미 끝난 세션을
+    // 살아 있는 대상으로 보고 아무도 집지 않을 핸드오프를 남긴다(핸드오프엔 TTL 이 없다).
+    let result = state.fresh_sessions().await;
     if !result.available {
         let reason = result
             .reason
