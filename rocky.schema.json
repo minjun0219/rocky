@@ -216,6 +216,11 @@
           "type": "number",
           "description": "이 사용률(%)부터 임박 배지. 0 이면 임박 경고를 끄고 소진(100%)만 강조, 0~100 밖도 끈 것. 기본 90."
         },
+        "configDir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Claude Code 설정 폴더. 세션의 CLAUDE_CONFIG_DIR 가 있으면 그쪽이 이긴다. 기본 ~/.claude. 한도 캐시는 이 폴더와 로그인된 계정(이메일)별로 갈린다."
+        },
         "extraCommands": {
           "type": "array",
           "description": "다른 도구의 statusline 줄을 rocky 줄 아래(보드 줄 위)에 설정 순서대로 붙인다. 나란히 돌고, 늦거나 실패하거나 출력이 없으면 그 명령만 빠진다.",

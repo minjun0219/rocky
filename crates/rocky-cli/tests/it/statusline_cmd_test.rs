@@ -162,14 +162,22 @@ fn full_replays_cc_usage_goldens() {
         let case: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(case_dir.join("case.json")).unwrap())
                 .unwrap();
-        // 캐시(usage·state)를 심은 케이스는 CLI 가 캐시를 읽게 된 뒤에 돈다 — 렌더는 rocky-core 대조 테스트가 본다.
-        if !case["usage"].is_null() || !case["state"].is_null() {
-            continue;
-        }
         ran += 1;
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
+        // 캡처 때 cc-usage 캐시에 심은 것을 rocky 의 같은 자리에 심는다 — 임시 HOME 에는 계정 파일이 없어 이메일을
+        // 모르므로 `_` 계정 폴더다. 캐시 JSON 은 cc-usage 와 같은 모양이라 그대로 쓴다.
+        let bucket = rocky_core::claude_account::cache_bucket(
+            &rocky_core::claude_account::cache_slot(&home.join(".cache"), &home.join(".claude")),
+            None,
+        );
+        for (key, file) in [("usage", "usage.json"), ("state", "state.json")] {
+            if !case[key].is_null() {
+                std::fs::create_dir_all(&bucket).unwrap();
+                std::fs::write(bucket.join(file), case[key].to_string()).unwrap();
+            }
+        }
         // 캡처 때와 같은 셸 줄·git 환경으로 repo 를 다시 만든다(작성자·날짜 고정이라 커밋 해시까지 같다).
         let repo = case["repo"].as_array().unwrap();
         if !repo.is_empty() {
@@ -351,4 +359,159 @@ fn full_kills_a_hung_git_with_its_process_group() {
         }
     }
     assert!(!alive, "git 이 띄운 자식({pid})이 고아로 남았다");
+}
+
+/// `statusline --full` 한 번 — 환경을 비우고 주어진 것만 넣는다. 데몬·keychain·usage API 에 닿지 않는다.
+fn full_once(home: &std::path::Path, env: &[(&str, &str)], config: &str, stdin: &str) -> String {
+    let rocky_json = home.join("rocky.json");
+    std::fs::write(&rocky_json, config).unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+    cmd.env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", home)
+        .env("ROCKY_USAGE_DIR", home.join("usage"))
+        .env("ROCKY_CONFIG", &rocky_json)
+        .env("NO_COLOR", "1")
+        .env("TZ", "UTC");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
+        .args(["statusline", "--full"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+}
+
+const API_CONFIG: &str =
+    r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"api"}}"#;
+const NOW: &str = "2026-09-16T07:40:00Z";
+
+/// 계정 하나의 usage 캐시를 심는다 — 5분 전 응답, 5h 사용률 `used`.
+fn seed_usage(bucket: &std::path::Path, used: f64) {
+    std::fs::create_dir_all(bucket).unwrap();
+    let usage = serde_json::json!({
+        "usage": {"fetched_at": "2026-09-16T07:35:00Z", "five_hour": {"percent": used}}
+    });
+    std::fs::write(bucket.join("usage.json"), usage.to_string()).unwrap();
+}
+
+fn slot(home: &std::path::Path, config_dir: &std::path::Path) -> std::path::PathBuf {
+    rocky_core::claude_account::cache_slot(&home.join(".cache"), config_dir)
+}
+
+#[test]
+fn full_keeps_caches_apart_per_config_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let work = home.join("work-claude");
+    seed_usage(
+        &rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None),
+        42.0,
+    );
+    seed_usage(
+        &rocky_core::claude_account::cache_bucket(&slot(home, &work), None),
+        10.0,
+    );
+    let stdin = r#"{"model":{"display_name":"M"}}"#;
+    let now = [("ROCKY_STATUSLINE_NOW", NOW)];
+    assert_eq!(full_once(home, &now, API_CONFIG, stdin), "M · 5h 58%\n");
+    let work_env = [
+        ("ROCKY_STATUSLINE_NOW", NOW),
+        ("CLAUDE_CONFIG_DIR", work.to_str().unwrap()),
+    ];
+    assert_eq!(
+        full_once(home, &work_env, API_CONFIG, stdin),
+        "M · 5h 90%\n"
+    );
+}
+
+/// 같은 설정 폴더 안의 계정 전환(claude-swap · `/login`) — 계정 파일의 이메일이 바뀌면 그 계정의 캐시로 갈아탄다.
+/// 계정 파일은 1분마다(또는 한도 숫자가 바뀔 때)만 다시 읽고, 못 읽으면 계정 캐시를 덮지 않는다.
+#[test]
+fn full_follows_an_account_switch_inside_one_config_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let config_dir = home.join(".claude");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    let account = config_dir.join(".claude.json");
+    let set_email = |email: &str| {
+        std::fs::write(
+            &account,
+            format!(r#"{{"oauthAccount":{{"emailAddress":"{email}"}}}}"#),
+        )
+        .unwrap();
+    };
+    let slot = slot(home, &config_dir);
+    seed_usage(
+        &rocky_core::claude_account::cache_bucket(&slot, Some("a@example.com")),
+        42.0,
+    );
+    seed_usage(
+        &rocky_core::claude_account::cache_bucket(&slot, Some("b@example.com")),
+        10.0,
+    );
+    let stdin = r#"{"model":{"display_name":"M"}}"#;
+    let at = |t: &'static str| [("ROCKY_STATUSLINE_NOW", t)];
+
+    set_email("a@example.com");
+    assert_eq!(
+        full_once(home, &at("2026-09-16T07:40:00Z"), API_CONFIG, stdin),
+        "M · 5h 58%\n"
+    );
+    // 전환 직후 — 1분 안이고 한도 숫자도 그대로라 아직 a 의 캐시다.
+    set_email("b@example.com");
+    assert_eq!(
+        full_once(home, &at("2026-09-16T07:40:30Z"), API_CONFIG, stdin),
+        "M · 5h 58%\n"
+    );
+    // 1분이 지나 다시 읽으면 b 로 갈아탄다.
+    assert_eq!(
+        full_once(home, &at("2026-09-16T07:41:01Z"), API_CONFIG, stdin),
+        "M · 5h 90%\n"
+    );
+    // 계정 파일이 깨져 있으면(원자적 재작성 중 등) 계정 캐시를 덮지 않는다 — b 그대로.
+    std::fs::write(&account, "{ not json").unwrap();
+    assert_eq!(
+        full_once(home, &at("2026-09-16T07:43:00Z"), API_CONFIG, stdin),
+        "M · 5h 90%\n"
+    );
+}
+
+/// stdin 의 한도는 그 계정의 `state.json` 에 남아, stdin 이 한 번 비어도 6시간 동안 그린다.
+#[test]
+fn full_records_stdin_limits_for_the_six_hour_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let config = r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"stdin"}}"#;
+    let now = [("ROCKY_STATUSLINE_NOW", NOW)];
+    let with =
+        r#"{"model":{"display_name":"M"},"rate_limits":{"five_hour":{"used_percentage":30}}}"#;
+    assert_eq!(full_once(home, &now, config, with), "M · 5h 70%\n");
+    let later = [("ROCKY_STATUSLINE_NOW", "2026-09-16T09:40:00Z")];
+    assert_eq!(
+        full_once(home, &later, config, r#"{"model":{"display_name":"M"}}"#),
+        "M · 5h 70%\n"
+    );
+    let bucket = rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(bucket.join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["five_hour"]["percent"], 30.0);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(bucket.join("state.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "캐시 파일은 본인만 읽는다");
+    }
 }

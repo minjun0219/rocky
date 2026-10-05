@@ -4,6 +4,7 @@
 
 pub mod actor;
 pub mod actors;
+pub mod claude_account;
 pub mod config;
 pub mod doing;
 pub mod github;
