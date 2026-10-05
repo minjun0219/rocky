@@ -516,6 +516,8 @@ MCP `todo_write { id, createIssue: true }`
 
 - 결정론적 (LLM 미사용), fail-open — 데몬이 꺼져 있으면 조용히 no-op (훅이 데몬을 기동하진 않는다)
 - 에이전트 자신의 변경(claude-code/codex/opencode)은 걸러서 자기 반향 없음
+- 한 턴에 한 페이지(100건)까지 — 더 밀려 있으면 받은 데까지만 커서를 옮기고 "밀린 변경이 더 있다" 한 줄을 붙여 다음
+  프롬프트에 이어서 싣는다(건너뛰지 않는다)
 - 끄기: `rocky.json` `todo.watch: false` 또는 env `ROCKY_TODO_WATCH=0`
 
 ## 보드 → 세션 핸드오프 (턴 경계 배달, Claude Code 전용)

@@ -261,3 +261,54 @@ fn the_channel_reads_a_page_for_the_session_found_by_its_parent_pid() {
     fake.set("/api/sessions", 500, json!({ "error": "agents" }));
     assert_eq!(read_page(&agent, &base, 4242, 10), Page::Retry);
 }
+
+/// 사람이 바꾼 보드 항목 한 건.
+fn human_entry(id: i64) -> Value {
+    json!({
+        "id": id, "entity": "todo", "entityId": format!("t{id}"), "actor": "logan", "action": "update",
+        "at": "2026-10-05T10:00:00.000Z", "title": format!("할 일 {id}"), "boardKey": "rocky"
+    })
+}
+
+/// 오래 조용했던 세션은 변경이 100건 넘게 밀린다 — 꽉 찬 페이지면 응답의 `lastId`(전역 MAX)로 뛰지 않고 받은
+/// 마지막 id 까지만 커서를 옮기고, 남았다는 한 줄을 붙여 다음 턴에 이어 싣는다(예전엔 그 사이를 영영 건너뛰었다).
+#[test]
+fn a_full_page_advances_only_to_the_last_received_entry() {
+    let fake = daemon_with_subscriptions("me");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = build_context(fake.port, dir.path(), "test");
+    let cursors = dir.path().join("hook-cursors.json");
+    let input = json!({ "session_id": "me", "cwd": "/nowhere" });
+    fake.set("/api/changes", 200, feed(10, vec![]));
+    notify_todo_context(&ctx, &input);
+
+    fake.set(
+        "/api/changes",
+        200,
+        feed(250, (11..=110).map(human_entry).collect()),
+    );
+    let text = notify_todo_context(&ctx, &input).expect("첫 페이지");
+    assert!(text.contains("할 일 110"), "{text}");
+    assert!(text.contains("밀린 변경이 더 있다"), "{text}");
+    assert_eq!(
+        read_cursor(&cursors, "me"),
+        Some(110),
+        "전역 MAX(250)로 뛰지 않는다"
+    );
+
+    fake.set(
+        "/api/changes",
+        200,
+        feed(250, (111..=120).map(human_entry).collect()),
+    );
+    let text = notify_todo_context(&ctx, &input).expect("다음 턴에 이어서");
+    assert!(
+        text.contains("할 일 111") && !text.contains("밀린 변경이 더 있다"),
+        "{text}"
+    );
+    assert_eq!(
+        read_cursor(&cursors, "me"),
+        Some(250),
+        "다 받았으면 lastId 로 맞춘다"
+    );
+}
