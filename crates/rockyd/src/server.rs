@@ -214,10 +214,8 @@ impl ServerState {
         let now = registration.seen_at;
         inboxes.retain(|_, r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS);
         if let Err(e) = self.store.save_session_inbox(&registration) {
-            eprintln!(
-                "rocky: 받은편지함 등록을 저장하지 못했다({}) — {e}",
-                registration.session_id
-            );
+            // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
+            eprintln!("rocky: 받은편지함 등록을 저장하지 못했다 — {e}");
         }
         inboxes.insert(registration.session_id.clone(), registration);
     }
