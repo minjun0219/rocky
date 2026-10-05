@@ -181,6 +181,11 @@ fn is_inbox_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// 명령 하나로 된 항목(`todo.inbox[]` · `pr.notifiers[]` · `verify.targets[].steps[]`)을 읽는다 — 이름·argv·상한.
+pub fn parse_command_bridge(value: &serde_json::Value) -> Option<CommandBridge> {
+    parse_inbox_source(value)
+}
+
 fn parse_inbox_source(value: &serde_json::Value) -> Option<InboxSource> {
     let obj = value.as_object()?;
     let name = obj.get("name")?.as_str()?.to_string();
@@ -406,6 +411,88 @@ pub fn load_pr_block(config_path: &Path) -> PrWatchConfig {
             .unwrap_or_default(),
         session_notify: block.get("sessionNotify").and_then(|v| v.as_bool()),
     }
+}
+
+/// `rocky.json` 의 `verify` 블록 — 기본 브랜치 검증(`crate::verify`). 대상이 없으면 꺼진 것이다(opt-in).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VerifyConfig {
+    pub enabled: Option<bool>,
+    pub interval_seconds: Option<u64>,
+    pub targets: Vec<VerifyTarget>,
+}
+
+impl VerifyConfig {
+    pub fn active(&self) -> bool {
+        self.enabled != Some(false) && !self.targets.is_empty()
+    }
+
+    pub fn interval_seconds(&self) -> u64 {
+        self.interval_seconds
+            .filter(|s| *s >= 10)
+            .unwrap_or(crate::verify::DEFAULT_INTERVAL_SECONDS)
+    }
+}
+
+/// 검증 대상 하나 — 보드(그 `path` 가 레포)와 브랜치, 차례로 돌 단계들.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifyTarget {
+    pub board: String,
+    pub branch: String,
+    /// 단계 = 이름 + argv(셸을 거치지 않는다) + 상한. 수집함 소스와 같은 모양이다.
+    pub steps: Vec<CommandBridge>,
+}
+
+/// `verify` 블록을 읽는다. 파일 없음 / 파싱 실패 / 블록 없음은 기본값(꺼짐). 단계가 하나도 없는 대상은 버린다.
+pub fn load_verify_block(config_path: &std::path::Path) -> VerifyConfig {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return VerifyConfig::default();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return VerifyConfig::default();
+    };
+    let Some(block) = parsed.get("verify").and_then(|v| v.as_object()) else {
+        return VerifyConfig::default();
+    };
+    let targets = block
+        .get("targets")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(parse_target).collect())
+        .unwrap_or_default();
+    VerifyConfig {
+        enabled: block.get("enabled").and_then(|v| v.as_bool()),
+        interval_seconds: block.get("intervalSeconds").and_then(|v| v.as_u64()),
+        targets,
+    }
+}
+
+fn parse_target(value: &serde_json::Value) -> Option<VerifyTarget> {
+    let obj = value.as_object()?;
+    let board = obj.get("board")?.as_str()?.trim().to_string();
+    if board.is_empty() {
+        return None;
+    }
+    // 브랜치를 주지 않으면 main. 잘못된 이름이면 대상을 버린다 — 조용히 main 으로 바꾸면 다른 브랜치를 검증하는 줄 모른다.
+    let branch = match obj.get("branch") {
+        None => "main".to_string(),
+        Some(v) => {
+            let b = v.as_str()?.trim();
+            if !crate::verify::is_branch_name(b) {
+                return None;
+            }
+            b.to_string()
+        }
+    };
+    let steps: Vec<InboxSource> = obj
+        .get("steps")?
+        .as_array()?
+        .iter()
+        .filter_map(parse_command_bridge)
+        .collect();
+    (!steps.is_empty()).then_some(VerifyTarget {
+        board,
+        branch,
+        steps,
+    })
 }
 
 /// `rocky.json` 의 `usage` 블록 — 사용 로그(`rocky_core::usage`). 기본 켜짐, `~/.config/rocky/usage`.

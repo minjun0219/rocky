@@ -22,4 +22,5 @@ mod sweep_test;
 mod tailscale_test;
 mod tokens_test;
 mod usage_test;
+mod verify_test;
 mod ws_test;

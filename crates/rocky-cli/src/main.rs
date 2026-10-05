@@ -109,6 +109,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "config" => rocky_cli::config_cmd::cmd_config(&ctx, &rest, &todo_config, &printer),
         "usage" => rocky_cli::usage_cmd::cmd_usage(&parsed, &printer),
         "tokens" => rocky_cli::tokens_cmd::cmd_tokens(&ctx, &rest, &parsed, &printer),
+        "verify" => rocky_cli::verify_cmd::cmd_verify(&ctx, &printer),
         "mcp" if rest.first().map(String::as_str) == Some("worklog") => {
             rocky_cli::worklog_mcp::serve_stdio()
         }

@@ -143,6 +143,8 @@ pub struct ServerState {
     note_streams: Mutex<HashMap<String, broadcast::Sender<String>>>,
     /// PR 감시 잡의 마지막 결과 — health 가 낸다.
     pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
+    /// 기본 브랜치 검증 — 대상마다 지금 상태(`rockyd::verify`).
+    verify: Mutex<Vec<crate::verify::VerifyTargetStatus>>,
     /// 레포별 열린 PR 목록 캐시 — (가져온 시각 unix 초, 목록). GitHub 탭이 레포를 펼칠 때만 채운다.
     open_prs: Mutex<HashMap<String, (i64, Vec<rocky_core::prwatch::OpenPr>)>>,
     /// 기동 때 `PRAGMA quick_check` 결과 — "ok" 아니면 health 로 드러낸다. 테스트 상태는 None.
@@ -194,6 +196,14 @@ impl ServerState {
 
     pub fn gh_viewer(&self) -> Option<String> {
         self.gh_viewer.lock().expect("gh_viewer poisoned").clone()
+    }
+
+    pub fn set_verify(&self, statuses: Vec<crate::verify::VerifyTargetStatus>) {
+        *self.verify.lock().expect("verify poisoned") = statuses;
+    }
+
+    pub fn verify(&self) -> Vec<crate::verify::VerifyTargetStatus> {
+        self.verify.lock().expect("verify poisoned").clone()
     }
 
     pub fn set_pr_watch(&self, status: crate::prwatch::PrWatchStatus) {
@@ -481,6 +491,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         events,
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
+        verify: Mutex::new(Vec::new()),
         db_integrity: Mutex::new(None),
         open_prs: Mutex::new(HashMap::new()),
         gh_viewer: Mutex::new(None),
@@ -1882,6 +1893,10 @@ async fn dispatch(
     }
 
     // ── 레포의 열린 PR(필요할 때만) — GitHub 탭이 레포를 펼칠 때. 주기 조회가 아니라 이때만 1포인트, 60초 캐시 ──
+    if *method == Method::GET && path == "/api/verify" {
+        // 기본 브랜치 검증 — 대상마다 마지막(또는 도는 중인) 결과. 설정에 대상이 없으면 빈 목록.
+        return Ok(ok_json(&json!({ "targets": state.verify() })));
+    }
     if *method == Method::GET && path == "/api/tokens/summary" {
         // 모델×effort(기본) · 모델 · effort · 세션 · 브랜치별 토큰 합계. 구간은 from/to(ISO) 또는 days(기본 30).
         let group_raw = query

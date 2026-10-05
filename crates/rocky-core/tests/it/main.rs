@@ -23,5 +23,6 @@ mod summary_test;
 mod tokens_test;
 mod transcript_test;
 mod usage_test;
+mod verify_test;
 mod version_test;
 mod worklog_test;
