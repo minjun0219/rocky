@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-black)](https://www.rust-lang.org)
 
-개인용 에이전트 도구다. 본체는 **Rust 상주 데몬(공유 todo 보드와 MCP)과 CLI**이고, 그 위에 얇은 Claude Code 플러그인이 워크로그(기록과 정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary*의 Rocky에서 따왔다. 2026-09에 별도 레포였던 rocky-todo를 흡수했다. 화면은 브라우저용 웹 UI 하나이고, 데몬이 `http://127.0.0.1:8636/`에서 서빙한다.
+에이전트를 부리는 데 필요한 기능을 한곳에 모아 두는 개인 툴킷이다. 작업 보드와 하네스에서 시작했고, 에이전트 운용에 쓰이는 기능이면 무엇이든 받는다. 다만 다른 곳에 있는 기능을 한꺼번에 옮겨 오지는 않고, 소유자가 하나씩 정해서 들인다. 지금 본체는 **Rust 상주 데몬(공유 todo 보드와 MCP)과 CLI**이고, 그 위에 얇은 Claude Code 플러그인이 워크로그(기록과 정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary*의 Rocky에서 따왔다. 2026-09에 별도 레포였던 rocky-todo를 흡수했다. 화면은 브라우저용 웹 UI 하나이고, 데몬이 `http://127.0.0.1:8636/`에서 서빙한다.
 
 > **v0.23에서 걷어낸 것**: `openapi_*` 7종, `seo_validate`, `notion_*` 4종과 단독 CLI `openapi-mcp`. 39개 레포 5,216턴의 워크로그를 세어 보니 호출이 0회였다. 전부 git 히스토리에 있으니 필요해지면 거기서 꺼낸다.
 
