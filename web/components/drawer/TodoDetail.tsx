@@ -70,6 +70,7 @@ export function TodoDetail() {
     setHandoffSession('');
     setHandoffBusy(false);
     setHandoffError(null);
+    setHandoffWoke(null);
   }, [todo?.id]);
 
   if (!todo) {

@@ -681,3 +681,36 @@ async fn handoff_wakes_a_session_that_registered_its_inbox() {
     assert_eq!(status, 201);
     assert_eq!(body["woke"], false);
 }
+
+#[tokio::test]
+async fn a_remote_handoff_is_queued_but_does_not_wake_the_session() {
+    // 노출된 주소(프록시 헤더)로 온 핸드오프는 세션을 움직이지 않는다 — 큐에만 넣는다(세션 띄우기와 같은 경계).
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(fixture_sessions()))
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, socket) = inbox_socket(dir.path());
+    post(
+        &state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "sess-1", "socket": socket, "cwd": "/w/rocky-todo" }),
+    )
+    .await;
+    let todo = create(&f, "rocky-todo", "원격에서 넘김");
+    let (status, body) = call(
+        &state,
+        "POST",
+        &format!("/api/todos/{}/handoff", todo.id),
+        Some(json!({"sessionId":"sess-1"})),
+        ReqOptions {
+            headers: vec![("x-forwarded-for", "100.64.0.9")],
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(body["woke"], false);
+    assert!(drain(&listener).is_empty());
+    assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_some());
+}

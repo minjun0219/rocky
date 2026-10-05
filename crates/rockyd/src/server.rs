@@ -1422,7 +1422,7 @@ async fn dispatch(
             return Ok(ok_json(&with_ref_todo(store, moved)?));
         }
         if let Some((r, _)) = seg2_match(path, "/api/todos/", &["handoff"]) {
-            return handoff_route(state, &r, query, headers, body, actor).await;
+            return handoff_route(state, &r, query, headers, body, actor, local).await;
         }
         if let Some((r, _)) = seg2_match(path, "/api/todos/", &["spawn"]) {
             return spawn_route(state, &r, query, headers, body, actor, local).await;
@@ -2147,6 +2147,7 @@ async fn issue_route(
 }
 
 /// POST /api/todos/:ref/handoff — 자동 매칭은 후보 정확히 1개일 때만.
+#[allow(clippy::too_many_arguments)]
 async fn handoff_route(
     state: &Arc<ServerState>,
     r: &str,
@@ -2154,6 +2155,7 @@ async fn handoff_route(
     headers: &HeaderMap,
     body: Body,
     actor: &str,
+    local: bool,
 ) -> StoreResult<Response> {
     let store = &state.store;
     let body = read_body(headers, body).await?;
@@ -2253,13 +2255,16 @@ async fn handoff_route(
     // 그 세션이 받은편지함 소켓을 등록했으면 poke 를 바로 꽂아 턴을 연다 — 웹의 "에이전트에게 보내기" 는
     // poke 를 보낼 길이 없어, 쉬는 세션은 다음 턴(사람이 뭔가 칠 때)까지 집지 못했다. 열린 턴의
     // UserPromptSubmit 훅이 큐에서 집어 전체 지시를 주입한다. 등록이 없으면 지금처럼 큐에서 기다린다.
-    let woke = wake_session(
-        state,
-        &target.session_id,
-        &poke.message,
-        format!("{todo_ref} {}", todo.title),
-    )
-    .await;
+    // 세션을 깨워 턴을 여는 건 세션을 움직이는 일이라 로컬 요청만 한다(세션 띄우기와 같은 경계) — 노출된 주소
+    // (tailscale·Cloudflare)로 온 핸드오프는 큐에만 넣고 그 세션의 다음 턴을 기다린다.
+    let woke = local
+        && wake_session(
+            state,
+            &target.session_id,
+            &poke.message,
+            format!("{todo_ref} {}", todo.title),
+        )
+        .await;
     let mut out = serde_json::to_value(&handoff).map_err(|e| StoreError::new(e.to_string()))?;
     out["poke"] = serde_json::to_value(&poke).map_err(|e| StoreError::new(e.to_string()))?;
     out["woke"] = json!(woke);
