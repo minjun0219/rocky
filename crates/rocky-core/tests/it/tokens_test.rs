@@ -354,8 +354,6 @@ fn rule_lower_effort_fires_on_short_turns_at_xhigh() {
     assert_eq!(rules(&rec), vec!["lower-effort"]);
     assert!(rec.suggestions[0].message.contains("15턴"));
     assert!(rec.suggestions[0].message.contains("800"));
-    // 세션 중간 전환은 캐시를 깨므로 작업 경계에서 바꾸라고 말한다.
-    assert!(rec.suggestions[0].message.contains("작업 경계"));
     assert_eq!(rec.evidence.avg_output_tokens, 800);
 
     // 길면, 혹은 effort 가 high 면 내지 않는다.
@@ -405,6 +403,7 @@ fn rule_switch_to_sonnet_needs_opus_no_tools_and_short_output() {
     let rec = recommend(SID, &chat, &cfg);
     assert_eq!(rules(&rec), vec!["switch-to-sonnet"]);
     assert!(rec.suggestions[0].message.contains("Sonnet medium"));
+    // 모델을 바꾸면 캐시를 새로 쌓으므로 작업 경계에서 바꾸라고 말한다(effort 변경은 캐시를 지킨다).
     assert!(rec.suggestions[0].message.contains("작업 경계"));
 
     let mut one_tool = chat.clone();

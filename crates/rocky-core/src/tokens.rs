@@ -834,7 +834,7 @@ pub fn recommend(session_id: &str, turns: &[TurnStat], cfg: &RecommendConfig) ->
         out.suggestions.push(Suggestion {
             rule: "lower-effort",
             message: format!(
-                "최근 {n}턴 평균 출력 {} 토큰(기준 {} 이하)인데 effort 가 {} — 다음 작업 경계(커밋 직후)나 새 세션에서 medium 으로 낮추는 것을 고려(중간에 바꾸면 캐시를 새로 쌓는다)",
+                "최근 {n}턴 평균 출력 {} 토큰(기준 {} 이하)인데 effort 가 {} — medium 으로 낮추는 것을 고려",
                 thousands(avg),
                 thousands(cfg.low_output_tokens),
                 latest.effort.as_deref().unwrap_or_default(),
