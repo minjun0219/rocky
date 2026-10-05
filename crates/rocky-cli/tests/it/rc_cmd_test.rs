@@ -1,4 +1,4 @@
-use rocky_cli::rc_cmd::{human_uptime, render_status};
+use rocky_cli::rc_cmd::{human_uptime, render_result, render_status};
 use serde_json::json;
 
 #[test]
@@ -50,4 +50,32 @@ fn unconfigured_still_shows_agy() {
         rocky_cli::rc_cmd::agy_line(&json!({"antigravity": null})),
         None
     );
+}
+
+#[test]
+fn status_shows_action_and_failed_result() {
+    let raw = json!({
+        "configured": true,
+        "servers": [
+            {"label": "a", "dir": "/w/a", "pinned": false, "running": true, "sessions": 0, "action": "restarting"},
+            {"label": "b", "dir": "/w/b", "pinned": false, "running": false, "sessions": 0,
+             "lastResult": {"ok": false, "message": "뜨자마자 내려갔다 — x", "at": "t"}},
+            {"label": "c", "dir": "/w/c", "pinned": false, "running": true, "sessions": 0,
+             "lastResult": {"ok": true, "message": "떴다", "at": "t"}}
+        ],
+        "strays": [], "auth": "in", "antigravity": null
+    });
+    let out = render_status(&raw);
+    assert!(out.contains("● a  재시작 중…"));
+    assert!(out.contains("○ b  ✗ 뜨자마자 내려갔다 — x"));
+    assert!(out.contains("● c\n") || out.contains("● c\r") || out.lines().any(|l| l == "● c"));
+}
+
+#[test]
+fn result_line_marks_success_or_failure() {
+    let ok =
+        json!({"lastResult": {"ok": true, "message": "떴다 — 새 세션과 함께(pid 1)", "at": "t"}});
+    assert_eq!(render_result("a", &ok), "✓ a: 떴다 — 새 세션과 함께(pid 1)");
+    let bad = json!({"lastResult": {"ok": false, "message": "already served", "at": "t"}});
+    assert_eq!(render_result("a", &bad), "✗ a: already served");
 }

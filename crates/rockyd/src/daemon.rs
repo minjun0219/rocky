@@ -304,7 +304,7 @@ pub async fn run_daemon(
     }
     let (rc_status, agy_control) = crate::rc::rc_handles(
         crate::runner::default_runner(),
-        rc,
+        rc.clone(),
         std::env::var("HOME").unwrap_or_default(),
         crate::rc::RC_CACHE_TTL,
     );
@@ -317,6 +317,16 @@ pub async fn run_daemon(
         token_recommend: tokens.recommend.clone(),
         rc: Some(rc_status),
         agy_control: Some(agy_control),
+        // 띄우기 · 재시작 — rc 가 켜진 기기에서만. 기동 로그와 이벤트는 todo 폴더의 rc/ 에.
+        rc_control: rc.clone().map(|config| {
+            Arc::new(crate::rc::RcController::new(
+                Some(config),
+                std::env::var("HOME").unwrap_or_default(),
+                runtime.dir.join("rc"),
+                crate::runner::default_runner(),
+                crate::rc::default_ops(),
+            ))
+        }),
         ..ServerOptions::new(store)
     });
     // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.

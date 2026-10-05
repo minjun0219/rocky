@@ -103,6 +103,33 @@ pub struct ServerRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime_secs: Option<u64>,
     pub sessions: usize,
+    /// 데몬이 이 대상에 지금 하고 있는 일 — 없으면 쉬는 중.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<RcAction>,
+    /// 마지막으로 띄우거나 다시 띄운 결과(데몬이 다시 뜨면 사라진다).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_result: Option<RcResult>,
+}
+
+/// 진행 중인 일.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RcAction {
+    Starting,
+    Restarting,
+    /// `already served` 를 만나 쉬었다 다시 띄우는 중, 또는 이어받기가 안 떠 새로 띄우는 중.
+    Retrying,
+}
+
+/// 띄우기 · 재시작 한 번의 결과.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RcResult {
+    pub ok: bool,
+    /// 사람이 읽을 한 줄 — 무엇으로 띄웠고 어떻게 끝났나.
+    pub message: String,
+    /// RFC 3339.
+    pub at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -337,6 +364,8 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
                 pid: hit.map(|s| s.pid),
                 uptime_secs: hit.and_then(|s| s.uptime_secs),
                 sessions: hit.map_or(0, |s| s.sessions),
+                action: None,
+                last_result: None,
             }
         })
         .collect();

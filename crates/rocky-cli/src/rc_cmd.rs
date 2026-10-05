@@ -1,14 +1,30 @@
-//! `rocky rc [status] [--json]` — `claude rc` 서버 현황. 데몬의 `GET /api/rc/servers` 를 읽어 찍는다.
-//! 대상 목록은 `rocky.json` 의 `rc` 블록이다. `claude rc` 띄우기·재시작은 아직 없다(보기만).
-//! `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
+//! `rocky rc` — `claude rc` 서버. 대상 목록은 `rocky.json` 의 `rc` 블록이다.
+//!
+//! - `rocky rc [status] [--json]` — 현황(`GET /api/rc/servers`)
+//! - `rocky rc start <라벨> [--wait]` · `rocky rc restart <라벨> [--fresh] [--wait]` — 데몬이 띄우거나 다시 띄운다.
+//!   재시작은 그 서버에 붙은 원격 세션을 끊는다. `--wait` 면 결과가 날 때까지 기다려 찍는다.
+//! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
+
+use std::time::{Duration, Instant};
 
 use rocky_core::rc::AgyAction;
 use serde_json::{json, Value};
 
 use crate::client::{request_value, CliContext};
 use crate::commands::Printer;
+use crate::flags::ParsedFlags;
+use crate::format::encode_uri_component;
 
-pub fn cmd_rc(ctx: &CliContext, rest: &[String], printer: &Printer) -> Result<(), String> {
+const USAGE: &str = "usage: rocky rc [status] | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh] [--wait] | rocky rc agy [start|stop]";
+/// `--wait` 상한 — 등록 판정 40초 + `already served` 재시도 45·90초 + 정지 유예를 넉넉히 덮는다.
+const WAIT_LIMIT: Duration = Duration::from_secs(300);
+
+pub fn cmd_rc(
+    ctx: &CliContext,
+    rest: &[String],
+    flags: &ParsedFlags,
+    printer: &Printer,
+) -> Result<(), String> {
     match rest.first().map(String::as_str) {
         None | Some("status") => {
             let raw = request_value(ctx, "GET", "/api/rc/servers", None)?;
@@ -31,9 +47,65 @@ pub fn cmd_rc(ctx: &CliContext, rest: &[String], printer: &Printer) -> Result<()
             });
             Ok(())
         }
-        Some(sub) => Err(format!(
-            "usage: rocky rc [status|agy [start|stop]] [--json] — 모르는 하위 명령: {sub}"
-        )),
+        Some(verb @ ("start" | "restart")) => {
+            let label = rest
+                .get(1)
+                .ok_or_else(|| format!("{USAGE} — 라벨이 필요하다"))?;
+            let body = serde_json::json!({ "fresh": flags.bool_flag("fresh") });
+            let path = format!("/api/rc/servers/{}/{verb}", encode_uri_component(label));
+            let accepted = request_value(ctx, "POST", &path, Some(&body))?;
+            if let Some(err) = accepted.get("error").and_then(Value::as_str) {
+                return Err(err.to_string());
+            }
+            if !flags.bool_flag("wait") {
+                println!("{label}: 받았다 — 진행은 `rocky rc` 로 본다");
+                return Ok(());
+            }
+            let row = wait_for_result(ctx, label)?;
+            printer.emit(&row, || render_result(label, &row));
+            Ok(())
+        }
+        Some(sub) => Err(format!("{USAGE} — 모르는 하위 명령: {sub}")),
+    }
+}
+
+/// 진행 표시(`action`)가 풀릴 때까지 2초 간격으로 현황을 읽는다.
+fn wait_for_result(ctx: &CliContext, label: &str) -> Result<Value, String> {
+    let started = Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        let raw = request_value(ctx, "GET", "/api/rc/servers", None)?;
+        let row = raw
+            .get("servers")
+            .and_then(Value::as_array)
+            .and_then(|rows| rows.iter().find(|r| str_of(r, "label") == label))
+            .cloned()
+            .ok_or_else(|| format!("현황에 {label} 이(가) 없다"))?;
+        if row.get("action").is_none() {
+            return Ok(row);
+        }
+        if started.elapsed() > WAIT_LIMIT {
+            return Err(format!(
+                "{label}: {}초 안에 끝나지 않았다 — `rocky rc` 로 계속 본다",
+                WAIT_LIMIT.as_secs()
+            ));
+        }
+    }
+}
+
+/// 마지막 결과 한 줄 — `✓ repo-a: 떴다 — 열린 세션 이어받기(-c)(pid 123)`.
+pub fn render_result(label: &str, row: &Value) -> String {
+    match row.get("lastResult") {
+        Some(r) => format!(
+            "{} {label}: {}",
+            if r.get("ok").and_then(Value::as_bool) == Some(true) {
+                "✓"
+            } else {
+                "✗"
+            },
+            str_of(r, "message")
+        ),
+        None => format!("{label}: 결과가 없다(데몬이 다시 떴을 수 있다)"),
     }
 }
 
@@ -66,6 +138,19 @@ fn line(v: &Value, running: bool) -> String {
     }
     if let Some(up) = v.get("uptimeSecs").and_then(Value::as_u64) {
         parts.push(human_uptime(up));
+    }
+    match str_of(v, "action") {
+        "starting" => parts.push("띄우는 중…".into()),
+        "restarting" => parts.push("재시작 중…".into()),
+        "retrying" => parts.push("다시 시도 중…".into()),
+        _ => {
+            // 실패만 남긴다 — 성공은 ● 가 이미 말한다.
+            if let Some(r) = v.get("lastResult") {
+                if r.get("ok").and_then(Value::as_bool) == Some(false) {
+                    parts.push(format!("✗ {}", str_of(r, "message")));
+                }
+            }
+        }
     }
     parts.join("  ")
 }
