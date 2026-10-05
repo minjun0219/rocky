@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore } from '../test-support';
-import type { RcStatus } from '../types';
+import type { RcServerRow, RcStatus } from '../types';
 import { RcPane, RcSummary, rcCounts, rcUptime } from './RcPane';
 import { ViewSwitch } from './ViewSwitch';
 
@@ -168,5 +168,54 @@ describe('원격 제어 탭', () => {
     cleanup();
     renderWithStore(<ViewSwitch />, { view: 'feed', notes: [], rc: status(), showRc: false });
     expect(screen.queryByRole('button', { name: '원격 제어' })).toBeNull();
+  });
+});
+
+describe('원격 제어 — 띄우기 · 재시작', () => {
+  test('꺼진 대상은 바로 띄우고, 떠 있는 대상은 한 번 더 묻고 재시작한다', async () => {
+    const rcCommand = mock(async () => {});
+    renderWithStore(<RcPane />, { rc: status(), loadRc, rcCommand, spawnAllowed: true });
+    await userEvent.click(screen.getAllByRole('button', { name: '띄우기' })[0] as HTMLElement);
+    expect(rcCommand).toHaveBeenCalledWith('repo-b', 'start');
+    await userEvent.click(screen.getByRole('button', { name: '재시작' }));
+    expect(screen.getByText('세션 2개가 끊기고 이어받기(-c)로 다시 뜬다')).toBeTruthy();
+    expect(rcCommand).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: '끊고 재시작' }));
+    expect(rcCommand).toHaveBeenLastCalledWith('repo-a', 'restart');
+  });
+
+  test('대상 밖 서버 · 원격 화면 · 프로브 실패에는 버튼이 없다', () => {
+    renderWithStore(<RcPane />, { rc: status(), loadRc, spawnAllowed: false });
+    expect(screen.queryByRole('button', { name: /띄우기|재시작/ })).toBeNull();
+    expect(screen.getByText(/로컬\(루프백\) 주소로 연 화면에서만/)).toBeTruthy();
+    cleanup();
+    renderWithStore(<RcPane />, {
+      rc: status({ probeError: 'ps 실패' }),
+      loadRc,
+      spawnAllowed: true,
+    });
+    expect(screen.queryByRole('button', { name: /띄우기|재시작/ })).toBeNull();
+    cleanup();
+    renderWithStore(<RcPane />, {
+      rc: status({ servers: [] }),
+      loadRc,
+      spawnAllowed: true,
+    });
+    // 대상 밖(old) 행만 남았다.
+    expect(screen.getByText('old')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /띄우기|재시작/ })).toBeNull();
+  });
+
+  test('진행 중이면 버튼 대신 상태, 실패한 결과는 이유를 남긴다', () => {
+    const rc = status();
+    rc.servers[0] = { ...(rc.servers[0] as RcServerRow), action: 'restarting' };
+    rc.servers[2] = {
+      ...(rc.servers[2] as RcServerRow),
+      lastResult: { ok: false, message: '뜨자마자 내려갔다 — x', at: 't' },
+    };
+    renderWithStore(<RcPane />, { rc, loadRc, spawnAllowed: true });
+    expect(screen.getByText(/재시작 중…/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '재시작' })).toBeNull();
+    expect(screen.getByText('✗ 뜨자마자 내려갔다 — x')).toBeTruthy();
   });
 });

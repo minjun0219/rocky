@@ -50,28 +50,119 @@ export function rcCounts(rc: RcStatus): {
   };
 }
 
-/** 마운트돼 있는 동안 rc 현황을 읽는다(처음 한 번 + 30초마다). */
+/** 띄우기 · 재시작이 진행 중일 때만 이 간격 — 결과가 곧 바뀐다. */
+const BUSY_POLL_MS = 3_000;
+
+/** 마운트돼 있는 동안 rc 현황을 읽는다(처음 한 번 + 30초마다, 진행 중이면 3초마다). */
 function useRcPolling(): RcStatus | null {
   const rc = useUiStore((s) => s.rc);
   const loadRc = useUiStore((s) => s.loadRc);
+  const busy = rc?.servers.some((s) => s.action !== undefined) ?? false;
   useEffect(() => {
     void loadRc();
-    const id = setInterval(() => void loadRc(), POLL_MS);
+    const id = setInterval(() => void loadRc(), busy ? BUSY_POLL_MS : POLL_MS);
     return () => clearInterval(id);
-  }, [loadRc]);
+  }, [loadRc, busy]);
   return rc;
 }
 
-function ServerItem({
+const ACTION_TEXT: Record<NonNullable<RcServerRow['action']>, string> = {
+  starting: '띄우는 중…',
+  restarting: '재시작 중…',
+  retrying: '다시 시도 중…',
+};
+
+/**
+ * 행의 주 액션 — 꺼졌으면 띄우기, 떠 있으면 재시작. 재시작은 붙은 원격 세션을 끊고 되돌릴 수 없어 한 번 더 묻는다
+ * (같은 자리 아래 한 줄로 — 좁은 패널에 모달을 띄우지 않는다). 띄우기는 바로. 진행 중이면 그리지 않는다.
+ */
+function useServerAction(row: RcServerRow) {
+  const rcCommand = useUiStore((s) => s.rcCommand);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (verb: 'start' | 'restart') => {
+    setConfirming(false);
+    setError(null);
+    try {
+      await rcCommand(row.label, verb);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const button = row.action ? null : (
+    <button
+      type="button"
+      className="min-h-8 shrink-0 rounded-md border border-line px-2.5 text-chip text-text hover:bg-surface-2"
+      aria-expanded={row.running ? confirming : undefined}
+      onClick={() => (row.running ? setConfirming(!confirming) : void run('start'))}
+    >
+      {row.running ? '재시작' : '띄우기'}
+    </button>
+  );
+  const below =
+    confirming && !row.action ? (
+      <div className="flex flex-wrap items-center gap-2 px-3.5 pb-2.5 pl-[42px]">
+        <span className="text-chip text-muted">
+          {row.sessions > 0
+            ? `세션 ${row.sessions}개가 끊기고 이어받기(-c)로 다시 뜬다`
+            : '다시 띄운다 — 붙은 원격 연결이 끊긴다'}
+        </span>
+        <button
+          type="button"
+          className="min-h-8 rounded-md bg-mine-soft px-2.5 text-chip font-semibold text-mine"
+          onClick={() => void run('restart')}
+        >
+          끊고 재시작
+        </button>
+        <button
+          type="button"
+          className="tap text-chip text-faint hover:text-text"
+          onClick={() => setConfirming(false)}
+        >
+          취소
+        </button>
+      </div>
+    ) : error ? (
+      <p className="mb-0 mt-0 px-3.5 pb-2.5 pl-[42px] text-chip text-mine">{error}</p>
+    ) : null;
+  return { button, below };
+}
+
+function ServerItem(props: {
+  row: RcServerRow | RcStrayRow;
+  stray?: boolean;
+  unknown?: boolean;
+  actionable?: boolean;
+}) {
+  if (props.actionable && 'running' in props.row) {
+    return <ActionableItem {...props} row={props.row} />;
+  }
+  return <ServerItemView {...props} />;
+}
+
+function ActionableItem(props: { row: RcServerRow; unknown?: boolean }) {
+  const { button, below } = useServerAction(props.row);
+  return <ServerItemView {...props} button={button} below={below} />;
+}
+
+function ServerItemView({
   row,
   stray,
   unknown,
+  button,
+  below,
 }: {
   row: RcServerRow | RcStrayRow;
   stray?: boolean;
   /** 프로브가 실패했다 — 떠 있지 않은 것으로 나온 행은 "꺼짐" 이 아니라 "모름" 이다. */
   unknown?: boolean;
+  /** 행 오른쪽 주 액션과 그 아래 확인 줄 — 로컬 화면의 설정 대상만(대상 밖 서버는 화면이 움직이지 않는다). */
+  button?: React.ReactNode;
+  below?: React.ReactNode;
 }) {
+  const action = 'action' in row ? row.action : undefined;
+  const failed =
+    'lastResult' in row && row.lastResult && !row.lastResult.ok ? row.lastResult : null;
   const pinned = 'pinned' in row && row.pinned;
   const running = !('running' in row) || row.running;
   const unsure = unknown === true && !running;
@@ -82,6 +173,7 @@ function ServerItem({
     row.sessions > 0 ? `세션 ${row.sessions}` : null,
     rcUptime(row.uptimeSecs) || null,
     stray ? row.dir.replace(/^\/(?:Users|home)\/[^/]+/, '~') : null,
+    action ? ACTION_TEXT[action] : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -90,7 +182,7 @@ function ServerItem({
   const label = unsure ? '모름' : down ? '고정인데 꺼짐' : running ? '실행 중' : '꺼짐';
   return (
     <li className="border-t border-line/70 first:border-t-0">
-      <div className="flex w-full items-start gap-2.5 px-3.5 py-2.5" title={row.dir}>
+      <div className="flex w-full items-center gap-2.5 px-3.5 py-2.5" title={row.dir}>
         <span
           className={`mt-0.5 flex w-4 shrink-0 justify-center ${tone}`}
           role="img"
@@ -107,8 +199,13 @@ function ServerItem({
           >
             {meta}
           </span>
+          {failed && !action ? (
+            <span className="mt-0.5 block text-chip text-mine">✗ {failed.message}</span>
+          ) : null}
         </span>
+        {button}
       </div>
+      {below}
     </li>
   );
 }
@@ -263,6 +360,7 @@ function AgyItem({ agy, first }: { agy: NonNullable<RcStatus['antigravity']>; fi
  */
 export function RcPane() {
   const rc = useRcPolling();
+  const spawnAllowed = useUiStore((s) => s.spawnAllowed);
   if (!rc) {
     return <p className="px-4 py-6 text-chip text-faint">원격 제어 현황을 읽는 중…</p>;
   }
@@ -280,6 +378,8 @@ export function RcPane() {
       </main>
     );
   }
+  // 프로브가 실패한 현황으로는 띄우지 않는다 — 떠 있는 서버를 하나 더 띄운다(데몬도 같은 이유로 거절한다).
+  const actionable = spawnAllowed && !rc.probeError;
   const pinned = rc.servers.filter((s) => s.pinned);
   const others = rc.servers
     .filter((s) => !s.pinned)
@@ -302,7 +402,12 @@ export function RcPane() {
           />
           <Card>
             {pinned.map((s) => (
-              <ServerItem key={s.dir} row={s} unknown={Boolean(rc.probeError)} />
+              <ServerItem
+                key={s.dir}
+                row={s}
+                unknown={Boolean(rc.probeError)}
+                actionable={actionable}
+              />
             ))}
           </Card>
         </>
@@ -315,7 +420,12 @@ export function RcPane() {
           />
           <Card>
             {others.map((s) => (
-              <ServerItem key={s.dir} row={s} unknown={Boolean(rc.probeError)} />
+              <ServerItem
+                key={s.dir}
+                row={s}
+                unknown={Boolean(rc.probeError)}
+                actionable={actionable}
+              />
             ))}
           </Card>
         </>
@@ -349,7 +459,10 @@ export function RcPane() {
         </li>
         {rc.antigravity ? <AgyItem agy={rc.antigravity} first={false} /> : null}
       </Card>
-      <p className="mt-3 text-chip text-faint">목록은 rocky.json 의 rc 블록에서 고친다</p>
+      <p className="mt-3 text-chip text-faint">
+        목록은 rocky.json 의 rc 블록에서 고친다
+        {spawnAllowed ? '' : ' · 띄우기·재시작은 로컬(루프백) 주소로 연 화면에서만'}
+      </p>
     </main>
   );
 }

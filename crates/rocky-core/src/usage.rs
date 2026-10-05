@@ -374,6 +374,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:open-prs"),
     (UsageSource::Web, "web:watch-pr"),
     (UsageSource::Web, "web:note-open"),
+    (UsageSource::Web, "web:rc-start"),
+    (UsageSource::Web, "web:rc-restart"),
     (UsageSource::Web, "web:note-pin"),
     (UsageSource::Web, "web:note-format"),
     (UsageSource::Web, "web:theme"),

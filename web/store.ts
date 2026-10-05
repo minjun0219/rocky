@@ -191,6 +191,8 @@ interface UiState {
   loadRc: () => Promise<void>;
   /** agy remote-control 을 켜거나 끈다(로컬 전용) — 성공하면 새로 잰 현황으로 바꾸고, 실패하면 사유를 던진다. */
   controlAgy: (action: 'start' | 'stop') => Promise<void>;
+  /** 데몬에 띄우기 · 재시작을 맡긴다(로컬 화면만). 바로 돌아오고, 진행은 현황의 `action` 으로 본다. */
+  rcCommand: (label: string, verb: 'start' | 'restart', fresh?: boolean) => Promise<void>;
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
@@ -458,6 +460,14 @@ export const useUiStore = create<UiState>((set, get) => ({
       body: '{}',
     });
     set({ rc });
+  },
+  rcCommand: async (label, verb, fresh) => {
+    logUsage(verb === 'start' ? 'web:rc-start' : 'web:rc-restart');
+    await api(`/api/rc/servers/${encodeURIComponent(label)}/${verb}`, get().actor, {
+      method: 'POST',
+      body: JSON.stringify(verb === 'restart' ? { fresh: Boolean(fresh) } : {}),
+    });
+    await get().loadRc();
   },
   setShowArchived: (showArchived) => {
     logUsage('web:archived-toggle');
