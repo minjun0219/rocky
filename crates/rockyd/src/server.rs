@@ -161,9 +161,15 @@ impl ServerState {
         self.gh_runner.clone()
     }
 
-    /// 일반 라우트와 같은(TTL 캐시) 세션 목록 — 스윕이 쓴다.
+    /// 일반 라우트와 같은(오래된 값을 바로 주는) 세션 목록 — 읽기만 하는 쪽(요약·목록)과 기동 예열이 쓴다.
     pub async fn sessions(&self) -> SessionsResult {
         (self.sessions)().await
+    }
+
+    /// 캐시 없는 세션 목록 — 판단이 상태를 바꾸는 쪽(스윕의 자동 해제)이 쓴다. 오래된 목록으로 보면
+    /// 그 사이 새로 뜬 세션이 쥔 doing 을 "세션 없음" 으로 오판한다. spawn 라우트와 같은 조회기다.
+    pub async fn fresh_sessions(&self) -> SessionsResult {
+        (self.spawn_sessions)().await
     }
 
     /// 사용 로그 한 건 — REST 입구와 MCP 도구가 부른다.
@@ -349,10 +355,12 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
     // (TS `resolveSpawnSessions` / statuslineSessions 배선과 동일).
     let injected = options.sessions.clone();
     let sessions = injected.clone().unwrap_or_else(|| {
+        // 오래된 값은 30분까지 바로 주고 뒤에서 새로 받는다 — 60초였을 땐 잠깐 쉬고 온 첫 요청마다
+        // `claude agents --json`(콜드 3초)을 기다렸다(rocky-23). 상태를 바꾸는 판단(스윕)은 `fresh_sessions`.
         swr_sessions(
             default_gh.clone(),
             Duration::from_secs(3),
-            Duration::from_secs(60),
+            Duration::from_secs(30 * 60),
         )
     });
     // spawn 라우트만 기본이 **캐시 없는** 조회기 — 가드가 spawn 이전 스냅샷을 보면 안 된다.

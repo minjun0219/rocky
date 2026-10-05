@@ -163,3 +163,30 @@ async fn does_not_release_unattributed_doing_when_the_board_path_or_old_key_has_
         1
     );
 }
+
+#[tokio::test]
+async fn sweep_reads_the_uncached_session_list_not_the_stale_one() {
+    // 읽기 라우트의 목록(오래된 값을 바로 준다)엔 세션이 없지만, 캐시 없는 목록엔 그 보드의 세션이
+    // 살아 있다 — 상태를 바꾸는 스윕은 캐시 없는 쪽을 봐야 한다(rocky-23).
+    let f = fx();
+    let agent = started(&f, "새로 뜬 세션이 듦", "claude-code");
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![])));
+        o.spawn_sessions = Some(fixed_sessions(available(vec![sess(
+            1,
+            "/w/rocky-todo",
+            "sess-1",
+            "rocky-todo-1e",
+            "busy",
+        )])));
+    });
+    assert!(
+        release_gone_doing(&state, &hours_after(&agent, 48), AUTO_RELEASE_GRACE_SECS)
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        f.store.get_todo(&agent.id, None).unwrap().unwrap().status,
+        TodoStatus::Doing
+    );
+}
