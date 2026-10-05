@@ -1122,3 +1122,147 @@ async fn open_prs_are_fetched_on_demand_cached_and_marked() {
     let (_, _) = get(&f.state, "/api/prs/open?repo=O/R").await;
     assert_eq!(*calls.lock().unwrap(), 1, "60초 안에는 캐시");
 }
+
+fn linked_todo(f: &Fx, title: &str, urls: &[&str]) -> String {
+    use rocky_core::types::{CreateTodoInput, TodoLink};
+    f.store
+        .create_todo(
+            &CreateTodoInput {
+                board: "rocky".into(),
+                title: title.into(),
+                links: Some(
+                    urls.iter()
+                        .map(|u| TodoLink {
+                            url: u.to_string(),
+                            title: None,
+                        })
+                        .collect(),
+                ),
+                ..Default::default()
+            },
+            "tester",
+        )
+        .unwrap()
+        .id
+}
+
+fn status_and_comments(f: &Fx, id: &str) -> (rocky_core::types::TodoStatus, Vec<String>) {
+    let todo = f.store.get_todo(id, None).unwrap().unwrap();
+    let comments = f
+        .store
+        .list_comments(id, false)
+        .unwrap()
+        .into_iter()
+        .map(|c| format!("{}: {}", c.actor, c.body))
+        .collect();
+    (todo.status, comments)
+}
+
+/// PR 이 머지되면 그 PR 을 링크한 할 일이 완료된다 — 링크한 다른 PR 이 아직 감시 중이면 기다리고,
+/// 머지 없이 닫힌 PR 은 상태를 두고 댓글만 남긴다. 링크가 없는 할 일은 건드리지 않는다.
+#[tokio::test]
+async fn ended_prs_settle_the_todos_that_link_them() {
+    use rocky_core::types::TodoStatus;
+    let f = fx();
+    for n in [7, 8, 9] {
+        sub(&f, "o/r", n, None);
+    }
+    let single = linked_todo(&f, "한 PR", &["https://github.com/o/r/pull/7/files"]);
+    let stacked = linked_todo(
+        &f,
+        "두 PR",
+        &[
+            "https://github.com/o/r/pull/7",
+            "https://github.com/o/r/pull/8",
+        ],
+    );
+    let closed = linked_todo(&f, "닫힌 PR", &["https://github.com/o/r/pull/9"]);
+    let unrelated = linked_todo(&f, "링크 없음", &["https://example.com/x"]);
+    let open = |n| pr(n, "OPEN", "SUCCESS", "CLEAN", "main");
+    let responses = Arc::new(Mutex::new(json!({ "r": [open(7), open(8), open(9)] })));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let runner = fake_gh(responses.clone(), calls.clone());
+    let (notifier, _) = capture();
+    tick(&f.state, &runner, &notifier, false).await;
+
+    *responses.lock().unwrap() = json!({ "r": [
+        pr(7, "MERGED", "SUCCESS", "UNKNOWN", "main"),
+        open(8),
+        pr(9, "CLOSED", "SUCCESS", "UNKNOWN", "main"),
+    ] });
+    tick(&f.state, &runner, &notifier, false).await;
+    assert_eq!(
+        status_and_comments(&f, &single),
+        (
+            TodoStatus::Done,
+            vec!["rocky: #7 머지로 완료 — https://github.com/o/r/pull/7".to_string()]
+        )
+    );
+    assert_eq!(
+        status_and_comments(&f, &stacked),
+        (
+            TodoStatus::Todo,
+            vec!["rocky: #7 머지 — 링크한 #8 이 아직 열려 있어 완료하지 않았다".to_string()]
+        )
+    );
+    assert_eq!(
+        status_and_comments(&f, &closed),
+        (
+            TodoStatus::Todo,
+            vec!["rocky: #9 이 머지 없이 닫혔다 — https://github.com/o/r/pull/9".to_string()]
+        )
+    );
+    assert_eq!(
+        status_and_comments(&f, &unrelated),
+        (TodoStatus::Todo, vec![])
+    );
+
+    // 마지막 열린 PR 이 머지되면 그제야 완료.
+    *responses.lock().unwrap() = json!({ "r": [pr(8, "MERGED", "SUCCESS", "UNKNOWN", "main")] });
+    tick(&f.state, &runner, &notifier, false).await;
+    let (status, comments) = status_and_comments(&f, &stacked);
+    assert_eq!(status, TodoStatus::Done);
+    assert_eq!(
+        comments.last().unwrap(),
+        "rocky: #8 머지로 완료 — https://github.com/o/r/pull/8"
+    );
+}
+
+/// 한 tick 에 같은 할 일의 PR 둘이 함께 머지돼도(스택을 연달아 머지) 완료·댓글은 한 번이다. 이미 끝낸 할 일은 건드리지 않는다.
+#[tokio::test]
+async fn prs_merged_in_the_same_tick_complete_their_todo_once() {
+    use rocky_core::types::{StatusAction, TodoStatus};
+    let f = fx();
+    for n in [1, 2, 3] {
+        sub(&f, "o/r", n, None);
+    }
+    let stacked = linked_todo(
+        &f,
+        "스택",
+        &[
+            "https://github.com/o/r/pull/1",
+            "https://github.com/o/r/pull/2",
+        ],
+    );
+    let finished = linked_todo(&f, "이미 끝냄", &["https://github.com/o/r/pull/3"]);
+    f.store
+        .set_todo_status(&finished, StatusAction::Done, "tester", None)
+        .unwrap();
+    let open = |n| pr(n, "OPEN", "SUCCESS", "CLEAN", "main");
+    let responses = Arc::new(Mutex::new(json!({ "r": [open(1), open(2), open(3)] })));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let runner = fake_gh(responses.clone(), calls.clone());
+    let (notifier, _) = capture();
+    tick(&f.state, &runner, &notifier, false).await;
+    let merged = |n| pr(n, "MERGED", "SUCCESS", "UNKNOWN", "main");
+    *responses.lock().unwrap() = json!({ "r": [merged(1), merged(2), merged(3)] });
+    tick(&f.state, &runner, &notifier, false).await;
+
+    let (status, comments) = status_and_comments(&f, &stacked);
+    assert_eq!(status, TodoStatus::Done);
+    assert_eq!(comments.len(), 1, "{comments:?}");
+    assert_eq!(
+        status_and_comments(&f, &finished),
+        (TodoStatus::Done, vec![])
+    );
+}

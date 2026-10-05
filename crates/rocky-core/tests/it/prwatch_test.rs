@@ -533,3 +533,76 @@ fn filter_search_query_and_parsing() {
         vec![("o/r".to_string(), 3), ("o/other".to_string(), 9)]
     );
 }
+
+fn links(urls: &[&str]) -> Vec<rocky_core::types::TodoLink> {
+    urls.iter()
+        .map(|u| rocky_core::types::TodoLink {
+            url: u.to_string(),
+            title: None,
+        })
+        .collect()
+}
+
+#[test]
+fn pr_urls_parse_with_tails_and_reject_non_prs() {
+    use rocky_core::prwatch::parse_pr_url;
+    assert_eq!(
+        parse_pr_url("https://github.com/o/r/pull/12"),
+        Some(("o/r".into(), 12))
+    );
+    assert_eq!(
+        parse_pr_url("https://github.com/o/r/pull/12/files#diff-abc"),
+        Some(("o/r".into(), 12))
+    );
+    assert_eq!(
+        parse_pr_url("https://github.com/o/r/pull/12?w=1"),
+        Some(("o/r".into(), 12))
+    );
+    assert_eq!(parse_pr_url("https://github.com/o/r/issues/12"), None);
+    assert_eq!(parse_pr_url("https://gitlab.com/o/r/pull/12"), None);
+    assert_eq!(parse_pr_url("https://github.com/o/r/pull/abc"), None);
+}
+
+#[test]
+fn a_merged_pr_completes_the_todo_that_links_it() {
+    use rocky_core::prwatch::{linked_todo_action, LinkedTodoAction};
+    let l = links(&["https://github.com/O/R/pull/7/files", "https://example.com"]);
+    assert_eq!(
+        linked_todo_action(&l, "o/r", 7, true, &[]),
+        LinkedTodoAction::Complete
+    );
+    assert_eq!(
+        linked_todo_action(&l, "o/r", 8, true, &[]),
+        LinkedTodoAction::NotLinked
+    );
+    assert_eq!(
+        linked_todo_action(&l, "o/other", 7, true, &[]),
+        LinkedTodoAction::NotLinked
+    );
+}
+
+#[test]
+fn a_todo_with_another_open_pr_waits_for_it() {
+    use rocky_core::prwatch::{linked_todo_action, LinkedTodoAction};
+    let l = links(&[
+        "https://github.com/o/r/pull/7",
+        "https://github.com/o/r/pull/8",
+        "https://github.com/o/r/pull/9",
+    ]);
+    // 8 은 아직 감시 중(열림), 9 는 감시 밖(이미 끝났거나 모른다) — 8 만 기다린다.
+    let open = vec![("O/R".to_string(), 8), ("o/r".to_string(), 7)];
+    assert_eq!(
+        linked_todo_action(&l, "o/r", 7, true, &open),
+        LinkedTodoAction::WaitFor(vec![("o/r".into(), 8)])
+    );
+}
+
+#[test]
+fn a_pr_closed_without_merge_leaves_the_status_alone() {
+    use rocky_core::prwatch::{linked_todo_action, LinkedTodoAction};
+    let l = links(&["https://github.com/o/r/pull/7"]);
+    assert_eq!(
+        linked_todo_action(&l, "o/r", 7, false, &[]),
+        LinkedTodoAction::ClosedUnmerged
+    );
+}

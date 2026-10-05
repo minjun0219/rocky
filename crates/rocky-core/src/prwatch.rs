@@ -831,3 +831,65 @@ pub fn osascript_args(title: &str, body: &str) -> Vec<String> {
         ),
     ]
 }
+
+/// GitHub PR 주소 → (`owner/name`, 번호). `/files`·`#…`·`?…` 꼬리는 무시한다. PR 이 아니면 None.
+pub fn parse_pr_url(url: &str) -> Option<(String, i64)> {
+    let rest = url
+        .trim()
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.trim().strip_prefix("http://github.com/"))?;
+    let rest = rest.split(['#', '?']).next()?;
+    let mut parts = rest.split('/');
+    let (owner, name, kind, number) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    if owner.is_empty() || name.is_empty() || kind != "pull" {
+        return None;
+    }
+    Some((format!("{owner}/{name}"), number.parse().ok()?))
+}
+
+/// PR 이 끝났을 때(머지·닫힘) 그 PR 을 링크한 할 일을 어떻게 할지.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkedTodoAction {
+    /// 이 PR 을 링크하지 않았다.
+    NotLinked,
+    /// 머지됐고 링크한 다른 PR 중 열린 것이 없다 — 완료한다.
+    Complete,
+    /// 머지됐지만 링크한 다른 PR 이 아직 열려 있다 — 열어 두고 남은 PR 을 적는다.
+    WaitFor(Vec<(String, i64)>),
+    /// 머지 없이 닫혔다 — 상태는 두고 사실만 남긴다.
+    ClosedUnmerged,
+}
+
+/// 할 일의 링크로 판정한다. `open` 은 아직 감시 중인(= 열린) PR 의 `(repo, 번호)` — repo 는 대소문자를 가리지 않는다.
+/// 감시하지 않는 열린 PR 은 모른다: 그런 PR 이 남아 있어도 완료로 판정한다.
+pub fn linked_todo_action(
+    links: &[crate::types::TodoLink],
+    repo: &str,
+    number: i64,
+    merged: bool,
+    open: &[(String, i64)],
+) -> LinkedTodoAction {
+    let same = |r: &str, n: i64, other_repo: &str, other_n: i64| {
+        n == other_n && r.eq_ignore_ascii_case(other_repo)
+    };
+    let prs: Vec<(String, i64)> = links.iter().filter_map(|l| parse_pr_url(&l.url)).collect();
+    if !prs.iter().any(|(r, n)| same(r, *n, repo, number)) {
+        return LinkedTodoAction::NotLinked;
+    }
+    if !merged {
+        return LinkedTodoAction::ClosedUnmerged;
+    }
+    let mut waiting: Vec<(String, i64)> = Vec::new();
+    for (r, n) in prs {
+        let still_open =
+            !same(&r, n, repo, number) && open.iter().any(|(or, on)| same(&r, n, or, *on));
+        if still_open && !waiting.iter().any(|(wr, wn)| same(wr, *wn, &r, n)) {
+            waiting.push((r, n));
+        }
+    }
+    if waiting.is_empty() {
+        LinkedTodoAction::Complete
+    } else {
+        LinkedTodoAction::WaitFor(waiting)
+    }
+}
