@@ -13,12 +13,14 @@ use rockyd::server::ServerState;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-const TOOLS: [&str; 5] = [
+const TOOLS: [&str; 7] = [
     "todo_list",
     "todo_write",
     "todo_status",
     "note_list",
     "note_write",
+    "token_summary",
+    "token_current_session",
 ];
 
 async fn rpc(
@@ -759,4 +761,39 @@ async fn cross_site_post_is_403_normal_clients_pass() {
     )
     .await;
     assert!(allowed["result"]["tools"].is_array());
+}
+
+#[tokio::test]
+async fn token_tools_read_the_transcript_index() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let db = crate::tokens_test::indexed_logs(tmp.path());
+    let state = rebuild(&f, |o| o.logs_db = Some(db.clone()));
+
+    let summary = ok_call(
+        &state,
+        "token_summary",
+        json!({ "from": "2099-01-01", "groupBy": "model" }),
+    )
+    .await;
+    assert_eq!(summary["rows"][0]["model"], "claude-opus-5-5");
+    assert_eq!(summary["rows"][0]["outputTokens"], 140);
+
+    let current = ok_call(
+        &state,
+        "token_current_session",
+        json!({ "cwd": "/repo/app" }),
+    )
+    .await;
+    assert_eq!(current["session"]["sessionId"], "s-1");
+    assert_eq!(current["turns"].as_array().unwrap().len(), 2);
+
+    let (is_error, _) = tool_call(
+        &state,
+        "127.0.0.1",
+        "token_current_session",
+        json!({ "cwd": "/none" }),
+    )
+    .await;
+    assert!(is_error);
 }

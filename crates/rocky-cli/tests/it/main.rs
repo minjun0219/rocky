@@ -10,4 +10,5 @@ mod format_test;
 mod hooks_test;
 mod launchd_test;
 mod statusline_cmd_test;
+mod tokens_cmd_test;
 mod worklog_mcp_test;

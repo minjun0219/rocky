@@ -15,6 +15,7 @@ pub mod format;
 pub mod hooks;
 pub mod launchd;
 pub mod system;
+pub mod tokens_cmd;
 pub mod usage_cmd;
 pub mod worklog_mcp;
 
@@ -58,6 +59,9 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky statusline [--cwd P] [--session S]  rocky 한 줄 — 없으면 stdin 의 Claude Code 입력을 읽는다
   rocky config show|init|link|path [--json] 설치·설정 점검 / 기본 rocky.json 생성 / ~/.local/bin/rocky 링크 / 설정 파일 경로
   rocky usage [--since 30d] [--json]        사용 로그 보고 — 많이 쓴 표면 · 에러 · 안 쓴 표면 (rocky.json usage 블록으로 끔)
+  rocky tokens [--since 30d] [--by model,effort|model|effort|session|branch] [--json]
+                                          Claude Code 토큰 합계 — 모델·effort 고를 때 참고 (rocky.json tokens 블록)
+  rocky tokens here [--cwd P] [--json]    이 디렉터리의 최근 세션 — 턴별 모델·effort·토큰과 추천
   rocky mcp setup                         호스트별 MCP 등록 안내
   rocky mcp worklog                       worklog_* 4 도구 stdio MCP 서버 (플러그인이 띄운다)
   rocky tailscale on|off|status           테일넷 한정 HTTPS 노출 (옵션, 기본 off)
