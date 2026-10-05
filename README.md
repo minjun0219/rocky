@@ -12,11 +12,11 @@
 
 ## 한눈에
 
-MCP 서버는 둘이다. 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 도구 5개 + 토큰 도구 2개)와 CLI의 stdio 서버(`rocky mcp worklog`, 워크로그 도구 4개)다. 워크로그는 프로젝트별이라 세션의 cwd를 아는 CLI가 연다.
+MCP 서버는 둘이다. 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 도구 5개 + 토큰 도구 2개)와 CLI의 stdio 서버(`rocky mcp worklog`, 워크로그 도구 4개)다. 워크로그는 프로젝트별이라 세션의 cwd를 아는 CLI가 연다. 작업 폴더 밖에서 서버를 띄우는 호스트(Antigravity)는 `rocky mcp worklog --roots`로 띄워 클라이언트가 알려 주는 MCP `roots`를 프로젝트로 쓴다.
 
 stdio 서버는 **rocky 채널**도 겸해, 데몬이 본 PR 전이(머지 후보·충돌)를 그 PR을 구독한 세션에 알린다. 채널 알림은 `claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`로 띄운 세션만 받는다([`docs/board.md`](./docs/board.md) "PR 감시").
 
-Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 서버를 붙이고, Codex와 opencode는 직접 등록해서 쓴다. Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install`로 깔아 보드만 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md)에 있다.
+Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 서버를 붙이고, Codex와 opencode는 직접 등록해서 쓴다. Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install`로 깔아 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md)에 있다.
 
 ### MCP 도구 표면
 

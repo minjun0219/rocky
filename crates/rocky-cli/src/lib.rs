@@ -70,7 +70,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky verify --rerun [BOARD] [--branch B]  같은 커밋을 다시 검증(거짓 실패 풀기) — 보드를 안 주면 대상 전부
   rocky rc [status] [--json]              claude rc 서버 현황(rocky.json 의 rc 대상 · 대상 밖 서버 · 자격)
   rocky mcp setup                         호스트별 MCP 등록 안내
-  rocky mcp worklog                       worklog_* 4 도구 stdio MCP 서버 (플러그인이 띄운다)
+  rocky mcp worklog [--roots]             worklog_* 4 도구 stdio MCP 서버 (플러그인이 띄운다; --roots 는 프로젝트를 클라이언트 roots 로)
   rocky tailscale on|off|status           테일넷 한정 HTTPS 노출 (옵션, 기본 off)
 
 REF 는 12 (현재 보드) 또는 rocky-12 (보드 지정) 또는 raw id 를 받는다.

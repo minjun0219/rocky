@@ -25,7 +25,7 @@ Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만
 
 | rocky 표면 | Claude Code | Codex | opencode | Antigravity | 메모 |
 | --- | --- | --- | --- | --- | --- |
-| MCP 도구 (worklog 4) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | ◐ 번들에서 뺌 | 공유 코어. agy 는 서버를 플러그인 폴더에서 띄워 프로젝트가 한 칸으로 접힌다 — `roots` 를 읽게 하면 커버 |
+| MCP 도구 (worklog 4) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | ✅ `--roots` | 공유 코어. agy 는 서버를 플러그인 폴더에서 띄우므로 프로젝트를 MCP `roots` 로 정한다 |
 | `/rocky:review-request` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:review-fix` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | — | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |

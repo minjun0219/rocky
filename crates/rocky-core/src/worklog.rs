@@ -560,6 +560,34 @@ impl Worklog {
     }
 }
 
+/// MCP `roots` 의 `file://` URI → 절대 경로. 플러그인 MCP 서버를 작업 폴더 밖에서 띄우는 호스트
+/// (Antigravity)가 작업 폴더를 알려 주는 길이 이것뿐이다. `file://localhost/…` 도 받고 퍼센트 인코딩
+/// (공백·한글)을 푼다. 다른 스킴·호스트가 붙은 URI·깨진 인코딩이면 None.
+pub fn root_uri_path(uri: &str) -> Option<PathBuf> {
+    let rest = uri.strip_prefix("file://")?;
+    let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+    if !rest.starts_with('/') {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes.get(i + 1..i + 3)?;
+            if !hex.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok().map(PathBuf::from)
+}
+
 fn first_non_empty(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
