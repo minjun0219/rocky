@@ -92,6 +92,24 @@ async fn route_reports_targets_strays_auth_and_agy() {
 }
 
 #[tokio::test]
+async fn failed_ps_is_reported_not_read_as_stopped() {
+    let runner: Runner = Arc::new(|argv: Vec<String>, _stdin, _timeout| {
+        let result = if argv[0] == "ps" {
+            CmdOutput::failure("10000ms 안에 끝나지 않았다")
+        } else {
+            CmdOutput::failure("No such file or directory")
+        };
+        Box::pin(async move { result })
+    });
+    let status = probe(&runner, Some(&config()), "/home/u").await;
+    assert_eq!(
+        status.probe_error.as_deref(),
+        Some("ps 실패: 10000ms 안에 끝나지 않았다")
+    );
+    assert!(status.servers.iter().all(|s| !s.running));
+}
+
+#[tokio::test]
 async fn missing_agy_is_null() {
     let runner = fake_runner(Arc::new(Mutex::new(Vec::new())), false);
     let status = probe(&runner, Some(&config()), "/home/u").await;

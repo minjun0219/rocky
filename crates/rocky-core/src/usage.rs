@@ -84,6 +84,7 @@ pub fn now_iso() -> String {
 /// 셋째 세그먼트가 id 가 아니라 동작인 라우트.
 const LITERAL_THIRD: &[&str] = &[
     "claim",
+    "servers",
     "adapters",
     "sources",
     "subscriptions",

@@ -31,3 +31,9 @@ fn status_lists_targets_strays_auth_and_agy() {
 fn unconfigured_points_at_the_config() {
     assert!(render_status(&json!({"configured": false})).contains("\"rc\""));
 }
+
+#[test]
+fn probe_error_comes_first() {
+    let raw = json!({"configured": true, "servers": [], "strays": [], "auth": "unknown", "probeError": "ps 실패: x"});
+    assert!(render_status(&raw).starts_with("⚠ ps 실패: x — "));
+}

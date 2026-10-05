@@ -27,12 +27,25 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
     };
     let targets = rc::resolve_targets(config, home);
 
-    let ps = runner(
-        argv(&["ps", "-axww", "-o", "pid=,ppid=,etime=,args="]),
-        String::new(),
-        PROBE_TIMEOUT,
-    )
-    .await;
+    // 서로 기다릴 이유가 없는 셋은 같이 돌린다 — 하나가 timeout 까지 걸려도 요청이 그만큼만 늦다.
+    let (ps, auth, agy) = tokio::join!(
+        runner(
+            argv(&["ps", "-axww", "-o", "pid=,ppid=,etime=,args="]),
+            String::new(),
+            PROBE_TIMEOUT,
+        ),
+        runner(
+            argv(&["claude", "auth", "status", "--json"]),
+            String::new(),
+            PROBE_TIMEOUT,
+        ),
+        runner(
+            argv(&["agy", "remote-control", "status"]),
+            String::new(),
+            PROBE_TIMEOUT,
+        ),
+    );
+    let mut probe_error = (!ps.ok()).then(|| format!("ps 실패: {}", ps.stderr.trim()));
     let rows = rc::parse_ps(&ps.stdout);
     let servers = rc::servers(&rows);
     let live = if servers.is_empty() {
@@ -50,6 +63,10 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
             PROBE_TIMEOUT,
         )
         .await;
+        // 그 사이 끝난 pid 가 하나라도 있으면 lsof 는 1 로 끝나되 나머지는 낸다 — 출력이 비었을 때만 실패다.
+        if !lsof.ok() && lsof.stdout.trim().is_empty() {
+            probe_error.get_or_insert_with(|| format!("lsof 실패: {}", lsof.stderr.trim()));
+        }
         let cwd = rc::parse_lsof_cwd(&lsof.stdout);
         servers
             .iter()
@@ -64,20 +81,8 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
             .collect()
     };
     let (servers, strays) = rc::build_rows(&targets, &live);
-
-    let auth = runner(
-        argv(&["claude", "auth", "status", "--json"]),
-        String::new(),
-        PROBE_TIMEOUT,
-    )
-    .await;
-    let agy = runner(
-        argv(&["agy", "remote-control", "status"]),
-        String::new(),
-        PROBE_TIMEOUT,
-    )
-    .await;
     // 실행 파일이 없으면 spawn 이 실패해 출력이 비고 실패 코드다 — 설치 안 됨으로 본다.
+    // (설치돼 있어도 timeout 이면 같은 모양이라 구분하지 못한다.)
     let antigravity =
         (agy.ok() || !agy.stdout.is_empty()).then(|| rc::parse_agy_status(&agy.stdout));
 
@@ -87,6 +92,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
         strays,
         auth: rc::parse_auth_status(&auth.stdout),
         antigravity,
+        probe_error,
     }
 }
 

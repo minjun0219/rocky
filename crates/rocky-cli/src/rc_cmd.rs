@@ -66,6 +66,9 @@ pub fn render_status(raw: &Value) -> String {
         .iter()
         .map(|s| line(s, s.get("running").and_then(Value::as_bool) == Some(true)))
         .collect();
+    if let Some(err) = raw.get("probeError").and_then(Value::as_str) {
+        out.insert(0, format!("⚠ {err} — ○ 는 꺼짐이 아니라 모름이다"));
+    }
     let strays = list("strays");
     if !strays.is_empty() {
         out.push("대상 밖:".into());
