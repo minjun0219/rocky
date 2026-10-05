@@ -4,6 +4,7 @@
 //! 판정 규칙은 이 기능을 먼저 하던 별도 CLI 와 같다 — 그쪽에서 밟고 고친 함정을 테스트로 고정한다.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -322,4 +323,110 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
         })
         .collect();
     (rows, strays)
+}
+
+// ── 띄우기 · 재시작 판정 ────────────────────────────────────────────────────────
+// 배선(프로세스 기동 · 정지 · 대기)은 `rockyd::rc` 다. 여기는 무엇을 어떤 인자로 띄우고 결과를 어떻게 읽는지만.
+
+/// 서버를 띄우는 방식 — `claude rc` 의 세션 인자.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LaunchMode {
+    /// `-c` — 마지막 세션을 이어받는다. 단일 세션 모드라 그 세션이 끝나면 서버도 내려간다.
+    Resume,
+    /// 세션 하나를 만들어 둔 채 뜬다.
+    Session,
+    /// `--no-create-session-in-dir` — 서버만 띄우고 세션은 앱에서 연다.
+    Server,
+}
+
+/// 꺼진 대상을 이름으로 띄울 때의 방식 — 고정이든 아니든 세션을 만들어 둔다(사람이 지금 쓰려고 부른 것이다).
+/// `Server` 는 되살림처럼 사람이 부르지 않은 기동에 쓴다.
+pub const START_MODE: LaunchMode = LaunchMode::Session;
+
+/// 재시작 방식. 열린 세션이 있으면 이어받는다 — `-c` 는 세션이 없을 때 쓰면 뜨자마자 할 일이 없어 내려간다.
+/// 없거나 `fresh`(이어받지 않음)면 고정은 세션까지, 그 밖은 서버만.
+pub fn restart_mode(pinned: bool, live_session: bool, fresh: bool) -> LaunchMode {
+    if live_session && !fresh {
+        LaunchMode::Resume
+    } else {
+        fresh_mode(pinned)
+    }
+}
+
+/// 이어받기가 안 떴을 때(`-c` 기록은 약 4시간 뒤 만료된다) 한 번 더 띄울 방식.
+pub fn retry_mode(pinned: bool) -> LaunchMode {
+    fresh_mode(pinned)
+}
+
+fn fresh_mode(pinned: bool) -> LaunchMode {
+    if pinned {
+        LaunchMode::Session
+    } else {
+        LaunchMode::Server
+    }
+}
+
+/// 안 뜰 수 있는 방식인가 — 그러면 내려간 것을 보고 `retry_mode` 로 한 번 더 띄운다.
+pub fn may_fail_to_start(mode: LaunchMode) -> bool {
+    mode == LaunchMode::Resume
+}
+
+/// 띄울 argv — 셸을 거치지 않는다. 라벨이 `--name` 이라 서버 판정(`is_server_argv`)에 걸린다.
+pub fn server_argv(label: &str, mode: LaunchMode) -> Vec<String> {
+    let mut argv = vec![
+        "claude".to_string(),
+        "rc".to_string(),
+        "--name".to_string(),
+        label.to_string(),
+    ];
+    match mode {
+        LaunchMode::Resume => argv.push("-c".to_string()),
+        LaunchMode::Session => {}
+        LaunchMode::Server => argv.push("--no-create-session-in-dir".to_string()),
+    }
+    argv
+}
+
+/// 기동 로그로 읽은 등록 결과.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Registration {
+    /// 아직 모른다.
+    Pending,
+    /// `.out` 에 `· Connected ·`(세션 모드) 나 `· Ready ·`(서버만 모드) — 등록됐다. `Connecting` 은 아직이다.
+    Connected,
+    /// `.err` 에 `already served` — 내린 서버의 등록이 claude.ai 쪽에 남아 있다. 새 서버는 45초쯤 떠 있다 스스로 내려간다.
+    Served,
+}
+
+/// 프로세스가 떠 있는 것만으로 "떴다" 고 하지 않는다 — `Served` 서버도 한동안 떠 있다(옛 CLI 에서 재시작 넷 중 셋이 그랬다).
+pub fn read_registration(out: &str, err: &str) -> Registration {
+    if err.contains("already served") {
+        Registration::Served
+    } else if out.contains("· Connected ·") || out.contains("· Ready ·") {
+        Registration::Connected
+    } else {
+        Registration::Pending
+    }
+}
+
+/// `Served` 로 실패한 대상을 다시 띄우기 전에 쉬는 시간. 남은 등록이 풀리는 데 2~3분이라 합이 3분을 넘지 않게 둘.
+pub const REGISTRATION_BACKOFF: [Duration; 2] = [Duration::from_secs(45), Duration::from_secs(90)];
+/// 내린 뒤 같은 폴더에 새로 띄우기 전에 쉬는 시간 — 곧바로 띄우면 `Served` 가 난다.
+pub const RESTART_DELAY: Duration = Duration::from_secs(5);
+/// SIGTERM 뒤 이만큼 기다리고도 살아 있으면 SIGKILL — SIGKILL 은 등록을 남겨 다음 기동이 `Served` 가 된다.
+pub const STOP_GRACE: Duration = Duration::from_secs(20);
+/// 등록 판정 — 띄우고 이만큼 뒤부터, 이 간격으로, 이만큼까지 본다. 끝까지 신호 없이 떠 있으면 "떴다(미확인)".
+pub const REGISTRATION_FIRST: Duration = Duration::from_secs(3);
+pub const REGISTRATION_POLL: Duration = Duration::from_secs(2);
+pub const REGISTRATION_WAIT: Duration = Duration::from_secs(40);
+
+/// 사람에게 보일 방식 설명 — CLI 출력과 웹 확인 창.
+pub fn mode_note(mode: LaunchMode, fresh: bool) -> &'static str {
+    match mode {
+        LaunchMode::Resume => "열린 세션 이어받기(-c)",
+        _ if fresh => "이어받지 않고 새로",
+        LaunchMode::Session => "새 세션과 함께",
+        LaunchMode::Server => "서버만(세션은 앱에서)",
+    }
 }
