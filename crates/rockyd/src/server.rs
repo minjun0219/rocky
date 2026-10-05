@@ -21,7 +21,7 @@ use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
     is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
     NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE,
-    NON_LOCAL_SPAWN_MESSAGE,
+    NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -115,6 +115,16 @@ impl ServerOptions {
     }
 }
 
+/// 검증 잡의 대기열 — `ServerState::verify_queue`.
+#[derive(Default)]
+struct VerifyQueue {
+    /// 다시 돌려 달라고 한 대상(보드, 브랜치). 메모리 — 데몬이 다시 뜨면 사라지니 다시 부탁한다.
+    rerun: std::collections::HashSet<(String, String)>,
+    /// 지금 단계를 돌고 있는 대상 — 잡이 하나라 많아야 하나. `last.json` 의 `running` 은 데몬이 죽은 뒤에도 남으니
+    /// "도는 중" 판정은 이걸로 한다.
+    in_flight: Option<(String, String)>,
+}
+
 pub struct ServerState {
     pub store: Arc<TodoStore>,
     statusline_template: String,
@@ -149,6 +159,11 @@ pub struct ServerState {
     pr_watch: Mutex<crate::prwatch::PrWatchStatus>,
     /// 기본 브랜치 검증 — 대상마다 지금 상태(`rockyd::verify`).
     verify: Mutex<Vec<crate::verify::VerifyTargetStatus>>,
+    /// 다시 돌리기 요청과 지금 도는 대상 — 한 락 아래 둬서 "도는 중인가 보고 맡기기" 와 "도는 중으로 바꾸며 요청 지우기" 가
+    /// 서로 끼어들지 못하게 한다(따로 두면 그 틈에 맡긴 요청이 남아 같은 커밋을 또 돈다).
+    verify_queue: Mutex<VerifyQueue>,
+    /// 검증 잡의 쉬는 시간을 끊는다 — 다시 돌리기 요청이 주기를 기다리지 않게.
+    pub verify_wake: tokio::sync::Notify,
     /// 레포별 열린 PR 목록 캐시 — (가져온 시각 unix 초, 목록). GitHub 탭이 레포를 펼칠 때만 채운다.
     open_prs: Mutex<HashMap<String, (i64, Vec<rocky_core::prwatch::OpenPr>)>>,
     /// 기동 때 `PRAGMA quick_check` 결과 — "ok" 아니면 health 로 드러낸다. 테스트 상태는 None.
@@ -208,6 +223,42 @@ impl ServerState {
 
     pub fn verify(&self) -> Vec<crate::verify::VerifyTargetStatus> {
         self.verify.lock().expect("verify poisoned").clone()
+    }
+
+    /// 다시 돌리기를 맡겨 두고 잡을 깨운다. 그 대상이 지금 도는 중이면 맡지 않고 `false`.
+    pub fn request_verify_rerun(&self, board: &str, branch: &str) -> bool {
+        let key = (board.to_string(), branch.to_string());
+        let mut queue = self.verify_queue.lock().expect("verify_queue poisoned");
+        if queue.in_flight.as_ref() == Some(&key) {
+            return false;
+        }
+        queue.rerun.insert(key);
+        drop(queue);
+        self.verify_wake.notify_one();
+        true
+    }
+
+    pub fn verify_rerun_requested(&self, board: &str, branch: &str) -> bool {
+        self.verify_queue
+            .lock()
+            .expect("verify_queue poisoned")
+            .rerun
+            .contains(&(board.to_string(), branch.to_string()))
+    }
+
+    /// 단계를 돌기 시작한다 — 도는 중으로 바꾸고, 여기까지 온 요청은 이번 실행이 흡수한다.
+    pub fn begin_verify(&self, board: &str, branch: &str) {
+        let key = (board.to_string(), branch.to_string());
+        let mut queue = self.verify_queue.lock().expect("verify_queue poisoned");
+        queue.rerun.remove(&key);
+        queue.in_flight = Some(key);
+    }
+
+    pub fn end_verify(&self) {
+        self.verify_queue
+            .lock()
+            .expect("verify_queue poisoned")
+            .in_flight = None;
     }
 
     pub fn set_pr_watch(&self, status: crate::prwatch::PrWatchStatus) {
@@ -499,6 +550,8 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         note_streams: Mutex::new(HashMap::new()),
         pr_watch: Mutex::new(crate::prwatch::PrWatchStatus::default()),
         verify: Mutex::new(Vec::new()),
+        verify_queue: Mutex::new(VerifyQueue::default()),
+        verify_wake: tokio::sync::Notify::new(),
         db_integrity: Mutex::new(None),
         open_prs: Mutex::new(HashMap::new()),
         gh_viewer: Mutex::new(None),
@@ -1909,6 +1962,65 @@ async fn dispatch(
     if *method == Method::GET && path == "/api/verify" {
         // 기본 브랜치 검증 — 대상마다 마지막(또는 도는 중인) 결과. 설정에 대상이 없으면 빈 목록.
         return Ok(ok_json(&json!({ "targets": state.verify() })));
+    }
+    if *method == Method::POST && path == "/api/verify/rerun" {
+        // 같은 커밋을 다시 — 환경 탓 거짓 실패를 다음 커밋까지 빨강으로 두지 않게. 프로세스를 띄우는 동작이라 로컬 전용.
+        // 본문 `board`·`branch` 로 좁히고, 없으면 대상 전부. 도는 중인 대상은 건너뛴다.
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_VERIFY_RERUN_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_optional_body(headers, body).await?.unwrap_or_default();
+        // 빠진 필터만 "전부" 다 — 잘못 준 값(숫자·빈 문자열)을 전부로 읽으면 오타 하나로 모든 빌드가 돈다.
+        let filter = |name: &str| match body.get(name) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) if !s.trim().is_empty() => Ok(Some(s.trim())),
+            Some(other) => Err(format!(
+                "{name} 는 비어 있지 않은 문자열이어야 한다(빼면 전부): {other}"
+            )),
+        };
+        let (board, branch) = match (filter("board"), filter("branch")) {
+            (Ok(board), Ok(branch)) => (board, branch),
+            (Err(e), _) | (_, Err(e)) => return Ok(error_response(&e, StatusCode::BAD_REQUEST)),
+        };
+        // 보드는 별칭까지 푼다 — 설정의 key 와 CLI 가 고른 key 가 달라도 같은 보드면 맞다.
+        let resolve = |key: &str| {
+            store
+                .get_board(key)
+                .ok()
+                .flatten()
+                .map(|b| b.key)
+                .unwrap_or_else(|| key.to_string())
+        };
+        let wanted = board.map(resolve);
+        let mut queued = Vec::new();
+        let mut running = Vec::new();
+        for t in state.verify() {
+            if wanted.as_ref().is_some_and(|w| *w != resolve(&t.board))
+                || branch.is_some_and(|b| b != t.branch)
+            {
+                continue;
+            }
+            let target = json!({ "board": t.board, "branch": t.branch });
+            if state.request_verify_rerun(&t.board, &t.branch) {
+                queued.push(target);
+            } else {
+                running.push(target);
+            }
+        }
+        if queued.is_empty() && running.is_empty() {
+            return Ok(error_response(
+                &format!(
+                    "검증 대상이 없다(board={}, branch={}) — rocky.json 의 verify.targets[] 를 본다",
+                    board.unwrap_or("*"),
+                    branch.unwrap_or("*")
+                ),
+                StatusCode::NOT_FOUND,
+            ));
+        }
+        return Ok(ok_json(&json!({ "queued": queued, "running": running })));
     }
     if *method == Method::GET && path == "/api/tokens/summary" {
         // 모델×effort(기본) · 모델 · effort · 세션 · 브랜치별 토큰 합계. 구간은 from/to(ISO) 또는 days(기본 30).

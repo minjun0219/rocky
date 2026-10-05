@@ -9,15 +9,15 @@
 use std::collections::HashMap;
 
 /// 존재만으로 참이 되는 플래그.
-const BOOLEAN_FLAGS: [&str; 12] = [
+const BOOLEAN_FLAGS: [&str; 13] = [
     "all", "archived", "json", "global", "cancel", "help", "note", "last", "force", "version",
-    "check", "clear",
+    "check", "clear", "rerun",
 ];
 
 /// 다음 argv 원소를 값으로 먹는 플래그.
-const VALUE_FLAGS: [&str; 19] = [
+const VALUE_FLAGS: [&str; 20] = [
     "board", "section", "parent", "desc", "due", "priority", "actor", "title", "content", "limit",
-    "repo", "session", "message", "to", "before", "since", "cwd", "filter", "by",
+    "repo", "session", "message", "to", "before", "since", "cwd", "filter", "by", "branch",
 ];
 
 /// 여러 번 줄 수 있어 값이 쌓이는 플래그.

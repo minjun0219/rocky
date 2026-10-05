@@ -1,6 +1,6 @@
 //! `rocky verify` 렌더링 — 통과·실패·도는 중·시작 못 함.
 
-use rocky_cli::verify_cmd::render_verify;
+use rocky_cli::verify_cmd::{render_rerun, render_verify};
 use serde_json::json;
 
 #[test]
@@ -32,4 +32,38 @@ fn renders_each_target_state() {
         "{text}"
     );
     assert!(render_verify(&json!({ "targets": [] })).contains("검증 대상이 없다"));
+}
+
+#[test]
+fn marks_records_that_needed_the_automatic_retry() {
+    let raw = json!({ "targets": [
+        { "board": "rocky", "branch": "main", "record": { "sha": "abcdef1234", "state": "passed", "attempt": 2, "subject": "s" } },
+        { "board": "web", "branch": "main", "record": { "sha": "1234567abc", "state": "running", "attempt": 2 } }
+    ]});
+    let text = render_verify(&raw);
+    assert!(
+        text.contains("✓ rocky main abcdef1 통과(다시 돌려서)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("… web main 1234567 검증 중(자동 재시도)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn renders_rerun_queued_and_skipped_targets() {
+    let raw = json!({
+        "queued": [{ "board": "rocky", "branch": "main" }],
+        "running": [{ "board": "web", "branch": "main" }]
+    });
+    let text = render_rerun(&raw);
+    assert!(
+        text.contains("↻ rocky main — 지금 커밋을 다시 돈다"),
+        "{text}"
+    );
+    assert!(
+        text.contains("… web main — 이미 도는 중이라 건너뛴다"),
+        "{text}"
+    );
 }
