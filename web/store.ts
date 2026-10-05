@@ -7,6 +7,7 @@ import {
   advanceSeen,
   markSeen,
   readSeen,
+  rcVisible,
   readThemePref,
   resolveTheme,
   THEME_KEY,
@@ -188,6 +189,8 @@ interface UiState {
   setShowRc: (show: boolean) => void;
   /** rc 현황을 다시 읽는다(데몬이 5초 캐시). 꺼진 기기에서 원격 제어 탭을 보던 중이면 피드로 돌린다. */
   loadRc: () => Promise<void>;
+  /** agy remote-control 을 켜거나 끈다(로컬 전용) — 성공하면 새로 잰 현황으로 바꾸고, 실패하면 사유를 던진다. */
+  controlAgy: (action: 'start' | 'stop') => Promise<void>;
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
@@ -434,7 +437,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   loadRc: async () => {
     try {
       const rc = await api<RcStatus>('/api/rc/servers', get().actor);
-      if (!rc.configured && get().view === 'rc') {
+      if (!rcVisible(rc) && get().view === 'rc') {
         // 주소도 피드로 — `?view=rc` 가 남으면 새로고침·뒤로가기마다 rc 를 골랐다 튕긴다.
         set({ rc, view: 'feed' });
         const { view: _was, ...here } = parseRoute(
@@ -448,6 +451,13 @@ export const useUiStore = create<UiState>((set, get) => ({
     } catch {
       // 데몬이 잠깐 안 닿으면 직전 값을 둔다 — 화면이 깜박이지 않게.
     }
+  },
+  controlAgy: async (action) => {
+    const rc = await api<RcStatus>(`/api/rc/antigravity/${action}`, get().actor, {
+      method: 'POST',
+      body: '{}',
+    });
+    set({ rc });
   },
   setShowArchived: (showArchived) => {
     logUsage('web:archived-toggle');

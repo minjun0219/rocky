@@ -1,4 +1,4 @@
-import { hasNoteNews } from '../lib';
+import { hasNoteNews, rcVisible } from '../lib';
 import { useUiStore } from '../store';
 import type { BoardView } from '../types';
 import { useFeedCount } from './FeedPane';
@@ -28,7 +28,7 @@ export function ViewSwitch() {
   const showGithub = useUiStore((s) => s.showGithub);
   const feed = useFeedCount();
   // 피드가 맨 앞이자 첫 화면이다(2026-10-02 오너).
-  const showRc = useUiStore((s) => s.showRc && s.rc?.configured === true);
+  const showRc = useUiStore((s) => s.showRc && rcVisible(s.rc));
   const kinds: BoardView[] = ['feed', 'todos', 'notes', 'worklog'];
   if (showGithub) {
     kinds.push('github');

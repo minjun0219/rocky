@@ -52,7 +52,7 @@ agy의 HTTP MCP 클라이언트는 streamable HTTP를 말하고, 데몬의 state
 
 ## 원격 제어(`agy remote-control`)
 
-rocky는 이 기기의 agy 원격 제어 데몬을 보고 켜고 끈다 — `rocky rc agy [start|stop]`(로컬 전용). `rc` 블록과 상관없이
-`agy`가 설치돼 있으면 보인다. 세부는 README의 *rc 서버 현황*.
+rocky는 이 기기의 agy 원격 제어 데몬을 보고 켜고 끈다 — `rocky rc agy [start|stop]`, 웹 원격 제어 탭의 Antigravity 줄
+(로컬 화면에서만 버튼). `rc` 블록과 상관없이 `agy`가 설치돼 있으면 보인다. 세부는 README의 *rc 서버 현황*.
 
 호스트별 비교는 [`docs/hosts.md`](./hosts.md).

@@ -1,6 +1,6 @@
 import { MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { ThemePref } from '../lib';
+import { rcVisible, type ThemePref } from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 import { BoardSwitcher } from './BoardSwitcher';
@@ -82,7 +82,7 @@ function HeaderMenu() {
   const setShowGithub = useUiStore((s) => s.setShowGithub);
   const showRc = useUiStore((s) => s.showRc);
   const setShowRc = useUiStore((s) => s.setShowRc);
-  const rcConfigured = useUiStore((s) => s.rc?.configured === true);
+  const rcConfigured = useUiStore((s) => rcVisible(s.rc));
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
   const setSelected = useUiStore((s) => s.setSelected);

@@ -11,7 +11,7 @@
 - 블록이 없거나 `enabled: false`(rc 를 못 쓰는 기기)면 **`claude rc` 프로브를 돌리지 않는다**. *EN: read-only for now; match by
   the raw cwd string; never probe `claude rc` without an `rc` block.*
 - **Antigravity(`agy remote-control`)는 rc 블록과 별개다**(2026-10-05 오너 결정): `agy` 가 설치돼 있으면 블록이 없어도
-  `agy remote-control status` 만 재서 `antigravity` 에 싣는다.
+  `agy remote-control status` 만 재서 `antigravity` 에 싣고, 웹은 그때도 원격 제어 탭을 보인다(`web/lib.ts` 의 `rcVisible`).
   켜기·끄기(`POST /api/rc/antigravity/{start,stop}`, `rocky rc agy start|stop`)는 로컬 전용이고, 동작 이름은
   `AgyAction` 둘뿐이다 — agy 에 임의 하위 명령·플래그를 넘기지 않는다. 손잡이는 조회와 **같은 캐시**를 잠그고 돌린 뒤 다시
   잰다(`rc_handles`). agy 데몬은 agy 가 올린 launchd 잡이라 rockyd 의 자식이 아니다. 에이전트가 부를 때의 확인은
@@ -25,5 +25,6 @@
 | 판정(순수) | `crates/rocky-core/src/rc.rs` |
 | 프로브·라우트·agy 손잡이 | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
 | CLI | `crates/rocky-cli/src/rc_cmd.rs` |
+| 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
 테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rocky-cli/tests/it/rc_cmd_test.rs`.
