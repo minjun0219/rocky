@@ -1,5 +1,57 @@
 # @minjun0219/rocky
 
+## 0.41.0
+
+### Minor Changes
+
+- [#306](https://github.com/minjun0219/rocky/pull/306) [`357ce9d`](https://github.com/minjun0219/rocky/commit/357ce9dc59a2ba0f553fdce7131a5b89c0899ab6) Thanks [@minjun0219](https://github.com/minjun0219)! - "에이전트에게 보내기"(핸드오프)가 쉬는 세션을 바로 깨운다 — 대상 세션이 받은편지함을 등록했으면 데몬이 그 소켓에 요청을 꽂아 턴을 연다(PR 알림과 같은 길). 응답에 `woke` 가 실리고 웹 상세는 "세션을 깨웠다" / "세션이 다음 턴에 집는다" 를 보여 준다.
+
+- [#315](https://github.com/minjun0219/rocky/pull/315) [`1853ea9`](https://github.com/minjun0219/rocky/commit/1853ea9686d08afef93e029a81bc574e08ad6b5c) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-fix` 의 기계적인 단계를 가벼운 모델의 서브에이전트가 맡는다 — 충돌 해소·판단이 필요 없는 리뷰 수정·CI 실패는 `quick-fix`(Sonnet, 자기 워크트리), 머지 뒤 정리는 `merge-cleanup`(Haiku). 대화가 길어진 세션이 몇 줄짜리 손질을 위해 긴 맥락을 다시 읽지 않는다.
+
+- [#319](https://github.com/minjun0219/rocky/pull/319) [`89cb190`](https://github.com/minjun0219/rocky/commit/89cb1903e5979c30c7fe2abc63ec95b5b4e0bbd2) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬이 기본 브랜치(보통 `main`)의 새 커밋을 받아 게이트를 다시 돈다 — `rocky.json` 의 `verify.targets[]` 로 켜고, 전용 detached 워크트리에서 단계를 차례로 돌며 실패·복구만 배너로 알린다. `rocky verify` · `GET /api/verify` 로 마지막 결과를 본다.
+
+- [#321](https://github.com/minjun0219/rocky/pull/321) [`c746503`](https://github.com/minjun0219/rocky/commit/c74650311f66691041ab97e757e613129906d846) Thanks [@minjun0219](https://github.com/minjun0219)! - `claude rc` 서버 현황을 데몬이 보여 준다. `rocky.json` 의 `rc` 블록(`root` · `pinned` · `targets`)에 폴더를 적으면 `GET /api/rc/servers` 와 `rocky rc` 가 대상별 실행 여부 · 열린 세션 수 · 떠 있은 시간, 목록 밖 폴더에서 도는 서버, 로그인 상태, Antigravity 상태를 낸다. 보기만 하고 서버를 띄우거나 내리지 않는다.
+
+- [#330](https://github.com/minjun0219/rocky/pull/330) [`d0ba25f`](https://github.com/minjun0219/rocky/commit/d0ba25f7d5c415d422b4cb21cd5b146b4287a3ab) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 에 원격 제어 탭과 피드 요약 줄을 더한다. 피드 머리 아래 `원격 제어 7/13 · 세션 4` 한 줄이 고정 서버가 꺼졌을 때 경고를 붙이고, 누르면 고정 서버를 펼친다. 원격 제어 탭은 고정 · 부를 수 있음 · 대상 밖 서버와 로그인 · Antigravity 상태를 보여 준다. rc 가 꺼진 기기에서는 둘 다 나타나지 않고, ⋯ 메뉴에서 탭을 끌 수 있다.
+
+- [#307](https://github.com/minjun0219/rocky/pull/307) [`eb5095a`](https://github.com/minjun0219/rocky/commit/eb5095ae06c138b5f40b5d8416c98679f4ee62f0) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 을 링크한 할 일을 머지로 닫는다. 데몬이 구독한 PR 의 머지를 보면 그 PR 주소를 링크한 할 일을 완료하고 댓글을 남긴다(링크한 다른 PR 이 아직 열려 있으면 기다리고, 머지 없이 닫히면 댓글만). `/rocky:review-request` 는 세션이 든 할 일에 PR 링크를 붙이고, Stop 훅은 PR 을 기다리는 할 일을 더 묻지 않는다.
+
+- [#313](https://github.com/minjun0219/rocky/pull/313) [`a972418`](https://github.com/minjun0219/rocky/commit/a972418913e10daeff91bd6c3d7e2f65d6274323) Thanks [@minjun0219](https://github.com/minjun0219)! - Claude Code 세션의 모델·effort·토큰을 데몬이 트랜스크립트에서 색인한다. `rocky tokens`(모델 × effort 합계), `rocky tokens here`(지금 세션과 추천), `/api/tokens/*`, MCP `token_summary` · `token_current_session`으로 보고, effort를 낮추거나 Sonnet으로 바꿀지 규칙 기반으로 권한다. 훅 설정은 필요 없다.
+
+### Patch Changes
+
+- [#335](https://github.com/minjun0219/rocky/pull/335) [`fccddfa`](https://github.com/minjun0219/rocky/commit/fccddfadae82e37ea40d658b82858cbbb039f35c) Thanks [@minjun0219](https://github.com/minjun0219)! - rocky 를 쓰는 에이전트용 스킬 다섯 개를 더한다 — `pull-request`(PR 구독과 받은편지함 메시지별 할 일), `token-usage`(모델·effort 고르기), `branch-verify`(기본 브랜치 검증 읽기), `handoff`(넘겨받은 일의 start→done), `worklog`(무엇을 언제 기록하나). 상황이 맞을 때만 로드된다.
+
+- [#292](https://github.com/minjun0219/rocky/pull/292) [`0b063d7`](https://github.com/minjun0219/rocky/commit/0b063d7481ce25fb8e2d14a568bd89357cdda13c) Thanks [@minjun0219](https://github.com/minjun0219)! - 피드의 수집함 행이 출처를 말하고("todoist 수집함에 보드로 안 옮긴 항목 2건"), 누르면 항목이 원래 앱 링크로 펼쳐진다.
+
+- [#289](https://github.com/minjun0219/rocky/pull/289) [`dc4b70f`](https://github.com/minjun0219/rocky/commit/dc4b70f17810de3460a28600e720ce9211587c9d) Thanks [@minjun0219](https://github.com/minjun0219)! - 피드 "내 차례" 의 `읽지 않은 댓글 N건 더` 를 누르면 나머지가 그 자리에 펼쳐진다(목록에서 💬 를 찾지 않아도 된다).
+
+- [#334](https://github.com/minjun0219/rocky/pull/334) [`34a5277`](https://github.com/minjun0219/rocky/commit/34a527717a63e9742300a1f029b08f081d9ff6ae) Thanks [@minjun0219](https://github.com/minjun0219)! - 쉬던 세션을 받은편지함 메시지가 깨운 턴에 훅이 같은 PR 전이를 또 주입하지 않는다.
+
+- [#310](https://github.com/minjun0219/rocky/pull/310) [`f23182d`](https://github.com/minjun0219/rocky/commit/f23182dac7d94641f0fafe3b83675648d16daa6f) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션 받은편지함 등록을 DB 에 남겨 데몬이 다시 떠도 PR 알림(머지 등)이 버려지지 않게 한다. 못 보낸 전달은 이유(`reason`)가 `/api/deliveries` 와 웹의 ✗ 툴팁에 남는다.
+
+- [#329](https://github.com/minjun0219/rocky/pull/329) [`6267e72`](https://github.com/minjun0219/rocky/commit/6267e722519024698b18208bf12f32923c7e7235) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 상태 훅 주입과 rocky 채널이 그 PR 을 구독한 세션에만 간다. 같은 보드의 다른 세션은 남의 PR 머지 후보·충돌을 더 이상 받지 않고, 받은편지함으로 이미 받아들인 전이는 다음 턴 훅이 다시 넣지 않는다(승인 창에서 보류·거절된 것은 넣는다). 채널은 `/clear` 뒤에도 지금 세션을 따라간다.
+
+- [#309](https://github.com/minjun0219/rocky/pull/309) [`9e5f29b`](https://github.com/minjun0219/rocky/commit/9e5f29b6cce45eaa0cb0804ef60a39a89f89126f) Thanks [@minjun0219](https://github.com/minjun0219)! - 처음 본 PR 이 이미 머지·닫힘이면 그 전이도 첫 tick 에 낸다 — 구독한 뒤 첫 tick 전에 머지됐거나 머지된 PR 을 구독해도 링크한 할 일이 닫히고 구독이 걷힌다.
+
+- [#305](https://github.com/minjun0219/rocky/pull/305) [`cc5c89e`](https://github.com/minjun0219/rocky/commit/cc5c89ea8d6be0484c698e78d782526806533009) Thanks [@minjun0219](https://github.com/minjun0219)! - 잠깐 쉬었다 온 첫 요청(요약·목록)이 세션 조회(`claude agents --json`)를 3초 기다리던 것을 없앤다 — 지난 세션 목록을 30분까지 바로 쓰고 뒤에서 새로 받으며, 데몬이 뜰 때 미리 받아 둔다. 세션 없는 진행중을 자동으로 멈추는 스윕은 캐시 없는 목록으로 판단한다.
+
+- [#308](https://github.com/minjun0219/rocky/pull/308) [`10936d8`](https://github.com/minjun0219/rocky/commit/10936d861061275a97e5b3fb4271811d1b3426e5) Thanks [@minjun0219](https://github.com/minjun0219)! - 할 일 상세의 PR 링크 칩에 데몬이 감시 중인 PR 의 상태(충돌·확인·머지·CI·결정 필요·초안)를 붙인다.
+
+- [#317](https://github.com/minjun0219/rocky/pull/317) [`05ec33a`](https://github.com/minjun0219/rocky/commit/05ec33a6c1a874e1fd627c3781dcd8a2ddf7fc1d) Thanks [@minjun0219](https://github.com/minjun0219)! - 토큰 추천의 `switch-to-sonnet` 이 바꾸는 시점을 함께 말한다 — 다음 작업 경계(커밋 직후)나 새 세션. 세션 중간에 모델을 바꾸면 캐시를 새로 쌓아 긴 세션에선 오히려 비싸다. effort 변경은 캐시를 지키므로 `lower-effort` 문구는 그대로다.
+
+- [#290](https://github.com/minjun0219/rocky/pull/290) [`f1e34d1`](https://github.com/minjun0219/rocky/commit/f1e34d124bd5c5f3d5eab6862975f3c94cd33c4a) Thanks [@minjun0219](https://github.com/minjun0219)! - 폰(터치 기기)에서 할 일 행의 칩 줄이 오른쪽 끝 열로 밀려 깨지던 것과, p1·p2 우선순위 칩이 글자 없는 단색 상자로 보이던 것을 고친다.
+
+- [#294](https://github.com/minjun0219/rocky/pull/294) [`d2ff23a`](https://github.com/minjun0219/rocky/commit/d2ff23a8b2c4d96d588f277d989a39a0ac30a33c) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 점검에서 나온 것들을 고친다 — 폰 상세의 닫기가 시트 바닥 "닫기" 줄로 바뀌어 댓글 입력칸을 가리지 않고, 폰에서 글자 버튼(편집·새로고침·설정·열린 PR·레포 링크)이 손가락 크기가 되고, 작업로그가 마크다운 원문 대신 글자로 보이고 MCP 도구 이름이 짧아지고, 상세에서 내부 id·p4 칩과 완료한 일의 "시작" 버튼을 뺀다.
+
+- [#293](https://github.com/minjun0219/rocky/pull/293) [`1a6ad93`](https://github.com/minjun0219/rocky/commit/1a6ad93e40cb3d07040e680c1b1cd7632c84d75b) Thanks [@minjun0219](https://github.com/minjun0219)! - 보던 탭이 주소에 실린다(`?view=todos`) — 새로고침·앱 전환(폰 Safari 가 페이지를 다시 부른다)·뒤로가기·탭 복제가 모두 같은 탭으로 돌아온다. 맨 주소는 여전히 피드(첫 화면)다.
+
+- [#328](https://github.com/minjun0219/rocky/pull/328) [`3e0d596`](https://github.com/minjun0219/rocky/commit/3e0d59628bfacd93d9643ca2631d82a6d5c395e3) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 문구를 다듬는다. 줄표로 이은 안내문은 문장으로 끊고 영문 뒤 조사는 붙여 쓰며 용어를 하나로 맞춘다(할 일·노트·실행 중·진행 중·머지 후보). 화면 문장은 해요체로 바꾼다. 새 노트의 기본 제목이 "새 메모"에서 "새 노트"로 바뀐다.
+
+- [#295](https://github.com/minjun0219/rocky/pull/295) [`d4c0854`](https://github.com/minjun0219/rocky/commit/d4c08541d0798938d1fbc4bdf74cc8728fdc9915) Thanks [@minjun0219](https://github.com/minjun0219)! - 한글 라벨이 "섹 션 · 읽지 않은 댓글" 처럼 띄엄띄엄 보이던 것을 고친다 — 고정폭 글꼴 뒤에 본문 한글 글꼴을 두고, 고정폭 라벨의 낱말 사이를 줄이고, 한글 라벨에 준 자간을 걷는다.
+
+- [#299](https://github.com/minjun0219/rocky/pull/299) [`40b4b83`](https://github.com/minjun0219/rocky/commit/40b4b8359c53b6fa32b4ae6531e11997481a0401) Thanks [@minjun0219](https://github.com/minjun0219)! - 폰에서 두 글자 버튼(보드 "편집", 수집함 "설정" 등)도 손가락 폭이 된다 — 높이만 44px 이고 폭은 21px 였다.
+
 ## 0.40.0
 
 ### Minor Changes
