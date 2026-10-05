@@ -106,3 +106,122 @@ async fn token_routes_are_empty_without_an_index() {
     assert_eq!(status, 200);
     assert_eq!(body["rows"], json!([]));
 }
+
+/// `s-2` 세션(`/repo/chat`)에 짧은 턴 `n` 개를 덧붙인다 — 도구 없음, 출력 200.
+fn append_turns(projects: &std::path::Path, start: usize, n: usize, effort: &str) {
+    let file = projects.join("-repo-chat").join("s-2.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+        .unwrap();
+    for i in start..start + n {
+        let ts = |s: u32| format!("2099-02-01T{:02}:{:02}:{s:02}Z", i / 60, i % 60);
+        let p = json!({ "type": "user", "uuid": format!("p{i}"), "sessionId": "s-2", "timestamp": ts(0),
+                        "cwd": "/repo/chat", "message": { "role": "user", "content": "질문" } });
+        let a = json!({ "type": "assistant", "uuid": format!("a{i}"), "sessionId": "s-2", "timestamp": ts(1),
+                        "cwd": "/repo/chat", "effort": effort,
+                        "message": { "id": format!("m{i}"), "model": "claude-opus-5-5", "stop_reason": "end_turn",
+                                     "content": [{ "type": "text", "text": "답" }],
+                                     "usage": { "input_tokens": 1, "output_tokens": 200 } } });
+        writeln!(f, "{p}\n{a}").unwrap();
+    }
+}
+
+#[tokio::test]
+async fn recommendation_route_and_current_session_carry_suggestions() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let projects = tmp.path().join("projects");
+    append_turns(&projects, 0, 6, "xhigh");
+    let db = tmp.path().join("logs.db");
+    LogIndex::open(&db)
+        .unwrap()
+        .ingest_transcripts(&projects)
+        .unwrap();
+    let state = rebuild(&f, |o| o.logs_db = Some(db.clone()));
+
+    let (status, body) = get(&state, "/api/tokens/recommendation?sessionId=s-2").await;
+    assert_eq!(status, 200, "{body}");
+    let rules: Vec<&str> = body["suggestions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["rule"].as_str().unwrap())
+        .collect();
+    assert_eq!(rules, vec!["lower-effort", "switch-to-sonnet"]);
+    assert_eq!(body["evidence"]["turns"], 6);
+    assert_eq!(body["evidence"]["avgOutputTokens"], 200);
+
+    let (_, by_cwd) = get(&state, "/api/tokens/recommendation?cwd=/repo/chat").await;
+    assert_eq!(by_cwd["sessionId"], "s-2");
+    let (_, current) = get(&state, "/api/tokens/current?cwd=/repo/chat").await;
+    assert_eq!(
+        current["recommendation"]["suggestions"][0]["rule"],
+        "lower-effort"
+    );
+    assert_eq!(current["turns"].as_array().unwrap().len(), 6);
+
+    let (status, _) = get(&state, "/api/tokens/recommendation").await;
+    assert_eq!(status, 400);
+    let (status, _) = get(&state, "/api/tokens/recommendation?sessionId=nope").await;
+    assert_eq!(status, 404);
+}
+
+#[test]
+fn feed_seeds_on_first_pass_and_pushes_only_rule_changes() {
+    use rockyd::logindex::RecommendationFeed;
+    let tmp = tempfile::tempdir().unwrap();
+    let projects = tmp.path().join("projects");
+    let (tx, mut rx) = tokio::sync::broadcast::channel::<String>(8);
+    let mut feed = RecommendationFeed::new(tx, Default::default());
+    let mut index = LogIndex::open(&tmp.path().join("logs.db")).unwrap();
+
+    // 첫 바퀴 — 과거 가져오기: 추천이 있어도 기준선만.
+    append_turns(&projects, 0, 6, "xhigh");
+    let touched = index.ingest_transcripts(&projects).unwrap();
+    assert_eq!(feed.publish(&index, &touched), 0);
+
+    // 턴이 늘어도 낸 규칙이 같으면 다시 알리지 않는다.
+    append_turns(&projects, 6, 1, "xhigh");
+    let touched = index.ingest_transcripts(&projects).unwrap();
+    assert_eq!(feed.publish(&index, &touched), 0);
+
+    // effort 를 medium 으로 내리면 lower-effort 가 빠진다 — 바뀌었으니 민다.
+    append_turns(&projects, 7, 1, "medium");
+    let touched = index.ingest_transcripts(&projects).unwrap();
+    assert_eq!(feed.publish(&index, &touched), 1);
+    let pushed: serde_json::Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
+    assert_eq!(pushed["sessionId"], "s-2");
+    assert_eq!(pushed["suggestions"][0]["rule"], "switch-to-sonnet");
+}
+
+#[tokio::test]
+async fn token_events_stream_uses_a_named_event() {
+    let f = fx();
+    let request = axum::http::Request::builder()
+        .method("GET")
+        .uri("/api/tokens/events")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = rockyd::server::handle_api(&f.state, request, Some("127.0.0.1".into())).await;
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    let _ = f
+        .state
+        .token_events
+        .send("{\"sessionId\":\"s\"}".to_string());
+    let mut body = response.into_body().into_data_stream();
+    use tokio_stream::StreamExt;
+    let mut seen = String::new();
+    while !seen.contains("sessionId") {
+        match tokio::time::timeout(std::time::Duration::from_millis(500), body.next()).await {
+            Ok(Some(Ok(chunk))) => seen.push_str(&String::from_utf8_lossy(&chunk)),
+            _ => break,
+        }
+    }
+    assert!(
+        seen.contains("event: tokens.recommendation\ndata: {\"sessionId\":\"s\"}\n\n"),
+        "{seen}"
+    );
+}

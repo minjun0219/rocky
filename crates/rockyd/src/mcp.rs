@@ -328,13 +328,11 @@ impl TodoMcp {
         }
         let limit = args.turns.unwrap_or(20).clamp(1, 500);
         let lookup = cwd.clone();
+        let cfg = self.state.token_recommend.clone();
         let found = self
             .state
             .query_logs("현재 세션", move |index| {
-                match rocky_core::tokens::latest_session_for_cwd(index.conn(), &lookup)? {
-                    Some(id) => rocky_core::tokens::session_detail(index.conn(), &id, limit),
-                    None => Ok(None),
-                }
+                rocky_core::tokens::current_session(index.conn(), &lookup, limit, &cfg)
             })
             .await?
             .flatten()

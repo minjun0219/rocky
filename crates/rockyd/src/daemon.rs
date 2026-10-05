@@ -304,6 +304,7 @@ pub async fn run_daemon(
         inbox_adapters: runtime.inbox_adapters.clone(),
         usage,
         logs_db: Some(runtime.dir.join("logs.db")),
+        token_recommend: tokens.recommend.clone(),
         ..ServerOptions::new(store)
     });
     // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
@@ -312,6 +313,10 @@ pub async fn run_daemon(
         rocky_core::worklog::default_worklog_root(),
         usage_dir,
         tokens.transcripts_dir.clone(),
+        Some(crate::logindex::RecommendationFeed::new(
+            state.token_events.clone(),
+            tokens.recommend.clone(),
+        )),
         std::time::Duration::from_secs(60),
     );
     state.set_db_integrity(integrity);

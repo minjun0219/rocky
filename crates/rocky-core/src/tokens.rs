@@ -571,6 +571,9 @@ pub fn sessions_active_since(conn: &Connection, since: &str) -> rusqlite::Result
 
 // ── 추천(규칙 v1) ────────────────────────────────────────────────────────────
 
+/// 추천 SSE 이벤트 이름(`GET /api/tokens/events`).
+pub const RECOMMENDATION_EVENT: &str = "tokens.recommendation";
+
 /// 추천 규칙의 설정 — `rocky.json` 의 `tokens.recommend`(`config::load_tokens_block`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecommendConfig {
@@ -658,6 +661,55 @@ fn thousands(n: u64) -> String {
         out.push(c);
     }
     out
+}
+
+/// 세션 상세 + 추천 — "지금 세션" 응답(REST `/api/tokens/current`, MCP `token_current_session`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentSession {
+    #[serde(flatten)]
+    pub detail: SessionDetail,
+    pub recommendation: Recommendation,
+}
+
+/// 이 디렉터리(또는 그 아래)의 최근 세션 상세와 추천. 세션이 없으면 `None`.
+pub fn current_session(
+    conn: &Connection,
+    cwd: &str,
+    limit: usize,
+    cfg: &RecommendConfig,
+) -> rusqlite::Result<Option<CurrentSession>> {
+    let Some(id) = latest_session_for_cwd(conn, cwd)? else {
+        return Ok(None);
+    };
+    let Some(detail) = session_detail(conn, &id, limit)? else {
+        return Ok(None);
+    };
+    Ok(Some(CurrentSession {
+        recommendation: recommendation_for(conn, &id, cfg)?,
+        detail,
+    }))
+}
+
+/// 세션의 최근 턴을 읽어 추천을 낸다.
+pub fn recommendation_for(
+    conn: &Connection,
+    session_id: &str,
+    cfg: &RecommendConfig,
+) -> rusqlite::Result<Recommendation> {
+    let turns = recent_turns(conn, session_id, cfg.window.max(1))?;
+    Ok(recommend(session_id, &turns, cfg))
+}
+
+impl Recommendation {
+    /// 알릴 만큼 바뀌었나를 가르는 열쇠 — 낸 규칙들. 근거 수치는 턴마다 바뀌므로 넣지 않는다.
+    pub fn rules_key(&self) -> String {
+        self.suggestions
+            .iter()
+            .map(|s| s.rule)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 /// 최근 턴(오래된 순)으로 추천을 낸다 — 순수 함수.
