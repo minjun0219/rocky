@@ -12,7 +12,8 @@ use rocky_core::config::{load_worklog_config, user_config_path};
 use rocky_core::handoff::build_handoff_prompt;
 use rocky_core::notify::{
     build_notify_context, build_pr_context, drop_absorbed, filter_human_changes, hold_cursor,
-    merge_context, peer_messages, pr_entries_for_session, read_cursor, write_cursor, BoardLookup,
+    merge_context, page_cursor, peer_messages, pr_entries_for_session, read_cursor, write_cursor,
+    BoardLookup,
 };
 use rocky_core::prwatch::PrSubscription;
 use rocky_core::transcript::{
@@ -24,6 +25,9 @@ use serde_json::json;
 
 use crate::client::{daemon_health, ensure_daemon, stop_daemon, CliContext};
 use crate::launchd::{install_launchd, is_launchd_registered};
+
+/// notify-todo 가 한 턴에 읽는 변경 피드 한 페이지.
+const FEED_PAGE: usize = 100;
 
 /// 훅의 HTTP 는 짧게 끊는다 — 프롬프트 지연이 곧 사용자 체감이다.
 const HOOK_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -498,6 +502,7 @@ pub fn notify_todo_context(ctx: &CliContext, input: &serde_json::Value) -> Optio
 
     let mut change_context: Option<String> = None;
     let mut pr_context: Option<String> = None;
+    let mut backlog_note: Option<String> = None;
     match cursor {
         None => {
             // 첫 프롬프트 — 현재 watermark 만 기록하고 과거 히스토리는 주입하지 않는다.
@@ -506,7 +511,7 @@ pub fn notify_todo_context(ctx: &CliContext, input: &serde_json::Value) -> Optio
             }
         }
         Some(cursor) => {
-            if let Some(feed) = fetch_changes(&ctx.base_url, cursor, 100) {
+            if let Some(feed) = fetch_changes(&ctx.base_url, cursor, FEED_PAGE as i64) {
                 // 데몬의 PR 감시 전이(actor rocky)는 사람 변경 필터에 걸리므로 먼저 따로 뽑는다 —
                 // **이 세션이 구독한 PR 만**(남의 PR 을 알리지 않는다). 받은편지함으로 와서 세션이 이미 받아들인
                 // 것은 빼서, 받은편지함이 못 닿았거나(등록 없음·쓰기 실패·보내지 않기·`pr.sessionNotify` 꺼짐)
@@ -530,8 +535,16 @@ pub fn notify_todo_context(ctx: &CliContext, input: &serde_json::Value) -> Optio
                 // 보드나 구독 조회가 실패했으면 이 창을 통째로 다음 턴에 미룬다 — 커서를 넘기면 그 PR
                 // 전이는 이 세션에 다시 오지 않는다.
                 if !hold_cursor(&feed.entries, &board, subscriptions.is_none()) {
-                    if feed.last_id != cursor {
-                        write_cursor(&cursor_file, session_id, feed.last_id);
+                    // 꽉 찬 페이지면 받은 마지막 id 까지만 — 응답의 `last_id`(전역 MAX)로 뛰면 밀린 100건 너머를
+                    // 영영 건너뛴다. 남은 것은 다음 턴에 한 페이지씩(한 턴에 다 읽으면 수백 줄이 컨텍스트에 실린다).
+                    let (next, more) = page_cursor(&feed, FEED_PAGE);
+                    if next != cursor {
+                        write_cursor(&cursor_file, session_id, next);
+                    }
+                    if more {
+                        backlog_note = Some(
+                            "(밀린 변경이 더 있다 — 다음 프롬프트에 이어서 싣는다)".to_string(),
+                        );
                     }
                     let mine = pr_entries_for_session(
                         &feed.entries,
@@ -552,7 +565,7 @@ pub fn notify_todo_context(ctx: &CliContext, input: &serde_json::Value) -> Optio
     // 패닉한 스레드는 "요청 없음"과 같게 본다 — fail-open.
     let claimed = claim_thread.join().unwrap_or(None);
     let handoff_context = claimed.as_ref().map(build_handoff_prompt);
-    merge_context(&[change_context, pr_context, handoff_context])
+    merge_context(&[change_context, pr_context, backlog_note, handoff_context])
 }
 
 /// UserPromptSubmit 의 additionalContext 출력 — 실을 게 없으면 아무것도 내지 않는다.
