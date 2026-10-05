@@ -244,6 +244,10 @@ export interface RcServerRow {
   pid?: number;
   uptimeSecs?: number;
   sessions: number;
+  /** 데몬이 지금 하는 일 — 없으면 쉬는 중. */
+  action?: 'starting' | 'restarting' | 'retrying';
+  /** 마지막 띄우기 · 재시작 결과(데몬이 다시 뜨면 사라진다). */
+  lastResult?: { ok: boolean; message: string; at: string };
 }
 
 /** 대상 목록 밖의 폴더에서 도는 서버 — Rust `rocky_core::rc::StrayRow`. */
