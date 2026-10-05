@@ -144,3 +144,94 @@ fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
         "사용 로그가 임시 디렉터리에 없다 — 격리가 안 먹었다"
     );
 }
+
+/// `statusline --full` 을 프로세스째 돌려 cc-usage 골든(`rocky-core/tests/fixtures/cc-usage`)과 바이트 단위로 비교한다 —
+/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기까지 실제 경로를 탄다. 크레딧 캐시를 심은 케이스는 CLI 가 아직
+/// usage 캐시를 읽지 않아 건너뛴다(렌더는 `rocky-core` 의 대조 테스트가 본다).
+#[test]
+fn full_replays_cc_usage_goldens() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../rocky-core/tests/fixtures/cc-usage");
+    let mut dirs: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    dirs.sort();
+    let mut ran = 0;
+    let mut failures = Vec::new();
+    for case_dir in &dirs {
+        let case: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(case_dir.join("case.json")).unwrap())
+                .unwrap();
+        if !case["usage"].is_null() {
+            continue;
+        }
+        ran += 1;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let config = dir.path().join("rocky.json");
+        let statusline = serde_json::json!({
+            "source": case["config"]["source"],
+            "alertPercent": case["config"]["alert_percent"],
+        });
+        std::fs::write(
+            &config,
+            serde_json::json!({
+                "todo": {"port": 1, "dir": "/nonexistent", "expose": "off"},
+                "statusline": statusline,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        // 환경을 비우고 케이스가 정한 것만 준다 — 사용자 터미널의 TERM·COLUMNS 가 섞이면 바이트가 달라진다.
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+        cmd.env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", &home)
+            .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
+            .env("ROCKY_CONFIG", &config)
+            .env("ROCKY_STATUSLINE_NOW", case["now"].as_str().unwrap())
+            .env("TZ", case["tz"].as_str().unwrap());
+        for (k, v) in case["env"].as_object().unwrap() {
+            cmd.env(k, v.as_str().unwrap());
+        }
+        let mut child = cmd
+            .args(["statusline", "--full"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = case["stdin"]
+            .as_str()
+            .unwrap()
+            .replace("{{HOME}}", home.to_str().unwrap());
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let mut want = std::fs::read_to_string(case_dir.join("expected.txt")).unwrap();
+        for pair in case["allow"].as_array().unwrap() {
+            want = want.replace(pair[0].as_str().unwrap(), pair[1].as_str().unwrap());
+        }
+        let got = String::from_utf8_lossy(&out.stdout);
+        if got != want || !out.status.success() {
+            failures.push(format!(
+                "{}\n  want {want:?}\n  got  {got:?}\n  err  {}",
+                case_dir.file_name().unwrap().to_string_lossy(),
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+    }
+    assert!(ran >= 30, "크레딧 없는 케이스가 {ran}건뿐이다");
+    assert!(
+        failures.is_empty(),
+        "{}건 다름:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}

@@ -200,6 +200,21 @@
       },
       "additionalProperties": false
     },
+    "statusline": {
+      "type": "object",
+      "description": "`rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄)의 한도 설정 — cc-usage 와 같은 출력을 낸다. 보드 줄 템플릿(todo.statusline)과는 다른 자리다.",
+      "properties": {
+        "source": {
+          "enum": ["auto", "stdin", "api", "none"],
+          "description": "한도를 어디서 읽나. stdin = statusline 입력의 rate_limits(Pro/Max), none = 한도를 다루지 않음. api·auto 의 usage API 조회는 아직 없다(조회 대기로 보인다). 기본 auto."
+        },
+        "alertPercent": {
+          "type": "number",
+          "description": "이 사용률(%)부터 임박 배지. 0 이면 임박 경고를 끄고 소진(100%)만 강조, 0~100 밖도 끈 것. 기본 90."
+        }
+      },
+      "additionalProperties": false
+    },
     "tokens": {
       "type": "object",
       "description": "Claude Code 토큰 색인 — 데몬이 세션 트랜스크립트에서 모델·effort·토큰을 logs.db 로 옮기고 요약·추천을 낸다(`/api/tokens/*`, `rocky tokens`).",

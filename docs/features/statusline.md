@@ -11,6 +11,11 @@
   거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.
 - `--full`(경로·git 줄 + 모델·ctx·한도 줄)은 cc-usage 의 이식이다 — 같은 입력이면 ANSI 까지 **같은 바이트**를 낸다(골든 픽스처
   `crates/rocky-core/tests/fixtures/cc-usage/`). 한도(5h/7d) 판정은 순수 함수, "지금"은 인자로 받는다.
+- `--full` 의 줄은 **CLI 가 그린다** — 데몬이 없어도 경로·모델·한도 줄은 남고, 보드 줄은 그 아래 한 세그먼트라 실패하면 그 줄만
+  빠진다. 설정은 `rocky.json` 최상위 `statusline` 블록(보드 줄 템플릿 `todo.statusline` 과 다른 자리).
+- 골든은 cc-usage(기능 동결)에서 `scripts/cc-usage-capture.ts` 로 뜬다. 일부러 다르게 둔 곳은 케이스의 `allow` 에만 적는다.
+  테스트 전용 `ROCKY_STATUSLINE_NOW`(RFC3339)가 "지금" 을 고정한다 — 사용자 표면이 아니라 README 표에 올리지 않는다(cc-usage
+  쪽 짝은 `CC_USAGE_NOW`).
 
 ## 코드
 

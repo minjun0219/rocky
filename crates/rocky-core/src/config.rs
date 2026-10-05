@@ -615,6 +615,30 @@ pub fn load_tokens_block(config_path: &Path) -> TokensConfig {
     }
 }
 
+/// `rocky.json` 최상위 `statusline` 블록 — `rocky statusline --full` 의 한도 판정 설정(`rocky_core::limits`).
+/// 보드 줄 템플릿(`todo.statusline`)과는 다른 자리다. 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open).
+pub fn load_statusline_block(config_path: &Path) -> crate::limits::LimitsConfig {
+    let mut cfg = crate::limits::LimitsConfig::default();
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return cfg;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return cfg;
+    };
+    let Some(block) = parsed.get("statusline").and_then(|v| v.as_object()) else {
+        return cfg;
+    };
+    if let Some(source) = block
+        .get("source")
+        .and_then(|v| v.as_str())
+        .and_then(crate::limits::Source::parse)
+    {
+        cfg.source = source;
+    }
+    cfg.alert_percent = block.get("alertPercent").and_then(|v| v.as_f64());
+    cfg
+}
+
 /// 트랜스크립트 루트 — None 이면 끔. `tokens.dir` > `$CLAUDE_CONFIG_DIR/projects` > `~/.claude/projects`.
 pub fn resolve_transcripts_dir(env: &EnvMap, tokens: &TokensConfig) -> Option<PathBuf> {
     if tokens.enabled == Some(false) {

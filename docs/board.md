@@ -920,6 +920,16 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   printf '%s' "$input" | rocky statusline
   ```
 
+- **`rocky statusline --full`** — cc-usage 를 대신해 statusline 전체를 그린다: 경로·git 줄, 모델·effort·ctx·5h/7d
+  줄, 한도가 소진되면 크레딧 줄, 그 아래 보드 줄. 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 같은
+  입력에서 cc-usage 와 바이트 단위로 같다(골든 `crates/rocky-core/tests/fixtures/cc-usage/`). 한도 설정은 `rocky.json`
+  최상위 `statusline` 블록. 아직 없는 것: git 세그먼트, `extra_commands`, usage API 조회(크레딧 금액), 경보 깜빡임,
+  계정 배지 — 설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+
+  ```json
+  "statusLine": { "type": "command", "command": "rocky statusline --full" }
+  ```
+
 `rocky`가 PATH에 없는 환경이면 `~/.local/share/rocky/current/rocky`를 쓴다. `curl`로 라우트를 직접 불러도
 되지만(`curl -sf --max-time 0.3 --get --data-urlencode cwd=… …/api/statusline`), 그때는 `-f`를 빼지 않는다.
 
