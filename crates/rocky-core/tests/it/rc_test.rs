@@ -254,3 +254,111 @@ fn status_serializes_camel_case() {
         serde_json::json!({"configured": false, "servers": [], "strays": [], "auth": "unknown", "antigravity": null})
     );
 }
+
+// ── 띄우기 · 재시작 판정 — 옛 CLI 의 decide_test · registration_test 를 옮겼다 ──
+
+#[test]
+fn read_registration_cases() {
+    let served = "Error: This folder is already served by a terminal `claude remote-control` on this device. Stop it first.\nExiting in about 45 seconds.\n";
+    let cases = [
+        ("아직 아무것도 없음", "", "", Registration::Pending),
+        (
+            "연결 중은 아직",
+            "·|· Connecting · acorn-app · main",
+            "",
+            Registration::Pending,
+        ),
+        (
+            "세션 모드는 Connected",
+            "·✔︎· Connected · acorn-app · main",
+            "",
+            Registration::Connected,
+        ),
+        (
+            "서버만 모드는 Ready 만 찍는다",
+            "·|· Connecting · x · main\n·✔︎· Ready · acorn-app · main",
+            "",
+            Registration::Connected,
+        ),
+        (
+            "등록이 남아 있으면 실패 — 프로세스는 45초쯤 떠 있어 속는다",
+            "",
+            served,
+            Registration::Served,
+        ),
+        (
+            "실패가 연결보다 앞선다",
+            "·✔︎· Ready · x",
+            served,
+            Registration::Served,
+        ),
+    ];
+    for (name, out, err, want) in cases {
+        assert_eq!(read_registration(out, err), want, "{name}");
+    }
+}
+
+#[test]
+fn restart_resumes_only_with_live_session() {
+    // 열린 세션이 있을 때만 -c — 세션 없이 -c 로 뜬 서버는 할 일이 없어 내려간다(단일 세션 모드).
+    assert_eq!(restart_mode(true, true, false), LaunchMode::Resume);
+    assert_eq!(restart_mode(false, true, false), LaunchMode::Resume);
+    assert_eq!(restart_mode(true, false, false), LaunchMode::Session);
+    assert_eq!(restart_mode(false, false, false), LaunchMode::Server);
+    // fresh 면 세션이 있어도 이어받지 않는다.
+    assert_eq!(restart_mode(true, true, true), LaunchMode::Session);
+    assert_eq!(restart_mode(false, true, true), LaunchMode::Server);
+    // 이름으로 띄우면 고정이 아니어도 세션까지.
+    assert_eq!(START_MODE, LaunchMode::Session);
+}
+
+#[test]
+fn retry_after_failed_resume() {
+    assert_eq!(retry_mode(true), LaunchMode::Session);
+    assert_eq!(retry_mode(false), LaunchMode::Server);
+    assert!(may_fail_to_start(LaunchMode::Resume));
+    assert!(!may_fail_to_start(LaunchMode::Session));
+    assert!(!may_fail_to_start(LaunchMode::Server));
+}
+
+#[test]
+fn server_argv_per_mode_is_a_server_by_structure() {
+    let cases = [
+        (
+            LaunchMode::Resume,
+            vec!["claude", "rc", "--name", "x", "-c"],
+        ),
+        (LaunchMode::Session, vec!["claude", "rc", "--name", "x"]),
+        (
+            LaunchMode::Server,
+            vec!["claude", "rc", "--name", "x", "--no-create-session-in-dir"],
+        ),
+    ];
+    for (mode, want) in cases {
+        let argv = server_argv("x", mode);
+        assert_eq!(argv, want);
+        // 띄운 것을 1조각의 현황이 서버로 알아본다.
+        assert!(is_server_argv(&argv.join(" ")));
+    }
+}
+
+#[test]
+fn mode_notes_say_why() {
+    assert_eq!(
+        mode_note(LaunchMode::Resume, false),
+        "열린 세션 이어받기(-c)"
+    );
+    // fresh 는 세션이 있었어도 버린 것 — "세션 없음" 이 아니다.
+    assert_eq!(mode_note(LaunchMode::Session, true), "이어받지 않고 새로");
+    assert_eq!(
+        mode_note(LaunchMode::Server, false),
+        "서버만(세션은 앱에서)"
+    );
+}
+
+#[test]
+fn backoff_stays_within_three_minutes() {
+    let total: u64 = REGISTRATION_BACKOFF.iter().map(|d| d.as_secs()).sum();
+    assert!(total <= 180);
+    assert!(REGISTRATION_FIRST < REGISTRATION_WAIT);
+}
