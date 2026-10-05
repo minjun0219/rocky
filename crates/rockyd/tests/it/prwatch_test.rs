@@ -1266,3 +1266,87 @@ async fn prs_merged_in_the_same_tick_complete_their_todo_once() {
         (TodoStatus::Done, vec![])
     );
 }
+
+/// 받은편지함 등록은 데몬이 다시 떠도 남는다 — 메모리에만 두면 다시 뜬 뒤 첫 PR 감시 tick 이 세션의 재등록(다음 훅)보다
+/// 먼저 돌아 머지 알림이 "받을 세션 없음" 으로 버려졌다. 못 보내면 이유가 전달 기록에 남는다.
+#[tokio::test]
+async fn inbox_registrations_survive_a_restart_and_failures_say_why() {
+    use rockyd::prwatch::session_notifier;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    let dir =
+        std::path::PathBuf::from(format!("/tmp/cc-socks-rockyrestart-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("300.sock");
+    let _listener = UnixListener::bind(&sock).unwrap();
+    let (status, _) = post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s1", "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+    )
+    .await;
+    assert_eq!(status, 204);
+
+    // 같은 DB 로 데몬을 다시 띄운다 — 훅이 다시 등록하기 전에도 등록이 있다(되살린 것으로 표시).
+    let live = |pid: i64| rocky_core::sessions::SessionsResult {
+        available: true,
+        sessions: vec![rocky_core::sessions::AgentSession {
+            pid,
+            cwd: "/w/rocky".into(),
+            kind: "interactive".into(),
+            id: None,
+            session_id: "s1".into(),
+            name: "eel".into(),
+            status: "idle".into(),
+            state: None,
+            started_at: 0,
+        }],
+        reason: None,
+    };
+    let restarted = rebuild(&f, |o| {
+        o.sessions = Some(rockyd::sessions_exec::fixed_sessions(live(300)));
+    });
+    let regs = restarted.inboxes();
+    assert_eq!(regs.len(), 1);
+    assert_eq!(regs[0].socket, sock.to_str().unwrap());
+    assert!(regs[0].restored);
+    // 그 세션이 소켓의 주인(pid 300)이면 쓴다.
+    assert!(restarted.live_inbox("s1").await.is_ok());
+    // 소켓 이름의 pid 가 그 세션의 것이 아니면(끝난 세션의 경로를 다른 세션이 다시 씀) 쓰지 않고 등록을 걷는다.
+    let reused = rebuild(&f, |o| {
+        o.sessions = Some(rockyd::sessions_exec::fixed_sessions(live(999)));
+    });
+    assert!(reused.live_inbox("s1").await.is_err());
+    assert!(reused.inboxes().is_empty());
+    // 다시 등록한다 — 걷힌 등록을 되살려 아래를 이어 간다.
+    let (status, _) = post(
+        &restarted,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s1", "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+    )
+    .await;
+    assert_eq!(status, 204);
+
+    // 등록 없는 세션이 구독한 PR — 못 보냈다는 사실과 이유가 남는다.
+    sub(&f, "o/r", 9, Some("nobody"));
+    let notify = session_notifier(restarted.clone());
+    notify(&rocky_core::prwatch::PrEvent {
+        kind: PrEventKind::Merged,
+        repo: "o/r".into(),
+        number: 9,
+        title: "PR 9".into(),
+        url: "https://github.com/o/r/pull/9".into(),
+        author: None,
+        quiet: false,
+    });
+    let d = &restarted.deliveries()[0];
+    assert!(!d.ok);
+    assert_eq!(d.reason.as_deref(), Some("받을 세션 등록 없음"));
+
+    // 보내다 실패해 걷은 등록은 DB 에서도 지워진다 — 다음 재기동에 되살아나지 않게.
+    restarted.forget_inbox("s1");
+    assert!(rebuild(&f, |_| {}).inboxes().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}

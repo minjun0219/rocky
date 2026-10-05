@@ -302,7 +302,20 @@ fn add_pr_filter_subscriptions(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub const MIGRATIONS: [MigrationFn; 15] = [
+/// 마이그레이션 16: 세션 받은편지함 등록(`session_inboxes`) — 메모리에만 두면 데몬이 다시 뜬 뒤 세션이 다시 등록하기
+/// 전까지(다음 훅) 첫 PR 감시 tick 의 알림이 "받을 세션 없음" 으로 버려졌다(2026-10-05 #308·#309 머지 알림).
+fn add_session_inboxes(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS session_inboxes (\n\
+           session_id TEXT PRIMARY KEY,\n\
+           socket     TEXT NOT NULL,\n\
+           cwd        TEXT NOT NULL,\n\
+           seen_at    INTEGER NOT NULL\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 16] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -318,6 +331,7 @@ pub const MIGRATIONS: [MigrationFn; 15] = [
     add_note_pinned,
     add_pr_subscriptions,
     add_pr_filter_subscriptions,
+    add_session_inboxes,
 ];
 
 #[derive(Default)]

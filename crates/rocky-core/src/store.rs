@@ -133,6 +133,12 @@ CREATE TABLE IF NOT EXISTS inbox_seen (
   seen_at TEXT NOT NULL,
   PRIMARY KEY (source, session_id, item_id)
 );
+CREATE TABLE IF NOT EXISTS session_inboxes (
+  session_id TEXT PRIMARY KEY,
+  socket TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  seen_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pr_watch_repos (
   repo TEXT PRIMARY KEY,
   baselined_at TEXT NOT NULL
@@ -2311,6 +2317,55 @@ impl TodoStore {
                 params![source, session_id, id, at],
             )?;
         }
+        Ok(())
+    }
+
+    /// 세션 받은편지함 등록을 남긴다(같은 세션이면 덮어쓴다) — 데몬이 다시 떠도 첫 tick 의 알림이 갈 곳이 있게.
+    pub fn save_session_inbox(
+        &self,
+        registration: &crate::peer_inbox::InboxRegistration,
+    ) -> StoreResult<()> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO session_inboxes (session_id, socket, cwd, seen_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(session_id) DO UPDATE SET socket = excluded.socket, cwd = excluded.cwd, seen_at = excluded.seen_at",
+            params![registration.session_id, registration.socket, registration.cwd, registration.seen_at],
+        )?;
+        Ok(())
+    }
+
+    /// `since`(유닉스 초) 이후에 갱신된 등록만 — 오래된 것은 지운다.
+    pub fn load_session_inboxes(
+        &self,
+        since: i64,
+    ) -> StoreResult<Vec<crate::peer_inbox::InboxRegistration>> {
+        let conn = self.lock();
+        conn.execute(
+            "DELETE FROM session_inboxes WHERE seen_at < ?1",
+            params![since],
+        )?;
+        let mut stmt =
+            conn.prepare("SELECT session_id, socket, cwd, seen_at FROM session_inboxes")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(crate::peer_inbox::InboxRegistration {
+                    session_id: r.get(0)?,
+                    socket: r.get(1)?,
+                    cwd: r.get(2)?,
+                    seen_at: r.get(3)?,
+                    restored: true,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn delete_session_inbox(&self, session_id: &str) -> StoreResult<()> {
+        let conn = self.lock();
+        conn.execute(
+            "DELETE FROM session_inboxes WHERE session_id = ?1",
+            params![session_id],
+        )?;
         Ok(())
     }
 

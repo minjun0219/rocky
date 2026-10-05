@@ -91,6 +91,7 @@ fn reg(id: &str, cwd: &str, seen_at: i64) -> InboxRegistration {
         socket: format!("/tmp/cc-socks/{seen_at}.sock"),
         cwd: cwd.into(),
         seen_at,
+        restored: false,
     }
 }
 
@@ -165,4 +166,43 @@ fn review_message_asks_the_pr_session_to_run_resolve_reviews() {
     );
     // ready·conflict 본문은 리뷰 도착을 다루지 않는다.
     assert!(pr_session_message(&event(PrEventKind::Review)).is_none());
+}
+
+fn agent(session_id: &str, pid: i64) -> rocky_core::sessions::AgentSession {
+    rocky_core::sessions::AgentSession {
+        pid,
+        cwd: "/w/rocky".into(),
+        kind: "interactive".into(),
+        id: None,
+        session_id: session_id.into(),
+        name: "eel".into(),
+        status: "idle".into(),
+        state: None,
+        started_at: 0,
+    }
+}
+
+/// 되살린 등록은 그 세션이 살아 있고 소켓 이름의 pid 가 그 세션의 것일 때만 쓴다 — 끝난 세션의 소켓 경로를
+/// 다른 세션이 다시 쓸 수 있다. 되살린 것이 아니면 따지지 않는다.
+#[test]
+fn restored_registrations_need_a_live_session_owning_the_socket() {
+    use rocky_core::peer_inbox::restored_registration_live;
+    let mut r = reg("s1", "/w/rocky", 300);
+    assert!(restored_registration_live(&r, &[]), "새 등록은 늘 참");
+    r.restored = true;
+    assert!(restored_registration_live(&r, &[agent("s1", 300)]));
+    assert!(!restored_registration_live(&r, &[]), "세션이 끝났다");
+    assert!(
+        !restored_registration_live(&r, &[agent("s1", 301)]),
+        "같은 세션이 다른 프로세스로 — 옛 소켓은 남의 것일 수 있다"
+    );
+    assert!(
+        !restored_registration_live(&r, &[agent("s2", 300)]),
+        "그 pid 는 다른 세션"
+    );
+    r.socket = "/tmp/cc-socks/abc.sock".into();
+    assert!(
+        restored_registration_live(&r, &[agent("s1", 1)]),
+        "이름이 숫자가 아니면 세션만 본다"
+    );
 }

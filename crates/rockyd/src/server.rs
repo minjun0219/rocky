@@ -213,7 +213,39 @@ impl ServerState {
         let mut inboxes = self.inboxes.lock().expect("inboxes poisoned");
         let now = registration.seen_at;
         inboxes.retain(|_, r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS);
+        if let Err(e) = self.store.save_session_inbox(&registration) {
+            // 세션 id 는 로그에 남기지 않는다(CodeQL: 민감 정보 평문 로깅).
+            eprintln!("rocky: 받은편지함 등록을 저장하지 못했다 — {e}");
+        }
         inboxes.insert(registration.session_id.clone(), registration);
+    }
+
+    /// 이 세션에 지금 보내도 되는 등록 — TTL 안이고, DB 에서 되살린 것이면 그 세션이 살아 있고 소켓이 그 세션의
+    /// 것일 때만(`restored_registration_live`, 세션 목록은 캐시 없이). 목록을 못 읽으면 되살린 등록은 쓰지 않는다.
+    pub async fn live_inbox(
+        &self,
+        session_id: &str,
+    ) -> Result<rocky_core::peer_inbox::InboxRegistration, &'static str> {
+        let now = chrono::Utc::now().timestamp();
+        let Some(target) = self.inboxes().into_iter().find(|r| {
+            r.session_id == session_id
+                && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
+        }) else {
+            return Err("받을 세션 등록 없음");
+        };
+        if !target.restored {
+            return Ok(target);
+        }
+        let sessions = self.fresh_sessions().await;
+        if !sessions.available {
+            return Err("되살린 등록 — 세션 목록을 못 읽어 확인 못 함");
+        }
+        if rocky_core::peer_inbox::restored_registration_live(&target, &sessions.sessions) {
+            Ok(target)
+        } else {
+            self.forget_inbox(session_id);
+            Err("되살린 등록 — 그 세션이 끝났거나 소켓 주인이 다르다")
+        }
     }
 
     /// 지금 등록된 세션들(사본).
@@ -271,6 +303,7 @@ impl ServerState {
             .lock()
             .expect("inboxes poisoned")
             .remove(session_id);
+        let _ = self.store.delete_session_inbox(session_id);
     }
 
     /// 노트의 문서 스트림을 **구독한다** — 채널이 없으면 만든다. 구독을 락 안에서 끝내는 이유:
@@ -372,6 +405,15 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         .statusline_sessions
         .or(injected)
         .unwrap_or_else(|| cached_sessions(default_gh.clone(), Duration::from_secs(15)));
+    // 받은편지함 등록은 DB 에서 되살린다 — 다시 뜬 뒤 세션이 다시 등록하기 전에 도는 첫 PR 감시 tick 의 알림이 갈 곳이 있게.
+    let since = chrono::Utc::now().timestamp() - rocky_core::peer_inbox::REGISTRATION_TTL_SECS;
+    let inboxes: HashMap<String, rocky_core::peer_inbox::InboxRegistration> = options
+        .store
+        .load_session_inboxes(since)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| (r.session_id.clone(), r))
+        .collect();
     let state = Arc::new(ServerState {
         store: options.store,
         statusline_template: options
@@ -413,7 +455,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         db_integrity: Mutex::new(None),
         open_prs: Mutex::new(HashMap::new()),
         gh_viewer: Mutex::new(None),
-        inboxes: Mutex::new(HashMap::new()),
+        inboxes: Mutex::new(inboxes),
         deliveries: Mutex::new(std::collections::VecDeque::new()),
         muted: Mutex::new(std::collections::HashSet::new()),
         _subscription: subscription,
@@ -1002,6 +1044,7 @@ async fn dispatch(
             socket: socket.clone(),
             cwd: str_field(&body, "cwd").unwrap_or("").to_string(),
             seen_at: chrono::Utc::now().timestamp(),
+            restored: false,
         });
         return Ok(ok_json(&json!({
             "source": source_name,
@@ -1693,6 +1736,7 @@ async fn dispatch(
             socket: socket.to_string(),
             cwd: cwd.to_string(),
             seen_at: chrono::Utc::now().timestamp(),
+            restored: false,
         });
         return Ok(Response::builder()
             .status(StatusCode::NO_CONTENT)
@@ -2289,19 +2333,21 @@ async fn wake_session(
     text: &str,
     subject: String,
 ) -> bool {
-    let now = chrono::Utc::now().timestamp();
-    let Some(target) = state.inboxes().into_iter().find(|r| {
-        r.session_id == session_id
-            && now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS
-    }) else {
+    let Ok(target) = state.live_inbox(session_id).await else {
         return false;
     };
     let line = rocky_core::peer_inbox::inbox_line(text);
     let socket = target.socket.clone();
-    let ok = tokio::task::spawn_blocking(move || crate::prwatch::write_inbox(&socket, &line))
-        .await
-        .map(|r| r.is_ok())
-        .unwrap_or(false);
+    let reason = match tokio::task::spawn_blocking(move || {
+        crate::prwatch::write_inbox(&socket, &line)
+    })
+    .await
+    {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(e.to_string()),
+        Err(e) => Some(e.to_string()),
+    };
+    let ok = reason.is_none();
     state.record_delivery(rocky_core::peer_inbox::Delivery {
         at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         kind: "handoff".to_string(),
@@ -2309,6 +2355,7 @@ async fn wake_session(
         url: None,
         session_id: session_id.to_string(),
         ok,
+        reason,
     });
     if !ok {
         state.forget_inbox(session_id);
