@@ -1,4 +1,4 @@
-//! 로그 색인 스레드 — `rocky_core::logindex` 를 주기적으로 돌린다.
+//! 로그 색인 스레드 — `rocky_core::logindex` 를 주기적으로 돌린다(작업로그·사용 로그·Claude Code 트랜스크립트).
 //!
 //! **전용 OS 스레드**다(tokio 작업이 아니다): 수천 줄을 읽어 넣는 동안 tokio 워커를 쥐지 않고, 자기 연결로
 //! `logs.db` 를 쓰므로 보드 DB(`todo.db`)의 잠금과도 겹치지 않는다. 실패는 다음 바퀴에 다시 — 색인이 없어도
@@ -14,6 +14,7 @@ pub fn spawn_indexer(
     db: PathBuf,
     worklog_root: PathBuf,
     usage_dir: Option<PathBuf>,
+    transcripts_dir: Option<PathBuf>,
     every: Duration,
 ) {
     let spawned = std::thread::Builder::new()
@@ -32,6 +33,9 @@ pub fn spawn_indexer(
                     let mut result = idx.ingest_worklog_root(&worklog_root).map(|_| ());
                     if let (Ok(()), Some(dir)) = (&result, &usage_dir) {
                         result = idx.ingest_usage_dir(dir).map(|_| ());
+                    }
+                    if let (Ok(()), Some(dir)) = (&result, &transcripts_dir) {
+                        result = idx.ingest_transcripts(dir).map(|_| ());
                     }
                     match result {
                         Ok(()) => last_error = None,

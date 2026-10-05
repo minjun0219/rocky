@@ -437,6 +437,67 @@ pub fn load_usage_block(config_path: &Path) -> UsageConfig {
     }
 }
 
+/// `rocky.json` 의 `tokens` 블록 — Claude Code 토큰 색인(`rocky_core::tokens`). 기본 켜짐.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TokensConfig {
+    pub enabled: Option<bool>,
+    /// 트랜스크립트 루트. 기본 `$CLAUDE_CONFIG_DIR/projects`, 없으면 `~/.claude/projects`.
+    pub dir: Option<String>,
+    /// 추천 규칙(`tokens.recommend`) — 빠진 칸은 기본값.
+    pub recommend: crate::tokens::RecommendConfig,
+}
+
+/// 파일 없음 / 파싱 실패 / 블록 없음은 기본값(fail-open).
+pub fn load_tokens_block(config_path: &Path) -> TokensConfig {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return TokensConfig::default();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return TokensConfig::default();
+    };
+    let Some(block) = parsed.get("tokens").and_then(|v| v.as_object()) else {
+        return TokensConfig::default();
+    };
+    let mut recommend = crate::tokens::RecommendConfig::default();
+    if let Some(r) = block.get("recommend").and_then(|v| v.as_object()) {
+        let num = |k: &str| r.get(k).and_then(|v| v.as_u64()).filter(|n| *n > 0);
+        let flag = |k: &str, d: bool| r.get(k).and_then(|v| v.as_bool()).unwrap_or(d);
+        recommend.window = num("window").map_or(recommend.window, |n| n as usize);
+        recommend.min_turns = num("minTurns").map_or(recommend.min_turns, |n| n as usize);
+        recommend.low_output_tokens = num("lowOutputTokens").unwrap_or(recommend.low_output_tokens);
+        recommend.lower_effort = flag("lowerEffort", recommend.lower_effort);
+        recommend.hold_after_raise = flag("holdAfterRaise", recommend.hold_after_raise);
+        recommend.switch_to_sonnet = flag("switchToSonnet", recommend.switch_to_sonnet);
+    }
+    TokensConfig {
+        enabled: block.get("enabled").and_then(|v| v.as_bool()),
+        dir: block
+            .get("dir")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        recommend,
+    }
+}
+
+/// 트랜스크립트 루트 — None 이면 끔. `tokens.dir` > `$CLAUDE_CONFIG_DIR/projects` > `~/.claude/projects`.
+pub fn resolve_transcripts_dir(env: &EnvMap, tokens: &TokensConfig) -> Option<PathBuf> {
+    if tokens.enabled == Some(false) {
+        return None;
+    }
+    if let Some(dir) = &tokens.dir {
+        return Some(expand_tilde(dir));
+    }
+    let base = env
+        .get("CLAUDE_CONFIG_DIR")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(expand_tilde)
+        .unwrap_or_else(|| expand_tilde("~/.claude"));
+    Some(base.join("projects"))
+}
+
 /// 사용 로그 디렉터리 — None 이면 끔. env `ROCKY_USAGE`(0/false/off/no 로 끔) ·
 /// `ROCKY_USAGE_DIR` 이 설정 파일보다 우선. 기본 `~/.config/rocky/usage`.
 pub fn resolve_usage_dir(env: &EnvMap, usage: &UsageConfig) -> Option<PathBuf> {

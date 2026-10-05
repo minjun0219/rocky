@@ -240,6 +240,7 @@ pub async fn run_daemon(
     usage: Option<crate::usage_sink::UsageSink>,
     usage_dir: Option<PathBuf>,
     pr_watch: rocky_core::config::PrWatchConfig,
+    tokens: TokensRuntime,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
     let base_url = format!("http://127.0.0.1:{}", runtime.port);
@@ -305,11 +306,12 @@ pub async fn run_daemon(
         logs_db: Some(runtime.dir.join("logs.db")),
         ..ServerOptions::new(store)
     });
-    // 로그 색인 — 작업로그·사용 로그(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
+    // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
     crate::logindex::spawn_indexer(
         runtime.dir.join("logs.db"),
         rocky_core::worklog::default_worklog_root(),
         usage_dir,
+        tokens.transcripts_dir.clone(),
         std::time::Duration::from_secs(60),
     );
     state.set_db_integrity(integrity);
@@ -462,5 +464,17 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
     );
     let usage = usage_dir.clone().map(crate::usage_sink::file_sink);
     let pr_watch = rocky_core::config::load_pr_block(&config_path);
-    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch).await
+    let tokens_block = rocky_core::config::load_tokens_block(&config_path);
+    let tokens = TokensRuntime {
+        transcripts_dir: rocky_core::config::resolve_transcripts_dir(&env, &tokens_block),
+        recommend: tokens_block.recommend,
+    };
+    run_daemon(runtime, ui_dist, usage, usage_dir, pr_watch, tokens).await
+}
+
+/// 토큰 색인 — 트랜스크립트 루트(None 이면 끔)와 추천 규칙.
+#[derive(Debug, Clone, Default)]
+pub struct TokensRuntime {
+    pub transcripts_dir: Option<PathBuf>,
+    pub recommend: rocky_core::tokens::RecommendConfig,
 }
