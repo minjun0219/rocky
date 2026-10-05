@@ -248,7 +248,9 @@
   **알림 브릿지**(`pr.notifiers[]` — `todo.inbox[]`와 같은
   `CommandBridge` 모양; 데몬이 argv 그대로 실행하고 stdin에 `bridge_payload` JSON을 준다, exit ≠ 0은
   이름과 stderr 첫 줄을 로그에; 서비스 코드는 `bridges/<name>/` 에만 — `bridges/telegram/notify.ts`가
-  참조 구현이고 토큰은 `op read`), `merged`는 사람에게 알리지 않고 그 레포 세션의 받은편지함에만 보낸다(머지 뒤 정리용). **읽기만 한다** — GitHub에 쓰는 것은
+  참조 구현이고 토큰은 `op read`), `merged`는 사람에게 알리지 않고 그 레포 세션의 받은편지함에만 보낸다(머지 뒤 정리용). 머지·닫힘은 그 PR 주소를 링크한 할 일도 정리한다 — 머지면 완료와 댓글, 링크한 다른 PR이 아직
+  구독 중이면 댓글만, 머지 없이 닫히면 댓글만(`settle_linked_todos`, 판정은 `rocky_core::prwatch::linked_todo_action`;
+  "아직 열림" 은 구독으로만 안다 — 구독을 걷은 뒤에 판정한다). **읽기만 한다** — GitHub에 쓰는 것은
   없다(리액션·코멘트·머지는 여전히 세션/사람 몫). 러너·알림기는 주입 가능이라 테스트가 가짜
   `gh`로 tick을 돈다. `/api/health`의 `prWatch { available, reason, lastTick, repos }`,
   `GET /api/prs[?board=&open=true]`, `rocky pr`. 세션 스크립트 `pr-threads.ts`의 `ready`/

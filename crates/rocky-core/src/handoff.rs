@@ -102,6 +102,8 @@ pub fn build_handoff_prompt(claimed: &ClaimedHandoff) -> String {
 pub struct HeldTodo {
     pub todo_ref: String,
     pub title: String,
+    /// GitHub PR 을 링크했다 — 머지를 기다리는 중이라 Stop 확인에서 묻지 않는다(머지되면 데몬이 완료한다).
+    pub awaits_pr: bool,
 }
 
 /// `GET /api/todos?status=doing` 응답(JSON 배열)에서 **이 세션이 든 것만** 고른다 — `doingSessionId` 가
@@ -120,6 +122,17 @@ pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldT
                     Some(HeldTodo {
                         todo_ref: t.get("ref")?.as_str()?.to_string(),
                         title: t.get("title")?.as_str()?.to_string(),
+                        awaits_pr: t
+                            .get("links")
+                            .and_then(|v| v.as_array())
+                            .is_some_and(|links| {
+                                links.iter().any(|l| {
+                                    l.get("url")
+                                        .and_then(|u| u.as_str())
+                                        .and_then(crate::prwatch::parse_pr_url)
+                                        .is_some()
+                                })
+                            }),
                     })
                 })
                 .collect()
@@ -129,8 +142,10 @@ pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldT
 
 /// Stop 훅의 마무리 확인 — 세션이 일을 끝내고도 `done` 을 부르지 않아 보드에 "멈춤" 이 쌓인다(2026-10-02
 /// 오너). 들고 있는 할 일이 있으면 턴을 한 번 더 열어 묻는다. `stop_hook_active`(이미 Stop 훅 때문에 이어진
-/// 턴)면 묻지 않는다 — 안 그러면 "아직 하는 중" 이라 답한 세션을 영영 못 멈춘다.
+/// 턴)면 묻지 않는다 — 안 그러면 "아직 하는 중" 이라 답한 세션을 영영 못 멈춘다. PR 을 링크한 할 일(`awaits_pr`)도
+/// 묻지 않는다 — 머지를 기다리는 동안 턴마다 막히고, 머지되면 데몬이 완료한다.
 pub fn held_todo_reminder(held: &[HeldTodo], stop_hook_active: bool) -> Option<String> {
+    let held: Vec<&HeldTodo> = held.iter().filter(|t| !t.awaits_pr).collect();
     if stop_hook_active || held.is_empty() {
         return None;
     }

@@ -358,7 +358,85 @@ async fn tick_repo(
     {
         let _ = state.store.unsubscribe_pr(&event.repo, event.number);
     }
+    settle_linked_todos(state, &events);
     Ok(RepoOutcome { events, limit })
+}
+
+/// 끝난 PR(머지·닫힘)을 링크한 할 일을 정리한다 — 머지면 완료(링크한 다른 PR 이 아직 감시 중이면 기다린다),
+/// 머지 없이 닫혔으면 댓글만. 이미 끝낸 할 일은 건드리지 않는다. 구독을 걷은 뒤에 불러야 "남은 PR" 이 맞다.
+/// 실패는 로그만 — PR 감시는 계속 돈다.
+fn settle_linked_todos(state: &Arc<ServerState>, events: &[rocky_core::prwatch::PrEvent]) {
+    use rocky_core::prwatch::{linked_todo_action, LinkedTodoAction};
+    use rocky_core::types::{ListTodosFilter, StatusAction, TodoStatus};
+    let ended: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e.kind, PrEventKind::Merged | PrEventKind::Closed))
+        .collect();
+    if ended.is_empty() {
+        return;
+    }
+    let todos = match state.store.list_todos(&ListTodosFilter::default()) {
+        Ok(todos) => todos,
+        Err(e) => {
+            eprintln!("rocky: PR 에 링크된 할 일을 읽지 못했다 — {e}");
+            return;
+        }
+    };
+    let open: Vec<(String, i64)> = state
+        .store
+        .pr_subscriptions()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| (s.repo, s.number))
+        .collect();
+    // 한 tick 에 같은 할 일의 PR 이 함께 머지되면(스택을 연달아 머지) 목록은 아직 옛 상태다 — 두 번 완료하지 않게.
+    let mut completed: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for event in ended {
+        let merged = event.kind == PrEventKind::Merged;
+        for todo in todos.iter().filter(|t| t.status != TodoStatus::Done) {
+            if completed.contains(todo.id.as_str()) {
+                continue;
+            }
+            let action = linked_todo_action(&todo.links, &event.repo, event.number, merged, &open);
+            let comment = match &action {
+                LinkedTodoAction::NotLinked => continue,
+                LinkedTodoAction::Complete => {
+                    format!("#{} 머지로 완료 — {}", event.number, event.url)
+                }
+                LinkedTodoAction::WaitFor(rest) => {
+                    let rest: Vec<String> = rest.iter().map(|(_, n)| format!("#{n}")).collect();
+                    format!(
+                        "#{} 머지 — 링크한 {} 이 아직 열려 있어 완료하지 않았다",
+                        event.number,
+                        rest.join(", ")
+                    )
+                }
+                LinkedTodoAction::ClosedUnmerged => {
+                    format!("#{} 이 머지 없이 닫혔다 — {}", event.number, event.url)
+                }
+            };
+            if action == LinkedTodoAction::Complete {
+                if let Err(e) =
+                    state
+                        .store
+                        .set_todo_status(&todo.id, StatusAction::Done, PR_WATCH_ACTOR, None)
+                {
+                    eprintln!(
+                        "rocky: {} 완료 처리 실패(#{} 머지) — {e}",
+                        todo.id, event.number
+                    );
+                    continue;
+                }
+                completed.insert(todo.id.as_str());
+            }
+            if let Err(e) = state
+                .store
+                .add_comment(&todo.id, &comment, PR_WATCH_ACTOR, None)
+            {
+                eprintln!("rocky: {} 댓글 실패(#{}) — {e}", todo.id, event.number);
+            }
+        }
+    }
 }
 
 /// 한 번 훑는다 — 레포마다 독립(하나가 실패해도 나머지는 돈다). 더는 보지 않는 레포의 스냅숏은

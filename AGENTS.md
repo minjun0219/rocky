@@ -276,7 +276,7 @@ typecheck or tests — pre-push and CI already cover it.*
   `live` / `idle` / `gone` / `unknown`. `rockyd::sweep`는 에이전트가 든 `gone` doing 중 24시간 지난 것만
   자동으로 멈추고 이유를 댓글로 남긴다(`should_auto_release`); 사람이 든 것·`idle`·`unknown`은 건드리지 않는다.
   핸드오프 주입문은 착수(`start`)와 함께 닫는 법(`done`/`stop`)을 말한다. `Stop` 훅(`handoff-stop`)은 이 세션에 귀속된
-  doing이 있으면 턴을 한 번 막고 닫았는지 묻는다(`held_todo_reminder`) — `stop_hook_active` 인 턴은 다시 막지 않아 루프가 없다.
+  doing이 있으면 턴을 한 번 막고 닫았는지 묻는다(`held_todo_reminder`) — `stop_hook_active` 인 턴은 다시 막지 않아 루프가 없고, GitHub PR을 링크한 할 일은 머지를 기다리는 중이라 묻지 않는다(그 PR이 머지 없이 닫혀도 다시 묻지 않는다 — 보드의 댓글로만 안다).
   같은 귀속으로 `log-turn`은 턴 기록 태그에 `todo:<ref>`를 붙인다(보드 할 일 상세가 작업 흐름을 이 태그로 모은다).
   하네스가 넣은 메시지(`<task-notification>`·셸 출력)는 턴을 나누되 요청 칸엔 짧은 이름만 남긴다(`label_injected`).
 - **PR 감시**(`rockyd::prwatch`)는 **구독한 PR 만**(`pr_subscriptions` — `rocky pr subscribe N`, `/rocky:review-request`·
@@ -290,7 +290,7 @@ typecheck or tests — pre-push and CI already cover it.*
   등록하고, 데몬이 **그 PR을 구독한 세션**에만 JSON 한 줄을 쓴다 — 그 세션이 끝났거나 "보내지 않기" 면 보내지 않고 다른 세션으로 넘기지 않는다), 브릿지(`pr.notifiers[]`, 코드는
   `bridges/<name>/` 에만). `pr-review`는 보드의 `reviewFix`가 켜졌을 때만 세션에 간다. 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리)로 보이고, `POST /api/deliveries/mute`로 세션별 "보내지 않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용. `pr-merged`는 배너·브릿지 없이 세션에만 간다(머지 뒤 정리 — `/rocky:review-fix` 11단계). `pr-ci-failed`(CI가 실패로 바뀜 — 같은 head에서 한 번, 재실행이 또 실패하면 또)도 세션에만 간다(원인을 보고 재실행 한 번 또는 수정 — 12단계). 리뷰·충돌·CI 실패 메시지를 받은 세션이 다른 작업 중이면 워크트리 서브에이전트에 맡긴다(13단계, 판단이 필요한 👀 는 메인이 묻는다). 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet`로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게). 구독은 그 레포를 기준선이 잡힌 레포로 표시해, 구독한 뒤 첫 tick이 지금 상태(머지 후보·CI 실패 등)를 알린다. `ready`는 **머지
   후보**다 — 세션이 사용자에게 알리기 전에 판단한다(`/rocky:review-fix` 8단계); 머지 뒤에 붙은 리뷰는
-  다음 PR로 간다(`after-merge`). **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:`로 요청한 노드 수다 —
+  다음 PR로 간다(`after-merge`). **PR ↔ 할 일**: 머지·닫힘 전이가 오면 그 PR 주소를 `links`에 둔 할 일(보관 제외, 전 보드)을 정리한다(`rocky_core::prwatch::linked_todo_action`, `rockyd::prwatch::settle_linked_todos`) — 머지면 완료 + 댓글(링크한 다른 PR이 아직 구독 중이면 완료하지 않고 댓글만), 머지 없이 닫히면 댓글만, 이미 끝낸 할 일은 그대로, 한 tick에 같은 할 일의 PR이 함께 머지돼도 완료는 한 번. 링크는 `/rocky:review-request`가 세션이 든 할 일에 붙인다. **예산:** GraphQL 비용은 돌려받은 노드가 아니라 `first:`로 요청한 노드 수다 —
   레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR 에만 `detail_query`; 잔여가 `RATE_LIMIT_FLOOR`
   (1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). 주기를 바꾸기 전에 `rateLimit { cost }`를 잰다. *EN: GraphQL cost is the nodes requested, not returned —
   measure `rateLimit { cost }` before changing the cadence; the budget is shared with every session's `gh`.*

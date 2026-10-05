@@ -109,14 +109,24 @@ fn held_todos_are_the_doing_ones_attributed_to_this_session() {
         { "ref": "rocky-2", "title": "남의 것", "status": "doing", "doingSessionId": "s2" },
         { "ref": "rocky-3", "title": "사람이 든 것", "status": "doing" },
         { "ref": "rocky-4", "title": "끝난 것", "status": "done", "doingSessionId": "s1" },
-        { "ref": "rocky-5", "title": "보관", "status": "doing", "doingSessionId": "s1", "archivedAt": "2026-10-01T00:00:00Z" }
+        { "ref": "rocky-5", "title": "보관", "status": "doing", "doingSessionId": "s1", "archivedAt": "2026-10-01T00:00:00Z" },
+        { "ref": "rocky-6", "title": "PR 올림", "status": "doing", "doingSessionId": "s1",
+          "links": [{ "url": "https://example.com" }, { "url": "https://github.com/o/r/pull/3" }] }
     ]);
     assert_eq!(
         held_by_session(&todos, "s1"),
-        vec![HeldTodo {
-            todo_ref: "rocky-1".into(),
-            title: "내 것".into()
-        }]
+        vec![
+            HeldTodo {
+                todo_ref: "rocky-1".into(),
+                title: "내 것".into(),
+                awaits_pr: false,
+            },
+            HeldTodo {
+                todo_ref: "rocky-6".into(),
+                title: "PR 올림".into(),
+                awaits_pr: true,
+            }
+        ]
     );
     assert!(held_by_session(&serde_json::json!({ "error": "x" }), "s1").is_empty());
 }
@@ -126,6 +136,7 @@ fn the_stop_reminder_asks_once_and_never_loops() {
     let held = vec![HeldTodo {
         todo_ref: "rocky-1".into(),
         title: "보드 피드".into(),
+        awaits_pr: false,
     }];
     let reminder = held_todo_reminder(&held, false).expect("들고 있으면 묻는다");
     assert!(
@@ -139,4 +150,31 @@ fn the_stop_reminder_asks_once_and_never_loops() {
     // 그 확인으로 이어진 턴에서 또 막으면 "아직 하는 중" 인 세션을 영영 못 멈춘다.
     assert_eq!(held_todo_reminder(&held, true), None);
     assert_eq!(held_todo_reminder(&[], false), None);
+}
+
+/// PR 을 링크한 할 일은 머지를 기다리는 중이다 — 턴마다 막지 않는다(머지되면 데몬이 완료한다).
+#[test]
+fn the_stop_reminder_skips_todos_waiting_on_a_pr() {
+    let waiting = HeldTodo {
+        todo_ref: "rocky-2".into(),
+        title: "PR 올림".into(),
+        awaits_pr: true,
+    };
+    assert_eq!(
+        held_todo_reminder(std::slice::from_ref(&waiting), false),
+        None
+    );
+    let both = vec![
+        waiting,
+        HeldTodo {
+            todo_ref: "rocky-1".into(),
+            title: "아직 하는 중".into(),
+            awaits_pr: false,
+        },
+    ];
+    let reminder = held_todo_reminder(&both, false).expect("PR 없는 것은 묻는다");
+    assert!(
+        reminder.contains("rocky-1") && !reminder.contains("rocky-2"),
+        "{reminder}"
+    );
 }
