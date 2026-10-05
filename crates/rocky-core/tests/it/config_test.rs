@@ -440,3 +440,30 @@ fn tokens_block_reads_recommend_rules_and_resolves_transcripts_dir() {
         Some(std::path::PathBuf::from("/x"))
     );
 }
+
+#[test]
+fn statusline_block_reads_source_and_alert_percent() {
+    use rocky_core::limits::{LimitsConfig, Source};
+    let (_dir, path) =
+        write_config(r#"{ "statusline": { "source": "none", "alertPercent": 80 } }"#);
+    let c = load_statusline_block(&path);
+    assert_eq!(c.source, Source::None);
+    assert_eq!(c.alert_percent, Some(80.0));
+    // 모르는 source 는 기본값(auto), 블록·파일이 없어도 기본값 — todo.statusline(템플릿)과 헷갈리지 않는다.
+    for raw in [
+        r#"{ "statusline": { "source": "STDIN" } }"#,
+        r#"{ "todo": { "statusline": { "template": "x" } } }"#,
+        "not json",
+    ] {
+        let (_dir, path) = write_config(raw);
+        assert_eq!(
+            load_statusline_block(&path),
+            LimitsConfig::default(),
+            "{raw}"
+        );
+    }
+    assert_eq!(
+        load_statusline_block(std::path::Path::new("/nonexistent/rocky.json")),
+        LimitsConfig::default()
+    );
+}

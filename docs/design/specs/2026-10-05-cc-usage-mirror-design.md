@@ -49,8 +49,8 @@
 
 ## 대조 하네스
 
-- cc-usage 의 테스트 전용 환경 변수 `CC_USAGE_NOW`(RFC3339)로 시각을 고정한다(cc-usage#14). rocky 도 같은 이름의
-  테스트 전용 변수를 읽는다 — 한 픽스처를 두 바이너리에 그대로 넣기 위해서다.
+- cc-usage 의 테스트 전용 환경 변수 `CC_USAGE_NOW`(RFC3339)로 시각을 고정한다(cc-usage#14). rocky 는 자기 이름의
+  테스트 전용 변수 `ROCKY_STATUSLINE_NOW` 를 읽는다 — 픽스처의 `now` 를 각 바이너리의 변수로 넣는다.
 - 픽스처 한 건 = `stdin.json` + 환경(`CC_USAGE_NOW` · `TZ` · `COLUMNS` · `TERM` · `NO_COLOR`) + 설정(두 바이너리용) +
   캐시 파일(조각 3 부터) + `expected`(cc-usage 출력). 위치는 `crates/rocky-core/tests/fixtures/cc-usage/<케이스>/`.
 - `scripts/cc-usage-capture.ts`(Bun)가 로컬 cc-usage 바이너리로 `expected` 를 한 번 떠서 커밋한다. 격리는 cc-usage 의
