@@ -56,9 +56,8 @@ pub fn restored_registration_live(
         .any(|s| s.session_id == registration.session_id && pid.is_none_or(|p| p == s.pid))
 }
 
-/// 데몬이 세션 받은편지함에 보낸 한 건 — 웹의 "세션 전달" 현황용(메모리에만, 최근 몇십 건). 훅 주입이
-/// 이미 받은편지함으로 간 전이를 또 넣지 않으려고 읽기도 한다(`notify::drop_delivered`).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// 데몬이 세션 받은편지함에 보낸 한 건 — 웹의 "세션 전달" 현황용(메모리에만, 최근 몇십 건).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Delivery {
     /// RFC 3339.

@@ -330,7 +330,7 @@ gh pr view "$NUM" --json mergeable,mergeStateStatus,reviewDecision
 **PR 감시는 데몬 몫이다**(`rockyd::prwatch`, **구독한 PR** 을 3분마다 — 0단계·`/rocky:review-request` 가 구독한다). "확인·머지해도
 된다"(CI 초록 + 처리 안 된/결정 필요 스레드 0 + 충돌 없음 + base 가 기본 브랜치)와 충돌이 되면
 데몬이 macOS 알림을 쏘고, 보드 "지금" 표에 행이 뜨며, 그 PR 을 구독한 이 세션의 받은편지함에 보낸다
-(받은편지함으로 못 간 것만 다음 턴의 `notify-todo` 훅이 additionalContext 로 넣는다). 그러니 **이 세션에서 Monitor 를 걸거나 `watch` 를 반복하지 않는다.**
+(세션에 들어가지 않은 것만 — 못 닿았거나 승인 창에서 보류·거절 — 다음 턴의 `notify-todo` 훅이 additionalContext 로 넣는다). 그러니 **이 세션에서 Monitor 를 걸거나 `watch` 를 반복하지 않는다.**
 
 이 단계에서 할 일은 둘뿐이다:
 

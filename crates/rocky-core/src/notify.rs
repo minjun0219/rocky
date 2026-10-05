@@ -14,7 +14,6 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::actors::is_agent_actor;
-use crate::peer_inbox::Delivery;
 use crate::prwatch::PrSubscription;
 use crate::types::{ChangeFeedEntry, ChangesSince, HistoryEntity};
 
@@ -406,14 +405,64 @@ pub fn pr_entries_for_session(
     }
 }
 
-/// 받은편지함으로 이미 간 전이를 뺀다 — 구독한 세션은 데몬이 소켓으로 깨운 뒤 다음 턴 훅이 같은 사실을 또
-/// 넣어 두 번 받았다. PR 마다 **마지막 전이**를 먼저 고른 뒤 뺀다(먼저 빼면 그 앞의 옛 전이가 살아난다).
-/// 전달 기록은 히스토리를 쓴 뒤에 남으므로 같은 세션·kind·url 이고 전이 시각(초) 이후에 `ok` 로 간 것만
-/// 보낸 것으로 친다 — 시각을 못 읽으면 보내지 않은 것으로 본다(두 번 받는 쪽이 놓치는 쪽보다 낫다).
-pub fn drop_delivered(
+/// 세션이 실제로 받아들인 다른 세션발 메시지 한 건 — 트랜스크립트의 peer 기록에서 뽑는다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerMessage {
+    /// RFC 3339 — 트랜스크립트 기록 시각.
+    pub at: String,
+    pub text: String,
+}
+
+/// 트랜스크립트(JSONL)에서 **세션이 받아들인** 다른 세션발 메시지를 뽑는다 — 받은편지함 소켓으로 쓴 것이 세션에
+/// 실제로 들어갔다는 증거다(Claude Code 2.1.288 실측): 쉬던 세션은 `type:"user"`·`origin.kind:"peer"`
+/// (본문은 `message.content`), 턴 중이면 `type:"attachment"`·`attachment.type:"queued_command"`·
+/// `attachment.origin.kind:"peer"`(본문은 `attachment.prompt`). 큐에만 들어간 것(`queue-operation`)은 세지 않는다.
+/// 깨진 줄은 건너뛴다.
+pub fn peer_messages(transcript: &str) -> Vec<PeerMessage> {
+    transcript
+        .lines()
+        .filter(|line| line.contains("\"peer\""))
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter_map(|v| {
+            let is_peer = |origin: Option<&serde_json::Value>| {
+                origin.and_then(|o| o.get("kind")).and_then(|k| k.as_str()) == Some("peer")
+            };
+            let text = match v.get("type").and_then(|t| t.as_str()) {
+                Some("user") if is_peer(v.get("origin")) => match v.pointer("/message/content")? {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Array(blocks) => blocks
+                        .iter()
+                        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    _ => return None,
+                },
+                Some("attachment")
+                    if v.pointer("/attachment/type").and_then(|t| t.as_str())
+                        == Some("queued_command")
+                        && is_peer(v.pointer("/attachment/origin")) =>
+                {
+                    v.pointer("/attachment/prompt")?.as_str()?.to_string()
+                }
+                _ => return None,
+            };
+            Some(PeerMessage {
+                at: v.get("timestamp")?.as_str()?.to_string(),
+                text,
+            })
+        })
+        .collect()
+}
+
+/// 세션이 받은편지함으로 **이미 받아들인** 전이를 뺀다 — 구독한 세션은 데몬이 소켓으로 깨운 뒤 다음 턴 훅이 같은
+/// 사실을 또 넣어 두 번 받았다. 데몬의 전달 기록(`ok`)은 소켓에 썼다는 것뿐이라(권한 우회 모드 세션은 승인 창에
+/// 보류하고, 거절하면 세션에 안 들어간다) 트랜스크립트의 peer 기록(`peer_messages`)으로 판정한다: 받은편지함
+/// 본문(`rocky_core::peer_inbox::pr_session_message`)의 `{repo} #{number} {제목 머리}` 가 들어 있고 전이 시각(초)
+/// 이후에 기록된 것. PR 마다 **마지막 전이**를 먼저 고른 뒤 뺀다(먼저 빼면 그 앞의 옛 전이가 살아난다). 시각을 못
+/// 읽으면 받지 않은 것으로 본다(두 번 받는 쪽이 놓치는 쪽보다 낫다).
+pub fn drop_absorbed(
     entries: &[ChangeFeedEntry],
-    session_id: &str,
-    delivered: &[Delivery],
+    absorbed: &[PeerMessage],
 ) -> Vec<ChangeFeedEntry> {
     let secs = |at: &str| {
         chrono::DateTime::parse_from_rfc3339(at)
@@ -423,18 +472,17 @@ pub fn drop_delivered(
     latest_pr_entries(entries)
         .into_iter()
         .filter(|e| {
-            let url = e
-                .history
-                .changes
-                .as_ref()
-                .and_then(|c| c.get("url"))
-                .and_then(|v| v.as_str());
+            let Some(t) = pr_transition(e) else {
+                return true;
+            };
+            let Some(number) = t.number else {
+                return true;
+            };
+            let needle = format!("{} #{number} {}", t.repo, t.label);
             let at = secs(&e.history.at);
-            !delivered.iter().any(|d| {
-                d.ok && d.session_id == session_id
-                    && d.kind == e.history.action
-                    && d.url.as_deref().is_some_and(|u| Some(u) == url)
-                    && matches!((secs(&d.at), at), (Some(d), Some(e)) if d >= e)
+            !absorbed.iter().any(|m| {
+                m.text.contains(&needle)
+                    && matches!((secs(&m.at), at), (Some(m), Some(e)) if m >= e)
             })
         })
         .cloned()

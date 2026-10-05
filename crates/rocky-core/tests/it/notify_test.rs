@@ -1,12 +1,13 @@
 //! TS `src/notify.test.ts` 포팅.
 
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, drop_delivered, filter_human_changes, hold_cursor,
-    merge_context, page_cursor, pr_channel_events, pr_entries_for_board, pr_entries_for_session,
-    read_cursor, subscribed_pr_entries, write_cursor, BoardLookup,
+    build_notify_context, build_pr_context, drop_absorbed, filter_human_changes, hold_cursor,
+    merge_context, page_cursor, peer_messages, pr_channel_events, pr_entries_for_board,
+    pr_entries_for_session, read_cursor, subscribed_pr_entries, write_cursor, BoardLookup,
+    PeerMessage,
 };
-use rocky_core::peer_inbox::Delivery;
-use rocky_core::prwatch::PrSubscription;
+use rocky_core::peer_inbox::pr_session_message;
+use rocky_core::prwatch::{PrEvent, PrEventKind, PrSubscription};
 use rocky_core::types::{ChangeFeedEntry, Changes, HistoryEntity, HistoryEntry};
 use serde_json::json;
 
@@ -514,63 +515,99 @@ fn pr_transitions_reach_only_the_subscribing_session() {
     assert_eq!(events[0].meta["number"], "310");
 }
 
-fn delivery(kind: &str, url: &str, session: &str, ok: bool, at: &str) -> Delivery {
-    Delivery {
+fn peer(text: &str, at: &str) -> PeerMessage {
+    PeerMessage {
         at: at.into(),
-        kind: kind.into(),
-        subject: "s".into(),
-        url: Some(url.into()),
-        session_id: session.into(),
-        ok,
-        reason: (!ok).then(|| "받을 세션 등록 없음".to_string()),
+        text: text.into(),
     }
 }
 
-/// 받은편지함으로 이미 간 전이는 훅이 또 넣지 않는다 — 못 보냈거나, 다른 세션에 갔거나, 그 전이보다
-/// 앞선 전달이면 그대로 둔다.
+/// 받은편지함 본문(데몬이 소켓에 쓰는 것)을 세션이 받아들인 모양 — 쉬던 세션은 `<cross-session-message>` 로 감싼다.
+fn inbox_text(kind: PrEventKind, number: i64) -> String {
+    let body = pr_session_message(&PrEvent {
+        kind,
+        repo: "o/r".into(),
+        number,
+        title: "t".into(),
+        url: format!("https://github.com/o/r/pull/{number}"),
+        author: None,
+        quiet: false,
+    })
+    .unwrap();
+    format!("<cross-session-message from=\"unknown\">\n{body}\n</cross-session-message>")
+}
+
+/// 세션이 받은편지함 메시지를 **받아들였으면**(트랜스크립트에 peer 기록) 훅이 또 넣지 않는다. 그 전이보다 앞선
+/// 메시지·다른 PR·다른 전이는 빼지 않는다 — 받은편지함 본문의 머리가 바뀌면 이 테스트가 깨진다.
 #[test]
-fn transitions_already_delivered_to_the_inbox_are_not_injected_again() {
-    let url = |n: i64| format!("https://github.com/o/r/pull/{n}");
+fn transitions_the_session_already_absorbed_from_its_inbox_are_not_injected_again() {
     let entries = vec![
         pr_at(1, "pr-ready", "o/r", 1, "2026-10-05T10:00:00.400Z"),
         pr_at(2, "pr-ready", "o/r", 2, "2026-10-05T10:00:00.000Z"),
-        pr_at(3, "pr-ready", "o/r", 3, "2026-10-05T10:00:00.000Z"),
-        pr_at(4, "pr-ready", "o/r", 4, "2026-10-05T10:05:00.000Z"),
+        pr_at(3, "pr-ready", "o/r", 3, "2026-10-05T10:05:00.000Z"),
+        pr_at(4, "pr-conflict", "o/r", 4, "2026-10-05T10:00:00.000Z"),
         pr_at(5, "pr-conflict", "o/r", 5, "2026-10-05T10:00:00.000Z"),
     ];
-    let delivered = vec![
-        // 같은 초에 보냄 — 보낸 것(전이 시각의 밀리초는 버린다).
-        delivery("pr-ready", &url(1), "mine", true, "2026-10-05T10:00:00Z"),
-        delivery("pr-ready", &url(2), "mine", false, "2026-10-05T10:00:01Z"),
-        delivery("pr-ready", &url(3), "other", true, "2026-10-05T10:00:01Z"),
-        // 옛 머지 후보의 전달 — 지금 전이(10:05)보다 앞선다.
-        delivery("pr-ready", &url(4), "mine", true, "2026-10-05T10:00:01Z"),
-        // 같은 PR 이지만 kind 가 다르다.
-        delivery("pr-ready", &url(5), "mine", true, "2026-10-05T10:00:01Z"),
+    let absorbed = vec![
+        // 같은 초에 받아들임 — 받은 것(전이 시각의 밀리초는 버린다).
+        peer(
+            &inbox_text(PrEventKind::Ready, 1),
+            "2026-10-05T10:00:00.900Z",
+        ),
+        // 옛 머지 후보 — 지금 전이(10:05)보다 앞선다.
+        peer(
+            &inbox_text(PrEventKind::Ready, 3),
+            "2026-10-05T10:01:00.000Z",
+        ),
+        // 같은 PR 이지만 전이가 다르다.
+        peer(
+            &inbox_text(PrEventKind::Ready, 4),
+            "2026-10-05T10:01:00.000Z",
+        ),
+        peer(
+            &inbox_text(PrEventKind::Conflict, 5),
+            "2026-10-05T10:01:00.000Z",
+        ),
     ];
-    let ids: Vec<i64> = drop_delivered(&entries, "mine", &delivered)
+    let ids: Vec<i64> = drop_absorbed(&entries, &absorbed)
         .iter()
         .map(|e| e.history.id)
         .collect();
-    assert_eq!(ids, vec![2, 3, 4, 5]);
+    assert_eq!(ids, vec![2, 3, 4], "#1·#5 만 받아들였다");
 }
 
-/// 빼기는 PR 마다 마지막 전이를 고른 **뒤**에 한다 — 먼저 빼면 받은편지함으로 간 "충돌" 뒤에 그 앞의 옛
-/// "머지 후보" 가 살아나 주입된다.
+/// 빼기는 PR 마다 마지막 전이를 고른 **뒤**에 한다 — 먼저 빼면 받아들인 "충돌" 앞의 옛 "머지 후보" 가 살아나 주입된다.
 #[test]
-fn dropping_a_delivered_latest_transition_does_not_resurrect_an_older_one() {
+fn dropping_an_absorbed_latest_transition_does_not_resurrect_an_older_one() {
     let entries = vec![
         pr_at(1, "pr-ready", "o/r", 7, "2026-10-05T10:00:00.000Z"),
         pr_at(2, "pr-conflict", "o/r", 7, "2026-10-05T10:01:00.000Z"),
     ];
-    let delivered = vec![delivery(
-        "pr-conflict",
-        "https://github.com/o/r/pull/7",
-        "mine",
-        true,
-        "2026-10-05T10:01:00Z",
+    let absorbed = vec![peer(
+        &inbox_text(PrEventKind::Conflict, 7),
+        "2026-10-05T10:01:00.000Z",
     )];
-    assert!(build_pr_context(&drop_delivered(&entries, "mine", &delivered)).is_none());
+    assert!(build_pr_context(&drop_absorbed(&entries, &absorbed)).is_none());
+}
+
+/// 트랜스크립트에서 세션이 **받아들인** peer 메시지만 — 쉬던 세션(`user`)·턴 중(`queued_command` 첨부) 둘 다.
+/// 큐에만 들어간 것·훅 주입·사람 프롬프트·깨진 줄은 세지 않는다(Claude Code 2.1.288 실측 모양).
+#[test]
+fn peer_messages_reads_only_absorbed_peer_records_from_a_transcript() {
+    let lines = [
+        r#"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-10-05T10:00:00.000Z","content":"o/r #1 머지 후보 — 큐에만"}"#,
+        r#"{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"unknown"},"timestamp":"2026-10-05T10:00:01.000Z","message":{"role":"user","content":"o/r #2 머지 후보 — 쉬던 세션"}}"#,
+        r#"{"type":"attachment","timestamp":"2026-10-05T10:00:02.000Z","attachment":{"type":"queued_command","prompt":"o/r #3 머지 후보 — 턴 중","origin":{"kind":"peer","from":"unknown"},"isMeta":true}}"#,
+        r#"{"type":"attachment","timestamp":"2026-10-05T10:00:03.000Z","attachment":{"type":"hook_additional_context","content":["o/r #4 머지 후보 — 훅 주입 \"peer\""]}}"#,
+        r#"{"type":"user","timestamp":"2026-10-05T10:00:04.000Z","message":{"role":"user","content":"사람이 쓴 \"peer\" 프롬프트"}}"#,
+        r#"{"type":"user","origin":{"kind":"peer"} 깨진 줄"#,
+        r#"{"type":"user","origin":{"kind":"peer"},"timestamp":"2026-10-05T10:00:05.000Z","message":{"role":"user","content":[{"type":"text","text":"o/r #5 충돌"}]}}"#,
+    ];
+    let got = peer_messages(&lines.join("\n"));
+    let texts: Vec<&str> = got.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    assert!(texts[0].contains("#2") && texts[1].contains("#3") && texts[2].contains("#5"));
+    assert_eq!(got[1].at, "2026-10-05T10:00:02.000Z");
 }
 
 /// 보드가 풀리면 그 보드 것 중 구독한 PR, 안 풀리면(보드 경로 밖 워크트리) 구독한 PR 만으로 — 받은편지함처럼
