@@ -17,6 +17,7 @@ fn cfg(source: Source, alert_percent: Option<f64>) -> LimitsConfig {
     LimitsConfig {
         source,
         alert_percent,
+        ..Default::default()
     }
 }
 
