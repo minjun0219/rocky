@@ -1,4 +1,8 @@
-use rocky_core::config::{load_rc_block, RcConfig};
+use std::collections::HashSet;
+use std::time::Duration;
+
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use rocky_core::config::{load_rc_block, NightlyConfig, RcConfig};
 use rocky_core::rc::*;
 
 #[test]
@@ -95,6 +99,7 @@ fn targets_resolve_like_the_shell() {
             " ".into(),
         ],
         supervise: false,
+        nightly: None,
     };
     let got = resolve_targets(&config, "/home/u");
     let view: Vec<(&str, &str, bool)> = got
@@ -119,6 +124,7 @@ fn custom_root_is_used_for_relative_names() {
         pinned: vec![],
         targets: vec!["x".into()],
         supervise: false,
+        nightly: None,
     };
     assert_eq!(resolve_targets(&config, "/home/u")[0].dir, "/srv/ws/x");
     // 상대 root 는 홈 기준, `~foo` 는 홈이 아니라 root 아래 이름이다.
@@ -127,6 +133,7 @@ fn custom_root_is_used_for_relative_names() {
         pinned: vec![],
         targets: vec!["x".into(), "~foo".into()],
         supervise: false,
+        nightly: None,
     };
     let dirs: Vec<String> = resolve_targets(&config, "/home/u/")
         .into_iter()
@@ -238,6 +245,7 @@ fn rc_block_is_optional_and_lenient() {
             pinned: vec!["a".into(), "b".into()],
             targets: vec![],
             supervise: false,
+            nightly: None,
         })
     );
     // 목록을 남긴 채 끈 기기 — 블록이 없을 때와 같다.
@@ -430,7 +438,15 @@ fn revives_only_stopped_pinned_idle_targets() {
         row("other", false, false),
         busy,
     ]);
-    assert_eq!(revive_candidates(&status), vec!["down"]);
+    assert_eq!(labels(&status, &[]), vec!["down"]);
+}
+
+fn labels(status: &RcStatus, marked: &[&str]) -> Vec<String> {
+    let marked: HashSet<String> = marked.iter().map(|s| s.to_string()).collect();
+    revive_candidates(status, &marked)
+        .into_iter()
+        .map(|r| r.label)
+        .collect()
 }
 
 #[test]
@@ -439,24 +455,20 @@ fn revives_nothing_when_unsure_or_logged_out() {
     let mut probe_failed = base.clone();
     probe_failed.probe_error = Some("ps 실패".into());
     assert!(
-        revive_candidates(&probe_failed).is_empty(),
+        labels(&probe_failed, &["down"]).is_empty(),
         "꺼짐이 모름이다"
     );
     let mut logged_out = base.clone();
     logged_out.auth = AuthState::Out;
     assert!(
-        revive_candidates(&logged_out).is_empty(),
+        labels(&logged_out, &["down"]).is_empty(),
         "띄워도 곧 내려간다"
     );
     let mut unknown = base.clone();
     unknown.auth = AuthState::Unknown;
-    assert_eq!(
-        revive_candidates(&unknown),
-        vec!["down"],
-        "모르면 띄워 본다"
-    );
+    assert_eq!(labels(&unknown, &[]), vec!["down"], "모르면 띄워 본다");
     let off = RcStatus::unconfigured();
-    assert!(revive_candidates(&off).is_empty());
+    assert!(labels(&off, &["down"]).is_empty());
 }
 
 #[test]
@@ -534,4 +546,376 @@ fn supervise_is_off_unless_set() {
     assert!(!load_rc_block(&path).unwrap().supervise);
     std::fs::write(&path, r#"{"rc":{"pinned":["a"],"supervise":true}}"#).unwrap();
     assert!(load_rc_block(&path).unwrap().supervise);
+}
+
+#[test]
+fn revives_marked_unpinned_as_server_only() {
+    let status = status_with(vec![
+        row("pin", true, false),
+        row("marked", false, false),
+        row("plain", false, false),
+    ]);
+    let marked: HashSet<String> = ["marked".to_string(), "pin".to_string()].into();
+    let got = revive_candidates(&status, &marked);
+    assert_eq!(
+        got,
+        vec![
+            // 표식이 있어도 고정은 원래대로 새 세션.
+            Revive {
+                label: "pin".into(),
+                mode: LaunchMode::Session
+            },
+            // 야간이 내리고 못 띄운 비고정은 서버만 — 사람이 부른 기동이 아니다.
+            Revive {
+                label: "marked".into(),
+                mode: LaunchMode::Server
+            },
+        ]
+    );
+    let mut busy = status.clone();
+    busy.servers[1].action = Some(RcAction::Retrying);
+    assert_eq!(
+        labels(&busy, &["marked"]),
+        vec!["pin"],
+        "진행 중이면 건너뛴다"
+    );
+}
+
+#[test]
+fn clears_marks_of_running_or_dropped_targets_only_on_a_good_probe() {
+    let status = status_with(vec![row("up", false, true), row("down", false, false)]);
+    let marked: HashSet<String> = ["up", "down", "gone"].map(String::from).into();
+    assert_eq!(
+        stale_revive_marks(&status, &marked),
+        vec!["gone", "up"],
+        "누가 이미 띄웠거나 설정에서 뺀 라벨"
+    );
+    let mut restarting = status.clone();
+    restarting.servers[0].action = Some(RcAction::Restarting);
+    assert_eq!(
+        stale_revive_marks(&restarting, &marked),
+        vec!["gone"],
+        "야간이 내리고 띄우는 중인 대상의 표식은 남긴다"
+    );
+    let mut failed = status.clone();
+    failed.probe_error = Some("lsof 실패".into());
+    assert!(
+        stale_revive_marks(&failed, &marked).is_empty(),
+        "꺼짐이 모름이면 지우지 않는다"
+    );
+    assert!(stale_revive_marks(&RcStatus::unconfigured(), &marked).is_empty());
+}
+
+#[test]
+fn claude_version_is_read_as_numbers() {
+    assert_eq!(
+        parse_claude_version("2.1.288 (Claude Code)\n").as_deref(),
+        Some("2.1.288")
+    );
+    assert_eq!(
+        parse_claude_version("\n2.1.288\n").as_deref(),
+        Some("2.1.288")
+    );
+    for bad in [
+        "",
+        "error: timeout",
+        "2.1",
+        "2.1.x (Claude Code)",
+        "v2.1.288",
+    ] {
+        assert_eq!(parse_claude_version(bad), None, "{bad:?}");
+    }
+    assert_eq!(
+        version_from_path("/h/.local/share/claude/versions/2.1.287").as_deref(),
+        Some("2.1.287")
+    );
+    assert_eq!(version_from_path("/h/.local/share/claude/claude"), None);
+    assert_eq!(
+        newest_version(["2.1.283", "2.1.287", "2.1.29", ".DS_Store"]).as_deref(),
+        Some("2.1.287"),
+        "문자열이 아니라 숫자로 비교한다"
+    );
+    assert_eq!(newest_version([".DS_Store"]), None);
+}
+
+#[test]
+fn project_dir_name_matches_claude_code() {
+    for (dir, want) in [
+        (
+            "/Users/minjun/dev/workspaces/hail-mary",
+            "-Users-minjun-dev-workspaces-hail-mary",
+        ),
+        (
+            "/Users/minjun/dev/workspaces/minjun.kim",
+            "-Users-minjun-dev-workspaces-minjun-kim",
+        ),
+        (
+            "/Users/minjun/dev/workspaces/static/.claude/worktrees/cors-dev",
+            "-Users-minjun-dev-workspaces-static--claude-worktrees-cors-dev",
+        ),
+    ] {
+        assert_eq!(project_dir_name(dir), want);
+    }
+}
+
+#[test]
+fn nightly_decision_follows_the_old_order() {
+    const NOW: i64 = 1_000_000;
+    let quiet = Duration::from_secs(60 * 60);
+    let stale = NightlyState {
+        current: Some("2.1.286".into()),
+        recorded: Some("2.1.283\n".into()),
+        ..NightlyState::default()
+    };
+    let with = |f: &dyn Fn(&mut NightlyState)| {
+        let mut s = stale.clone();
+        f(&mut s);
+        s
+    };
+    let ago = |mins: i64| Some(NOW - mins * 60);
+    use LaunchMode::*;
+    use NightlyReason::*;
+    let cases: Vec<(&str, NightlyState, NightlyReason, Option<LaunchMode>)> = vec![
+        ("서버만 — 쉰다", stale.clone(), Restart, Some(Server)),
+        (
+            "고정 · 서버만 — 새 세션",
+            with(&|s| s.pinned = true),
+            Restart,
+            Some(Session),
+        ),
+        (
+            "세션 · 61분 조용 — 이어받기",
+            with(&|s| (s.live_session, s.last_write) = (true, ago(61))),
+            Restart,
+            Some(Resume),
+        ),
+        (
+            "세션 · 59분 전 대화 — 바쁨",
+            with(&|s| (s.live_session, s.last_write) = (true, ago(59))),
+            Busy,
+            None,
+        ),
+        (
+            "세션 · 대화 기록 없음 — 잃을 대화가 없다",
+            with(&|s| s.live_session = true),
+            Restart,
+            Some(Resume),
+        ),
+        (
+            "서버만 · 같은 폴더 터미널이 방금 기록 — 여전히 쉰다",
+            with(&|s| s.last_write = ago(1)),
+            Restart,
+            Some(Server),
+        ),
+        (
+            "최신",
+            with(&|s| s.recorded = Some("2.1.286\n".into())),
+            Current,
+            None,
+        ),
+        (
+            "설치 버전 모름",
+            with(&|s| s.current = None),
+            VersionUnknown,
+            None,
+        ),
+        ("기록 없음", with(&|s| s.recorded = None), NoRecord, None),
+        (
+            "기록 빔",
+            with(&|s| s.recorded = Some("\n".into())),
+            NoRecord,
+            None,
+        ),
+        (
+            "네트워크 없음",
+            with(&|s| s.offline = true),
+            NoNetwork,
+            None,
+        ),
+        (
+            "네트워크가 없어도 바쁨이 먼저",
+            with(&|s| (s.offline, s.live_session, s.last_write) = (true, true, ago(1))),
+            Busy,
+            None,
+        ),
+    ];
+    for (name, state, reason, mode) in cases {
+        let d = decide_nightly(&state, NOW, quiet);
+        assert_eq!((d.reason, d.mode), (reason, mode), "{name}");
+    }
+    let d = decide_nightly(
+        &with(&|s| (s.live_session, s.last_write) = (true, ago(90))),
+        NOW,
+        quiet,
+    );
+    assert_eq!(d.from.as_deref(), Some("2.1.283"));
+    assert_eq!(d.idle_secs, Some(90 * 60));
+    // 시계가 뒤로 가 기록이 미래면 방금 대화한 것으로 본다.
+    let d = decide_nightly(
+        &with(&|s| (s.live_session, s.last_write) = (true, Some(NOW + 30))),
+        NOW,
+        quiet,
+    );
+    assert_eq!((d.reason, d.idle_secs), (Busy, Some(0)));
+    assert_eq!(
+        serde_json::to_value(VersionUnknown).unwrap(),
+        "version-unknown"
+    );
+}
+
+#[test]
+fn nightly_backoff_is_longer_than_daytime() {
+    let day: Duration = REGISTRATION_BACKOFF.iter().sum();
+    let night: Duration = NIGHTLY_REGISTRATION_BACKOFF.iter().sum();
+    // 옛 CLI 에서 45초+90초로 안 풀리고 5분쯤 뒤 풀린 적이 있다.
+    assert!(night > Duration::from_secs(5 * 60) && night > day);
+}
+
+fn at(date: (i32, u32, u32), hm: (u32, u32)) -> NaiveDateTime {
+    NaiveDate::from_ymd_opt(date.0, date.1, date.2)
+        .unwrap()
+        .and_hms_opt(hm.0, hm.1, 0)
+        .unwrap()
+}
+
+fn hm(h: u32, m: u32) -> NaiveTime {
+    NaiveTime::from_hms_opt(h, m, 0).unwrap()
+}
+
+#[test]
+fn nightly_runs_once_a_day_and_catches_up_after_sleep() {
+    let today = NaiveDate::from_ymd_opt(2026, 10, 7).unwrap();
+    let yesterday = today.pred_opt().unwrap();
+    let four_thirty = hm(4, 30);
+    assert!(!nightly_due(
+        at((2026, 10, 7), (4, 29)),
+        four_thirty,
+        yesterday
+    ));
+    assert!(nightly_due(
+        at((2026, 10, 7), (4, 30)),
+        four_thirty,
+        yesterday
+    ));
+    assert!(
+        nightly_due(at((2026, 10, 7), (9, 0)), four_thirty, yesterday),
+        "04:30 을 자고 넘겼으면 깬 뒤 한 번"
+    );
+    assert!(
+        !nightly_due(at((2026, 10, 7), (9, 0)), four_thirty, today),
+        "오늘 이미 돌았다"
+    );
+    assert!(
+        nightly_due(
+            at((2026, 10, 7), (5, 0)),
+            four_thirty,
+            today - chrono::Days::new(3)
+        ),
+        "며칠 꺼져 있었어도 한 번"
+    );
+    // 처음 켠 날 — 시각이 지났으면 오늘 돈 것으로 쳐서 낮에 서버를 내리지 않는다.
+    let noon = at((2026, 10, 7), (12, 0));
+    assert_eq!(nightly_first_mark(noon, four_thirty), today);
+    assert!(!nightly_due(
+        noon,
+        four_thirty,
+        nightly_first_mark(noon, four_thirty)
+    ));
+    // 시각 전이면 어제로 쳐서 오늘 그 시각에 돈다.
+    let three = at((2026, 10, 7), (3, 0));
+    assert_eq!(nightly_first_mark(three, four_thirty), yesterday);
+    assert!(nightly_due(
+        at((2026, 10, 7), (4, 30)),
+        four_thirty,
+        nightly_first_mark(three, four_thirty)
+    ));
+}
+
+#[test]
+fn busy_deadline_does_not_wait_past_until() {
+    let seven = hm(7, 0);
+    assert_eq!(
+        busy_deadline(at((2026, 10, 7), (4, 30)), seven),
+        at((2026, 10, 7), (7, 0))
+    );
+    let late = at((2026, 10, 7), (9, 0));
+    assert_eq!(busy_deadline(late, seven), late, "지났으면 기다리지 않는다");
+}
+
+#[test]
+fn recovery_waits_double_to_sixteen_minutes() {
+    let mins: Vec<u64> = (0..=7).map(|n| recovery_wait(n).as_secs() / 60).collect();
+    assert_eq!(mins, vec![1, 1, 2, 4, 8, 16, 16, 16]);
+}
+
+#[test]
+fn canary_is_the_first_pinned() {
+    let order = canary_first(vec![("a", false), ("b", true), ("c", true)], |t| t.1);
+    assert_eq!(
+        order.iter().map(|t| t.0).collect::<Vec<_>>(),
+        ["b", "a", "c"]
+    );
+    let none = canary_first(vec![("a", false), ("b", false)], |t| t.1);
+    assert_eq!(none.iter().map(|t| t.0).collect::<Vec<_>>(), ["a", "b"]);
+    assert!(canary_first(Vec::<(&str, bool)>::new(), |t| t.1).is_empty());
+}
+
+#[test]
+fn nightly_is_blocked_when_unsure_or_logged_out() {
+    let ok = status_with(vec![row("a", true, true)]);
+    assert_eq!(nightly_blocked(&ok), None);
+    let mut failed = ok.clone();
+    failed.probe_error = Some("ps 실패".into());
+    assert_eq!(nightly_blocked(&failed), Some("probe-failed"));
+    let mut out = ok.clone();
+    out.auth = AuthState::Out;
+    assert_eq!(nightly_blocked(&out), Some("logged-out"));
+    assert_eq!(
+        nightly_blocked(&RcStatus::unconfigured()),
+        Some("unconfigured")
+    );
+}
+
+#[test]
+fn hhmm_accepts_one_or_two_digit_hours() {
+    assert_eq!(parse_hhmm("04:30"), Some(hm(4, 30)));
+    assert_eq!(parse_hhmm(" 4:30 "), Some(hm(4, 30)));
+    assert_eq!(parse_hhmm("23:59"), Some(hm(23, 59)));
+    for bad in [
+        "24:00", "4:3", "4:300", "+4:30", "04-30", "", "ab:cd", "004:30",
+    ] {
+        assert_eq!(parse_hhmm(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn nightly_is_off_unless_the_block_is_an_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    let load = |raw: &str| {
+        std::fs::write(&path, raw).unwrap();
+        load_rc_block(&path).unwrap().nightly
+    };
+    assert_eq!(load(r#"{"rc":{"pinned":["a"]}}"#), None);
+    assert_eq!(load(r#"{"rc":{"nightly":true}}"#), None);
+    assert_eq!(
+        load(r#"{"rc":{"nightly":{}}}"#),
+        Some(NightlyConfig::default())
+    );
+    let base = NightlyConfig::default();
+    assert_eq!((base.at, base.busy_until), (hm(4, 30), hm(7, 0)));
+    assert_eq!(base.quiet, Duration::from_secs(3600));
+    assert_eq!(
+        load(r#"{"rc":{"nightly":{"at":"3:15","busyUntil":"06:45","quietMinutes":30}}}"#),
+        Some(NightlyConfig {
+            at: hm(3, 15),
+            busy_until: hm(6, 45),
+            quiet: Duration::from_secs(30 * 60),
+        })
+    );
+    // 모양이 틀린 칸은 기본값(fail-open).
+    assert_eq!(
+        load(r#"{"rc":{"nightly":{"at":"4시","quietMinutes":0}}}"#),
+        Some(NightlyConfig::default())
+    );
 }

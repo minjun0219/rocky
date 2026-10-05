@@ -206,7 +206,7 @@ pub fn rc_handles(
 // 서버는 **새 프로세스 그룹**으로 띄우고 핸들을 놓는다(`kill_on_drop` 없음). launchd 가 데몬 잡을 내려도
 // (bootout) 새 그룹의 자식은 정리하지 않는다 — 2026-10-05 실측. 데몬이 먼저 내려가면 서버는 PPID 1 로 넘어간다.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rocky_core::rc::{LaunchMode, RcAction, RcResult, Registration, Target};
@@ -462,8 +462,10 @@ impl RcController {
 
         let due: Vec<String> = {
             let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
-            rc::revive_candidates(&status)
+            // 되살림 표식은 야간 재시작이 남긴다 — 그 배선이 붙기 전까지는 고정만 고른다(방식도 `START_MODE` 그대로).
+            rc::revive_candidates(&status, &HashSet::new())
                 .into_iter()
+                .map(|revive| revive.label)
                 .filter(|label| {
                     sup.failures
                         .get(label)
