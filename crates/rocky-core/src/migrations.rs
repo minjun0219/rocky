@@ -315,7 +315,20 @@ fn add_session_inboxes(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 16] = [
+/// 마이그레이션 17: `/clear` 된 세션(`cleared_sessions`) — `/clear` 는 세션 id 만 바꾸고 프로세스·소켓은 그대로라, 옛
+/// id 의 구독을 어떻게 할지(새 세션으로 넘기기·지켜보기만·해지) 웹에서 사람이 정할 때까지 여기 둔다.
+fn add_cleared_sessions(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cleared_sessions (\n\
+           session_id   TEXT PRIMARY KEY,\n\
+           successor_id TEXT NOT NULL,\n\
+           cwd          TEXT NOT NULL,\n\
+           cleared_at   TEXT NOT NULL\n\
+         )",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 17] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -332,6 +345,7 @@ pub const MIGRATIONS: [MigrationFn; 16] = [
     add_pr_subscriptions,
     add_pr_filter_subscriptions,
     add_session_inboxes,
+    add_cleared_sessions,
 ];
 
 #[derive(Default)]
