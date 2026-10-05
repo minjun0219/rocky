@@ -192,7 +192,7 @@ describe('copyRefWithFeedback', () => {
     expect(copiedCalls).toEqual([]);
     expect(promptCalls).toEqual([
       {
-        message: '클립보드에 접근하지 못했다. 아래 텍스트를 직접 복사하자:',
+        message: '클립보드에 접근하지 못했어요. 아래 텍스트를 직접 복사하세요:',
         defaultValue: 'rocky#12',
       },
     ]);
@@ -212,7 +212,7 @@ describe('copyRefWithFeedback', () => {
     });
 
     expect(copiedCalls).toEqual([]);
-    expect(promptCalls).toEqual(['클립보드에 접근하지 못했다. 아래 텍스트를 직접 복사하자:']);
+    expect(promptCalls).toEqual(['클립보드에 접근하지 못했어요. 아래 텍스트를 직접 복사하세요:']);
   });
 });
 
@@ -435,7 +435,7 @@ describe('doingWarning', () => {
   test('세션이 사라졌으면 가장 강한 경고다', () => {
     expect(doingWarning(doing({ doingState: 'gone' }), NOW)).toEqual({
       label: '세션 없음',
-      title: '이 항목을 맡았던 세션이 사라졌다',
+      title: '이 항목을 맡았던 세션이 사라졌어요',
       tone: 'dead',
     });
   });

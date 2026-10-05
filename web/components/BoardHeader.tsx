@@ -61,7 +61,7 @@ export function BoardHeader({ board }: { board: Board }) {
         {board.prAuthors && board.prAuthors.length > 0 && (
           <span
             className="chip text-faint"
-            title="이 작성자의 PR만 알린다(세션·배너). 기록은 모두 남는다"
+            title="이 작성자의 PR만 알려요(세션·배너). 기록은 모두 남아요"
           >
             PR 알림 {board.prAuthors.join(', ')}
           </span>
@@ -69,7 +69,7 @@ export function BoardHeader({ board }: { board: Board }) {
         {board.previousKeys && board.previousKeys.length > 0 && (
           // 옛 참조(`gotgan-12`)가 아직 살아 있다는 걸 아는 유일한 자리다 — 다른 표면은
           // 언제나 새 key 만 내보낸다.
-          <span className="chip text-faint" title="옛 이름. 이 이름으로 쓴 참조도 그대로 통한다">
+          <span className="chip text-faint" title="옛 이름. 이 이름으로 쓴 참조도 그대로 통해요">
             옛 이름 {board.previousKeys.join(', ')}
           </span>
         )}
@@ -178,7 +178,7 @@ function BoardEditForm({
         id="board-edit-key-hint"
       >
         key는 참조 접두사(<code>{key.trim() || board.key}-12</code>)이자 레포 이름에서 따온
-        식별자다. 바꿔도 옛 참조는 그대로 통한다.
+        식별자예요. 바꿔도 옛 참조는 그대로 통해요.
       </p>
       <label className="mb-1.5 flex items-center gap-2.5">
         <span className="w-14 shrink-0 font-mono text-micro text-faint">설명</span>

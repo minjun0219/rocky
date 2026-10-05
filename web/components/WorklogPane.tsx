@@ -120,12 +120,12 @@ export function WorklogPane() {
       </div>
       {state === 'unlinked' ? (
         <p className="m-0 text-meta text-faint">
-          이 보드에 폴더(path)가 없어 어느 레포의 기록인지 알 수 없다. 보드 설정에서 path를 지정하면
-          보인다.
+          이 보드에 폴더(path)가 없어 어느 레포의 기록인지 알 수 없어요. 보드 설정에서 path를
+          지정하면 보여요.
         </p>
       ) : state === 'error' ? (
         <p className="m-0 text-meta text-faint">
-          작업로그를 읽지 못했다. 데몬을 확인하고 새로고침하자.
+          작업로그를 읽지 못했어요. 데몬을 확인하고 새로고침하세요.
         </p>
       ) : state === 'ready' && entries.length === 0 ? (
         <p className="m-0 text-meta text-faint">기록 없음</p>

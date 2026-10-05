@@ -108,7 +108,7 @@ describe('DetailDrawer 미착수 핸드오프', () => {
   test('집어가 놓고 안 한 건을 세션 이름과 함께 알린다', () => {
     mountWith([handoffFixture()]);
     expect(unstartedNotice()?.textContent).toContain('eelpout-a3');
-    expect(unstartedNotice()?.textContent).toContain('착수하지 않았다');
+    expect(unstartedNotice()?.textContent).toContain('착수하지 않았어요');
   });
 
   test('착수한 건은 알리지 않는다', () => {

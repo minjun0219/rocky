@@ -49,7 +49,7 @@ export function PushDetailContainer({
         <aside
           className={`hidden flex-1 flex-col items-center justify-center border-l border-line p-8 text-center text-sm text-faint md:flex ${className}`}
         >
-          <p>할 일을 고르면 여기에 상세가 보인다</p>
+          <p>할 일을 고르면 여기에 상세가 보여요</p>
         </aside>
       );
     }

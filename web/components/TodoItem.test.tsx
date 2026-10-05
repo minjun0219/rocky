@@ -72,7 +72,7 @@ describe('TodoItem doing 배지', () => {
         doingState: 'gone',
       }),
     );
-    const badge = screen.getByTitle('이 항목을 맡았던 세션이 사라졌다');
+    const badge = screen.getByTitle('이 항목을 맡았던 세션이 사라졌어요');
     expect(badge.textContent).toContain('세션 없음');
     expect(badge.className).toContain('warn-dead');
   });

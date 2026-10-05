@@ -50,7 +50,7 @@ export function TopBar() {
           {connected ? null : (
             <span
               className="link-status inline-flex items-center gap-1 font-mono text-chip text-dead"
-              title="데몬과 연결이 끊겨 다시 시도하는 중이다. 지금 보이는 내용은 끊기기 전에 받은 것이다."
+              title="데몬과 연결이 끊겨 다시 시도하고 있어요. 지금 보이는 내용은 끊기기 전에 받은 거예요."
               role="status"
             >
               <span className="size-1.5 rounded-full bg-current" aria-hidden />
@@ -176,7 +176,7 @@ function HeaderMenu() {
           </label>
           <label className="flex flex-col gap-1">
             <span className="font-mono text-chip text-faint">
-              편집자 이름. 웹에서 고친 내용은 이 이름으로 기록된다
+              편집자 이름. 웹에서 고친 내용은 이 이름으로 기록돼요
             </span>
             <input
               aria-label="편집자 이름"

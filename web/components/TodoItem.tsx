@@ -127,7 +127,7 @@ export function TodoItem({ todo, depth, onHandleDown }: TodoItemProps) {
           <button
             type="button"
             className={`comment-badge cursor-pointer border-none bg-transparent px-0.5 py-0 text-meta ${unread ? 'is-unread font-semibold text-inherit' : 'text-muted'}`}
-            title={unread ? '읽지 않은 댓글이 있다' : '댓글 보기'}
+            title={unread ? '읽지 않은 댓글이 있어요' : '댓글 보기'}
             aria-label={
               unread
                 ? `읽지 않은 댓글 ${todo.commentCount}개. 눌러서 열기`

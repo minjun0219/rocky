@@ -20,7 +20,7 @@ export function VersionFooter() {
           className="text-mine underline underline-offset-2"
           onClick={() => window.location.reload()}
         >
-          데몬 버전이 바뀌었다 · 새로고침
+          데몬 버전이 바뀌었어요 · 새로고침
         </button>
       ) : null}
     </footer>

@@ -45,12 +45,12 @@ export interface DoingWarning {
  */
 export function doingWarning(todo: TodoView, now = Date.now()): DoingWarning | null {
   if (todo.doingState === 'gone') {
-    return { label: '세션 없음', title: '이 항목을 맡았던 세션이 사라졌다', tone: 'dead' };
+    return { label: '세션 없음', title: '이 항목을 맡았던 세션이 사라졌어요', tone: 'dead' };
   }
   if (todo.doingState === 'idle') {
     return {
       label: '멈춤',
-      title: '세션은 살아 있지만 턴을 끝내고도 완료로 표시하지 않았다',
+      title: '세션은 살아 있지만 턴을 끝내고도 완료로 표시하지 않았어요',
       tone: 'idle',
     };
   }
@@ -202,7 +202,8 @@ export function boardCommand(ref: string): string {
 export const COPY_FEEDBACK_MS = 1200;
 
 /** clipboard 접근 실패 시 안내하는 prompt 문구 — 기존 네 호출부가 복붙하던 문자열. */
-const CLIPBOARD_UNAVAILABLE_MESSAGE = '클립보드에 접근하지 못했다. 아래 텍스트를 직접 복사하자:';
+const CLIPBOARD_UNAVAILABLE_MESSAGE =
+  '클립보드에 접근하지 못했어요. 아래 텍스트를 직접 복사하세요:';
 
 /**
  * `copyRefWithFeedback` 이 의존하는 전역 — {@link CopyRefEnv}(clipboard/document) 에
@@ -704,7 +705,7 @@ export function nowRows(
       who: 'YOU',
       live: false,
       unread: 0,
-      state: input.expandCollect ? '보드로 옮길까' : '눌러서 보기',
+      state: input.expandCollect ? '보드로 옮길까요' : '눌러서 보기',
     });
   }
 
@@ -755,7 +756,7 @@ export function nowRows(
     }));
     const rest = (input.collect ?? 0) - items.length;
     if (rest > 0) {
-      extra.push(moreRow('collect:more', `외 ${rest}건은 수집함 앱에서 본다`, rest));
+      extra.push(moreRow('collect:more', `외 ${rest}건은 수집함 앱에서 보세요`, rest));
     }
     rows.splice(at + 1, 0, ...extra);
   }

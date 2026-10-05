@@ -23,8 +23,8 @@ export function SpawnAction({ todo }: { todo: TodoView }) {
     return (
       <div className="mt-2.5 flex flex-col gap-1.5">
         <p className="m-0 text-meta leading-[1.4] text-muted">
-          로컬(루프백) 주소로 연 화면에서만 세션을 띄울 수 있다. 이 화면은 외부에 노출된 데몬을 거쳐
-          열렸다.
+          로컬(루프백) 주소로 연 화면에서만 세션을 띄울 수 있어요. 이 화면은 외부에 노출된 데몬을
+          거쳐 열렸어요.
         </p>
       </div>
     );
@@ -89,7 +89,7 @@ export function SpawnAction({ todo }: { todo: TodoView }) {
       {result && (
         <div className="mt-1.5 flex flex-col gap-1 text-meta leading-[1.4] text-handoff [&_code]:select-all">
           {result.reused ? (
-            <span>이미 실행 중인 세션에 넘겼다 · {result.worktreePath}</span>
+            <span>이미 실행 중인 세션에 넘겼어요 · {result.worktreePath}</span>
           ) : (
             <>
               <span>

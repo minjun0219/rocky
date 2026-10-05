@@ -33,8 +33,8 @@ export function IssueAction({ todo }: { todo: TodoView }) {
     return (
       <div className="mt-2.5">
         <p className="m-0 text-meta leading-[1.4] text-muted">
-          로컬(루프백) 주소로 연 화면에서만 GitHub 이슈를 만들 수 있다. 이 화면은 외부에 노출된
-          데몬을 거쳐 열렸다.
+          로컬(루프백) 주소로 연 화면에서만 GitHub 이슈를 만들 수 있어요. 이 화면은 외부에 노출된
+          데몬을 거쳐 열렸어요.
         </p>
       </div>
     );

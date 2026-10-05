@@ -367,9 +367,9 @@ export function TodoDetail() {
       {pending ? (
         <div className="mt-2 flex items-center gap-2 text-handoff">
           <span>대기 중 · {pending.sessionName ?? pending.sessionId}에게</span>
-          {handoffWoke === true ? <span className="text-muted">세션을 깨웠다</span> : null}
+          {handoffWoke === true ? <span className="text-muted">세션을 깨웠어요</span> : null}
           {handoffWoke === false ? (
-            <span className="text-muted">세션이 다음 턴에 받는다</span>
+            <span className="text-muted">세션이 다음 턴에 받아요</span>
           ) : null}
           {pending.stale ? <span className="text-p1">세션 없음</span> : null}
           <button type="button" onClick={() => void cancelHandoff(pending.id)}>
@@ -380,7 +380,7 @@ export function TodoDetail() {
       {unstarted ? (
         <div className="mt-2 flex items-center gap-2 text-p1" role="status">
           <span>
-            ⚠ {unstarted.sessionName ?? unstarted.sessionId}이(가) 받았지만 착수하지 않았다
+            ⚠ {unstarted.sessionName ?? unstarted.sessionId}이(가) 받았지만 착수하지 않았어요
           </span>
           {/* 같은 세션으로 곧장 되쏘지 않는다 — 그 세션은 사라졌을 수 있고, 그렇다면
               한 번 더 조용히 묻힐 뿐이다. 패널을 열어 지금 살아 있는 세션을 고르게 한다. */}
@@ -418,7 +418,7 @@ export function TodoDetail() {
               </button>
             </>
           ) : (
-            <p>세션 목록을 가져오지 못했다: {sessions.reason}</p>
+            <p>세션 목록을 가져오지 못했어요: {sessions.reason}</p>
           )}
           {handoffError ? (
             <p className="w-full text-p1" role="alert">

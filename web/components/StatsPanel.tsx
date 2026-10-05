@@ -49,7 +49,7 @@ export function StatsPanel() {
         <div className="grid gap-4 border-t border-line px-3 py-3 sm:grid-cols-2">
           {failed ? (
             <p className="m-0 text-meta text-faint">
-              통계를 읽지 못했다. 데몬의 로그 색인을 확인하자.
+              통계를 읽지 못했어요. 데몬의 로그 색인을 확인하세요.
             </p>
           ) : !stats ? (
             <p className="m-0 text-meta text-faint">읽는 중…</p>

@@ -7,7 +7,7 @@ export function HideButton(props: { label: string; onClick: () => void }) {
       type="button"
       className="m-1 flex size-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-2 hover:text-text"
       aria-label={props.label}
-      title="숨기기. 상태가 바뀌면 다시 보인다"
+      title="숨기기. 상태가 바뀌면 다시 보여요"
       onClick={props.onClick}
     >
       <X size={14} aria-hidden />

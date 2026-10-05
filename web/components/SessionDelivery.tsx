@@ -91,7 +91,7 @@ export function SessionDelivery() {
       {status ? (
         <>
           {status.sessions.length === 0 ? (
-            <p className="m-0 mb-2 text-meta text-faint">받은편지함을 등록한 세션이 없다.</p>
+            <p className="m-0 mb-2 text-meta text-faint">받은편지함을 등록한 세션이 없어요.</p>
           ) : (
             <ul className="m-0 mb-3 list-none p-0">
               {status.sessions.map((s) => (
@@ -169,7 +169,7 @@ export function SessionDelivery() {
             </ul>
           ) : (
             <p className="m-0 text-meta text-faint">
-              아직 보낸 알림이 없다(데몬을 다시 띄우면 비워진다).
+              아직 보낸 알림이 없어요(데몬을 다시 띄우면 비워져요).
             </p>
           )}
         </>

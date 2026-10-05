@@ -220,10 +220,10 @@ export function TodoPane() {
 
       {groups.length === 0 && (
         <div className="empty-state px-1 py-[18px] text-sm text-faint">
-          아직 항목이 없다.{' '}
+          아직 항목이 없어요.{' '}
           {selected === 'all'
-            ? '보드를 골라 할 일을 추가하자.'
-            : '위 입력창에서 첫 할 일을 추가하자.'}
+            ? '보드를 골라 할 일을 추가하세요.'
+            : '위 입력창에서 첫 할 일을 추가하세요.'}
         </div>
       )}
 

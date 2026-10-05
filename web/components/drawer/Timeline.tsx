@@ -46,7 +46,7 @@ export function CommentComposer({ todoId }: { todoId: string }) {
         className="w-full resize-y rounded-md border border-line bg-bg p-2 text-inherit"
         value={body}
         rows={3}
-        placeholder="진행 상황이나 질문을 남긴다 (⌘/Ctrl+Enter 전송)"
+        placeholder="진행 상황이나 질문을 남겨 주세요 (⌘/Ctrl+Enter 전송)"
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
