@@ -267,7 +267,7 @@ fn transitions_are_only_what_a_person_acts_on() {
         snap(3, "OPEN", false, "DIRTY"),     // 충돌
         snap(4, "OPEN", false, "CLEAN"),     // 다시 대기
         snap(5, "OPEN", true, "CLEAN"),      // 새 PR, 이미 ready
-        snap(6, "CLOSED", false, "UNKNOWN"), // 처음 보는 닫힌 PR — 무시
+        snap(6, "CLOSED", false, "UNKNOWN"), // 처음 보는 닫힌 PR — 닫힘이 온다(머지된 PR 을 구독한 경우와 같다)
                                              // 9 는 창 밖으로 밀림 — 무시
     ];
     let kinds: Vec<(i64, PrEventKind)> = diff(&prev, &cur)
@@ -283,6 +283,7 @@ fn transitions_are_only_what_a_person_acts_on() {
             (4, PrEventKind::Unready),
             (5, PrEventKind::Opened),
             (5, PrEventKind::Ready),
+            (6, PrEventKind::Closed),
         ]
     );
     assert!(diff(&cur, &cur).is_empty());

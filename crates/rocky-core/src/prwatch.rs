@@ -608,8 +608,10 @@ pub struct PrEvent {
     pub quiet: bool,
 }
 
-/// 직전 스냅숏(레포 단위)과 새 스냅숏의 차이. 직전에 없던 PR 은 `Opened`(열려 있을 때만) 과,
-/// 이미 ready 면 `Ready` 도 함께. 새 목록에서 빠진 옛 PR(창 밖으로 밀림)은 건드리지 않는다.
+/// 직전 스냅숏(레포 단위)과 새 스냅숏의 차이. 직전에 없던 PR 은 열려 있으면 `Opened`(이미 ready 면 `Ready` 도
+/// 함께), 이미 머지·닫힘이면 `Merged`/`Closed` — 구독한 뒤 첫 tick 전에 머지됐거나 머지된 PR 을 구독하면 그
+/// 사실이 첫 tick 에 온다(링크한 할 일을 닫고 구독을 걷는 쪽이 이걸 본다). 새 목록에서 빠진 옛 PR(창 밖으로
+/// 밀림)은 건드리지 않는다.
 pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
     let mut out = Vec::new();
     for p in cur {
@@ -626,6 +628,11 @@ pub fn diff(prev: &[PrSnapshot], cur: &[PrSnapshot]) -> Vec<PrEvent> {
             .iter()
             .find(|q| q.repo == p.repo && q.number == p.number);
         let Some(was) = was else {
+            match p.state.as_str() {
+                "MERGED" => out.push(ev(PrEventKind::Merged)),
+                "CLOSED" => out.push(ev(PrEventKind::Closed)),
+                _ => {}
+            }
             if p.state == "OPEN" {
                 out.push(ev(PrEventKind::Opened));
                 if p.ready {
