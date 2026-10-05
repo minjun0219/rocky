@@ -49,6 +49,7 @@ fn config() -> RcConfig {
         root: Some("/w".into()),
         pinned: vec!["repo-a".into()],
         targets: vec!["repo-b".into()],
+        supervise: false,
     }
 }
 

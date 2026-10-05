@@ -505,6 +505,8 @@ pub struct RcConfig {
     pub pinned: Vec<String>,
     /// 화면에서 부를 수 있는 폴더.
     pub targets: Vec<String>,
+    /// 감시 — 꺼진 고정 서버를 데몬이 스스로 띄운다. 기본 꺼짐(옛 주기 잡과 동시에 띄우지 않게 켜는 날을 고른다).
+    pub supervise: bool,
 }
 
 /// 파일 없음 / 파싱 실패 / 블록 없음 / `enabled: false` 는 None(꺼짐, fail-open). 모양이 틀린 칸은 빈 값으로
@@ -539,6 +541,7 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
             .map(str::to_string),
         pinned: names("pinned"),
         targets: names("targets"),
+        supervise: block.get("supervise").and_then(|v| v.as_bool()) == Some(true),
     })
 }
 

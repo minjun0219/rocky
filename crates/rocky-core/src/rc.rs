@@ -503,3 +503,107 @@ pub fn mode_note(mode: LaunchMode, fresh: bool) -> &'static str {
         LaunchMode::Server => "서버만(세션은 앱에서)",
     }
 }
+
+// ── 감시(되살리기) 판정 ─────────────────────────────────────────────────────────
+// 배선(주기 루프 · 알림 · 기록 파일)은 `rockyd::rc` 다. 옛 CLI 의 주기 실행(`-q`)을 옮겼다.
+
+/// 감시 한 바퀴 간격과 기동 뒤 첫 바퀴까지의 시간.
+pub const SUPERVISE_INTERVAL: Duration = Duration::from_secs(120);
+pub const SUPERVISE_FIRST: Duration = Duration::from_secs(120);
+/// 연속 실패 쉬기의 상한.
+pub const SUPERVISE_BACKOFF_MAX: Duration = Duration::from_secs(30 * 60);
+
+/// 이번 바퀴에 되살릴 대상 — 고정이면서 꺼졌고 진행 중이 아닌 것. 프로브가 실패했거나(꺼짐이 모름) 자격이 확실히
+/// 로그아웃이면(띄워도 곧 내려간다) 아무것도 고르지 않는다. 비고정은 고르지 않는다 — 옛 CLI 에서 비고정 자동 기동이
+/// 같은 폴더를 계속 띄우던 함정이 있었다.
+pub fn revive_candidates(status: &RcStatus) -> Vec<String> {
+    if !status.configured || status.probe_error.is_some() || status.auth == AuthState::Out {
+        return Vec::new();
+    }
+    status
+        .servers
+        .iter()
+        .filter(|s| s.pinned && !s.running && s.action.is_none())
+        .map(|s| s.label.clone())
+        .collect()
+}
+
+/// 연달아 `failures` 번 못 띄운 대상이 다음에 시도하기까지 쉬는 시간 — 2 · 4 · 8 · 16 · 30분(상한). 폴더가 사라졌거나
+/// trust 가 풀린 대상을 2분마다 두드리지 않게. 0 이면 쉬지 않는다.
+pub fn failure_backoff(failures: u32) -> Duration {
+    if failures == 0 {
+        return Duration::ZERO;
+    }
+    let secs = 120u64.saturating_mul(1u64 << (failures - 1).min(10));
+    Duration::from_secs(secs).min(SUPERVISE_BACKOFF_MAX)
+}
+
+/// 감시 맥락(데몬)이 본 자격의 기록 — 언제 로그아웃을 봤고, 그 뒤 언제 다시 로그인을 봤나(unix 초).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthMark {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_out: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_in: Option<i64>,
+}
+
+impl AuthMark {
+    /// 마지막 로그아웃 뒤 로그인을 다시 봤나.
+    pub fn recovered(&self) -> bool {
+        matches!((self.last_out, self.last_in), (Some(out), Some(inn)) if inn > out)
+    }
+
+    /// 마지막으로 본 것이 로그아웃인가.
+    pub fn still_out(&self) -> bool {
+        self.last_out.is_some() && !self.recovered()
+    }
+}
+
+/// 이번 관찰로 바뀐 것 — 알림은 바뀐 바퀴에 한 번만.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthTransition {
+    None,
+    /// 로그인 → 로그아웃(또는 처음 본 것이 로그아웃).
+    LoggedOut,
+    /// 로그아웃 뒤 처음 로그인.
+    Recovered,
+}
+
+/// 자격 관찰을 기록에 반영한다. `Unknown`(시간 초과 · 형식 모름)은 판정이 아니라 기록을 건드리지 않는다.
+pub fn next_auth_mark(state: AuthState, mark: &AuthMark, now: i64) -> (AuthMark, AuthTransition) {
+    match state {
+        AuthState::Out => {
+            let transition = if mark.still_out() {
+                AuthTransition::None
+            } else {
+                AuthTransition::LoggedOut
+            };
+            (
+                AuthMark {
+                    last_out: Some(now),
+                    last_in: mark.last_in,
+                },
+                transition,
+            )
+        }
+        AuthState::In if mark.still_out() => (
+            AuthMark {
+                last_out: mark.last_out,
+                last_in: Some(now),
+            },
+            AuthTransition::Recovered,
+        ),
+        _ => (mark.clone(), AuthTransition::None),
+    }
+}
+
+/// 자격이 끊겼다 돌아온 뒤, 그 로그아웃보다 먼저 뜬 서버 — 갱신 못 한 토큰을 들고 있어 세션을 열면 죽는다(옛 CLI 가
+/// 2026-10-04 에 겪었다). 아직 로그아웃 중이면 의심하지 않는다 — 그건 "데몬 맥락이 로그인을 못 읽는다" 는 다른 신호다.
+/// 다시 띄우면 기동 시각이 그 뒤라 저절로 풀린다.
+pub fn auth_suspect(uptime_secs: Option<u64>, mark: &AuthMark, now: i64) -> bool {
+    let (Some(up), Some(out)) = (uptime_secs, mark.last_out) else {
+        return false;
+    };
+    mark.recovered() && now.saturating_sub(up as i64) < out
+}
