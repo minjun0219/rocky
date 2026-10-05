@@ -202,6 +202,11 @@ function ServerItemView({
           {failed && !action ? (
             <span className="mt-0.5 block text-chip text-mine">✗ {failed.message}</span>
           ) : null}
+          {'authSuspect' in row && row.authSuspect && !action ? (
+            <span className="mt-0.5 block text-chip text-mine">
+              자격 의심 — 끊기기 전에 떴다, 다시 띄우기를 권한다
+            </span>
+          ) : null}
         </span>
         {button}
       </div>
@@ -273,6 +278,14 @@ export function RcSummary() {
         ) : null}
         <span className="font-mono text-chip tabular-nums text-muted">세션 {sessions}</span>
         {rc.probeError ? <span className="font-mono text-chip text-mine">⚠ 모름</span> : null}
+        {rc.supervise?.loggedOut ? (
+          // 감시가 되살리지 못하는 상태 — 셸은 로그인돼 있어도 데몬 맥락(키체인)은 따로다.
+          <span className="rounded-[4px] bg-mine-soft px-1.5 py-0.2 font-mono text-chip font-semibold text-mine">
+            자격 끊김
+          </span>
+        ) : rc.supervise ? (
+          <span className="font-mono text-chip text-faint">감시 중</span>
+        ) : null}
         <Chevron size={14} className="ml-auto text-faint" aria-hidden="true" />
       </button>
       {open ? (
