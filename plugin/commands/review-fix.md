@@ -408,6 +408,11 @@ bun "${CLAUDE_PLUGIN_ROOT:-./plugin}/scripts/pr-threads.ts" after-merge
 3. 스택이었으면 다음 PR 로 — 9단계의 스택 규칙대로 로컬 브랜치를 원격에 맞추고 같은 기준으로 본다.
 4. 머지 직후에 붙은 리뷰가 있으면 10단계(`after-merge`)대로 다음 PR 에 싣는다.
 
+**대화가 길어진 세션이면 `rocky:merge-cleanup` 에 맡긴다**(`Agent`, `subagent_type: rocky:merge-cleanup` — Haiku, 새 맥락).
+위 1~4 는 기계적인데, 메인이 직접 하면 그 몇 줄을 위해 긴 대화를 요청마다 다시 읽는다. 넘길 것은 머지된 PR 번호와
+head 브랜치(스택이면 층 브랜치들)뿐이다. 에이전트는 브랜치를 바꾸지 않고 `-d` 로만 지우며, 거부된 브랜치와 머지 뒤
+리뷰는 목록으로 돌려준다 — `-D`·다음 PR 에 싣기는 메인이 정한다. 짧은 세션이면 메인이 직접 해도 된다.
+
 정리한 결과는 채팅에 한 줄로만 남긴다("#N 머지 뒤 정리 — main 최신화, 브랜치 삭제, 릴리스 PR #M 열림") — 머지는 사용자가
 한 일이라 `PushNotification` 은 보내지 않는다.
 
@@ -433,7 +438,8 @@ gh run view <run-id> --log-failed | tail  # 실패 로그
 
 데몬의 받은편지함 메시지(리뷰가 붙음 · 충돌 · CI 실패)가 **다른 작업 도중에** 오면, 끝날 때까지 미루지 않고
 서브에이전트에 맡긴다 — 메인 세션은 하던 일을 계속하고, 서브에이전트가 끝나면 그 보고를 사용자에게 옮긴다.
-작업이 없으면(쉬고 있으면) 메인 세션이 직접 한다 — 맡기는 비용(맥락 전달·워크트리)이 더 크다.
+쉬고 있어도 **대화가 길어졌으면** 맡긴다 — 메인이 직접 하면 몇 줄짜리 수정에도 긴 맥락을 요청마다 다시 읽는다(실측:
+머지 뒤 손질 세 턴이 출력 2만 토큰에 캐시 읽기 1,400만 토큰). 짧은 세션이 쉬고 있을 때만 메인이 직접 한다.
 
 **맡기는 것** — 판단이 필요 없는 일만:
 
@@ -445,25 +451,16 @@ gh run view <run-id> --log-failed | tail  # 실패 로그
 
 - **[확인 필요](👀)** — 서브에이전트는 분류만 하고 손대지 않은 채 👀 를 달고 보고한다. 묻는 것은 메인(7단계).
 - **스택의 중간 층** — `gh stack` 의 로컬 추적이 메인 작업 트리에 있다. 맨 아래 PR 이거나 스택이 아닐 때만 맡긴다.
-- 머지 후보 판단(8단계)·머지 뒤 정리(11단계) — 가볍고 메인의 로컬 상태를 만진다.
+- 머지 후보 판단(8단계) — 가볍고 메인이 사용자에게 알리는 자리다. 머지 뒤 정리는 11단계의 `rocky:merge-cleanup` 이 따로 맡는다.
 - 코멘트·resolve·머지 — 원칙 그대로 누구도 하지 않는다.
 
-**어떻게** — `Agent` 도구, `subagent_type: general-purpose`, **`isolation: "worktree"`**, `run_in_background: true`.
-워크트리라서 메인이 들고 있는 브랜치·작업 트리를 건드리지 않는다. 같은 PR 에 둘을 동시에 띄우지 않는다.
-프롬프트는 이 틀로 — 세션 대화는 넘기지 않는다:
+**어떻게** — `Agent` 도구, `subagent_type: rocky:quick-fix`, `run_in_background: true`. 이 에이전트는 Sonnet 으로,
+자기 워크트리에서 돈다(정의에 `model`·`isolation` 이 있다 — 호출 때 `model` 을 넘기면 그쪽이 이기므로 넘기지 않는다).
+작업 트리·게이트·푸시·하지 않는 것의 규칙은 에이전트 정의(`plugin/agents/quick-fix.md`)에 있다. 같은 PR 에 둘을 동시에
+띄우지 않는다. 프롬프트는 이것만 — 세션 대화는 넘기지 않는다:
 
 ```text
-minjun0219/rocky PR #<N> 을 처리한다: <리뷰가 붙음 | base 와 충돌 | CI 실패>.
-절차의 정본은 plugin/commands/review-fix.md 의 <2~6단계 | 12단계 | 충돌은 아래> — 먼저 읽는다.
-- 작업 트리는 너만의 워크트리다. `git fetch origin <head> <base>` 뒤 `git switch --detach origin/<head>` 에서
-  시작하고, 올릴 때는 `git push origin HEAD:<head>`(강제 푸시 금지). 충돌은 `git merge origin/<base>` 로 합쳐
-  양쪽 의도를 살려 푼다.
-- 푸시 전에 게이트(bun run check · typecheck · test, Rust 를 건드렸으면 cargo fmt --check · clippy -D warnings ·
-  test)를 전부 돌린다. 실패하면 푸시하지 않고 로그를 보고한다.
-- 푸시 뒤 `git ls-remote origin <head>` 가 내 커밋인지 확인한다 — pre-push 훅이 길면 푸시가 조용히 실패한다.
-  아니면 한 번 더 푸시한다.
-- [확인 필요] 건은 고치지 않고 👀 만 단다. 코멘트·resolve·머지는 하지 않는다.
-- 보고: 스레드마다 한 줄(링크 · 리뷰어 제목 · 한 것 또는 정할 것), 커밋 SHA, 게이트 결과.
+<owner>/<repo> PR #<N> 을 처리한다: <리뷰가 붙음 | base 와 충돌 | CI 실패>. head <head> · base <base>.
 ```
 
 보고가 오면 메인은 6단계 형식으로 사용자에게 옮기고, 👀 가 있으면 7단계로 묻는다.
