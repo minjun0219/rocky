@@ -18,6 +18,7 @@ pub mod note_doc;
 pub mod notify;
 pub mod peer_inbox;
 pub mod prwatch;
+pub mod rc;
 pub mod refs;
 pub mod sessions;
 pub mod setup;

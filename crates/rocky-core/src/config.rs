@@ -495,6 +495,53 @@ fn parse_target(value: &serde_json::Value) -> Option<VerifyTarget> {
     })
 }
 
+/// `rocky.json` 의 `rc` 블록 — `claude rc` 서버 현황(`rocky_core::rc`). 블록이 없거나 꺼 두면 None(기능 꺼짐).
+/// 사용자 설정에서만 읽는다 — 데몬은 전역 하나다.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RcConfig {
+    /// 상대 이름의 기준 폴더. 기본 `~/dev/workspaces`.
+    pub root: Option<String>,
+    /// 늘 떠 있어야 하는 폴더.
+    pub pinned: Vec<String>,
+    /// 화면에서 부를 수 있는 폴더.
+    pub targets: Vec<String>,
+}
+
+/// 파일 없음 / 파싱 실패 / 블록 없음 / `enabled: false` 는 None(꺼짐, fail-open). 모양이 틀린 칸은 빈 값으로
+/// 읽는다. `enabled` 는 목록을 남긴 채 이 기기에서만 끄는 스위치다 — rc 를 못 쓰는 기기가 있다.
+pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
+    let raw = std::fs::read_to_string(config_path).ok()?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    let block = parsed.get("rc")?.as_object()?;
+    if block.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+        return None;
+    }
+    let names = |key: &str| -> Vec<String> {
+        block
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Some(RcConfig {
+        root: block
+            .get("root")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        pinned: names("pinned"),
+        targets: names("targets"),
+    })
+}
+
 /// `rocky.json` 의 `usage` 블록 — 사용 로그(`rocky_core::usage`). 기본 켜짐, `~/.config/rocky/usage`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageConfig {
