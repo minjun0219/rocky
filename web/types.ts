@@ -338,10 +338,28 @@ export interface DeliveryStatus {
     url?: string;
     sessionId: string;
     ok: boolean;
-    /** 못 보냈으면 왜 — `받을 세션 등록 없음` 또는 소켓 에러. */
+    /** 못 보냈으면 왜 — `받을 세션 등록 없음`·`세션이 /clear 됨 …` 또는 소켓 에러. */
     reason?: string;
   }[];
+  /** `/clear` 돼 남은 구독을 사람이 정할 때까지 깨우지 않는 세션들(`rocky_core::peer_inbox::ClearedSession`). 옛 데몬은 없다. */
+  cleared?: ClearedSession[];
 }
+
+/** `/clear` 된 세션 하나와 남은 구독 — 넘기기·지켜보기만·해지 중 하나를 고른다(`POST /api/sessions/cleared`). */
+export interface ClearedSession {
+  sessionId: string;
+  /** 같은 프로세스의 지금 세션 — "새 세션으로 넘기기" 의 대상. */
+  successorId: string;
+  cwd: string;
+  clearedAt: string;
+  /** `owner/repo#N`. */
+  prs: string[];
+  filters: string[];
+  inbox: string[];
+}
+
+/** `POST /api/sessions/cleared` 의 action. */
+export type ClearedAction = 'handover' | 'watch' | 'unsubscribe';
 
 /** 레포의 열린 PR 한 줄 — `GET /api/prs/open?repo=`(GitHub 탭이 레포를 펼칠 때만). */
 export interface OpenPr {
