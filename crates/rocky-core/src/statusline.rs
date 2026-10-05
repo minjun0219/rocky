@@ -2,8 +2,9 @@
 //!
 //! 기본값은 전부 **조용한 쪽** — 보여줄 게 없으면 빈 문자열.
 //!
-//! 하위 모듈 `git` 은 이 보드 줄과 별개인 `rocky statusline --full`(경로·git·모델·한도 줄)의 재료다.
+//! 하위 모듈 `full` · `git` 은 이 보드 줄과 별개인 `rocky statusline --full`(경로·git·모델·한도 줄)이다.
 
+pub mod full;
 pub mod git;
 
 /// 이 세션이 지금 `doing` 으로 잡고 있는 항목.
