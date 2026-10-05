@@ -9,6 +9,7 @@ const LABEL: Record<BoardView, string> = {
   notes: '노트',
   worklog: '작업로그',
   github: 'GitHub',
+  rc: '원격 제어',
 };
 
 /**
@@ -27,9 +28,14 @@ export function ViewSwitch() {
   const showGithub = useUiStore((s) => s.showGithub);
   const feed = useFeedCount();
   // 피드가 맨 앞이자 첫 화면이다(2026-10-02 오너).
-  const kinds: BoardView[] = showGithub
-    ? ['feed', 'todos', 'notes', 'worklog', 'github']
-    : ['feed', 'todos', 'notes', 'worklog'];
+  const showRc = useUiStore((s) => s.showRc && s.rc?.configured === true);
+  const kinds: BoardView[] = ['feed', 'todos', 'notes', 'worklog'];
+  if (showGithub) {
+    kinds.push('github');
+  }
+  if (showRc) {
+    kinds.push('rc');
+  }
 
   return (
     <nav
@@ -49,8 +55,17 @@ export function ViewSwitch() {
                 : 'text-muted hover:text-text'
             }`}
             onClick={() => setView(kind)}
+            aria-label={kind === 'rc' ? LABEL.rc : undefined}
           >
-            {LABEL[kind]}
+            {kind === 'rc' ? (
+              // 360px 미만에선 탭 여섯이 붙는다 — 이름을 줄인다(읽는 이름은 aria-label 로 그대로).
+              <>
+                <span className="hidden min-[360px]:inline">{LABEL.rc}</span>
+                <span className="min-[360px]:hidden">원격</span>
+              </>
+            ) : (
+              LABEL[kind]
+            )}
             {kind === 'notes' && news ? (
               <span
                 className="size-1.5 rounded-full bg-mine"

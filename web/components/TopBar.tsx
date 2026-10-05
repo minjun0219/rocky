@@ -80,6 +80,9 @@ function HeaderMenu() {
   const setShowArchived = useUiStore((s) => s.setShowArchived);
   const showGithub = useUiStore((s) => s.showGithub);
   const setShowGithub = useUiStore((s) => s.setShowGithub);
+  const showRc = useUiStore((s) => s.showRc);
+  const setShowRc = useUiStore((s) => s.setShowRc);
+  const rcConfigured = useUiStore((s) => s.rc?.configured === true);
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
   const setSelected = useUiStore((s) => s.setSelected);
@@ -174,6 +177,16 @@ function HeaderMenu() {
             />
             GitHub 탭 보기
           </label>
+          {rcConfigured ? (
+            <label className="flex min-h-8 cursor-pointer items-center gap-2 text-text">
+              <input
+                type="checkbox"
+                checked={showRc}
+                onChange={(e) => setShowRc(e.target.checked)}
+              />
+              원격 제어 탭 보기
+            </label>
+          ) : null}
           <label className="flex flex-col gap-1">
             <span className="font-mono text-chip text-faint">
               편집자 이름. 웹에서 고친 내용은 이 이름으로 기록돼요
