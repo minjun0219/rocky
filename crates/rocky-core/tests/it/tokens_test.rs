@@ -403,6 +403,8 @@ fn rule_switch_to_sonnet_needs_opus_no_tools_and_short_output() {
     let rec = recommend(SID, &chat, &cfg);
     assert_eq!(rules(&rec), vec!["switch-to-sonnet"]);
     assert!(rec.suggestions[0].message.contains("Sonnet medium"));
+    // 모델을 바꾸면 캐시를 새로 쌓으므로 작업 경계에서 바꾸라고 말한다(effort 변경은 캐시를 지킨다).
+    assert!(rec.suggestions[0].message.contains("작업 경계"));
 
     let mut one_tool = chat.clone();
     one_tool[3].tool_calls = 1;

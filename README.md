@@ -66,7 +66,7 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 | `GET /api/tokens/recommendation?sessionId=\|cwd=` | 추천과 근거 수치(턴 수·턴 평균 출력·도구 호출·모델·effort) |
 | `GET /api/tokens/events` | SSE. 낸 규칙이 바뀐 세션마다 `event: tokens.recommendation` |
 
-추천은 규칙 세 가지다(최근 15턴, 5턴 미만이면 판단하지 않음). ① 턴 평균 출력이 3,000토큰 이하인데 effort가 xhigh/max면 medium을 권한다. ② 창 안에서 effort를 올린 뒤 턴이 길어졌으면 이미 조정한 것으로 보고 추천하지 않는다. ③ Opus인데 도구 호출이 0이고 출력이 짧으면 Sonnet medium을 권한다. 수치와 규칙 on/off는 `rocky.json`의 `tokens.recommend`로 바꾼다.
+추천은 규칙 세 가지다(최근 15턴, 5턴 미만이면 판단하지 않음). ① 턴 평균 출력이 3,000토큰 이하인데 effort가 xhigh/max면 medium을 권한다. ② 창 안에서 effort를 올린 뒤 턴이 길어졌으면 이미 조정한 것으로 보고 추천하지 않는다. ③ Opus인데 도구 호출이 0이고 출력이 짧으면 Sonnet medium을 권한다. 모델 전환은 다음 작업 경계(커밋 직후)나 새 세션에서 하라고 권한다 — 모델을 바꾸면 쌓인 캐시를 못 쓰고 새로 쌓는다(effort 변경은 캐시를 지킨다). 수치와 규칙 on/off는 `rocky.json`의 `tokens.recommend`로 바꾼다.
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
 
