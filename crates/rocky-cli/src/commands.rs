@@ -1631,7 +1631,7 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 /// 보드 줄 — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
 /// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
 fn statusline_full(ctx: &CliContext) {
-    use rocky_core::limits::{alert, credits, select, Input, UsageCache};
+    use rocky_core::limits::{alert, credits, select, Input, StateFile, UsageCache};
     use rocky_core::statusline::extra::{expand, output_lines, Vars};
     use rocky_core::statusline::full::{lines, Style, View};
 
@@ -1658,7 +1658,10 @@ fn statusline_full(ctx: &CliContext) {
             .collect();
 
         let limits_cfg = &cfg.limits;
-        let (limits, tracking) = select(limits_cfg, &input, now);
+        // usage·state 캐시를 읽고 쓰는 배선은 아직 없다 — 빈 캐시는 cc-usage 의 첫 렌더와 같다.
+        let (state, cache) = (StateFile::default(), UsageCache::default());
+        let selected = select(limits_cfg, &input, &state, &cache, now);
+        let limits = selected.unwrap_or_default();
         let home = std::env::var("HOME").ok();
         let git = crate::git_status::read(input.dir(), crate::git_status::GIT_TIMEOUT);
         let view = View {
@@ -1668,10 +1671,11 @@ fn statusline_full(ctx: &CliContext) {
             effort: &input.effort,
             context_pct: input.context_pct,
             limits,
-            tracking,
+            usage: selected.map(|_| &cache),
             alert: alert(limits_cfg, &limits),
-            // usage API 캐시는 아직 없다 — 한도가 소진되면 "크레딧 조회 중" 이다.
-            credits: credits(limits_cfg, &limits, tracking, &UsageCache::default(), now),
+            credits: selected.map_or_else(Default::default, |_| {
+                credits(limits_cfg, &limits, &cache, now)
+            }),
             currency: limits_cfg.currency(),
             home: home.as_deref(),
             now,

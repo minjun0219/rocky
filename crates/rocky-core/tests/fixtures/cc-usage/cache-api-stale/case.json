@@ -1,0 +1,23 @@
+{
+  "why": "30분 넘게 묵은 응답은 stale",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "api"
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"}}",
+  "allow": [],
+  "usage": {
+    "usage": {
+      "fetched_at": "2026-09-16T06:55:00.000Z",
+      "five_hour": {
+        "percent": 42,
+        "resets_at": "2026-09-16T09:00:00.000Z"
+      }
+    }
+  },
+  "state": null,
+  "repo": [],
+  "gitEnv": {}
+}

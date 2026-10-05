@@ -44,6 +44,8 @@ export type Case = {
   allow?: [string, string][];
   /** cc-usage 캐시 `usage.json` 에 심을 내용 — usage API 응답과 크레딧 기준선. Rust 테스트도 같은 값을 읽는다. */
   usage?: Record<string, unknown>;
+  /** cc-usage 캐시 `state.json` 에 심을 내용 — stdin 관측값. Rust 테스트도 같은 값을 읽는다. */
+  state?: Record<string, unknown>;
   /** `{{HOME}}/project` 에 git repo 를 만드는 셸 줄들 — `sh -c` 로 차례로 돈다. Rust 테스트가 `GIT_ENV` 로 똑같이 다시 돈다. */
   repo?: string[];
 };
@@ -77,6 +79,18 @@ const withLimits = (rate_limits: Record<string, unknown>, extra: Record<string, 
   rate_limits,
 });
 const EMPTY_ROW: [string, string][] = [['[cc-usage]', '[rocky]']];
+
+/** 기준 시각에서 `minutes` 뒤의 RFC3339 — 캐시의 시각 필드. */
+const iso = (minutes: number) => new Date(NOW_MS + minutes * 60_000).toISOString();
+/** usage API 응답 캐시 — `fetched_at` 은 기준 시각에서 `fetchedAgo` 분 전. */
+const fetched = (
+  fetchedAgo: number,
+  windows: Record<string, unknown>,
+  extra?: Record<string, unknown>,
+) => ({
+  usage: { fetched_at: iso(-fetchedAgo), ...windows, ...(extra ? { extra } : {}) },
+});
+const cacheWin = (percent: number, resetsIn: number) => ({ percent, resets_at: iso(resetsIn) });
 
 /** 크레딧 캐시 — 금액은 cent(cc-usage 기본 `credit_divisor: 100`). 방금 받은 응답이라 stale 이 아니다. */
 const credits = (
@@ -303,6 +317,76 @@ export const CASES: Case[] = [
     stdin: withLimits({ five_hour: win(30) }),
     usage: credits(4500, { limit: 5000 }),
   },
+  // 캐시를 심은 경우 — api 모드는 usage 캐시를, stdin 쪽은 6시간 안에 본 관측값(state)을 그린다.
+  {
+    name: 'cache-api-fresh',
+    why: 'api 모드 — 5분 전 응답',
+    config: { source: 'api' },
+    stdin: base,
+    usage: fetched(5, { five_hour: cacheWin(42, 80), seven_day: cacheWin(75, 3000) }),
+  },
+  {
+    name: 'cache-api-stale',
+    why: '30분 넘게 묵은 응답은 stale',
+    config: { source: 'api' },
+    stdin: base,
+    usage: fetched(45, { five_hour: cacheWin(42, 80) }),
+  },
+  {
+    name: 'cache-api-error',
+    why: '응답 없이 실패만 — 그 이유를 낸다',
+    config: { source: 'api' },
+    stdin: base,
+    usage: { last_error: 'http 500: upstream unavailable', failures: 2, backoff_until: iso(5) },
+  },
+  {
+    name: 'cache-api-long-error',
+    why: '긴 에러는 40바이트에서 자른다',
+    config: { source: 'api' },
+    stdin: base,
+    usage: { last_error: 'token not found (keychain: service missing; file: absent)', failures: 1 },
+  },
+  {
+    name: 'cache-api-expired',
+    why: '리셋이 지난 캐시 창은 버린다',
+    config: { source: 'api' },
+    stdin: base,
+    usage: fetched(5, { five_hour: cacheWin(90, -1), seven_day: cacheWin(80, 3000) }),
+  },
+  {
+    name: 'cache-auto-recent',
+    why: 'auto — 6시간 안에 stdin 한도를 봤으면 그 관측값',
+    config: { source: 'auto' },
+    stdin: base,
+    state: { observed_at: iso(-60), stdin_limits_seen: iso(-60), five_hour: cacheWin(20, 80) },
+    usage: fetched(5, { five_hour: cacheWin(70, 80) }),
+  },
+  {
+    name: 'cache-auto-old',
+    why: 'auto — stdin 을 본 지 오래면 usage 캐시',
+    config: { source: 'auto' },
+    stdin: base,
+    state: { observed_at: iso(-420), stdin_limits_seen: iso(-420), five_hour: cacheWin(20, 80) },
+    usage: fetched(5, { five_hour: cacheWin(70, 80) }),
+  },
+  {
+    name: 'cache-stdin-fallback',
+    why: 'stdin 이 한 번 비어도 6시간 안의 관측값',
+    stdin: base,
+    state: { observed_at: iso(-120), stdin_limits_seen: iso(-120), five_hour: cacheWin(35, 80) },
+  },
+  {
+    name: 'cache-stdin-hit-error',
+    why: 'stdin 소진 + 크레딧 조회 실패 — 이유와 조회 중 줄',
+    stdin: withLimits({ five_hour: win(100) }),
+    usage: { last_error: 'token not found', failures: 1 },
+  },
+  {
+    name: 'cache-stdin-hit-stale',
+    why: 'stdin 소진 + 묵은 크레딧 응답',
+    stdin: withLimits({ five_hour: win(100) }),
+    usage: fetched(50, {}, { enabled: true, used_credits: 1160, monthly_limit: 5000 }),
+  },
   // extra_commands — 다른 도구의 줄을 아래에 그대로 붙인다.
   {
     name: 'extra-order',
@@ -494,9 +578,12 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: Bu
       }
     }
   }
+  mkdirSync(join(dir, 'cache', 'cc-usage'), { recursive: true });
   if (c.usage) {
-    mkdirSync(join(dir, 'cache', 'cc-usage'), { recursive: true });
     writeFileSync(join(dir, 'cache', 'cc-usage', 'usage.json'), JSON.stringify(c.usage));
+  }
+  if (c.state) {
+    writeFileSync(join(dir, 'cache', 'cc-usage', 'state.json'), JSON.stringify(c.state));
   }
   const stdin = typeof c.stdin === 'string' ? c.stdin : JSON.stringify(c.stdin);
   const proc = Bun.spawnSync([bin, 'statusline'], {
@@ -541,6 +628,7 @@ if (import.meta.main) {
           stdin,
           allow: c.allow ?? [],
           usage: c.usage ?? null,
+          state: c.state ?? null,
           repo: c.repo ?? [],
           gitEnv: c.repo ? GIT_ENV : {},
         };

@@ -4,7 +4,9 @@
 use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Utc};
-use rocky_core::limits::{alert, credits, select, Input, LimitsConfig, Source, UsageCache};
+use rocky_core::limits::{
+    alert, credits, select, Input, LimitsConfig, Source, StateFile, UsageCache,
+};
 use rocky_core::statusline::full::{abbrev_home, duration, lines, Style, View};
 use rocky_core::statusline::width::display_width;
 use serde_json::Value;
@@ -36,7 +38,10 @@ fn render(case: &Value) -> String {
     let style = Style::from_env(|k| env[k].as_str().map(str::to_string));
 
     let input = Input::parse(&stdin);
-    let (limits, tracking) = select(&cfg, &input, now);
+    // 캡처 때 cc-usage 캐시에 심은 state.json — 없으면 빈 상태.
+    let state: StateFile = serde_json::from_value(case["state"].clone()).unwrap_or_default();
+    let selected = select(&cfg, &input, &state, &cache, now);
+    let limits = selected.unwrap_or_default();
     let view = View {
         dir: input.dir(),
         git: None,
@@ -44,9 +49,9 @@ fn render(case: &Value) -> String {
         effort: &input.effort,
         context_pct: input.context_pct,
         limits,
-        tracking,
+        usage: selected.map(|_| &cache),
         alert: alert(&cfg, &limits),
-        credits: credits(&cfg, &limits, tracking, &cache, now),
+        credits: selected.map_or_else(Default::default, |_| credits(&cfg, &limits, &cache, now)),
         currency: cfg.currency(),
         home: Some(HOME),
         now,

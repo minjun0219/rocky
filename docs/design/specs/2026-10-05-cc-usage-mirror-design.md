@@ -19,8 +19,8 @@
 | cc-usage | rocky |
 |---|---|
 | `cc-usage statusline` (매 호출 새 프로세스) | `rocky statusline --full` — 경로·git·모델·ctx·한도를 CLI 가 직접 그린다 |
-| `cc-usage refresh` (detached + lock 파일 + backoff) | `rockyd` 의 주기 태스크(조각 3). 데몬이 머신마다 하나라 lock 이 필요 없다 |
-| `usage.json` writer = `refresh`, `state.json` writer = `statusline` | writer 분리 그대로 — usage 는 데몬, state 는 CLI |
+| `cc-usage refresh` (detached + lock 파일 + backoff) | `rocky statusline refresh` — 같은 방식(조각 3). 데몬이 아닌 이유는 아래 "계정" |
+| `usage.json` writer = `refresh`, `state.json` writer = `statusline` | writer 분리 그대로 |
 | 판정 로직 `internal/core` (`now` 인자) | `rocky_core::limits` (순수, `now` 인자) |
 | 렌더 `internal/render` | `rocky_core::statusline` 확장 |
 
@@ -40,12 +40,25 @@
 |---|---|---|
 | 1 | 대조 하네스 + 1~2줄 렌더 | `source: stdin` / `none`. 입력 파싱, git 세그먼트, 남은 비율·리셋 표기, 7d 70% 임계, `alert_percent` 고정 배지, 3단 색, 폭 판단(`COLUMNS - 40`) |
 | 2 | `extra_commands` | argv 배열, placeholder(`{{cwd}}` · `{{session_id}}`), 타임아웃. rocky 보드 줄은 내부 세그먼트 |
-| 3 | 크레딧 + usage API 갱신 | `rockyd` 태스크, keychain(`/usr/bin/security`) 읽기 전용, 한도별 폴링 간격, backoff·`Retry-After`, `source: api` / `auto` |
-| 4 | 경보 깜빡임 · 계정 배지 | `state.json` 의 경보 시각, `.claude.json` 이메일 → 배지 |
+| 3 | usage API 갱신 + 계정 구분 | detached `refresh`, keychain(`/usr/bin/security`) 읽기 전용, 한도별 폴링 간격, backoff·`Retry-After`, `source: api` / `auto`, 캐시 판정·상태 문구. 크레딧 렌더·폭 판단은 조각 1 리뷰 반영 때 앞당겼다 |
+| 4 | 경보 깜빡임 · 계정 배지 | `state.json` 의 경보 시각, 배지(계정 판단은 조각 3) |
 | 5 | guard / allow · probe / doctor · agy | guard 는 fail-open |
 
-다중 계정(cc-usage 는 계정마다 프로세스·설정·캐시를 나눈다)은 조각 3 에서 정한다 — rockyd 는 전역에 하나라
-`config_dir` 별로 상태를 나눠 들어야 한다.
+### 계정 (조각 3, 2026-10-06 결정)
+
+오너는 계정을 둘 쓴다(기본 `~/.claude` 와 `CLAUDE_CONFIG_DIR`). cc-usage 는 계정을 **statusline 을 띄운 세션의 환경**으로
+판단한다 — `CLAUDE_CONFIG_DIR` 이 설정값을 이기고, 토큰 위치(기본 dir 만 keychain, 아니면 `<config_dir>/.credentials.json`)와
+계정 파일(`.claude.json`)이 그 값을 따른다. rockyd 는 머신에 하나라 세션 환경을 볼 수 없으므로 갱신도 cc-usage 처럼
+statusline 이 detached 로 띄운다 — 자식이 세션 환경을 물려받아 맞는 계정의 토큰을 쓴다. rocky 는 계정이 몇 개인지 몰라도 된다.
+
+- **계정 판단은 cc-usage 와 같다**: 진실 원천은 `.claude.json` 의 `oauthAccount.emailAddress`(전환 도구가 무엇이든 결과만 본다).
+  `CLAUDE_CONFIG_DIR` 이 있으면 그 dir 의 파일 하나만, 없으면 `<config_dir>/.claude.json` → (기본 설치일 때만) `~/.claude.json`.
+  한도 숫자가 바뀌었거나 1분이 지났을 때만 다시 읽고, 읽기 실패는 캐시를 덮지 않는다.
+- **캐시는 cc-usage 보다 잘게 나눈다**: `<cache>/rocky/statusline/<config_dir 해시>/account.json`(이메일 캐시) 아래
+  `<이메일 해시>/{state,usage}.json·refresh.lock`. cc-usage 는 `XDG_CACHE_HOME` 을 계정마다 나눠 줘야 캐시가 갈리고, usage 캐시가
+  계정을 키로 갖지 않아 같은 dir 안의 전환(claude-swap · `/login`) 뒤에 이전 계정의 크레딧·기준선이 남을 수 있다. 출력이
+  달라지는 것은 cc-usage 가 남의 숫자를 보이던 경우뿐이다. 이메일을 모르면(API 키 인증 · 첫 읽기 실패) `_` 폴더.
+- 캐시 JSON 모양은 cc-usage 와 같다 — 골든에 심는 캐시를 두 바이너리가 함께 읽는다.
 
 ## 대조 하네스
 

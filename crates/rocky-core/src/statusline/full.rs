@@ -6,7 +6,7 @@ use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc};
 
 use super::git::GitStatus;
 use super::width::display_width;
-use crate::limits::{Alert, AlertLevel, CreditView, Limits, Tracking, Window};
+use crate::limits::{Alert, AlertLevel, CreditView, Limits, UsageCache, Window, STALE_AFTER};
 
 /// 색을 어디까지 쓰나 — `NO_COLOR` · `COLORTERM` · `TERM` 으로 정한다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -146,7 +146,8 @@ pub struct View<'a> {
     pub effort: &'a str,
     pub context_pct: Option<f64>,
     pub limits: Limits,
-    pub tracking: Tracking,
+    /// usage 캐시 — `None` 이면 한도를 다루지 않는다(`source: none`): 상태 문구도 크레딧도 없다.
+    pub usage: Option<&'a UsageCache>,
     pub alert: Alert,
     pub credits: CreditView,
     /// 통화 기호.
@@ -174,8 +175,9 @@ pub fn lines<Tz: TimeZone>(v: &View, s: &Style, tz: &Tz) -> Vec<String> {
             parts.push(window_text("7d", w, v, s, tz));
         }
     }
-    if v.tracking == Tracking::Empty && !v.limits.from_stdin {
-        parts.push(s.c(DIM, "usage …"));
+    let note = status_note(v, s);
+    if !note.is_empty() {
+        parts.push(note);
     }
 
     let mut out = Vec::new();
@@ -273,6 +275,43 @@ fn money_short(cur: &str, v: f64) -> String {
     } else {
         format!("{cur}{v:.2}")
     }
+}
+
+/// usage 캐시의 상태 — 조회가 실패하는 중이면 그 이유, 아직 응답이 없으면 "usage …", 응답이 30분 넘게 묵었으면 stale.
+/// stdin 쪽에서는 한도가 소진됐을 때(크레딧을 봐야 할 때)만 낸다.
+fn status_note(v: &View, s: &Style) -> String {
+    let Some(cache) = v.usage else {
+        return String::new();
+    };
+    if v.limits.from_stdin && !v.limits.exhausted() {
+        return String::new();
+    }
+    match &cache.usage {
+        None if !cache.last_error.is_empty() => {
+            s.c(YELLOW, &format!("usage: {}", short_err(&cache.last_error)))
+        }
+        None if !v.limits.from_stdin => s.c(DIM, "usage …"),
+        Some(usage) => {
+            // fetched_at 이 없으면 Go 의 zero 시각 — Go 는 그 차이를 i64 나노초 최대(약 292년)에서 포화시킨다.
+            let age = usage
+                .fetched_at
+                .map_or(TimeDelta::nanoseconds(i64::MAX), |t| v.now - t);
+            if age > STALE_AFTER {
+                s.c(YELLOW, &format!("⚠︎ stale {}", duration(age)))
+            } else {
+                String::new()
+            }
+        }
+        None => String::new(),
+    }
+}
+
+/// 에러 문구를 40바이트에서 자른다(cc-usage 와 같은 길이). 글자 중간에서 자르지는 않는다.
+fn short_err(e: &str) -> String {
+    if e.len() <= 40 {
+        return e.to_string();
+    }
+    format!("{}…", &e[..e.floor_char_boundary(40)])
 }
 
 /// 모델 이름 뒤에 effort 를 흐리게 붙인다 — effort 는 모델의 속성이라 세그먼트로 떼지 않는다.

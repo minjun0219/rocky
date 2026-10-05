@@ -9,6 +9,7 @@
   "stdin": "{\"model\":{\"display_name\":\"Sonnet 5\"}}",
   "allow": [],
   "usage": null,
+  "state": null,
   "repo": [],
   "gitEnv": {}
 }
