@@ -27,7 +27,7 @@ use std::time::Duration;
 use rmcp::model::{CustomNotification, JsonObject, ServerNotification};
 use rmcp::service::Peer;
 use rmcp::RoleServer;
-use rocky_core::notify::{page_cursor, pr_channel_events, pr_entries_for_session};
+use rocky_core::notify::{page_cursor, pr_channel_events, pr_entries_for_session, PrChannelEvent};
 use rocky_core::prwatch::PrSubscription;
 use rocky_core::statusline::{board_key_for_cwd, BoardLocation};
 use rocky_core::types::ChangesSince;
@@ -147,8 +147,58 @@ enum Drain {
     Gone,
 }
 
+/// 변경 피드 한 페이지를 읽은 결과 — 보내기는 부르는 쪽(`drain`)이 한다.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Page {
+    /// 이 세션에 보낼 이벤트와 다음 cursor·이어 읽을지.
+    Read {
+        events: Vec<PrChannelEvent>,
+        next: i64,
+        more: bool,
+    },
+    /// 변경 피드·세션·보드·구독 조회가 실패했다 — cursor 를 넘기지 않는다.
+    Retry,
+}
+
+/// cursor 이후 한 페이지를 읽어 **이 세션**(부모 pid `pid` 로 `/api/sessions` 에서 찾는다)에 보낼 PR 전이를 고른다.
+/// 세션 목록에 그 pid 가 없으면 누구의 것인지 모르니 아무것도 보내지 않고 cursor 는 넘긴다.
+pub fn read_page(agent: &ureq::Agent, base_url: &str, pid: i64, cursor: i64) -> Page {
+    let Some(feed) = fetch_changes(agent, base_url, cursor, PAGE as i64) else {
+        return Page::Retry;
+    };
+    let has_pr = feed
+        .entries
+        .iter()
+        .any(|e| e.history.action.starts_with("pr-"));
+    let mine = if has_pr {
+        let Ok(session) = this_session(agent, base_url, pid) else {
+            return Page::Retry;
+        };
+        match session {
+            Some((session_id, board)) => {
+                let Some(subscriptions) = get_json::<Vec<PrSubscription>>(
+                    agent,
+                    &format!("{base_url}/api/prs/subscriptions"),
+                ) else {
+                    return Page::Retry;
+                };
+                pr_entries_for_session(&feed.entries, board.as_deref(), &session_id, &subscriptions)
+            }
+            None => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    let (next, more) = page_cursor(&feed, PAGE);
+    Page::Read {
+        events: pr_channel_events(&mine),
+        next,
+        more,
+    }
+}
+
 /// cursor 이후의 전이를 전부 밀어 넣는다 — 페이지가 꽉 찼으면 이어서 읽는다(전역 last_id 로 뛰면 그 사이를
-/// 잃는다). 변경 피드·세션·보드·구독 조회가 실패하면 그 페이지의 cursor 에서 멈춘다.
+/// 잃는다). 조회가 실패하면 그 페이지의 cursor 에서 멈춘다.
 fn drain(
     peer: &Peer<RoleServer>,
     handle: &tokio::runtime::Handle,
@@ -158,39 +208,10 @@ fn drain(
     mut cursor: i64,
 ) -> Drain {
     loop {
-        let Some(feed) = fetch_changes(agent, base_url, cursor, PAGE as i64) else {
+        let Page::Read { events, next, more } = read_page(agent, base_url, pid, cursor) else {
             return Drain::Retry(cursor);
         };
-        let has_pr = feed
-            .entries
-            .iter()
-            .any(|e| e.history.action.starts_with("pr-"));
-        let mine = if has_pr {
-            let Ok(session) = this_session(agent, base_url, pid) else {
-                return Drain::Retry(cursor);
-            };
-            match session {
-                Some((session_id, board)) => {
-                    let Some(subscriptions) = get_json::<Vec<PrSubscription>>(
-                        agent,
-                        &format!("{base_url}/api/prs/subscriptions"),
-                    ) else {
-                        return Drain::Retry(cursor);
-                    };
-                    pr_entries_for_session(
-                        &feed.entries,
-                        board.as_deref(),
-                        &session_id,
-                        &subscriptions,
-                    )
-                }
-                // 세션 목록에 이 세션이 없다(목록을 못 만드는 환경 등) — 누구의 것인지 모르니 보내지 않는다.
-                None => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
-        for event in pr_channel_events(&mine) {
+        for event in events {
             let notification = channel_notification(&event.content, &event.meta);
             if handle
                 .block_on(peer.send_notification(notification))
@@ -199,7 +220,6 @@ fn drain(
                 return Drain::Gone;
             }
         }
-        let (next, more) = page_cursor(&feed, PAGE);
         cursor = next;
         if !more {
             return Drain::Caught(cursor);

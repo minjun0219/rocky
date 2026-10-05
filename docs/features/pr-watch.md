@@ -68,7 +68,7 @@
 | 훅·채널 | `crates/rocky-cli/src/hooks.rs`, `crates/rocky-cli/src/channel.rs` |
 
 테스트: `crates/rocky-core/tests/it/{prwatch_test,notify_test,peer_inbox_test}.rs`, `crates/rockyd/tests/it/prwatch_test.rs`,
-`crates/rocky-cli/tests/it/hooks_test.rs`.
+`crates/rocky-cli/tests/it/{hooks_test,hook_wiring_test}.rs`(배선 — 가짜 데몬으로 훅 본체 `notify_todo_context`·채널 `read_page`).
 
 ## 함정
 

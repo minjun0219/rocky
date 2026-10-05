@@ -7,6 +7,7 @@ mod common;
 mod config_cmd_test;
 mod flags_test;
 mod format_test;
+mod hook_wiring_test;
 mod hooks_test;
 mod launchd_test;
 mod rc_cmd_test;
