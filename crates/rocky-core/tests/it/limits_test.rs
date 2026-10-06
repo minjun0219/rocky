@@ -634,3 +634,58 @@ fn alerts_arm_on_a_new_level_blink_for_six_seconds_then_settle() {
     let (_, dirty) = alerts(&c, &calm, &mut state, later);
     assert!(!dirty, "이미 풀린 경보는 다시 쓰지 않는다");
 }
+
+/// 크레딧 금액 색 — 안 쓸 때 0(옅은 색), 쓰기 시작하면 그 시각부터 3초에 걸쳐 1(원래 색), 안 쓰게 되면 바로 0.
+#[test]
+fn credit_glow_fades_in_when_credits_start_burning() {
+    use rocky_core::limits::{credit_glow, CreditView, CREDIT_FADE};
+    let c = cfg(Source::Stdin, None);
+    let shown = |spending| CreditView {
+        show: true,
+        enabled: true,
+        used: 11.6,
+        limit: Some(50.0),
+        spending,
+        ..Default::default()
+    };
+    let mut state = StateFile::default();
+    assert_eq!(
+        credit_glow(&c, &shown(false), &mut state, now()),
+        (Some(0.0), false)
+    );
+    // 쓰기 시작 — 시각을 적고 옅은 색에서 출발.
+    assert_eq!(
+        credit_glow(&c, &shown(true), &mut state, now()),
+        (Some(0.0), true)
+    );
+    assert_eq!(state.credits_spending_at, Some(now()));
+    let at = |ms| {
+        credit_glow(
+            &c,
+            &shown(true),
+            &mut state.clone(),
+            now() + TimeDelta::milliseconds(ms),
+        )
+        .0
+    };
+    assert_eq!(at(1500), Some(0.5));
+    assert_eq!(at(CREDIT_FADE.num_milliseconds()), Some(1.0));
+    assert_eq!(at(60_000), Some(1.0), "그 뒤로는 원래 색에 머문다");
+    // 안 쓰게 되면 바로 옅은 색, 시각을 지운다.
+    assert_eq!(
+        credit_glow(&c, &shown(false), &mut state, now()),
+        (Some(0.0), true)
+    );
+    assert_eq!(state.credits_spending_at, None);
+    // 끄면(또는 금액이 없는 줄이면) 페이드하지 않는다 — cc-usage 와 같은 색.
+    let off = LimitsConfig {
+        credit_fade: Some(false),
+        ..cfg(Source::Stdin, None)
+    };
+    assert_eq!(credit_glow(&off, &shown(true), &mut state, now()).0, None);
+    let unknown = CreditView {
+        show: true,
+        ..Default::default()
+    };
+    assert_eq!(credit_glow(&c, &unknown, &mut state, now()).0, None);
+}

@@ -753,6 +753,7 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
             ))
         })
         .collect();
+    cfg.limits.credit_fade = block.get("creditFade").and_then(|v| v.as_bool());
     cfg.limits.always_show_credits = block
         .get("alwaysShowCredits")
         .and_then(|v| v.as_bool())

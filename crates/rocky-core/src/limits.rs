@@ -51,6 +51,8 @@ pub struct LimitsConfig {
     pub poll_seconds: Option<u64>,
     /// 한도 소진 뒤 크레딧 조회 주기(초) — 없거나 0 이하면 300.
     pub credit_poll_seconds: Option<u64>,
+    /// 크레딧을 안 쓸 때 금액을 옅게, 쓰기 시작하면 원래 색으로 페이드(`creditFade`) — 없으면 켜짐. 끄면 cc-usage 와 같은 색.
+    pub credit_fade: Option<bool>,
 }
 
 impl LimitsConfig {
@@ -69,6 +71,10 @@ impl LimitsConfig {
 
     pub fn credit_poll(&self) -> TimeDelta {
         TimeDelta::seconds(self.credit_poll_seconds.filter(|s| *s > 0).unwrap_or(300) as i64)
+    }
+
+    pub fn credit_fade(&self) -> bool {
+        self.credit_fade.unwrap_or(true)
     }
 
     pub fn credit_divisor(&self) -> f64 {
@@ -361,6 +367,9 @@ pub struct StateFile {
     pub alert_key: String,
     #[serde(with = "go_time", skip_serializing_if = "Option::is_none")]
     pub alert_at: Option<DateTime<Utc>>,
+    /// 크레딧을 쓰기 시작한 시각 — 거기서부터 금액 색을 옅은 색 → 원래 색으로 페이드한다(rocky 만의 필드).
+    #[serde(with = "go_time", skip_serializing_if = "Option::is_none")]
+    pub credits_spending_at: Option<DateTime<Utc>>,
 }
 
 /// 로그인된 계정 캐시 — 계정 파일(`.claude.json`)을 매 렌더 읽지 않으려고 둔다. rocky 는 `config_dir` 마다 하나다.
@@ -704,6 +713,30 @@ fn worst_window(cfg: &LimitsConfig, lim: &Limits) -> Option<(AlertLevel, &'stati
 
 /// 크레딧 사용이 "오르는 중" 으로 보는 시간 — 그 안에 `used_credits` 가 늘었으면 소진 중이다.
 const RISING_WINDOW: TimeDelta = TimeDelta::minutes(15);
+
+/// 크레딧을 쓰기 시작한 뒤 금액 색이 원래 색까지 오는 시간.
+pub const CREDIT_FADE: TimeDelta = TimeDelta::seconds(3);
+
+/// 금액 색을 얼마나 원래 색으로 그릴지 — `None` 이면 페이드를 하지 않는다(설정으로 껐거나 금액이 없는 줄: cc-usage 와 같은 색),
+/// `Some(0.0)` 은 옅은 색(안 쓰는 중), `Some(1.0)` 은 원래 색. 쓰기 시작하면 그 시각을 `state` 에 적고 거기서부터 3초에 걸쳐
+/// 0 → 1 로 오른다. 안 쓰게 되면 바로 0 이다(페이드 없이). 돌려주는 `bool` 이 true 면 `state` 가 바뀌었다.
+pub fn credit_glow(
+    cfg: &LimitsConfig,
+    credits: &CreditView,
+    state: &mut StateFile,
+    now: DateTime<Utc>,
+) -> (Option<f64>, bool) {
+    if !cfg.credit_fade() || !credits.show || !credits.enabled {
+        return (None, state.credits_spending_at.take().is_some());
+    }
+    if !credits.spending {
+        return (Some(0.0), state.credits_spending_at.take().is_some());
+    }
+    let dirty = state.credits_spending_at.is_none();
+    let at = *state.credits_spending_at.get_or_insert(now);
+    let progress = (now - at).num_milliseconds() as f64 / CREDIT_FADE.num_milliseconds() as f64;
+    (Some(progress.clamp(0.0, 1.0)), dirty)
+}
 
 /// 크레딧 줄을 그릴 재료. 금액은 `credit_divisor` 로 환산한 값이다.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
