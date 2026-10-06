@@ -114,16 +114,38 @@ fn build_spawn_command_shape() {
 
 // ── run_in_dir (기본 실행기 — 실제 프로세스) ──
 
+/// 단언이 실패해도 띄운 손자를 pid 로 내린다.
+struct KillOnDrop(i32);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        unsafe { libc::kill(self.0, libc::SIGKILL) };
+    }
+}
+
 #[tokio::test]
 async fn descendant_holding_stdout_does_not_hang() {
     // 자손이 stdout 파이프를 물고 있어도 마감 안에 결과를 준다 — detach 손자 재현.
+    let dir = tempfile::tempdir().unwrap();
+    let pidfile = dir.path().join("grandchild.pid");
     let cmd: Vec<String> = vec![
         "sh".into(),
         "-c".into(),
-        "echo backgrounded; sleep 30 & exit 0".into(),
+        format!(
+            "echo backgrounded; sleep 30 & echo $! > {}; exit 0",
+            pidfile.display()
+        ),
     ];
     let started = std::time::Instant::now();
     let result = run_in_dir(&cmd, "/tmp", Duration::from_secs(5)).await;
+    // 손자는 테스트가 내린다 — 남기면 `cargo test` 가 끝난 뒤에도 30초 동안 그 프로세스 그룹에 남는다.
+    let _reap = KillOnDrop(
+        std::fs::read_to_string(&pidfile)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap(),
+    );
     assert!(
         started.elapsed() < Duration::from_secs(3),
         "매달리면 안 된다"
