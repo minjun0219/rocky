@@ -333,6 +333,13 @@ pub async fn run_daemon(
         rc_control: rc_control.clone(),
         ..ServerOptions::new(store)
     });
+    // 재시작이 이어받을 세션을 고를 때 받은편지함 등록(마지막 턴 시각)을 본다.
+    if let Some(control) = &rc_control {
+        let weak = Arc::downgrade(&state);
+        control.set_inbox_source(Arc::new(move || {
+            weak.upgrade().map(|s| s.inboxes()).unwrap_or_default()
+        }));
+    }
     // rc 감시 — `rc.supervise` 일 때만. 꺼진 고정 서버를 2분마다 되살리고, 데몬 맥락의 자격이 끊기거나 돌아오면 배너 한 번.
     // 야간 재시작 — `rc.nightly` 일 때만. 못 띄운 서버는 표식을 남기고 감시가 살리므로 둘을 함께 켠다.
     if let (Some(control), Some(config)) = (rc_control, rc.as_ref()) {

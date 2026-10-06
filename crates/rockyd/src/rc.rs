@@ -397,7 +397,13 @@ pub struct RcController {
     last: std::sync::Mutex<HashMap<String, RcResult>>,
     supervise: std::sync::Mutex<SuperviseState>,
     nightly: std::sync::Mutex<nightly::NightlyRun>,
+    /// 받은편지함 등록(세션 id · 소켓 · 마지막 턴 시각) — 재시작이 이어받을 세션을 고를 때 본다. 데몬이 서버 상태를 만든 뒤 잇는다.
+    inboxes: std::sync::OnceLock<InboxSource>,
 }
+
+/// 받은편지함 등록을 읽는 함수 — 데몬에서는 `ServerState::inboxes`.
+pub type InboxSource =
+    Arc<dyn Fn() -> Vec<rocky_core::peer_inbox::InboxRegistration> + Send + Sync>;
 
 /// 감시의 메모리 상태 — 켜졌나, 마지막 바퀴, 자격 기록(파일과 같은 값), 대상별 연속 실패와 다음 시도 시각(unix 초).
 #[derive(Default)]
@@ -429,7 +435,30 @@ impl RcController {
             last: std::sync::Mutex::new(HashMap::new()),
             supervise: std::sync::Mutex::new(SuperviseState::default()),
             nightly: std::sync::Mutex::new(nightly::NightlyRun::default()),
+            inboxes: std::sync::OnceLock::new(),
         }
+    }
+
+    /// 받은편지함 등록을 읽는 함수를 잇는다 — 한 번만(두 번째부터는 무시).
+    pub fn set_inbox_source(&self, source: InboxSource) {
+        let _ = self.inboxes.set(source);
+    }
+
+    /// 재시작이 이어받을 열린 세션의 id — 그 서버의 자식 세션 중 가장 최근에 대화한 것(`rc::resume_session`). 못 읽으면 None
+    /// (호출자는 `-c` 로 간다). 내리기 **전에** 부른다 — 내리면 자식이 사라진다.
+    async fn open_session(&self, server_pid: u32) -> Option<String> {
+        let ps = (self.runner)(
+            argv(&["ps", "-axww", "-o", "pid=,ppid=,etime=,args="]),
+            String::new(),
+            PROBE_TIMEOUT,
+        )
+        .await;
+        if !ps.ok() {
+            return None;
+        }
+        let rows = rc::parse_ps(&ps.stdout);
+        let registrations = self.inboxes.get().map(|f| f()).unwrap_or_default();
+        rc::resume_session(&rows, server_pid, &registrations)
     }
 
     /// 요청을 받는다 — 대상을 찾고 진행 중 표시를 건다. 실제 일은 `run` 이 백그라운드에서 한다.
@@ -744,8 +773,8 @@ impl RcController {
             .find(|s| s.dir == target.dir)
             .filter(|s| s.running)
             .and_then(|s| s.pid.map(|pid| (pid, s.sessions)));
-        let session = match &command {
-            RcCommand::Pin(id) => Some(id.as_str()),
+        let mut session = match &command {
+            RcCommand::Pin(id) => Some(id.clone()),
             _ => None,
         };
         // 꺼져 있던 것을 재시작하면 그냥 띄운다(세션을 골랐으면 그 세션으로).
@@ -773,12 +802,19 @@ impl RcController {
                         if waited && policy.known_version.is_none() {
                             version = self.claude_version().await;
                         }
-                        let mode = match &command {
+                        let mut mode = match &command {
                             RcCommand::Restart { fresh } => {
                                 rc::restart_mode(target.pinned, sessions > 0, *fresh)
                             }
                             _ => LaunchMode::Pin,
                         };
+                        // `-c` 는 서버가 처음 만든 세션을 되살린다 — 나중에 열린 대화를 놓친다. 열린 세션의 id 를 읽어 못 박는다.
+                        if mode == LaunchMode::Resume {
+                            if let Some(id) = self.open_session(pid).await {
+                                mode = LaunchMode::Pin;
+                                session = Some(id);
+                            }
+                        }
                         if !self.stop(&target.label, pid).await {
                             return Err(format!("내리지 못했다(pid {pid}) — 손대지 않고 둔다"));
                         }
@@ -797,7 +833,7 @@ impl RcController {
             mode,
             fresh,
             version.as_deref(),
-            session,
+            session.as_deref(),
             policy.backoff,
         )
         .await

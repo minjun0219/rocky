@@ -597,7 +597,7 @@ pub fn turn_in_progress(
 pub fn mode_note(mode: LaunchMode, fresh: bool) -> &'static str {
     match mode {
         LaunchMode::Resume => "열린 세션 이어받기(-c)",
-        LaunchMode::Pin => "고른 세션 이어받기(--session-id)",
+        LaunchMode::Pin => "그 세션 이어받기(--session-id)",
         _ if fresh => "이어받지 않고 새로",
         LaunchMode::Session => "새 세션과 함께",
         LaunchMode::Server => "서버만(세션은 앱에서)",
@@ -1436,4 +1436,54 @@ pub fn find_handoff<'a>(
     records
         .iter()
         .find(|r| r.label == key || r.todo_ref.eq_ignore_ascii_case(key))
+}
+
+// ── 재시작이 이어받을 세션 ───────────────────────────────────────────────────────
+// `claude rc -c` 는 "그 폴더에서 마지막 서버가 처음 만든 세션" 을 되살린다(공식 문서) — 서버에 나중에 열린 대화는 놓친다
+// (2026-10-06 실측: 하던 대화 대신 9월에 시작한 첫 세션이 돌아왔다). 그래서 내리기 전에 열린 세션의 id 를 읽어 못 박는다.
+
+/// 세션 명령줄에서 claude.ai 쪽 세션 id — `--session-id <id>` 가 있으면 그것, 없으면 `--sdk-url …/sessions/<id>` 의 끝. 형식이
+/// 아니면(`valid_session_id`) None.
+pub fn session_id_of(args: &str) -> Option<String> {
+    let f: Vec<&str> = args.split_whitespace().collect();
+    let flag = f
+        .windows(2)
+        .find(|w| w[0] == "--session-id")
+        .map(|w| w[1])
+        .or_else(|| f.iter().find_map(|a| a.strip_prefix("--session-id=")));
+    let url = || {
+        f.windows(2)
+            .find(|w| w[0] == "--sdk-url")
+            .and_then(|w| w[1].split('?').next()?.rsplit('/').next())
+    };
+    flag.or_else(url)
+        .filter(|id| valid_session_id(id))
+        .map(str::to_string)
+}
+
+/// 재시작이 이어받을 세션 — 그 서버의 열린 세션(직계 자식 중 세션 명령줄) 중 가장 최근에 대화한 것. 대화 시각은 받은편지함
+/// 등록(`seen_at` — 훅이 턴마다 갱신하고, 소켓 이름이 그 세션 pid)으로 보고, 등록이 없으면 가장 늦게 열린 것(떠 있은 시간이
+/// 가장 짧은 것). id 를 못 읽으면 None — 그때 호출자는 `-c` 로 간다.
+pub fn resume_session(
+    rows: &[PsRow],
+    server_pid: u32,
+    registrations: &[crate::peer_inbox::InboxRegistration],
+) -> Option<String> {
+    let mut seen: HashMap<u32, i64> = HashMap::new();
+    for r in registrations {
+        if let Some(pid) = socket_pid(&r.socket) {
+            let at = seen.entry(pid).or_insert(r.seen_at);
+            *at = (*at).max(r.seen_at);
+        }
+    }
+    rows.iter()
+        .filter(|r| r.ppid == server_pid && is_session_command(&r.args))
+        .filter_map(|r| Some((r, session_id_of(&r.args)?)))
+        .max_by_key(|(r, _)| {
+            (
+                seen.get(&r.pid).copied().unwrap_or(i64::MIN),
+                std::cmp::Reverse(r.uptime_secs.unwrap_or(u64::MAX)),
+            )
+        })
+        .map(|(_, id)| id)
 }

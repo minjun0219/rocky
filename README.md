@@ -96,7 +96,7 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 ```bash
 rocky rc                         # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 핸드오프 서버, 대상 밖 서버, 자격, Antigravity
 rocky rc start repo-a --wait     # 꺼진 대상을 띄운다(세션까지)
-rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으면 이어받기(-c), --fresh 면 새로. 붙은 원격 세션은 끊긴다
+rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으면 그 세션을 이어받기(가장 최근에 대화한 것, --session-id), --fresh 면 새로. 붙은 원격 세션은 끊긴다
                                  # 막 대화하는 중이면 턴이 끝날 때까지(최대 10분) 기다렸다 내린다
                                  # 이 세션이 붙은 서버는 거절한다(재시작이 이 턴을 끊는다 — 웹이나 다른 세션에서)
 rocky rc restart repo-a --session cse_…  # 이어받을 세션을 claude.ai 쪽 id 로 못 박는다

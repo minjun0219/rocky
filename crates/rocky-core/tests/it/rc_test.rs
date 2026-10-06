@@ -415,7 +415,7 @@ fn mode_notes_say_why() {
     );
     assert_eq!(
         mode_note(LaunchMode::Pin, false),
-        "고른 세션 이어받기(--session-id)"
+        "그 세션 이어받기(--session-id)"
     );
 }
 
@@ -1302,4 +1302,44 @@ fn handoff_servers_are_strays_with_a_matching_record() {
         Some(700)
     );
     assert_eq!(find_handoff(&records, "rocky-1"), None);
+}
+
+#[test]
+fn a_restart_resumes_the_session_that_was_talking_last() {
+    use rocky_core::peer_inbox::InboxRegistration;
+    assert_eq!(
+        session_id_of("/x/claude --print --sdk-url https://a/v1/code/sessions/cse_01Ab --session-id cse_01Ab --x"),
+        Some("cse_01Ab".to_string())
+    );
+    assert_eq!(
+        session_id_of("/x/claude --sdk-url https://a/v1/code/sessions/cse_2?x=1"),
+        Some("cse_2".to_string()),
+        "--session-id 가 없으면 sdk-url 끝"
+    );
+    assert_eq!(
+        session_id_of("/x/claude --sdk-url https://a/v1/code/sessions/../etc"),
+        None
+    );
+
+    let rows = parse_ps(
+        "  100     1 10:00 claude rc --name hail-mary\n  101   100 09:00 /x/claude --sdk-url https://a/v1/code/sessions/cse_first\n  102   100 01:00 /x/claude --sdk-url https://a/v1/code/sessions/cse_later\n  103     1 01:00 /x/claude --sdk-url https://a/v1/code/sessions/cse_other\n",
+    );
+    let reg = |pid: u32, seen_at: i64| InboxRegistration {
+        session_id: format!("s{pid}"),
+        socket: format!("/tmp/cc-socks/{pid}.sock"),
+        cwd: "/w/hail-mary".into(),
+        seen_at,
+        restored: false,
+    };
+    assert_eq!(
+        resume_session(&rows, 100, &[reg(101, 50), reg(102, 10)]).as_deref(),
+        Some("cse_first"),
+        "가장 최근에 대화한 세션 — 먼저 열렸어도"
+    );
+    assert_eq!(
+        resume_session(&rows, 100, &[]).as_deref(),
+        Some("cse_later"),
+        "등록이 없으면 가장 늦게 열린 것"
+    );
+    assert_eq!(resume_session(&rows, 999, &[]), None, "그 서버의 자식만");
 }
