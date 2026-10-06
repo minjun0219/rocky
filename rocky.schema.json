@@ -210,7 +210,7 @@
       "properties": {
         "source": {
           "enum": ["auto", "stdin", "api", "none"],
-          "description": "한도를 어디서 읽나. stdin = statusline 입력의 rate_limits(Pro/Max), none = 한도를 다루지 않음. api·auto 의 usage API 조회는 아직 없다(조회 대기로 보인다). 기본 auto."
+          "description": "한도를 어디서 읽나. stdin = statusline 입력의 rate_limits(Pro/Max) — 한도가 소진되면 크레딧을 보려고 usage API 도 부른다, api = usage API(statusline 이 갱신 프로세스를 detached 로 띄우고 결과는 다음 렌더에 나온다), auto = 최근 6시간 안에 stdin 한도를 봤으면 stdin, 아니면 api, none = 한도를 다루지 않음. 기본 auto."
         },
         "alertPercent": {
           "type": "number",

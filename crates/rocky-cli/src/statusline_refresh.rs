@@ -160,7 +160,7 @@ fn load_token(
     match std::fs::read_to_string(&file) {
         Ok(raw) => match claude_account::parse_token(&raw) {
             Ok(token) => return claude_account::check_token(token, now).map_err(Failure::from),
-            Err(e) => errors.push(format!("file: {e}")),
+            Err(e) => errors.push(format!("file: {}: {e}", file.display())),
         },
         Err(e) => errors.push(format!("file: {}: {e}", file.display())),
     }
@@ -208,14 +208,16 @@ fn fetch(token: &str, now: DateTime<Utc>) -> Result<rocky_core::limits::CachedUs
         .with_config()
         .limit(1 << 20)
         .read_to_vec()
-        .map_err(|e| Failure::from(format!("Get {url:?}: http {status}: read body: {e}")))?;
+        .map_err(|e| Failure::from(format!("read body: {e} (GET {url} → http {status})")))?;
     match status {
         429 => Err(Failure {
             message: "rate limited (429)".into(),
             retry_after,
         }),
         401 | 403 => Err("unauthorized (401/403)".to_string().into()),
-        200 => parse_usage_response(&body, now).map_err(Failure::from),
+        // 원인을 앞에, 요청 맥락은 뒤 괄호에 — statusline 은 에러를 40바이트에서 자르므로 앞이 원인이어야 읽힌다.
+        200 => parse_usage_response(&body, now)
+            .map_err(|e| Failure::from(format!("{e} (GET {url} → http {status})"))),
         _ => Err(format!(
             "http {status}: {}",
             truncate(&String::from_utf8_lossy(&body), 120)
