@@ -201,7 +201,15 @@ async fn restart_with_live_session_stops_then_resumes() {
     );
     assert_eq!(
         w.spawns,
-        vec![vec!["claude", "rc", "--name", "repo-a", "-c"]]
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--session-id",
+            "cse_1"
+        ]],
+        "열린 세션의 id 로 못 박는다 — -c 는 서버가 처음 만든 세션을 되살린다"
     );
     drop(w);
     assert_eq!(events(&f), vec!["stop", "start", "result"]);
@@ -256,9 +264,10 @@ async fn resume_that_dies_falls_back_to_fresh_once() {
     assert_eq!(
         f.world.lock().unwrap().spawns,
         vec![
-            vec!["claude", "rc", "--name", "repo-a", "-c"],
+            vec!["claude", "rc", "--name", "repo-a", "--session-id", "cse_1"],
             vec!["claude", "rc", "--name", "repo-a"],
-        ]
+        ],
+        "못 박은 세션이 안 뜨면 새로 한 번 더"
     );
 }
 
@@ -842,8 +851,15 @@ async fn restart_waits_for_the_turn_to_end_then_resumes() {
     assert!(result.ok, "{}", result.message);
     assert_eq!(
         world.lock().unwrap().spawns,
-        vec![vec!["claude", "rc", "--name", "repo-a", "-c"]],
-        "턴이 끝난 뒤 이어받는다"
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--session-id",
+            "cse_1"
+        ]],
+        "턴이 끝난 뒤 그 세션을 이어받는다"
     );
     let events = event_names(&dir);
     let wait = events
@@ -875,7 +891,7 @@ async fn pinned_session_restart_uses_that_session_or_starts_fresh() {
     let f = fixture(true, true, vec![CONNECTED]);
     let result = run(&f, "repo-a", RcCommand::Pin("cse_01abc".into())).await;
     assert!(result.ok, "{}", result.message);
-    assert!(result.message.contains("고른 세션"));
+    assert!(result.message.contains("세션 이어받기(--session-id)"));
     assert_eq!(
         f.world.lock().unwrap().spawns,
         vec![vec![
@@ -1004,5 +1020,63 @@ async fn server_only_start_makes_no_session() {
             "repo-b",
             "--no-create-session-in-dir"
         ]]
+    );
+}
+
+#[tokio::test]
+async fn restart_resumes_the_open_session_that_talked_last() {
+    // 서버 100 에 세션 둘 — 먼저 열린 101(cse_first)이 가장 최근에 대화했다(받은편지함 등록 시각).
+    let dir = tempfile::tempdir().unwrap();
+    let world = Arc::new(Mutex::new(World {
+        alive: [100].into(),
+        next_pid: 200,
+        script: vec![CONNECTED].into(),
+        ..Default::default()
+    }));
+    let runner: Runner = Arc::new(|argv: Vec<String>, _stdin, _timeout| {
+        let out = match argv[0].as_str() {
+            "ps" => "    1     0 30-00:00:00 /sbin/launchd\n  100     1    10:00 claude rc --name repo-a\n  101   100    09:00 /x/claude --sdk-url https://a/v1/code/sessions/cse_first\n  102   100    01:00 /x/claude --sdk-url https://a/v1/code/sessions/cse_later\n".to_string(),
+            "lsof" => "p100\nfcwd\nn/w/repo-a\n".to_string(),
+            "claude" => r#"{"loggedIn": true}"#.to_string(),
+            _ => return Box::pin(async { CmdOutput::failure("없음") }),
+        };
+        Box::pin(async move {
+            CmdOutput {
+                code: 0,
+                stdout: out,
+                stderr: String::new(),
+            }
+        })
+    });
+    let control = Arc::new(RcController::new(
+        Some(config()),
+        "/home/u".into(),
+        dir.path().join("rc"),
+        runner,
+        ops(world.clone()),
+    ));
+    let reg = |pid: u32, seen_at: i64| rocky_core::peer_inbox::InboxRegistration {
+        session_id: format!("s{pid}"),
+        socket: format!("/tmp/cc-socks/{pid}.sock"),
+        cwd: "/w/repo-a".into(),
+        seen_at,
+        restored: false,
+    };
+    control.set_inbox_source(Arc::new(move || vec![reg(101, 50), reg(102, 10)]));
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    let result = control.run(target, command).await;
+    assert!(result.ok, "{}", result.message);
+    assert_eq!(
+        world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--session-id",
+            "cse_first"
+        ]],
+        "나중에 열렸어도 덜 쓴 세션이 아니라, 가장 최근에 대화한 세션"
     );
 }
