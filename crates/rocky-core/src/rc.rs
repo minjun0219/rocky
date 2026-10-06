@@ -574,6 +574,11 @@ pub const STOP_GRACE: Duration = Duration::from_secs(20);
 pub const REGISTRATION_FIRST: Duration = Duration::from_secs(3);
 pub const REGISTRATION_POLL: Duration = Duration::from_secs(2);
 pub const REGISTRATION_WAIT: Duration = Duration::from_secs(40);
+/// 기동 로그(`<라벨>.out` · `.err`)를 비우는 크기 — 세션이 붙은 서버는 화면을 다시 그릴 때마다 덧붙여 분당 수십 KB 씩 커진다
+/// (2026-10-07 실측: 2시간 40분에 4.25MB). 등록 판정은 띄운 뒤 `REGISTRATION_WAIT` 동안만 읽으니 그 안에는 닿지 않을 크기로 둔다.
+pub const SERVER_LOG_CAP: u64 = 1024 * 1024;
+/// 기동 로그 크기를 보는 간격.
+pub const SERVER_LOG_TRIM_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 /// 낮 재시작의 턴 대기 — 열린 세션이 `TURN_QUIET` 안에 대화했으면 막 답하는 중으로 보고 `TURN_POLL` 마다 다시 보며
 /// `TURN_WAIT` 까지 기다린다. 야간의 "쉬는 서버"(60분)보다 훨씬 짧다 — 사람이 시킨 재시작이고, 대화 중인 세션은

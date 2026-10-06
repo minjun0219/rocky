@@ -25,6 +25,12 @@
 - **등록은 기동 로그로 판정**한다(`<todo dir>/rc/<라벨>.out`·`.err`) — 프로세스가 떠 있는 것만으로 "떴다" 하지 않는다. `already served`
   면 그 서버를 내리고 60·120초 뒤 다시(45·90초로는 못 풀린 재시작이 있었다 — 2026-10-06 실측, 내린 뒤 3분쯤에 풀렸다), `-c`(이어받기)나
   못 박은 세션이 뜨자마자 내려가면 새로 한 번 더.
+- **기동 로그는 비우고 append 로 연다**(`server_log`) — 세션이 붙은 서버는 화면을 다시 그릴 때마다 덧붙여 분당 수십 KB 씩 자란다
+  (2026-10-07 실측: 2시간 40분에 4.25MB). 데몬이 10분마다 1MiB 를 넘은 `rc/*.out` · `*.err`(핸드오프 서버 것 포함)를 비운다
+  (`trim_logs` · `spawn_rc_log_trim` — 감시 · 야간 설정과 상관없이 `rc` 블록만 있으면 돈다). append 가 아니면 비운 뒤에도 서버가
+  옛 위치에 이어 써 앞이 빈 큰 파일이 된다(배포 전부터 떠 있던 서버는 다음 재시작까지 그렇다 — 겉보기 크기만 크고 디스크는 안 쓴다).
+  로그는 띄운 직후에만 읽으니(등록 판정 40초, 핸드오프는 세션 확인까지 길어야 100초쯤) 그 안에는 닿지 않는 크기이고, 지금 띄우는
+  중인 라벨은 건너뛴다. 링크는 따라가지 않는다. 비웠거나 못 비운 것이 있으면 이벤트 `log-trim`.
 - 재시작은 열린 세션이 있을 때만 이어받는다 — **내리기 전에 그 서버의 자식 세션 명령줄에서 세션 id 를 읽어 `--session-id` 로
   못 박는다**(`rc::resume_session` · `session_id_of`). 세션이 여럿이면 받은편지함 등록 시각(훅이 턴마다 갱신)이 가장 최근인 것, 등록이
   없으면 가장 늦게 열린 것. id 를 못 읽을 때만 `-c` — `-c` 는 "그 폴더에서 마지막 서버가 처음 만든 세션" 을 되살려, 서버에 나중에 열린
@@ -115,6 +121,6 @@
 | CLI | `crates/rocky-cli/src/rc_cmd.rs` |
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
-테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인),
+테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인), `crates/rockyd/tests/it/rc_log_test.rs`(커진 로그만 비움 · 비운 뒤 append 로 처음부터),
 `crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계 — canary · 회복 · 마감 · 네트워크 · 바쁨 · 일정),
 `crates/rocky-cli/tests/it/rc_cmd_test.rs`.

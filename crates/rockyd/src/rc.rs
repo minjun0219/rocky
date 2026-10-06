@@ -297,8 +297,8 @@ pub fn default_ops() -> RcOps {
                 .args(args)
                 .current_dir(dir)
                 .stdin(std::process::Stdio::null())
-                .stdout(std::fs::File::create(out)?)
-                .stderr(std::fs::File::create(err)?)
+                .stdout(server_log(out)?)
+                .stderr(server_log(err)?)
                 // 데몬의 launchd 표식을 물려주지 않는다 — 자식이 자기를 launchd 잡으로 오판한다.
                 .env_remove("XPC_SERVICE_NAME")
                 .process_group(0)
@@ -332,6 +332,17 @@ pub fn default_ops() -> RcOps {
             i64::try_from(secs).ok()
         }),
     }
+}
+
+/// 기동 로그를 비우고 append 로 연다 — 데몬이 커진 로그를 비우면(`trim_logs`) 서버가 그다음 출력부터 처음부터 다시 쓰게. append
+/// 가 아니면 비운 뒤에도 서버가 옛 위치에 이어 써, 앞이 빈(구멍 난) 큰 파일이 된다.
+fn server_log(path: &Path) -> std::io::Result<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    file.set_len(0)?;
+    Ok(file)
 }
 
 /// 기동 버전을 재는 `claude --version` 한도 — 새 바이너리의 첫 실행은 Gatekeeper 검사로 수십 초 멎는다(실측 8~35초).
@@ -1034,6 +1045,60 @@ impl RcController {
         std::fs::read_to_string(self.log_path(label, ext)).unwrap_or_default()
     }
 
+    /// `SERVER_LOG_CAP` 을 넘은 기동 로그(`*.out` · `*.err`, 핸드오프 서버 것 포함)를 비우고 그 파일 이름을 돌려준다. 서버는
+    /// append 로 쓰니(`server_log`) 다음 출력부터 처음부터 다시 쌓인다. 로그는 띄운 직후에만 읽으니(등록 판정, 핸드오프는 세션
+    /// 확인까지) 떠 있는 서버의 로그를 비워도 판정에는 영향이 없다 — 지금 띄우는 중인 라벨만 건너뛴다. 일반 파일만(링크는
+    /// 따라가지 않는다). 비웠거나 못 비운 것이 있으면 `log-trim` 이벤트 한 줄.
+    pub fn trim_logs(&self) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(&self.log_dir) else {
+            return Vec::new();
+        };
+        let busy: HashSet<String> = self
+            .busy
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        let mut trimmed = Vec::new();
+        let mut errors = Vec::new();
+        for e in entries.flatten() {
+            let Ok(name) = e.file_name().into_string() else {
+                continue;
+            };
+            let Some(label) = name
+                .strip_suffix(".out")
+                .or_else(|| name.strip_suffix(".err"))
+            else {
+                continue;
+            };
+            let grown = e.file_type().is_ok_and(|t| t.is_file())
+                && e.metadata().is_ok_and(|m| m.len() > rc::SERVER_LOG_CAP);
+            if !grown || busy.contains(label) {
+                continue;
+            }
+            let path = e.path();
+            let emptied = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .and_then(|f| f.set_len(0));
+            match emptied {
+                Ok(()) => trimmed.push(name),
+                Err(err) => {
+                    errors.push(serde_json::json!({ "path": path, "error": err.to_string() }))
+                }
+            }
+        }
+        if !trimmed.is_empty() || !errors.is_empty() {
+            self.event(
+                "log-trim",
+                "",
+                serde_json::json!({ "files": &trimmed, "errors": errors }),
+            );
+        }
+        trimmed
+    }
+
     fn launch(
         &self,
         target: &Target,
@@ -1185,6 +1250,17 @@ pub fn spawn_rc_supervisor(
         loop {
             control.supervise_tick(&notify).await;
             tokio::time::sleep(every).await;
+        }
+    });
+}
+
+/// 기동 로그 정리 — `every` 마다 커진 로그를 비운다(`trim_logs`). 감시와 따로 돈다: 감시를 꺼도 사람이 띄운 서버와 핸드오프
+/// 서버의 로그는 자란다.
+pub fn spawn_rc_log_trim(control: Arc<RcController>, every: Duration) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(every).await;
+            control.trim_logs();
         }
     });
 }
