@@ -31,7 +31,17 @@
 - **보드를 고르면 그 보드의 세션만** 보인다 — 다른 보드의 세션은 "전체" 에서.
 - **든 할 일은 `doingSessionId` 로 잇는다** — 전체 `sessionId` 와 짧은 `id` 둘 다(핸드오프로 띄운 세션은 짧은 id 로 귀속된다).
 - **셋째 줄은 Claude 가 남긴 요약 한 줄**: 내 차례면 `needs`(없으면 `detail`), 아니면 `detail`. 출력·로그는 두지 않는다.
-- **탭이 보이는 동안 15초마다** `GET /api/sessions` 를 다시 읽는다. ⋯ 메뉴에서 탭을 끄면 `?view=agents` 도 피드로 돌아간다.
+- **세션 목록 폴링은 앱 한 곳**(`useAgentsPolling`, `main.tsx`) — 탭을 보는 동안 15초, 아니면 60초(피드 숫자는 어느 탭에서나
+  보인다). ⋯ 메뉴에서 탭을 끄면 폴링도 멈추고 `?view=agents` 도 피드로 돌아간다.
+
+## 웹 — 피드 "내 차례"
+
+- **사람 답을 기다리는 background 세션(`blocked`)이 행이 된다** — 멈춘 진행과 같은 순위(`MINE_RANK.stuck`). 제목은 `needs`(없으면
+  `detail`), 누르면 에이전트 탭.
+- **진행 중 할 일을 든 세션이면 빼고 그 진행 행(멈춤)만 남긴다** — 같은 일을 두 줄로 세지 않는다. 대신 기다리는 것 문구는 그
+  경우 에이전트 탭에만 보인다.
+- **에이전트 탭을 끄면 이 행도 없다**(GitHub 탭과 같은 규칙 — 끄면 그 표면은 어디에도 안 보인다).
+- **기간으로 자르지 않는다** — 몇 달 잠든 세션도 뜬다. 숨기기(×)는 없고, 치우는 길은 그 세션에 답하거나 `claude rm`.
 
 ## 코드
 
@@ -41,12 +51,13 @@
 | `claude agents --json` 실행·캐시 | `crates/rockyd/src/sessions_exec.rs` |
 | `GET /api/sessions`(`job` 붙이기)·핸드오프 자동 매칭 | `crates/rockyd/src/server.rs`(`read_job_summary`, 핸드오프 라우트) |
 | 에이전트 탭의 판정(상태·보드·묶음) | `web/agents.ts` |
-| 에이전트 탭 화면 | `web/components/AgentsPane.tsx`, 탭 전환 `web/components/ViewSwitch.tsx` |
+| 에이전트 탭 화면·폴링 | `web/components/AgentsPane.tsx`(`useAgentsPolling`), 탭 전환 `web/components/ViewSwitch.tsx` |
+| 피드 행 | `web/lib.ts`(`nowRows`), 누르면 탭으로 `web/components/NowTable.tsx` |
 
 테스트: `crates/rocky-core/tests/it/sessions_test.rs`(`background_rows_without_pid_are_kept`, `job_state_*`),
 `crates/rocky-core/tests/it/doing_test.rs`(`dormant_blocked_background_is_idle_not_gone`),
 `crates/rockyd/tests/it/server_handoff_test.rs`(`background_sessions_carry_job_summary`, `auto_match_skips_dormant_background_sessions`),
-`web/agents.test.ts`, `web/components/AgentsPane.test.tsx`.
+`web/agents.test.ts`, `web/components/AgentsPane.test.tsx`, `web/lib.test.ts`("nowRows — 답을 기다리는 에이전트").
 
 ## 함정
 
