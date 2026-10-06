@@ -21,7 +21,18 @@ fn main() {
 }
 
 fn run(argv: &[String]) -> Result<(), String> {
-    let parsed = parse_flags(argv)?;
+    let parsed = match parse_flags(argv) {
+        Ok(parsed) => parsed,
+        // statusLine 명령줄이 틀려도 statusline 은 비지 않는다 — 무엇이 틀렸는지 한 줄을 낸다(cc-usage 와 같다).
+        Err(e)
+            if argv.first().is_some_and(|c| c == "statusline")
+                && argv.iter().any(|a| a == "--full") =>
+        {
+            println!("[rocky] {e}");
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
     let command = parsed.positionals.first().map(String::as_str).unwrap_or("");
     let rest: Vec<String> = parsed.positionals.iter().skip(1).cloned().collect();
 

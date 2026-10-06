@@ -699,6 +699,17 @@ fn full_source_none_and_bad_flag_touch_nothing() {
             None,
             "[rocky] --source \"bogus\": auto|stdin|api|none 중 하나\n",
         ),
+        // 명령줄이 틀려도 statusline 은 비지 않는다.
+        (
+            &["--source"][..],
+            None,
+            "[rocky] flag --source requires a value\n",
+        ),
+        (
+            &["--source=none"][..],
+            None,
+            "[rocky] unknown flag: --source=none\n",
+        ),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();

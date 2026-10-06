@@ -21,7 +21,7 @@
   세션에만(cc-usage 는 계정마다 설정 파일이 따로라 문제가 없었다) · `HOME` 이 없으면 캐시·계정을 쓰지 않는다(경보는 배지로
   고정, 계정 배지 없음 — cc-usage 는 `CLAUDE_CONFIG_DIR`·`XDG_CACHE_HOME` 만으로도 쓴다) · 스키마가 막는 잘못된 `badges` 항목
   (`null`, 대소문자가 다른 키, 타입이 틀린 값)은 그 항목만 버린다(cc-usage 는 0값 배지로 받거나 설정 전체가 에러) ·
-  `--source=none` 처럼 `=` 로 붙인 플래그는 받지 않는다(rocky CLI 파서의 계약 — `--source none`) · source 환경 변수 이름은
+  `--source=none` 처럼 `=` 로 붙인 플래그는 받지 않는다(rocky CLI 파서의 계약 — `--source none`. cc-usage 처럼 무엇이 틀렸는지 `[rocky] …` 한 줄을 낸다) · source 환경 변수 이름은
   `ROCKY_STATUSLINE_SOURCE`(cc-usage `CC_USAGE_SOURCE`).
 - **미러 대상에서 뺀 것:** cc-usage 의 `update` · `config` · `version` — rocky 에 같은 일을 하는 명령(`rocky update` ·
   `rocky config`)이 있다. guard · agy 는 지금 쓰지 않아도 "기능 동일" 에 넣는다(조각 5).
