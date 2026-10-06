@@ -3,13 +3,14 @@
  *
  * Playwright 러너는 Node 에서 돈다 — 그래서 `Bun.*` 대신 `node:` 모듈만 쓴다(Bun 에서도 그대로 돈다).
  * 실제 보드·작업로그·사용 로그·GitHub 계정에는 닿지 않는다: HOME 까지 임시 폴더로 돌리고 환경 변수는
- * 필요한 것만 넘긴다.
+ * 필요한 것만 넘긴다. 세션 목록도 이 기기의 것이 아니라 가짜 `claude`(`claude.ts`)가 낸다.
  */
 import { spawn } from 'node:child_process';
 import { closeSync, openSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installFakeClaude } from './claude';
 
 export const root = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -50,6 +51,7 @@ export async function startDaemon(work: string): Promise<Daemon> {
       2,
     ),
   );
+  const claude = installFakeClaude(work);
   const log = join(work, 'rockyd.log');
   const fd = openSync(log, 'w');
   // 환경은 물려받지 않는다: GH_TOKEN·ROCKY_* 같은 값이 새면 실제 계정·설정에 닿는다. HOME 도 임시 폴더라
@@ -57,8 +59,9 @@ export async function startDaemon(work: string): Promise<Daemon> {
   const proc = spawn(join(root, 'target', 'debug', 'rockyd'), [], {
     cwd: root,
     env: {
-      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      PATH: `${claude.bin}${delimiter}${process.env.PATH ?? '/usr/bin:/bin'}`,
       HOME: work,
+      CLAUDE_CONFIG_DIR: claude.configDir,
       ROCKY_CONFIG: config,
       ROCKY_TODO_UI_DIST: join(root, 'dist'),
       ROCKY_USAGE: '0',
