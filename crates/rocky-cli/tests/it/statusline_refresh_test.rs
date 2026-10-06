@@ -381,8 +381,8 @@ fn refresh_caps_an_absurd_retry_after_instead_of_crashing() {
     );
 }
 
-/// `keychainService` 는 그것이 가리키는 폴더(configDir, 없으면 ~/.claude)의 세션에만 — 다른 계정 세션은 기본 규칙
-/// (비기본 폴더면 keychain 을 건너뛴다)으로 간다. 안 그러면 그 토큰으로 남의 숫자를 그린다.
+/// `keychainService` 는 그것이 가리키는 폴더(configDir, 없으면 ~/.claude)의 세션에만 — 다른 계정 세션은 Claude Code 의 이름
+/// 규칙(`Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`)으로 간다. 안 그러면 그 토큰으로 남의 숫자를 그린다.
 #[test]
 fn keychain_setting_applies_only_to_its_own_config_dir() {
     let api = FakeApi::start("200 OK", "", OK_BODY);
@@ -401,11 +401,20 @@ fn keychain_setting_applies_only_to_its_own_config_dir() {
         Some("w@example.com"),
     ));
     let error = usage["last_error"].as_str().unwrap();
-    // 설정의 keychain 항목(rocky-test-absent)은 기본 폴더 것이라 work 세션에서는 묻지도 않는다.
-    assert!(
-        error.contains("keychain: 건너뜀 (비기본 config_dir)"),
-        "{error}"
+    // 설정의 keychain 항목(rocky-test-absent)은 기본 폴더 것이라 work 세션에서는 묻지도 않는다 — 그 폴더의 이름을 묻는다.
+    let derived = rocky_core::claude_account::keychain_service(
+        None,
+        &home.path.join(".claude"),
+        &work,
+        work.to_str(),
+        &home.path,
     );
+    if cfg!(target_os = "macos") {
+        assert!(
+            error.contains(&format!("keychain: service {derived:?}")),
+            "{error}"
+        );
+    }
     assert!(!error.contains("rocky-test-absent"), "{error}");
     assert!(api.requests.lock().unwrap().is_empty());
 }
@@ -543,9 +552,9 @@ fn doctor_reports_what_statusline_would_do() {
     );
 }
 
-/// 비기본 설정 폴더 세션은 keychain 을 건너뛴다고 말하고, 그 폴더의 credentials 를 본다. 만료된 토큰은 이유와 출처를 함께.
+/// 비기본 설정 폴더 세션은 그 폴더의 keychain 이름과 credentials 를 본다. 만료된 토큰은 이유와 출처를 함께.
 #[test]
-fn doctor_explains_skipped_keychain_and_expired_tokens() {
+fn doctor_shows_the_session_dirs_keychain_and_expired_tokens() {
     let home = Home::new(Some(EMAIL), serde_json::json!({"source": "api"}));
     let work = home.path.join("work-claude");
     std::fs::create_dir_all(&work).unwrap();
@@ -556,8 +565,16 @@ fn doctor_explains_skipped_keychain_and_expired_tokens() {
     .unwrap();
     let env = [("CLAUDE_CONFIG_DIR", work.to_str().unwrap())];
     let (_, out, _) = home.run("http://127.0.0.1:1/usage", &env, &["statusline", "doctor"]);
+    // 그 폴더의 keychain 이름(Claude Code 규칙)을 보인다 — 기본 이름을 읽으면 기본 계정의 토큰을 집는다.
+    let derived = rocky_core::claude_account::keychain_service(
+        None,
+        &home.path.join(".claude"),
+        &work,
+        work.to_str(),
+        &home.path,
+    );
     assert!(
-        out.contains("keychain:      (건너뜀 — 비기본 config_dir, creds 파일만 봅니다)"),
+        out.contains(&format!("keychain:      {derived}\n")),
         "{out}"
     );
     assert!(

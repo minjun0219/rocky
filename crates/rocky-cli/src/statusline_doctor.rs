@@ -19,7 +19,7 @@ use crate::statusline_refresh::{fetch_raw, find_token};
 pub fn probe(cfg: &StatuslineConfig, now: DateTime<Utc>) -> Result<String, String> {
     let slot =
         Slot::from_env(cfg.config_dir.as_deref()).ok_or("HOME 을 몰라 계정을 정할 수 없다")?;
-    let found = find_token(cfg, &slot)?;
+    let found = find_token(cfg, &slot, now)?;
     let token = claude_account::check_token(found.token, now)?;
     let body = fetch_raw(&token.access_token, now).map_err(|f| f.message)?;
     Ok(match serde_json::from_slice::<serde_json::Value>(&body) {
@@ -64,18 +64,17 @@ pub fn doctor(
                 (None, None) => println!("계정:          (계정 파일 후보 없음)"),
             }
             let settings_dir = claude_account::config_dir(None, cfg.config_dir.as_deref(), home);
-            match claude_account::keychain_service(
-                cfg.keychain_service.as_deref(),
-                &settings_dir,
-                &slot.config_dir,
-                home,
-            ) {
-                Some(service) => println!("keychain:      {service}"),
-                // 빈 값은 설정 누락이 아니라 의도다 — 왜 건너뛰는지 화면에 적는다.
-                None => {
-                    println!("keychain:      (건너뜀 — 비기본 config_dir, creds 파일만 봅니다)")
-                }
-            }
+            let env_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+            println!(
+                "keychain:      {}",
+                claude_account::keychain_service(
+                    cfg.keychain_service.as_deref(),
+                    &settings_dir,
+                    &slot.config_dir,
+                    env_dir.as_deref(),
+                    home,
+                )
+            );
             println!(
                 "creds file:    {}",
                 claude_account::credentials_file(
@@ -138,7 +137,7 @@ pub fn doctor(
     );
 
     match &slot {
-        Some(slot) => match find_token(cfg, slot) {
+        Some(slot) => match find_token(cfg, slot, now) {
             Ok(found) => {
                 let expires = found.token.expires_at.map_or_else(
                     || "unknown".to_string(),

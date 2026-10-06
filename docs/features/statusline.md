@@ -27,6 +27,8 @@
 - **usage API 갱신은 데몬이 아니라 statusline 이 띄운다**(`rocky statusline refresh`, detached + `setsid`). 계정을 세션 환경
   (`CLAUDE_CONFIG_DIR`)으로 판단하는데 데몬은 세션 환경을 볼 수 없어서다 — 자식이 환경을 물려받아 그 계정의 토큰을 쓴다.
   같은 계정의 갱신은 `refresh.lock`(flock)으로 하나만, 실패는 1→30분 backoff(429 면 `Retry-After`). 토큰은 읽기만 한다.
+  keychain 이름은 Claude Code 규칙(`CLAUDE_CONFIG_DIR` 이 있으면 `-<sha256(값)[:8]>` 접미사, `claude_account::keychain_service`)이고,
+  keychain 토큰이 만료됐으면 유효한 파일 토큰이 이긴다(`file_beats_expired_keychain` — 낡은 keychain 항목이 실측으로 있었다).
 - **계정은 세션 환경으로 정한다**(`rocky_core::claude_account`): 설정 폴더 = `CLAUDE_CONFIG_DIR` > `statusline.configDir` >
   `~/.claude`. 계정 파일은 `CLAUDE_CONFIG_DIR` 이면 그 폴더의 `.claude.json` 하나뿐이고(못 읽어도 다른 후보로 넘어가지 않는다 —
   다른 계정의 이메일을 집는다), 아니면 `<설정 폴더>/.claude.json` → 기본 설치일 때만 `~/.claude.json`. 이 우선순위를 바꾸면 다른

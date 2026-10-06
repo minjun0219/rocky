@@ -123,7 +123,7 @@ fn load_token(
     slot: &Slot,
     now: DateTime<Utc>,
 ) -> Result<OauthToken, Failure> {
-    let found = find_token(cfg, slot)?;
+    let found = find_token(cfg, slot, now)?;
     claude_account::check_token(found.token, now).map_err(|e| match found.file {
         // 원인을 앞에, 어느 파일인지는 뒤에 — statusline 은 에러를 40바이트에서 자른다.
         Some(file) => Failure::from(format!("{e} (file: {})", file.display())),
@@ -140,9 +140,13 @@ pub(crate) struct FoundToken {
     pub file: Option<std::path::PathBuf>,
 }
 
-/// 토큰을 찾는다(`tokenEnv` → keychain → `.credentials.json`). keychain 에서 찾았으면 만료여도 그 결과다 — 파일로 넘어가지
-/// 않는다(cc-usage 와 같다). 못 찾으면 후보마다의 이유를 모은 문구.
-pub(crate) fn find_token(cfg: &StatuslineConfig, slot: &Slot) -> Result<FoundToken, String> {
+/// 토큰을 찾는다(`tokenEnv` → keychain → `.credentials.json`). keychain 토큰이 만료됐으면 유효한 파일 토큰이 이긴다(cc-usage
+/// 는 keychain 결과로 끝낸다 — 의도된 차이). 못 찾으면 후보마다의 이유를 모은 문구.
+pub(crate) fn find_token(
+    cfg: &StatuslineConfig,
+    slot: &Slot,
+    now: DateTime<Utc>,
+) -> Result<FoundToken, String> {
     if let Some(var) = cfg.token_env.as_deref() {
         if let Some(v) = std::env::var(var)
             .ok()
@@ -163,25 +167,35 @@ pub(crate) fn find_token(cfg: &StatuslineConfig, slot: &Slot) -> Result<FoundTok
     let home = Path::new(&home);
     // keychainService·credentialsFile 이 가리키는 폴더 — 설정의 configDir(세션 env 는 보지 않는다).
     let settings_dir = claude_account::config_dir(None, cfg.config_dir.as_deref(), home);
+    let env_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
     let mut errors = Vec::new();
+    // keychain 에서 찾았는데 만료됐으면 파일을 한 번 더 본다 — 세션을 다른 방식(launchd 아래 등)으로 띄우면 Claude Code 가
+    // 파일에 쓰고 keychain 항목은 낡은 채 남는다(실측). 유효한 파일 토큰이 있으면 그쪽, 없으면 만료된 keychain 토큰을 돌려준다.
+    let mut expired = None;
     if cfg!(target_os = "macos") {
-        match claude_account::keychain_service(
+        let service = claude_account::keychain_service(
             cfg.keychain_service.as_deref(),
             &settings_dir,
             &slot.config_dir,
+            env_dir.as_deref(),
             home,
-        ) {
-            Some(service) => match from_keychain(&service) {
-                Ok(token) => {
-                    return Ok(FoundToken {
-                        token,
-                        source: "keychain".into(),
-                        file: None,
-                    })
-                }
-                Err(e) => errors.push(format!("keychain: service {service:?}: {e}")),
-            },
-            None => errors.push("keychain: 건너뜀 (비기본 config_dir)".to_string()),
+        );
+        match from_keychain(&service) {
+            Ok(token) if token.expires_at.is_some_and(|at| now > at) => {
+                expired = Some(FoundToken {
+                    token,
+                    source: "keychain".into(),
+                    file: None,
+                })
+            }
+            Ok(token) => {
+                return Ok(FoundToken {
+                    token,
+                    source: "keychain".into(),
+                    file: None,
+                })
+            }
+            Err(e) => errors.push(format!("keychain: service {service:?}: {e}")),
         }
     }
     let file = claude_account::credentials_file(
@@ -192,16 +206,23 @@ pub(crate) fn find_token(cfg: &StatuslineConfig, slot: &Slot) -> Result<FoundTok
     );
     match std::fs::read_to_string(&file) {
         Ok(raw) => match claude_account::parse_token(&raw) {
-            Ok(token) => {
+            Ok(token)
+                if expired.is_none()
+                    || claude_account::file_beats_expired_keychain(&token, now) =>
+            {
                 return Ok(FoundToken {
                     token,
                     source: "file".into(),
                     file: Some(file),
                 })
             }
+            Ok(_) => {}
             Err(e) => errors.push(format!("file: {}: {e}", file.display())),
         },
         Err(e) => errors.push(format!("file: {}: {e}", file.display())),
+    }
+    if let Some(found) = expired {
+        return Ok(found);
     }
     Err(format!("token not found ({})", errors.join("; ")))
 }

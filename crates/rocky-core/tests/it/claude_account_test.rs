@@ -101,25 +101,45 @@ fn cache_dirs_split_by_config_dir_and_account() {
 }
 
 #[test]
-fn keychain_only_for_the_default_dir_unless_configured_for_that_dir() {
+fn keychain_name_follows_claude_codes_rule_and_the_setting_stays_in_its_dir() {
     let default = Path::new("/home/me/.claude");
     let work = Path::new("/home/me/work");
+    // 환경 변수 없이 띄운 기본 폴더 세션 — 접미사 없음.
     assert_eq!(
-        keychain_service(None, default, default, home()).as_deref(),
-        Some(DEFAULT_KEYCHAIN_SERVICE)
+        keychain_service(None, default, default, None, home()),
+        DEFAULT_KEYCHAIN_SERVICE
     );
-    // 비기본 폴더에서 기본 이름을 읽으면 기본 계정의 토큰을 집는다 — 건너뛴다.
-    assert_eq!(keychain_service(None, default, work, home()), None);
+    // CLAUDE_CONFIG_DIR 로 띄운 세션 — sha256(그 값) 앞 8자리(실측: /Users/minjun/.claude → 8f9c6e44).
+    assert_eq!(
+        keychain_service(
+            None,
+            Path::new("/Users/minjun/.claude"),
+            Path::new("/Users/minjun/.claude"),
+            Some("/Users/minjun/.claude"),
+            Path::new("/Users/minjun")
+        ),
+        "Claude Code-credentials-8f9c6e44"
+    );
+    let work_name = keychain_service(None, default, work, Some("/home/me/work"), home());
+    assert!(
+        work_name.starts_with("Claude Code-credentials-") && work_name.len() == 32,
+        "{work_name}"
+    );
+    // 환경 변수 없이 설정의 configDir 이 비기본 폴더면 그 경로로 같은 규칙.
+    assert_eq!(keychain_service(None, work, work, None, home()), work_name);
     // 설정값은 그것이 가리키는 폴더의 세션에만 — 다른 폴더 세션이 그 토큰을 집으면 남의 숫자다.
     assert_eq!(
-        keychain_service(Some("Mine"), work, work, home()).as_deref(),
-        Some("Mine")
+        keychain_service(Some("Mine"), work, work, Some("/home/me/work"), home()),
+        "Mine"
     );
     assert_eq!(
-        keychain_service(Some("Mine"), work, default, home()).as_deref(),
-        Some(DEFAULT_KEYCHAIN_SERVICE)
+        keychain_service(Some("Mine"), work, default, None, home()),
+        DEFAULT_KEYCHAIN_SERVICE
     );
-    assert_eq!(keychain_service(Some("Mine"), default, work, home()), None);
+    assert_eq!(
+        keychain_service(Some("Mine"), default, work, Some("/home/me/work"), home()),
+        work_name
+    );
 
     assert_eq!(
         credentials_file(None, default, work, home()),
@@ -184,4 +204,17 @@ fn account_file_carries_the_credit_hint() {
         allow_file(Path::new("/c")),
         PathBuf::from("/c/rocky/statusline/allow.json")
     );
+}
+
+/// keychain 토큰이 만료됐으면 유효한 파일 토큰이 이긴다 — 만료 시각을 모르는 파일 토큰도 유효로 본다.
+#[test]
+fn a_fresh_file_token_beats_an_expired_keychain_token() {
+    let now = chrono::DateTime::from_timestamp(2_000_000, 0).unwrap();
+    let token = |at: Option<i64>| OauthToken {
+        access_token: "t".into(),
+        expires_at: at.and_then(|s| chrono::DateTime::from_timestamp(s, 0)),
+    };
+    assert!(file_beats_expired_keychain(&token(Some(2_000_100)), now));
+    assert!(file_beats_expired_keychain(&token(None), now));
+    assert!(!file_beats_expired_keychain(&token(Some(1_999_000)), now));
 }

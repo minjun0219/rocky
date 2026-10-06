@@ -131,35 +131,52 @@ pub fn cache_bucket(slot: &Path, email: Option<&str>) -> PathBuf {
 /// 경로·이메일을 폴더 이름으로 — sha256 앞 12자리. 폴더 이름에 쓸 수 없는 글자를 피하고 길이를 고정한다(이메일 원문은
 /// 0600 `account.json` 에만 있다).
 fn short_hash(s: &str) -> String {
+    sha256_hex(s, 6)
+}
+
+/// sha256 앞 `bytes` 바이트의 16진수.
+fn sha256_hex(s: &str, bytes: usize) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA256, s.as_bytes());
-    digest.as_ref()[..6]
+    digest.as_ref()[..bytes]
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
 }
 
-/// 기본 설정 폴더의 keychain 항목 이름 — 접미사가 없어 폴더와 무관하게 같은 값이다.
+/// 기본 설정 폴더의 keychain 항목 이름 — `CLAUDE_CONFIG_DIR` 없이 띄운 세션이 쓴다.
 pub const DEFAULT_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 
-/// 토큰을 읽을 keychain 항목. 설정값(`keychainService`)은 **그 설정이 가리키는 폴더**(`settings_dir` — 설정의
-/// `configDir`, 없으면 `~/.claude`)의 세션에만 쓰고, 그 밖에서는 기본 규칙 — **기본 설정 폴더일 때만** 기본 이름.
+/// 토큰을 읽을 keychain 항목. 설정값(`keychainService`)은 **그 설정이 가리키는 폴더**(`settings_dir` — 설정의 `configDir`, 없으면
+/// `~/.claude`)의 세션에만 쓴다. 그 밖에서는 Claude Code 의 이름 규칙을 따른다 — `CLAUDE_CONFIG_DIR` 로 띄운 세션은
+/// `Claude Code-credentials-<sha256(그 값)[:8]>`, 없이 띄운 세션은 접미사 없는 이름(실측 2026-10-06, Claude Code 2.1.289 —
+/// `/Users/…/.claude` 를 준 세션의 항목이 `-8f9c6e44`). 환경 변수 없이 설정의 `configDir` 이 비기본 폴더를 가리키면 그 경로로
+/// 같은 규칙을 쓴다.
 ///
-/// rocky 는 사용자 `rocky.json` 하나를 모든 세션이 같이 쓴다. 설정값을 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰을
-/// 집어 남의 숫자를 그린다. 비기본 폴더에서 기본 이름을 읽어도 같은 일이 난다(cc-usage 가 실측한 함정) — 그래서 그
-/// 경우는 keychain 을 건너뛰고 `<config_dir>/.credentials.json` 을 본다. 못 찾으면 숫자가 안 나오지만, 틀린 계정의
-/// 숫자보다 낫다.
+/// 이름이 폴더마다 갈리므로 다른 계정의 토큰을 집지 않는다. rocky 는 `rocky.json` 하나를 모든 세션이 같이 쓰므로 설정값을
+/// 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰으로 남의 숫자를 그린다 — 설정값만 폴더에 묶는다.
 pub fn keychain_service(
     configured: Option<&str>,
     settings_dir: &Path,
     config_dir: &Path,
+    env_dir: Option<&str>,
     home: &Path,
-) -> Option<String> {
+) -> String {
     if let Some(name) = configured.filter(|n| !n.is_empty()) {
         if clean(config_dir) == clean(settings_dir) {
-            return Some(name.to_string());
+            return name.to_string();
         }
     }
-    (clean(config_dir) == default_config_dir(home)).then(|| DEFAULT_KEYCHAIN_SERVICE.to_string())
+    let keyed = match env_dir.filter(|d| !d.is_empty()) {
+        Some(raw) => Some(raw.to_string()),
+        None if clean(config_dir) != default_config_dir(home) => {
+            Some(config_dir.to_string_lossy().into_owned())
+        }
+        None => None,
+    };
+    match keyed {
+        Some(dir) => format!("{DEFAULT_KEYCHAIN_SERVICE}-{}", sha256_hex(&dir, 4)),
+        None => DEFAULT_KEYCHAIN_SERVICE.to_string(),
+    }
 }
 
 /// 토큰 파일 — 설정값(`credentialsFile`)은 그 설정이 가리키는 폴더의 세션에만, 그 밖에서는 `<config_dir>/.credentials.json`.
@@ -213,6 +230,12 @@ pub fn parse_token(raw: &str) -> Result<OauthToken, String> {
         access_token: access.to_string(),
         expires_at,
     })
+}
+
+/// keychain 토큰이 만료됐을 때 파일 토큰으로 갈아탈까 — 파일 토큰이 유효하면(만료 시각이 없거나 아직이면). 세션을 다른
+/// 방식(launchd 아래 등)으로 띄우면 Claude Code 가 파일에 쓰고 keychain 항목은 낡은 채 남는다(실측 2026-10-06).
+pub fn file_beats_expired_keychain(file: &OauthToken, now: chrono::DateTime<chrono::Utc>) -> bool {
+    file.expires_at.is_none_or(|at| now <= at)
 }
 
 /// 만료됐으면 에러.

@@ -1005,8 +1005,10 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   이름을 골라 `keychainService` 에 적을 때는 **사람이 고른다** — 틀린 항목이면 다른 계정의 숫자를 그린다.
 
   계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
-  로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. 기본이 아닌 설정 폴더는 keychain
-  을 건너뛰고 `<그 폴더>/.credentials.json` 을 본다(비기본 폴더에서 기본 keychain 이름을 읽으면 기본 계정의 토큰을 집는다).
+  로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. keychain 은 Claude Code 의 이름
+  규칙대로 찾는다 — `CLAUDE_CONFIG_DIR` 로 띄운 세션은 `Claude Code-credentials-<sha256(그 값) 앞 8자리>`, 없이 띄운 세션은
+  `Claude Code-credentials`(이름이 폴더마다 갈려 다른 계정의 토큰을 집지 않는다). keychain 토큰이 만료됐으면 유효한
+  `<그 폴더>/.credentials.json` 이 이긴다 — launchd 아래 등에서 띄운 세션은 파일에 쓰고 keychain 항목은 낡은 채 남는다.
   `keychainService` · `credentialsFile` 은 `configDir`(없으면 `~/.claude`)의 세션에만 쓰인다 — `rocky.json` 하나를 모든 세션이
   같이 쓰므로, 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰으로 남의 숫자를 그린다.
 
