@@ -295,9 +295,24 @@ fn session(name: &str, cwd: &str, matched: bool) -> MatchedSession {
         name: name.into(),
         session_id: format!("sess-{name}"),
         status: "idle".into(),
+        state: None,
         cwd: cwd.into(),
         matched,
     }
+}
+
+/// 잠든 background 세션은 status 가 없어 `idle` 로 채워져 온다 — 정상 쉬는 세션으로 읽히지 않게 state 를 보인다.
+#[test]
+fn background_state_wins_over_filled_in_status() {
+    let mut dormant = session("acorn-25", "/w/acorn", true);
+    dormant.state = Some("blocked".into());
+    let out = format_sessions(&sessions_view(
+        true,
+        vec![dormant, session("tally-9a", "/w/tally", false)],
+    ));
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "* acorn-25  blocked  /w/acorn", "{out}");
+    assert_eq!(lines[1], "  tally-9a  idle  /w/tally", "{out}");
 }
 
 #[test]

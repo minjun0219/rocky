@@ -286,6 +286,10 @@ pub struct MatchedSession {
     #[serde(default)]
     pub session_id: String,
     pub status: String,
+    /// background 세션의 수명 상태(`working`·`blocked`·`done`). 잠든 행은 status 가 없어 데몬이 `idle` 로 채우므로
+    /// 있으면 이쪽을 보인다.
+    #[serde(default)]
+    pub state: Option<String>,
     pub cwd: String,
     #[serde(default)]
     pub matched: bool,
@@ -304,7 +308,8 @@ pub fn format_sessions(view: &SessionsView) -> String {
         .iter()
         .map(|s| {
             let mark = if s.matched { "*" } else { " " };
-            format!("{mark} {}  {}  {}", s.name, s.status, s.cwd)
+            let status = s.state.as_deref().unwrap_or(&s.status);
+            format!("{mark} {}  {status}  {}", s.name, s.cwd)
         })
         .collect::<Vec<_>>()
         .join("\n")
