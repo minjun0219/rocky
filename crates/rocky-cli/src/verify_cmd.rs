@@ -60,16 +60,7 @@ fn subscribe(
         "/api/verify/subscriptions",
         Some(&Value::Object(body)),
     )?;
-    printer.emit(&raw, || {
-        let names = raw["subscribed"]
-            .as_array()
-            .map(|a| a.iter().map(target_name).collect::<Vec<_>>())
-            .unwrap_or_default();
-        format!(
-            "✓ 검증 결과 구독 — {} (끝난 실행마다 이 세션 받은편지함으로)",
-            names.join(", ")
-        )
-    });
+    printer.emit(&raw, || render_subscribed(&raw));
     Ok(())
 }
 
@@ -79,7 +70,14 @@ fn unsubscribe(
     flags: &ParsedFlags,
     printer: &Printer,
 ) -> Result<(), String> {
-    let filter = target_filter(rest, flags);
+    let mut filter = target_filter(rest, flags);
+    // 세션 안이면 그 세션이 맡은 것만 — 남의 구독을 걷지 않는다. 터미널(세션 밖)에서는 고른 대상의 구독 전부.
+    if let Some(session) = std::env::var("CLAUDE_CODE_SESSION_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        filter.insert("sessionId".into(), Value::from(session));
+    }
     let query: Vec<String> = filter
         .iter()
         .filter_map(|(k, v)| {
@@ -112,6 +110,32 @@ fn target_filter(rest: &[String], flags: &ParsedFlags) -> serde_json::Map<String
         body.insert("branch".into(), Value::from(branch));
     }
     body
+}
+
+/// 구독 응답 — 대상마다 한 줄: 넘겨받았으면 이전 세션, 지금 결과(구독 전에 끝난 것은 다시 오지 않는다).
+pub fn render_subscribed(raw: &Value) -> String {
+    let rows = raw["subscribed"].as_array().cloned().unwrap_or_default();
+    let mut out = vec!["✓ 검증 결과 구독 — 끝난 실행마다 이 세션 받은편지함으로".to_string()];
+    for r in &rows {
+        let mut line = format!("  {}", target_name(r));
+        if let Some(prev) = r["previousSessionId"].as_str() {
+            line.push_str(&format!(
+                " · 세션 {} 에서 넘겨받음",
+                &prev[..prev.len().min(8)]
+            ));
+        }
+        if let Some(sha) = r["record"]["sha"].as_str() {
+            let state = match r["record"]["state"].as_str() {
+                Some("passed") => "통과",
+                Some("failed") => "실패",
+                Some("running") => "도는 중",
+                _ => "?",
+            };
+            line.push_str(&format!(" · 지금 {} {state}", &sha[..sha.len().min(7)]));
+        }
+        out.push(line);
+    }
+    out.join("\n")
 }
 
 fn target_name(v: &Value) -> String {

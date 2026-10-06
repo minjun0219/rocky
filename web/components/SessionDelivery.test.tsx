@@ -87,6 +87,7 @@ describe('SessionDelivery', () => {
                 prs: ['o/r#7'],
                 filters: ['author:@me'],
                 inbox: ['gh-bugs'],
+                verify: ['rocky main'],
               },
             ],
       };
@@ -94,7 +95,9 @@ describe('SessionDelivery', () => {
     }) as unknown as typeof fetch;
     renderWithStore(<SessionDelivery />, { actor: 'me' });
     expect(await screen.findByText(/\/clear 된 세션 1/)).toBeTruthy();
-    expect(screen.getByText('PR o/r#7 · 필터 author:@me · 수집함 gh-bugs')).toBeTruthy();
+    expect(
+      screen.getByText('PR o/r#7 · 필터 author:@me · 수집함 gh-bugs · 검증 rocky main'),
+    ).toBeTruthy();
     expect(screen.getByText('newsessi')).toBeTruthy();
     expect(screen.getByRole('button', { name: '지켜보기만' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '구독 해지' })).toBeTruthy();

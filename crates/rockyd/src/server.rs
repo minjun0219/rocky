@@ -2426,12 +2426,15 @@ async fn dispatch(
             }
             if *method == Method::DELETE {
                 // 설정에서 빠진 대상의 구독도 걷을 수 있게 저장된 구독에서 고른다. 빼면 그 축은 전부.
+                // `sessionId` 를 주면 그 세션이 맡은 것만 — 세션 안의 `rocky verify unsubscribe` 가 남의 구독을 걷지 않게.
                 let board = query.get("board").map(|b| resolve(b.trim()));
                 let branch = query.get("branch").map(|b| b.trim().to_string());
+                let session = query.get("sessionId").map(|s| s.trim().to_string());
                 let mut removed = 0;
                 for s in store.verify_subscriptions()? {
                     if board.as_ref().is_some_and(|b| *b != resolve(&s.board))
                         || branch.as_ref().is_some_and(|b| *b != s.branch)
+                        || session.as_ref().is_some_and(|id| *id != s.session_id)
                     {
                         continue;
                     }
@@ -2465,7 +2468,23 @@ async fn dispatch(
                 {
                     continue;
                 }
-                subscribed.push(store.subscribe_verify(&t.board, &t.branch, session_id)?);
+                // 다른 세션이 맡고 있었으면 그 사실을 돌려준다(조용히 빼앗지 않게), 지금 결과도 같이(구독 전에 끝난 통과를
+                // 놓치지 않게 — 다음 알림은 다음 실행이다).
+                let previous = store
+                    .verify_subscription(&t.board, &t.branch)?
+                    .map(|s| s.session_id)
+                    .filter(|id| id != session_id);
+                let sub = store.subscribe_verify(&t.board, &t.branch, session_id)?;
+                let mut row =
+                    serde_json::to_value(&sub).map_err(|e| StoreError::new(e.to_string()))?;
+                if let Some(previous) = previous {
+                    row["previousSessionId"] = json!(previous);
+                }
+                if let Some(record) = &t.record {
+                    row["record"] =
+                        serde_json::to_value(record).map_err(|e| StoreError::new(e.to_string()))?;
+                }
+                subscribed.push(row);
             }
             if subscribed.is_empty() {
                 return Ok(error_response(

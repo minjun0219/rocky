@@ -677,6 +677,9 @@ async fn subscribed_session_hears_each_finished_run() {
     .await;
     assert_eq!(code, 200, "{body}");
     assert_eq!(body["subscribed"][0]["sessionId"], "deployer");
+    // 다른 세션("gone")이 맡고 있던 것을 넘겨받았다고 알리고, 지금 결과를 같이 싣는다
+    assert_eq!(body["subscribed"][0]["previousSessionId"], "gone");
+    assert_eq!(body["subscribed"][0]["record"]["state"], "passed");
     let remote = |method: &'static str, path: &'static str, body: Option<serde_json::Value>| {
         call(
             &f.state,
@@ -699,6 +702,16 @@ async fn subscribed_session_hears_each_finished_run() {
     let (_, listed) = remote("GET", "/api/verify/subscriptions", None).await;
     assert_eq!(listed[0]["board"], "proj");
     assert!(listed[0].get("sessionId").is_none());
+    // 세션 범위 해지는 남의 구독을 걷지 않는다
+    let (_, body) = call(
+        &f.state,
+        "DELETE",
+        "/api/verify/subscriptions?sessionId=someone-else",
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(body["removed"], 0);
     let (code, body) = call(
         &f.state,
         "DELETE",

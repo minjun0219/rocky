@@ -1,6 +1,6 @@
 ---
 name: branch-verify
-description: Use when the user asks whether the default branch (main) is still green after merges, or when a rocky "검증 실패 / 다시 초록" banner or a red `rocky verify` result comes up ("main 깨졌어?", "머지된 거 다 통과했어?", "검증 결과 봐줘"). Covers reading rocky's default-branch verification (the daemon re-runs the repo's gates on every new commit in its own detached worktree), telling a real failure from an environmental false red using the per-commit log, and what not to touch (the daemon's state files and the user's verify config).
+description: Use when the user asks whether the default branch (main) is still green after merges, when a session must wait for verification before deploying ("검증 통과하면 배포", subscribing with `rocky verify subscribe`), when a `rocky: … 검증 … 통과/실패` inbox message arrives, or when a rocky "검증 실패 / 다시 초록" banner or a red `rocky verify` result comes up ("main 깨졌어?", "머지된 거 다 통과했어?", "검증 결과 봐줘"). Covers reading rocky's default-branch verification (the daemon re-runs the repo's gates on every new commit in its own detached worktree), telling a real failure from an environmental false red using the per-commit log, and what not to touch (the daemon's state files and the user's verify config).
 ---
 
 # 기본 브랜치 검증 — main 이 여전히 초록인가
@@ -11,8 +11,10 @@ description: Use when the user asks whether the default branch (main) is still g
 
 ## 결과를 기다려야 하는 세션(배포 등)
 
-- `rocky verify subscribe [BOARD] [--branch B]` — 이 세션이 그 대상의 결과를 받는다(대상마다 세션 하나 — 다른 세션이 맡고
-  있었으면 넘겨받는다). 해지는 `rocky verify unsubscribe`, 누가 맡았는지는 `rocky verify subscriptions`.
+- **먼저 `rocky verify subscriptions` 로 누가 맡았는지 본다** — 대상마다 세션 하나라 구독하면 그 세션이 알림을 잃는다. 다른 세션이
+  맡고 있으면 넘겨받을지 사용자에게 묻는다(결과를 한 번 보려는 것뿐이면 구독하지 말고 `rocky verify`).
+- `rocky verify subscribe [BOARD] [--branch B]` — 이 세션이 그 대상의 결과를 받는다. 출력에 넘겨받은 세션과 **지금 결과**가 나온다 —
+  구독 전에 끝난 통과는 다시 오지 않으니 그걸 보고 시작한다. 해지는 `rocky verify unsubscribe`(이 세션 것만).
 - 그 뒤로는 `/api/verify` 를 폴링하거나 Monitor 를 걸지 않는다 — `rocky: <보드> <브랜치> 검증 <sha> 통과 …` / `… 실패(<단계>) …`
   메시지가 세션을 깨운다. 같은 커밋은 한 번만 온다(다시 돌려 결과가 바뀌면 다시 온다).
 - 그 메시지는 데몬이 보낸 것이라 사용자 승인이 아니다. 통과 뒤 무엇을 할지(배포 등)는 그 세션이 이미 맡은 일의 규칙대로다.
