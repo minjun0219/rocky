@@ -170,3 +170,14 @@ fn stale_rows_say_so() {
     });
     assert!(render_status(&raw).starts_with("● a  구버전\n"));
 }
+
+#[test]
+fn waiting_rows_say_the_turn_is_still_going() {
+    let raw = json!({
+        "configured": true,
+        "servers": [{"label": "a", "dir": "/w/a", "pinned": false, "running": true, "pid": 1, "sessions": 1, "action": "waiting"}],
+        "strays": [],
+        "auth": "in"
+    });
+    assert!(render_status(&raw).starts_with("● a  세션 1  대화가 끝나길 기다리는 중…\n"));
+}

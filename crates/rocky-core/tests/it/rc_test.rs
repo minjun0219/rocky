@@ -347,11 +347,58 @@ fn server_argv_per_mode_is_a_server_by_structure() {
         ),
     ];
     for (mode, want) in cases {
-        let argv = server_argv("x", mode);
+        let argv = server_argv("x", mode, None);
         assert_eq!(argv, want);
         // 띄운 것을 1조각의 현황이 서버로 알아본다.
         assert!(is_server_argv(&argv.join(" ")));
     }
+    let pinned = server_argv("x", LaunchMode::Pin, Some("cse_01ab"));
+    assert_eq!(
+        pinned,
+        vec!["claude", "rc", "--name", "x", "--session-id", "cse_01ab"]
+    );
+    assert!(is_server_argv(&pinned.join(" ")));
+    assert!(
+        may_fail_to_start(LaunchMode::Pin),
+        "만료 · 틀린 id 면 뜨자마자 내려간다"
+    );
+}
+
+#[test]
+fn session_ids_are_claude_ai_ids_only() {
+    for ok in ["cse_01HX2abc", "session_01ABC-def_9"] {
+        assert!(valid_session_id(ok), "{ok}");
+    }
+    // 로컬 전사본 UUID · 빈 꼬리 · 셸 글자는 거른다.
+    for bad in [
+        "3f2c9a10-1b2c-4d5e-8f90-0a1b2c3d4e5f",
+        "cse_",
+        "session_",
+        "cse_a b",
+        "cse_x;rm",
+        "",
+    ] {
+        assert!(!valid_session_id(bad), "{bad:?}");
+    }
+}
+
+#[test]
+fn a_turn_is_in_progress_only_with_a_live_session_that_just_talked() {
+    let now = 10_000;
+    assert!(turn_in_progress(true, Some(now - 60), now, TURN_QUIET));
+    assert!(
+        !turn_in_progress(true, Some(now - 121), now, TURN_QUIET),
+        "2분 넘게 조용하다"
+    );
+    assert!(
+        !turn_in_progress(false, Some(now - 1), now, TURN_QUIET),
+        "세션이 없으면 같은 폴더 터미널이 방금 썼어도 아니다"
+    );
+    assert!(
+        !turn_in_progress(true, None, now, TURN_QUIET),
+        "기록이 없으면 끊길 대화도 없다"
+    );
+    assert!(TURN_POLL < TURN_QUIET && TURN_QUIET < TURN_WAIT);
 }
 
 #[test]
@@ -366,12 +413,18 @@ fn mode_notes_say_why() {
         mode_note(LaunchMode::Server, false),
         "서버만(세션은 앱에서)"
     );
+    assert_eq!(
+        mode_note(LaunchMode::Pin, false),
+        "고른 세션 이어받기(--session-id)"
+    );
 }
 
 #[test]
 fn backoff_stays_within_three_minutes() {
     let total: u64 = REGISTRATION_BACKOFF.iter().map(|d| d.as_secs()).sum();
     assert!(total <= 180);
+    // 2026-10-06 실측 — 내린 뒤 3분쯤에야 등록이 풀렸다(45 · 90초로는 못 풀었다).
+    assert!(total >= 180);
     assert!(REGISTRATION_FIRST < REGISTRATION_WAIT);
 }
 #[test]
@@ -919,4 +972,33 @@ fn nightly_is_off_unless_the_block_is_an_object() {
         load(r#"{"rc":{"nightly":{"at":"4시","quietMinutes":0}}}"#),
         Some(NightlyConfig::default())
     );
+}
+
+#[test]
+fn ancestors_follow_ppid_up_to_launchd() {
+    let row = |pid, ppid| PsRow {
+        pid,
+        ppid,
+        uptime_secs: None,
+        args: String::new(),
+    };
+    // launchd(1) ← 서버(100) ← 세션(101) ← 셸(102) ← CLI(103)
+    let rows = vec![
+        row(1, 0),
+        row(100, 1),
+        row(101, 100),
+        row(102, 101),
+        row(103, 102),
+        row(200, 1),
+    ];
+    let up = ancestors(&rows, 103);
+    assert!(
+        up.contains(&100) && up.contains(&103),
+        "자기 자신과 서버까지"
+    );
+    assert!(!up.contains(&200), "남의 서버는 아니다");
+    assert!(!up.contains(&1), "launchd 는 넣지 않는다");
+    // 고리가 있어도 끝난다.
+    let looped = vec![row(5, 6), row(6, 5)];
+    assert_eq!(ancestors(&looped, 5).len(), 2);
 }

@@ -2144,18 +2144,41 @@ async fn dispatch(
                 ));
             }
             if verb == "restart" {
+                if !local {
+                    return Ok(error_response(
+                        NON_LOCAL_SPAWN_MESSAGE,
+                        StatusCode::FORBIDDEN,
+                    ));
+                }
                 let body = read_optional_body(headers, body).await?;
-                let fresh = body
-                    .as_ref()
-                    .and_then(|b| b.get("fresh"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                return Ok(rc_command_route(
-                    state,
-                    label,
-                    crate::rc::RcCommand::Restart { fresh },
-                    local,
-                ));
+                let field = |name: &str| body.as_ref().and_then(|b| b.get(name));
+                let fresh = field("fresh").and_then(|v| v.as_bool()).unwrap_or(false);
+                // `session` — 이어받을 세션을 못 박는다(claude.ai 쪽 id 만). 셸을 거치지 않지만 argv 에 들어가니 모양을 거른다.
+                let session = match field("session") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(id)) => Some(id.as_str()),
+                    Some(_) => {
+                        return Ok(error_response(
+                            "session 은 문자열(claude.ai 세션 id)이어야 한다",
+                            StatusCode::BAD_REQUEST,
+                        ))
+                    }
+                };
+                let command = match session {
+                    Some(_) if fresh => return Ok(error_response(
+                        "fresh(이어받지 않음)와 session(이 세션으로 이어받음)은 같이 줄 수 없다",
+                        StatusCode::BAD_REQUEST,
+                    )),
+                    Some(id) if !rocky_core::rc::valid_session_id(id) => {
+                        return Ok(error_response(
+                            &format!("session 은 claude.ai 쪽 세션 id(cse_… · session_…)다: {id}"),
+                            StatusCode::BAD_REQUEST,
+                        ))
+                    }
+                    Some(id) => crate::rc::RcCommand::Pin(id.to_string()),
+                    None => crate::rc::RcCommand::Restart { fresh },
+                };
+                return Ok(rc_command_route(state, label, command, local));
             }
         }
     }
@@ -2865,7 +2888,7 @@ fn rc_command_route(
         return error_response("이 기기에서는 rc 가 꺼져 있다", StatusCode::NOT_FOUND);
     };
     let label = percent_decode(label);
-    match control.begin(&label, command) {
+    match control.begin(&label, command.clone()) {
         Ok(target) => {
             tokio::spawn(async move {
                 control.run(target, command).await;

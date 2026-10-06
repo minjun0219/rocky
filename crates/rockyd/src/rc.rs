@@ -277,13 +277,33 @@ fn forget(path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// 한 번의 기동 시도를 어떻게 할지 — 사람이 부른 것과 야간이 다르다.
+#[derive(Clone, Copy)]
+struct Policy<'a> {
+    /// `already served` 를 만났을 때 쉬는 간격들.
+    backoff: &'a [Duration],
+    /// 이미 잰 설치 버전(기동 기록에 쓴다) — None 이면 잰다.
+    known_version: Option<&'a str>,
+    /// 막 대화하는 턴을 기다리는 상한 — 0 이면 기다리지 않고 손대지 않는다(야간은 이미 오래 조용한 것만 골랐고, 마감이 있다).
+    turn_wait: Duration,
+}
+
+/// 사람이 부른 띄우기 · 재시작.
+const DAY: Policy<'static> = Policy {
+    backoff: &rc::REGISTRATION_BACKOFF,
+    known_version: None,
+    turn_wait: rc::TURN_WAIT,
+};
+
 /// 띄우기인가 재시작인가.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RcCommand {
     Start,
     Restart {
         fresh: bool,
     },
+    /// 사람이 고른 세션(claude.ai 쪽 id — `rc::valid_session_id`)으로 못 박아 다시 띄운다. 꺼져 있으면 그 세션으로 띄운다.
+    Pin(String),
     /// 감시가 꺼진 대상을 정한 방식으로 띄운다 — 그새 누가 띄웠으면 그대로 둔다(실패가 아니다).
     Revive(LaunchMode),
 }
@@ -370,7 +390,7 @@ impl RcController {
         }
         let action = match command {
             RcCommand::Start | RcCommand::Revive(_) => RcAction::Starting,
-            RcCommand::Restart { .. } => RcAction::Restarting,
+            RcCommand::Restart { .. } | RcCommand::Pin(_) => RcAction::Restarting,
         };
         busy.insert(label.to_string(), action);
         Ok(target)
@@ -517,7 +537,7 @@ impl RcController {
         let mut handles = Vec::new();
         for rc::Revive { label, mode } in due {
             let command = RcCommand::Revive(mode);
-            let Ok(target) = self.begin(&label, command) else {
+            let Ok(target) = self.begin(&label, command.clone()) else {
                 continue;
             };
             let has_mark = marked.contains(&label);
@@ -571,9 +591,7 @@ impl RcController {
 
     /// `begin` 이 받은 일을 끝까지 한다 — 결과를 남기고 진행 중 표시를 푼다.
     pub async fn run(&self, target: Target, command: RcCommand) -> RcResult {
-        let result = self
-            .attempt(&target, command, &rc::REGISTRATION_BACKOFF, None)
-            .await;
+        let result = self.attempt(&target, command, DAY).await;
         self.release(&target.label);
         result
     }
@@ -587,17 +605,9 @@ impl RcController {
     }
 
     /// 한 번 해 보고 결과를 남긴다 — 진행 중 표시는 그대로 둔다(야간은 못 뜬 대상을 회복이 끝날 때까지 쥔다).
-    /// `backoff` 는 `already served` 를 만났을 때 쉬는 간격들, `known_version` 은 이미 잰 설치 버전(기동 기록에 쓴다 —
-    /// None 이면 잰다).
-    async fn attempt(
-        &self,
-        target: &Target,
-        command: RcCommand,
-        backoff: &[Duration],
-        known_version: Option<&str>,
-    ) -> RcResult {
+    async fn attempt(&self, target: &Target, command: RcCommand, policy: Policy<'_>) -> RcResult {
         let started = std::time::Instant::now();
-        let outcome = self.execute(target, command, backoff, known_version).await;
+        let outcome = self.execute(target, command, policy).await;
         let (ok, message) = match outcome {
             Ok(m) => (true, m),
             Err(m) => (false, m),
@@ -623,14 +633,13 @@ impl RcController {
         &self,
         target: &Target,
         command: RcCommand,
-        backoff: &[Duration],
-        known_version: Option<&str>,
+        policy: Policy<'_>,
     ) -> Result<String, String> {
         // 기동 버전 기록에 쓸 설치 버전을 먼저 잰다 — 내리기 전에(새 바이너리의 첫 실행이 멎어도 서버가 꺼져 있는 시간이
         // 늘지 않게), 프로브보다 먼저(멎은 동안 현황이 묵지 않게). 지금 떠 있는지는 그 뒤 캐시 없이 다시 잰다 — 묵은 현황으로
         // 내리면 엉뚱한 pid 를 내린다. 야간은 update 뒤 이미 잰 값을 넘긴다 — 다시 재면 또 멎을 수 있고, 못 재면 기록을
         // 지워 다음 야간이 그 서버를 모르게 된다.
-        let version = match known_version {
+        let mut version = match policy.known_version {
             Some(v) => Some(v.to_string()),
             None => self.claude_version().await,
         };
@@ -653,7 +662,17 @@ impl RcController {
             .find(|s| s.dir == target.dir)
             .filter(|s| s.running)
             .and_then(|s| s.pid.map(|pid| (pid, s.sessions)));
-        let mode = match (command, live) {
+        let session = match &command {
+            RcCommand::Pin(id) => Some(id.as_str()),
+            _ => None,
+        };
+        // 꺼져 있던 것을 재시작하면 그냥 띄운다(세션을 골랐으면 그 세션으로).
+        let down_mode = if session.is_some() {
+            LaunchMode::Pin
+        } else {
+            rc::START_MODE
+        };
+        let mode = match (&command, live) {
             (RcCommand::Start, Some((pid, _))) => {
                 return Err(format!("이미 떠 있다(pid {pid}) — 다시 띄우려면 재시작"))
             }
@@ -661,21 +680,110 @@ impl RcController {
             (RcCommand::Revive(_), Some((pid, _))) => {
                 return Ok(format!("이미 떠 있다(pid {pid}) — 그대로 둔다"))
             }
-            (RcCommand::Revive(mode), None) => mode,
-            (RcCommand::Restart { fresh }, Some((pid, sessions))) => {
-                let mode = rc::restart_mode(target.pinned, sessions > 0, fresh);
-                if !self.stop(&target.label, pid).await {
-                    return Err(format!("내리지 못했다(pid {pid}) — 손대지 않고 둔다"));
+            (RcCommand::Revive(mode), None) => *mode,
+            (RcCommand::Restart { .. } | RcCommand::Pin(_), Some((pid, sessions))) => {
+                match self
+                    .wait_turn(target, pid, sessions, policy.turn_wait)
+                    .await?
+                {
+                    Some((pid, sessions, waited)) => {
+                        // 기다리는 사이(최대 10분) 자동 업데이트로 설치본이 바뀌었을 수 있다 — 띄우기 직전 값으로 기록한다.
+                        if waited && policy.known_version.is_none() {
+                            version = self.claude_version().await;
+                        }
+                        let mode = match &command {
+                            RcCommand::Restart { fresh } => {
+                                rc::restart_mode(target.pinned, sessions > 0, *fresh)
+                            }
+                            _ => LaunchMode::Pin,
+                        };
+                        if !self.stop(&target.label, pid).await {
+                            return Err(format!("내리지 못했다(pid {pid}) — 손대지 않고 둔다"));
+                        }
+                        (self.ops.sleep)(rc::RESTART_DELAY).await;
+                        mode
+                    }
+                    // 기다리는 사이 서버가 내려갔다.
+                    None => down_mode,
                 }
-                (self.ops.sleep)(rc::RESTART_DELAY).await;
-                mode
             }
-            // 꺼져 있던 것을 재시작하면 그냥 띄운다.
-            (RcCommand::Restart { .. }, None) => rc::START_MODE,
+            (RcCommand::Restart { .. } | RcCommand::Pin(_), None) => down_mode,
         };
         let fresh = matches!(command, RcCommand::Restart { fresh: true });
-        self.launch_until_up(target, mode, fresh, version.as_deref(), backoff)
-            .await
+        self.launch_until_up(
+            target,
+            mode,
+            fresh,
+            version.as_deref(),
+            session,
+            policy.backoff,
+        )
+        .await
+    }
+
+    /// 열린 세션이 막 대화하는 중이면 그 턴이 끝나길 기다린다 — `TURN_POLL` 마다 캐시 없이 다시 재며 `limit` 까지.
+    /// 턴이 끝나면 그때의 (pid, 세션 수, 기다렸나), 기다리는 사이 서버가 내려갔으면 None, 끝내 안 끝나면(또는 `limit` 이
+    /// 0 이면) 손대지 않고 Err. "끝남" 은 대화 기록이 2분 조용한 것이다 — 2분 넘게 아무것도 쓰지 않는 도구 호출 ·
+    /// 서브에이전트는 못 본다(자기 서버 재시작은 그래서 CLI 가 막는다).
+    async fn wait_turn(
+        &self,
+        target: &Target,
+        pid: u32,
+        sessions: usize,
+        limit: Duration,
+    ) -> Result<Option<(u32, usize, bool)>, String> {
+        let busy = |sessions: usize| {
+            rc::turn_in_progress(
+                sessions > 0,
+                nightly::last_write(&self.home, &target.dir),
+                chrono::Utc::now().timestamp(),
+                rc::TURN_QUIET,
+            )
+        };
+        if !busy(sessions) {
+            return Ok(Some((pid, sessions, false)));
+        }
+        if limit.is_zero() {
+            return Err("열린 세션이 막 대화하는 중이다 — 손대지 않았다".into());
+        }
+        self.set_action(&target.label, RcAction::Waiting);
+        self.event(
+            "turn-wait",
+            &target.label,
+            serde_json::json!({ "pid": pid }),
+        );
+        let mut waited = Duration::ZERO;
+        let mut probe_error = None;
+        while waited < limit {
+            (self.ops.sleep)(rc::TURN_POLL).await;
+            waited += rc::TURN_POLL;
+            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            if let Some(err) = status.probe_error {
+                probe_error = Some(err);
+                continue;
+            }
+            probe_error = None;
+            let live = status
+                .servers
+                .iter()
+                .find(|s| s.dir == target.dir && s.running)
+                .and_then(|s| s.pid.map(|pid| (pid, s.sessions)));
+            let Some((pid, sessions)) = live else {
+                self.set_action(&target.label, RcAction::Restarting);
+                return Ok(None);
+            };
+            if !busy(sessions) {
+                self.set_action(&target.label, RcAction::Restarting);
+                return Ok(Some((pid, sessions, true)));
+            }
+        }
+        Err(match probe_error {
+            Some(err) => format!("기다리는 동안 현황을 못 읽어 재시작하지 않았다 — {err}"),
+            None => format!(
+                "대화가 {}분 넘게 이어져 재시작하지 않았다 — 턴이 끝난 뒤 다시",
+                limit.as_secs() / 60
+            ),
+        })
     }
 
     /// 설치된 claude 버전. 못 재면 None — 기록하지 않고 "모름" 으로 둔다.
@@ -698,13 +806,14 @@ impl RcController {
         first: LaunchMode,
         fresh: bool,
         version: Option<&str>,
+        session: Option<&str>,
         backoff: &[Duration],
     ) -> Result<String, String> {
         let mut mode = first;
         let mut backoff = backoff.iter();
         let mut retried_mode = false;
         loop {
-            let pid = self.launch(target, mode, version)?;
+            let pid = self.launch(target, mode, version, session)?;
             match self.judge(&target.label, pid).await {
                 Registration::Connected => {
                     return Ok(format!("떴다 — {}(pid {pid})", rc::mode_note(mode, fresh)))
@@ -770,10 +879,11 @@ impl RcController {
         target: &Target,
         mode: LaunchMode,
         version: Option<&str>,
+        session: Option<&str>,
     ) -> Result<u32, String> {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
-        let argv = rc::server_argv(&target.label, mode);
+        let argv = rc::server_argv(&target.label, mode, session);
         let pid = (self.ops.spawn)(
             &argv,
             Path::new(&target.dir),
@@ -800,7 +910,7 @@ impl RcController {
         self.event(
             "start",
             &target.label,
-            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir, "version": version }),
+            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir, "version": version, "session": session }),
         );
         Ok(pid)
     }
