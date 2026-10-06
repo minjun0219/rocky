@@ -412,6 +412,9 @@ pub struct RcController {
     /// 대상마다 마지막으로 **실제로 뜬** 방식 — 첫 방식이 안 떠 새로 띄웠으면 그 방식. 야간 보고서가 판정 때 정한 방식이 아니라
     /// 이것을 적는다(`launched_mode`).
     launched: std::sync::Mutex<HashMap<String, LaunchMode>>,
+    /// 기동 로그를 비우는 정리(`trim_logs`)와 새로 띄우며 비우는 기동(`spawn_logged`)을 엇갈리지 않게 한다 — 정리가 옛 로그의
+    /// 크기를 잰 뒤 비우기 전에 서버가 새로 뜨면 새 서버의 등록 문구를 지운다.
+    log_lock: std::sync::Mutex<()>,
     supervise: std::sync::Mutex<SuperviseState>,
     nightly: std::sync::Mutex<nightly::NightlyRun>,
     /// 받은편지함 등록(세션 id · 소켓 · 마지막 턴 시각) — 재시작이 이어받을 세션을 고를 때 본다. 데몬이 서버 상태를 만든 뒤 잇는다.
@@ -452,6 +455,7 @@ impl RcController {
             last: std::sync::Mutex::new(HashMap::new()),
             pins: std::sync::Mutex::new(HashMap::new()),
             launched: std::sync::Mutex::new(HashMap::new()),
+            log_lock: std::sync::Mutex::new(()),
             supervise: std::sync::Mutex::new(SuperviseState::default()),
             nightly: std::sync::Mutex::new(nightly::NightlyRun::default()),
             inboxes: std::sync::OnceLock::new(),
@@ -1047,34 +1051,24 @@ impl RcController {
 
     /// `SERVER_LOG_CAP` 을 넘은 기동 로그(`*.out` · `*.err`, 핸드오프 서버 것 포함)를 비우고 그 파일 이름을 돌려준다. 서버는
     /// append 로 쓰니(`server_log`) 다음 출력부터 처음부터 다시 쌓인다. 로그는 띄운 직후에만 읽으니(등록 판정, 핸드오프는 세션
-    /// 확인까지) 떠 있는 서버의 로그를 비워도 판정에는 영향이 없다 — 지금 띄우는 중인 라벨만 건너뛴다. 일반 파일만(링크는
-    /// 따라가지 않는다). 비웠거나 못 비운 것이 있으면 `log-trim` 이벤트 한 줄.
+    /// 확인까지) 떠 있는 서버의 로그를 비워도 판정에는 영향이 없다 — 띄울 때 로그가 비워지니 판정 동안은 한도에 닿지 않고, 재는
+    /// 순간과 비우는 순간 사이의 기동은 `log_lock` 이 막는다. 일반 파일만(링크는 따라가지 않는다). 비웠거나 못 비운 것이 있으면
+    /// `log-trim` 이벤트 한 줄.
     pub fn trim_logs(&self) -> Vec<String> {
         let Ok(entries) = std::fs::read_dir(&self.log_dir) else {
             return Vec::new();
         };
-        let busy: HashSet<String> = self
-            .busy
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
+        let _guard = self.log_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut trimmed = Vec::new();
         let mut errors = Vec::new();
         for e in entries.flatten() {
             let Ok(name) = e.file_name().into_string() else {
                 continue;
             };
-            let Some(label) = name
-                .strip_suffix(".out")
-                .or_else(|| name.strip_suffix(".err"))
-            else {
-                continue;
-            };
+            let log = name.ends_with(".out") || name.ends_with(".err");
             let grown = e.file_type().is_ok_and(|t| t.is_file())
                 && e.metadata().is_ok_and(|m| m.len() > rc::SERVER_LOG_CAP);
-            if !grown || busy.contains(label) {
+            if !log || !grown {
                 continue;
             }
             let path = e.path();
@@ -1099,6 +1093,22 @@ impl RcController {
         trimmed
     }
 
+    /// 서버를 띄운다 — 로그는 `rc/<label>.out` · `.err`(띄울 때 비운다). 정리와 엇갈리지 않게 `log_lock` 을 쥐고.
+    pub(crate) fn spawn_logged(
+        &self,
+        argv: &[String],
+        dir: &Path,
+        label: &str,
+    ) -> std::io::Result<u32> {
+        let _guard = self.log_lock.lock().unwrap_or_else(|e| e.into_inner());
+        (self.ops.spawn)(
+            argv,
+            dir,
+            &self.log_path(label, "out"),
+            &self.log_path(label, "err"),
+        )
+    }
+
     fn launch(
         &self,
         target: &Target,
@@ -1109,13 +1119,9 @@ impl RcController {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
         let argv = rc::server_argv(&target.label, mode, session);
-        let pid = (self.ops.spawn)(
-            &argv,
-            Path::new(&target.dir),
-            &self.log_path(&target.label, "out"),
-            &self.log_path(&target.label, "err"),
-        )
-        .map_err(|e| format!("못 띄웠다({} 에서 {}): {e}", target.dir, argv.join(" ")))?;
+        let pid = self
+            .spawn_logged(&argv, Path::new(&target.dir), &target.label)
+            .map_err(|e| format!("못 띄웠다({} 에서 {}): {e}", target.dir, argv.join(" ")))?;
         // 기동 버전 기록 — 야간 재시작이 이것과 설치 버전을 맞대 구버전을 가린다. 못 쟀으면 지운다: 옛 값을 남기면 새
         // 바이너리로 뜬 서버를 구버전으로 보고, 빈 기록은 "모름" 이라 야간이 건드리지 않는다.
         let record = self.log_path(&target.label, "version");

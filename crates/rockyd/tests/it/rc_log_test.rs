@@ -6,14 +6,14 @@ use std::time::{Duration, Instant};
 
 use rocky_core::config::RcConfig;
 use rocky_core::rc::SERVER_LOG_CAP;
-use rockyd::rc::{default_ops, RcCommand, RcController};
+use rockyd::rc::{default_ops, RcController};
 
 fn controller(rc_dir: &Path) -> Arc<RcController> {
     Arc::new(RcController::new(
         Some(RcConfig {
             root: Some("/w".into()),
             pinned: vec![],
-            targets: vec!["busy".into()],
+            targets: vec![],
             supervise: false,
             nightly: None,
         }),
@@ -41,13 +41,7 @@ fn trims_only_grown_server_logs() {
     let dir = tempfile::tempdir().unwrap();
     let rc_dir = dir.path().join("rc");
     std::fs::create_dir_all(&rc_dir).unwrap();
-    for name in [
-        "a.out",
-        "handoff-rocky-1.err",
-        "busy.out",
-        "nightly.json",
-        "a.version",
-    ] {
+    for name in ["a.out", "handoff-rocky-1.err", "nightly.json", "a.version"] {
         std::fs::write(rc_dir.join(name), big()).unwrap();
     }
     std::fs::write(rc_dir.join("b.out"), "·✔︎· Ready · b · main").unwrap();
@@ -58,8 +52,6 @@ fn trims_only_grown_server_logs() {
     std::os::unix::fs::symlink(&outside, rc_dir.join("link.out")).unwrap();
 
     let control = controller(&rc_dir);
-    // 지금 띄우는 중인 대상 — 새 서버의 등록 출력을 지우지 않게 건너뛴다.
-    control.begin("busy", RcCommand::Start).unwrap();
     let mut trimmed = control.trim_logs();
     trimmed.sort();
     assert_eq!(trimmed, vec!["a.out", "handoff-rocky-1.err"]);
@@ -71,7 +63,7 @@ fn trims_only_grown_server_logs() {
         "·✔︎· Ready · b · main".len() as u64,
         "작은 로그는 그대로"
     );
-    for name in ["busy.out", "nightly.json", "a.version"] {
+    for name in ["nightly.json", "a.version"] {
         assert_eq!(len(&rc_dir.join(name)), SERVER_LOG_CAP + 1, "{name}");
     }
     assert_eq!(len(&outside), SERVER_LOG_CAP + 1);
