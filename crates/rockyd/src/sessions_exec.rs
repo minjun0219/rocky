@@ -44,26 +44,6 @@ pub fn uncached_sessions(runner: Runner) -> SessionsProvider {
     })
 }
 
-/// TTL 메모이즈 조회기 — 기본 3초, statusline 라우트는 15초.
-pub fn cached_sessions(runner: Runner, ttl: Duration) -> SessionsProvider {
-    let cache: Arc<Mutex<Option<(Instant, SessionsResult)>>> = Arc::new(Mutex::new(None));
-    Arc::new(move || {
-        let runner = runner.clone();
-        let cache = cache.clone();
-        Box::pin(async move {
-            let mut slot = cache.lock().await;
-            if let Some((at, cached)) = slot.as_ref() {
-                if at.elapsed() < ttl {
-                    return cached.clone();
-                }
-            }
-            let fresh = list_sessions(&runner).await;
-            *slot = Some((Instant::now(), fresh.clone()));
-            fresh
-        })
-    })
-}
-
 /// 오래된 값을 바로 주고 뒤에서 새로 받는 조회기(stale-while-revalidate). `fresh` 안이면 캐시, `stale` 안이면
 /// **기다리지 않고** 캐시를 주면서 뒤에서 한 번 새로 받는다, 그보다 오래됐거나 처음이면 받을 때까지 기다린다.
 ///
