@@ -40,6 +40,18 @@ describe('TopBar', () => {
     await userEvent.type(name, 'minjun{Enter}');
     expect(setActor).toHaveBeenCalledWith('minjun');
   });
+
+  test('Cloudflare Access 로 들어온 화면에만 로그아웃이 있다', async () => {
+    renderWithStore(<TopBar />, { connected: true, boards: [], accessUser: null });
+    await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
+    expect(screen.queryByRole('menuitem', { name: '로그아웃' })).toBeNull();
+    cleanup();
+    renderWithStore(<TopBar />, { connected: true, boards: [], accessUser: 'me@example.com' });
+    await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
+    const logout = screen.getByRole('menuitem', { name: '로그아웃' });
+    expect(logout.getAttribute('href')).toBe('/cdn-cgi/access/logout');
+    expect(screen.getByText('me@example.com')).toBeTruthy();
+  });
 });
 
 // Codex 지적 회귀 — 이름을 고치고 메뉴 바깥을 누르면, 입력칸이 blur 되기 전에 메뉴가 닫혀

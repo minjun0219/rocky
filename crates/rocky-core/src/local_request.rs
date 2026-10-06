@@ -62,6 +62,15 @@ pub fn is_local_request(peer_address: Option<&str>, has_header: impl Fn(&str) ->
     !FORWARDED_HEADERS.iter().any(|name| has_header(name))
 }
 
+/// Cloudflare Access 를 거쳐 온 요청이면 로그인한 사람의 이메일 — Access 가 원본으로 보내는 요청에 붙이는
+/// `cf-access-authenticated-user-email`. 화면이 로그아웃 링크를 그릴지 정하는 **힌트**로만 쓴다 — 헤더는 위조로
+/// "있게" 만들 수 있으므로 권한 판정에 쓰지 않는다(로컬 판정은 [`is_local_request`]).
+pub fn access_user_email(get_header: impl Fn(&str) -> Option<String>) -> Option<String> {
+    get_header("cf-access-authenticated-user-email")
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 /// URL 문자열에서 hostname 만 뽑는다 — `http://host:port/path` 꼴. IPv6 는 대괄호째 준다
 /// (TS `URL.hostname` 과 동일). 파싱 불가면 None.
 fn hostname_of(url: &str) -> Option<String> {

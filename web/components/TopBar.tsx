@@ -88,6 +88,7 @@ function HeaderMenu() {
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
   const setSelected = useUiStore((s) => s.setSelected);
+  const accessUser = useUiStore((s) => s.accessUser);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(actor);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -235,6 +236,25 @@ function HeaderMenu() {
               새로고침
             </button>
           </div>
+          {accessUser ? (
+            // Cloudflare Access 로 들어온 화면에만 — 이 경로는 엣지가 받아 Access 세션을 끝낸다(데몬까지 오지 않는다).
+            <div className="flex items-center gap-2 border-t border-line pt-2">
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-chip text-faint"
+                title={accessUser}
+              >
+                {accessUser}
+              </span>
+              <a
+                role="menuitem"
+                href="/cdn-cgi/access/logout"
+                className="inline-flex min-h-8 items-center rounded-md px-2 text-muted no-underline hover:bg-surface-2 hover:text-text"
+                onClick={() => logUsage('web:access-logout')}
+              >
+                로그아웃
+              </a>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

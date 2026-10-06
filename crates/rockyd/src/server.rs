@@ -19,9 +19,10 @@ use rocky_core::handoff::{
 use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
 use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
-    is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE, NON_LOCAL_AGY_MESSAGE,
-    NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE,
-    NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
+    access_user_email, is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE,
+    NON_LOCAL_AGY_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE,
+    NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
+    NON_LOCAL_VERIFY_RERUN_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -972,6 +973,8 @@ async fn dispatch(
             "pid": std::process::id(),
             "issueCreateAllowed": local,
             "spawnAllowed": local,
+            // Cloudflare Access 로 들어온 화면이면 로그인한 이메일 — 웹이 ⋯ 메뉴에 로그아웃을 그린다.
+            "accessUser": access_user_email(|name| header_of(headers, name)),
             "prWatch": state.pr_watch(),
             "dbIntegrity": state.db_integrity(),
         })));

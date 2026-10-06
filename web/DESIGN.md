@@ -530,6 +530,8 @@ ref·시각·개수는 모노에 `tabular-nums`로 — 갱신될 때 자릿수�
   모두에서 1px hairline이 보여야 한다.
 - `prefers-color-scheme`를 따르고, 머리줄 `⋯`에 수동 전환(자동/라이트/다크)을 둔다.
 - 주소창 없는 Dock 에서는 새로고침·홈이 없다 — `⋯`에 "새로고침" 과 "전체 보기" 를 둔다.
+- Cloudflare Access 로 들어온 화면(`/api/health` 의 `accessUser`)이면 `⋯` 맨 아래에 로그인한 이메일과 **로그아웃**
+  (`/cdn-cgi/access/logout` — 엣지가 받아 Access 세션 전체를 끝낸다). 로컬·테일넷 화면에는 없다.
 - cmux 연동(사이드바 상태·알림)은 웹 UI가 아니라 CLI/데몬 쪽 일이다. cmux 소켓은 기본적으로 cmux 안에서
   뜬 프로세스만 받으므로(launchd 데몬은 거부), 켤지는 오너가 정한다 — 선택 사항이다.
 

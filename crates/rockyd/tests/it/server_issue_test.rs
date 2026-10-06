@@ -409,6 +409,33 @@ async fn health_reports_issue_create_allowed_per_origin() {
     assert_eq!(remote["issueCreateAllowed"], false);
 }
 
+/// Cloudflare Access 로 들어온 화면에만 로그인한 이메일을 알려 준다 — 웹이 ⋯ 메뉴에 로그아웃을 그린다.
+#[tokio::test]
+async fn health_reports_access_user_only_via_access() {
+    let f = fx();
+    let (_, local) = get(&f.state, "/api/health").await;
+    assert!(local["accessUser"].is_null(), "로컬 화면에는 없다: {local}");
+    let (_, via_access) = call(
+        &f.state,
+        "GET",
+        "/api/health",
+        None,
+        ReqOptions {
+            headers: vec![
+                ("cf-connecting-ip", "203.0.113.7"),
+                ("cf-access-authenticated-user-email", "me@example.com"),
+            ],
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(via_access["accessUser"], "me@example.com");
+    assert_eq!(
+        via_access["issueCreateAllowed"], false,
+        "터널 경유는 원격이다"
+    );
+}
+
 // ── 보드 메타 관리 ──
 
 #[tokio::test]
