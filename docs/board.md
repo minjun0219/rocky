@@ -727,10 +727,29 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
    ```
 
 3. DNS를 붙인다 — `cloudflared tunnel route dns rocky-board board.<도메인>`. Access 앱이 1에서 이미
-   이 호스트명을 덮고 있어야 한다.
-4. **정책 확인 뒤 실행** — `cloudflared tunnel run rocky-board`로 띄우고, 로그아웃한 브라우저(또는 시크릿
-   창)에서 `https://board.<도메인>`이 **Access 로그인 화면**으로 떨어지는지 먼저 본다. 보드가 바로 보이면
-   즉시 터널을 내리고(Ctrl-C) 1로 돌아간다. 확인됐으면 `sudo cloudflared service install`로 launchd 상주.
+   이 호스트명을 덮고 있어야 한다. **터널을 켜기 전에** 확인할 수 있다 — Access 는 엣지에서 먼저 막으므로
+   쿠키 없는 요청(`curl -s -o /dev/null -w '%{http_code} %{redirect_url}' https://board.<도메인>/api/health`)이
+   `302 → <팀>.cloudflareaccess.com/…/login/…` 이면 걸린 것이다. Access 가 없으면 터널이 꺼져 있어 오류 페이지만
+   나온다 — 어느 쪽이든 보드는 노출되지 않는다. 방금 "레코드 없음" 으로 조회한 맥은 DNS 가 캐시돼 한동안 안 풀린다
+   (`dig @1.1.1.1` 로 IP 를 받아 `curl --resolve` 로 본다).
+4. **정책 확인 뒤 실행** — `cloudflared tunnel run rocky-board`로 띄우고, 같은 요청이 여전히 Access 로그인으로
+   떨어지는지 본다. 보드가 바로 보이면 즉시 터널을 내리고(Ctrl-C) 1로 돌아간다.
+5. **상주는 sudo 없이** — `cloudflared service install` 은 사용자 LaunchAgent(`~/Library/LaunchAgents/com.cloudflare.cloudflared.plist`)
+   로 설치되어 로그인해 있는 동안 `~/.cloudflared` 설정으로 뜬다. rocky 데몬도 로그인한 사용자로 도니 이쪽이 맞다.
+   `sudo` 를 붙이면 부팅 때 뜨는 LaunchDaemon 이 되지만 설정을 `/etc/cloudflared` 에서 읽어 위 설정을 보지 못한다.
+   cloudflared 2026.10.0 의 `service install` 은 plist 에 실행 인자를 넣지 않아 곧바로 끝난다(exit 1, 로그에 "use
+   `cloudflared tunnel run`") — `ProgramArguments` 에 `tunnel run rocky-board` 를 더하고 다시 올린다:
+
+   ```bash
+   P=~/Library/LaunchAgents/com.cloudflare.cloudflared.plist
+   launchctl bootout gui/$(id -u) "$P"
+   /usr/libexec/PlistBuddy -c "Add :ProgramArguments:1 string tunnel" \
+     -c "Add :ProgramArguments:2 string run" -c "Add :ProgramArguments:3 string rocky-board" "$P"
+   launchctl bootstrap gui/$(id -u) "$P"
+   ```
+
+   `service install` 을 다시 돌리면 plist 가 새로 써져 이 수정이 사라진다. 다시 띄우기는
+   `launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared`, 로그는 `~/Library/Logs/com.cloudflare.cloudflared.err.log`.
 
 - **데몬 쪽 판정** — cloudflared는 `cf-connecting-ip`·`cf-ray`·`x-forwarded-for`를, Access는
   `cf-access-jwt-assertion`·`cf-access-authenticated-user-email`을 붙인다. 전부 중계 헤더 목록에 있어
