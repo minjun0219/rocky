@@ -46,9 +46,12 @@
   **그 날을 먼저 `rc/nightly.json` 에 남긴 뒤** 돈다 — 도중에 데몬이 다시 떠도 같은 날 두 번 돌지 않는다. 기록이 없으면(처음 켠 날)
   이미 돈 것으로 친다(`nightly_first_mark`). 순서: `claude update`(실패해도 그때 설치 버전으로 판정, 버전은 90초까지 다시 재고 못
   재면 설치 경로) → 판정(`decide_nightly`) → 다시 띄울 대상을 **한꺼번에 잠금**(`begin`, 사람이 하던 대상은 건너뜀) → canary(고정
-  하나)를 먼저, 뜬 뒤에 나머지. 바쁜 것은 다음 날로.
+  하나)를 먼저, 뜬 뒤에 나머지 → 못 뜬 것 회복(`busyUntil` 까지 1 · 2 · 4 · 8 · 16분, 이어받기는 이미 실패했으니 새로, `already served` 는 그 자리에서
+  기다리지 않고 다음 간격으로, 그새 떠 있으면 다시 띄우지 않는다) → 바쁜 것
+  대기(5분마다, 풀리면 같은 순서). 마감이 지나 도는 실행(깬 뒤 따라잡기)은 기다리지 않는다.
   **내리기 직전마다 `curl -4` 로 네트워크**를 보고(10초 간격 3분), 안 닿으면 내리지 않는다. **내리기 전에 표식을 찍고** 뜨면 지운다.
-  못 뜬 것은 표식을 남긴 채 잠금을 놓는다 — 감시가 서버 모드로 띄운다. `already served` 재시도는 1 · 2 · 4 · 6분(낮보다 길게). 대상은 **설정 대상 중 떠 있는 것**뿐이다(strays 는 기록이 없다). 프로브 실패 · 로그아웃이면
+  못 뜬 대상의 잠금은 **회복이 끝날 때까지 쥔다** — 놓으면 감시가 표식을 보고 같은 대상을 띄워 회복과 겹친다. 마감까지 못 띄운 것은
+  표식을 남긴 채 놓는다 — 감시가 서버 모드로 띄운다. `already served` 재시도는 1 · 2 · 4 · 6분(낮보다 길게). 대상은 **설정 대상 중 떠 있는 것**뿐이다(strays 는 기록이 없다). 프로브 실패 · 로그아웃이면
   전체를 건너뛴다(`nightly_blocked`). 배너는 못 띄운 서버나 canary 실패가 있을 때만. 손 실행(`POST /api/rc/nightly`, `rocky rc nightly`)은 같은 길로 한 번 — 배너 없이, 날짜 기록(`lastRun`)도 건드리지 않는다.
 - **자격 관찰**: 끊김(`In → Out`)과 회복(`Out → In`)을 바뀐 바퀴에 한 번씩만 배너로 알린다 — 같은 상태가 이어지면 다시 울리지 않는다.
   기록은 `rc/auth.json`(데몬을 다시 띄워도 회복을 알아채게). 회복 뒤 로그아웃보다 먼저 뜬 서버는 `authSuspect` — 자동으로 재시작하지
@@ -65,5 +68,5 @@
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
 테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인),
-`crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계),
+`crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계 — canary · 회복 · 마감 · 네트워크 · 바쁨 · 일정),
 `crates/rocky-cli/tests/it/rc_cmd_test.rs`.

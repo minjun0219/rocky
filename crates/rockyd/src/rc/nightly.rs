@@ -2,9 +2,11 @@
 //! `rocky_core::rc`(`decide_nightly` …), 여기는 사실을 재고(설치 버전 · 기동 버전 기록 · 대화 기록) 순서를 짠다. 옛 CLI 의
 //! 야간 모드를 옮겼다.
 //!
-//! 순서: update → 판정 → canary(고정 하나) → 나머지. 내리기 직전마다 네트워크를 보고, 내리기 전에 되살림 표식을
-//! 찍는다 — 도중에 데몬이 죽어도 감시가 살린다. 다시 띄울 대상은 처음에 한꺼번에 잠근다(`begin`). 못 뜬 것은 표식을
-//! 남긴 채 놓아 감시에 맡기고, 바쁜 것은 다음 날로 넘긴다.
+//! 순서: update → 판정 → canary(고정 하나) → 나머지 → 못 뜬 것 회복(마감까지) → 바쁜 것 대기(마감까지, 풀리면 같은
+//! 순서로). 내리기 직전마다 네트워크를 보고, 내리기 전에 되살림 표식을 찍는다 — 도중에 데몬이 죽어도 감시가 살린다.
+//! 다시 띄울 대상은 처음에 한꺼번에 잠그고(`begin`), 못 뜬 것은 회복이 끝날 때까지 쥔다 — 그동안 감시가 같은 대상을
+//! 띄우면 회복이 그 서버와 겹친다(옛 CLI 는 야간이 잠금을 쥔 동안 주기 실행이 돌지 않았다). 마감까지 못 띄운 것은
+//! 표식을 남긴 채 놓아 감시에 맡기고, 마감까지 쉬지 않은 것은 다음 날로 넘긴다.
 //!
 //! 리허설(`nightly_preview`)은 update · 내리기 · 띄우기 없이 지금 설치 버전으로 판정만 돌려준다 — 기록도 남기지 않는다.
 
@@ -267,7 +269,7 @@ impl RcController {
         fallback
     }
 
-    /// 판정 → 다시 띄울 것을 잠가 canary 부터. 바쁜 것은 다음 날로.
+    /// 판정 → 다시 띄울 것을 잠가 canary 부터 → 바쁜 것은 마감까지 기다린다.
     async fn nightly_pass(
         self: &Arc<Self>,
         status: &rc::RcStatus,
@@ -275,7 +277,10 @@ impl RcController {
         cfg: &NightlyConfig,
         report: &mut NightlyReport,
     ) {
+        let deadline = rc::busy_deadline((self.ops.now)(), cfg.busy_until);
+        let until = cfg.busy_until.format("%H:%M").to_string();
         let mut reqs = Vec::new();
+        let mut busy = Vec::new();
         for row in status.servers.iter().filter(|s| s.running) {
             let d = self.judge_nightly(row, current, cfg);
             self.event(
@@ -291,7 +296,10 @@ impl RcController {
                     reqs.push((row.label.clone(), d));
                     continue;
                 }
-                NightlyReason::Busy => (NightlyOutcome::Skipped, "작업 중 — 다음 날로".into()),
+                NightlyReason::Busy => {
+                    busy.push(row.label.clone());
+                    continue;
+                }
                 _ => settled(&d),
             };
             report.items.push(NightlyItem {
@@ -301,7 +309,10 @@ impl RcController {
             });
         }
         let reqs = self.lock_reqs(reqs, report);
-        self.restart_round(reqs, current, report).await;
+        self.restart_round(reqs, current, deadline, &until, report)
+            .await;
+        self.wait_busy(busy, current, cfg, deadline, &until, report)
+            .await;
     }
 
     /// 다시 띄울 대상을 한꺼번에 잠근다 — 사람이 그 대상에 무엇을 하고 있으면 건너뛴다.
@@ -328,11 +339,14 @@ impl RcController {
             .collect()
     }
 
-    /// 한 바퀴 — canary 를 먼저 내려 띄워 보고, 뜬 뒤에야 나머지를 내린다. 내리기 직전마다 네트워크를 본다.
+    /// 한 바퀴 — canary 를 먼저 내려 띄워 보고, 뜬 뒤에야 나머지를 내린다. 내리기 직전마다 네트워크를 본다. 못 뜬 것은
+    /// 마감까지 회복한다.
     async fn restart_round(
         self: &Arc<Self>,
         reqs: Vec<Req>,
         current: Option<&str>,
+        deadline: NaiveDateTime,
+        until: &str,
         report: &mut NightlyReport,
     ) {
         if reqs.is_empty() {
@@ -387,7 +401,7 @@ impl RcController {
                 }
             }
         }
-        self.leave_down(down, report);
+        self.recover(down, current, deadline, until, report).await;
     }
 
     /// 잠근 대상을 손대지 않고 놓는다.
@@ -455,15 +469,156 @@ impl RcController {
         }
     }
 
-    /// 못 뜬 것은 표식을 남긴 채 놓는다 — 감시가 비고정이어도 서버 모드로 살린다.
-    fn leave_down(&self, down: Vec<Req>, report: &mut NightlyReport) {
+    /// 내리고 못 띄운 것을 마감까지 1 · 2 · 4 · 8 · 16분 간격으로 다시 띄운다 — 이어받기는 이미 실패했으니 새로, `already
+    /// served` 를 만나도 그 자리에서 기다리지 않는다(이 간격이 곧 재시도다 — 기다리면 마감을 넘긴다). 그새 떠 있으면 다시
+    /// 띄우지 않는다. 마감까지 안 뜬 것은 표식을 남긴 채 놓는다.
+    async fn recover(
+        &self,
+        mut down: Vec<Req>,
+        current: Option<&str>,
+        deadline: NaiveDateTime,
+        until: &str,
+        report: &mut NightlyReport,
+    ) {
+        let mut attempt = 1;
+        while !down.is_empty() {
+            let now = (self.ops.now)();
+            if now >= deadline {
+                break;
+            }
+            let left = (deadline - now).to_std().unwrap_or(Duration::ZERO);
+            (self.ops.sleep)(rc::recovery_wait(attempt).min(left)).await;
+            attempt += 1;
+            if !self.wait_online("recover").await {
+                continue;
+            }
+            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            let mut still = Vec::new();
+            for r in down {
+                let label = r.target.label.clone();
+                let up = status.probe_error.is_none()
+                    && status.servers.iter().any(|s| s.label == label && s.running);
+                if up {
+                    // 잠근 동안 rocky 밖에서 누가 띄웠다 — 어느 버전인지 모르니 재시작으로 세지 않는다.
+                    self.release(&label);
+                    self.clear_revive(&label, "already-running");
+                    report.items.push(NightlyItem {
+                        label,
+                        outcome: NightlyOutcome::Skipped,
+                        note: "그새 떠 있다 — 다시 띄우지 않았다".into(),
+                    });
+                    continue;
+                }
+                let mode = rc::retry_mode(r.target.pinned);
+                let result = self
+                    .attempt(&r.target, RcCommand::Revive(mode), &[], current)
+                    .await;
+                if result.ok {
+                    self.release(&label);
+                    self.clear_revive(&label, "started");
+                    report.items.push(NightlyItem {
+                        label,
+                        outcome: NightlyOutcome::Restarted,
+                        note: format!(
+                            "{} ({}번째 재시도)",
+                            restart_note(&r.decision, current),
+                            attempt - 1
+                        ),
+                    });
+                } else {
+                    still.push(r);
+                }
+            }
+            down = still;
+        }
         for r in down {
             self.release(&r.target.label);
-            self.event("nightly-down", &r.target.label, serde_json::json!({}));
+            self.event(
+                "nightly-down",
+                &r.target.label,
+                serde_json::json!({ "until": until }),
+            );
             report.items.push(NightlyItem {
                 label: r.target.label,
                 outcome: NightlyOutcome::Down,
-                note: format!("내렸지만 못 띄움 — {}", self.down_hint()),
+                note: format!("내렸지만 {until} 까지 못 띄움 — {}", self.down_hint()),
+            });
+        }
+    }
+
+    /// 바쁜 서버 — 쉬게 될 때까지 5분마다 다시 보며 마감까지 기다린다. 풀린 것은 같은 순서(canary · 회복)로. 회복이 마감을
+    /// 다 쓰면 다시 보지 못하고 넘긴다(옛 CLI 와 같은 순서).
+    async fn wait_busy(
+        self: &Arc<Self>,
+        mut busy: Vec<String>,
+        current: Option<&str>,
+        cfg: &NightlyConfig,
+        deadline: NaiveDateTime,
+        until: &str,
+        report: &mut NightlyReport,
+    ) {
+        let mut looked = false;
+        while !busy.is_empty() {
+            let now = (self.ops.now)();
+            if now >= deadline {
+                break;
+            }
+            let left = (deadline - now).to_std().unwrap_or(Duration::ZERO);
+            (self.ops.sleep)(rc::NIGHTLY_BUSY_POLL.min(left)).await;
+            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            if rc::nightly_blocked(&status).is_some() {
+                continue;
+            }
+            looked = true;
+            let mut free = Vec::new();
+            let mut still = Vec::new();
+            for label in busy {
+                let Some(row) = status
+                    .servers
+                    .iter()
+                    .find(|s| s.label == label && s.running)
+                else {
+                    report.items.push(NightlyItem {
+                        label,
+                        outcome: NightlyOutcome::Skipped,
+                        note: "기다리는 사이 내려갔다".into(),
+                    });
+                    continue;
+                };
+                let d = self.judge_nightly(row, current, cfg);
+                match d.reason {
+                    NightlyReason::Restart => free.push((label, d)),
+                    NightlyReason::Busy => still.push(label),
+                    _ => {
+                        let (outcome, note) = settled(&d);
+                        report.items.push(NightlyItem {
+                            label,
+                            outcome,
+                            note,
+                        });
+                    }
+                }
+            }
+            let reqs = self.lock_reqs(free, report);
+            self.restart_round(reqs, current, deadline, until, report)
+                .await;
+            busy = still;
+        }
+        let note = if looked {
+            format!("작업 중 — {until} 까지 안 쉬어 다음 날로")
+        } else {
+            format!("작업 중 — {until} 까지 다시 볼 틈이 없어 다음 날로")
+        };
+        for label in busy {
+            self.event(
+                "nightly-skip",
+                &label,
+                serde_json::json!({ "reason": "busy-timeout", "until": until }),
+            );
+            report.items.push(NightlyItem {
+                label,
+                outcome: NightlyOutcome::Skipped,
+                note: note.clone(),
             });
         }
     }

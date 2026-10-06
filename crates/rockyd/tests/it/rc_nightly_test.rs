@@ -44,6 +44,8 @@ struct World {
     ps_calls: usize,
     /// 이 번째 `ps` 는 실패한다(1부터).
     fail_ps_call: Option<usize>,
+    /// `ps` 를 이만큼 부른 뒤 그 라벨의 세션이 닫힌다.
+    close_session_after: Option<(&'static str, usize)>,
 }
 
 fn at(h: u32, m: u32) -> NaiveDateTime {
@@ -74,6 +76,7 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         logged_in: true,
         ps_calls: 0,
         fail_ps_call: None,
+        close_session_after: None,
     }))
 }
 
@@ -98,6 +101,11 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                 CmdOutput::failure("ps: 잠깐 실패")
             }
             ("ps", _) => {
+                if let Some((label, after)) = w.close_session_after {
+                    if w.ps_calls > after {
+                        w.sessions.remove(label);
+                    }
+                }
                 let mut ps = String::from("    1     0 30-00:00:00 /sbin/launchd\n");
                 for (label, pid) in &w.servers {
                     if !w.alive.contains(pid) {
@@ -465,8 +473,8 @@ async fn servers_without_a_record_or_version_are_left_alone() {
 }
 
 #[tokio::test]
-async fn failed_canary_leaves_the_rest_and_hands_itself_to_supervise() {
-    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![DIES]);
+async fn failed_canary_leaves_the_rest_and_recovers_it() {
+    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![DIES, READY]);
     let f = fixture(w, &[("repo-a", "2.1.200"), ("repo-b", "2.1.200")]);
     let report = run(&f).await;
     assert!(report.canary_failed);
@@ -477,15 +485,9 @@ async fn failed_canary_leaves_the_rest_and_hands_itself_to_supervise() {
         !log(&f).contains(&"stop repo-b".to_string()),
         "나머지는 내리지 않는다"
     );
-    assert_eq!(outcome(&report, "repo-a").0, NightlyOutcome::Down);
-    assert!(
-        f.dir.path().join("rc/repo-a.revive").exists(),
-        "감시가 살릴 표식"
-    );
-    assert!(
-        f.control.begin("repo-a", RcCommand::Start).is_ok(),
-        "끝나면 잠금을 놓는다"
-    );
+    let (o, note) = outcome(&report, "repo-a");
+    assert_eq!(o, NightlyOutcome::Restarted);
+    assert!(note.ends_with("(1번째 재시도)"), "{note}");
     assert_eq!(f.banners.lock().unwrap().len(), 1, "canary 실패는 알린다");
 }
 
@@ -501,8 +503,46 @@ async fn offline_stops_nothing() {
 }
 
 #[tokio::test]
-async fn busy_server_moves_to_tomorrow() {
-    let w = world(at(4, 30), &["repo-b"], vec![]);
+async fn down_until_the_deadline_leaves_a_mark_and_the_lock() {
+    // 06:50 에 돌아 07:00 마감까지 10분 — 회복이 1 · 2 · 4분 … 다시 띄워도 안 뜬다.
+    let w = world(at(6, 50), &["repo-b"], vec![DIES; 20]);
+    let f = fixture(w, &[("repo-b", "2.1.200")]);
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Down);
+    assert!(
+        f.dir.path().join("rc/repo-b.revive").exists(),
+        "감시가 서버 모드로 살릴 표식"
+    );
+    assert!(
+        f.world.lock().unwrap().clock >= at(7, 0),
+        "마감까지 다시 띄웠다"
+    );
+    assert!(
+        f.control.begin("repo-b", RcCommand::Start).is_ok(),
+        "끝나면 잠금을 놓는다"
+    );
+    assert_eq!(f.banners.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn busy_server_waits_until_it_goes_quiet() {
+    let w = world(at(4, 30), &["repo-b"], vec![READY]);
+    // 세 번째 `ps`(첫 기다림 뒤 다시 볼 때)부터 세션이 닫혀 있다.
+    w.lock().unwrap().close_session_after = Some(("repo-b", 2));
+    let f = fixture(w, &[("repo-b", "2.1.200")]);
+    talk(&f, "repo-b");
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Restarted);
+    assert_eq!(
+        log(&f),
+        vec!["stop repo-b", "spawn repo-b --no-create-session-in-dir"]
+    );
+    assert!(f.world.lock().unwrap().clock >= at(4, 35), "5분 기다렸다");
+}
+
+#[tokio::test]
+async fn busy_past_the_deadline_moves_to_tomorrow() {
+    let w = world(at(6, 58), &["repo-b"], vec![]);
     let f = fixture(w, &[("repo-b", "2.1.200")]);
     talk(&f, "repo-b");
     let report = run(&f).await;
@@ -595,7 +635,8 @@ async fn a_restart_that_never_stopped_the_server_is_not_a_restart() {
 
 #[tokio::test]
 async fn without_supervise_the_report_says_who_must_start_it() {
-    let w = world(at(4, 30), &["repo-b"], vec![DIES]);
+    // 마감에 돌아 회복하지 않는다.
+    let w = world(at(7, 0), &["repo-b"], vec![DIES]);
     let f = fixture_with(
         w,
         &[("repo-b", "2.1.200")],
