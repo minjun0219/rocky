@@ -141,6 +141,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
         "daemon" => commands::cmd_daemon(&ctx, &rest, expose_lan, expose_ts),
         "config" => rocky_cli::config_cmd::cmd_config(&ctx, &rest, &todo_config, &printer),
+        "doctor" => rocky_cli::doctor_cmd::cmd_doctor(&ctx, &todo_config, &printer),
         "usage" => rocky_cli::usage_cmd::cmd_usage(&parsed, &printer),
         "tokens" => rocky_cli::tokens_cmd::cmd_tokens(&ctx, &rest, &parsed, &printer),
         "verify" => rocky_cli::verify_cmd::cmd_verify(&ctx, &rest, &parsed, &printer),

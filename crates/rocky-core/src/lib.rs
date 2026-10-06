@@ -6,6 +6,7 @@ pub mod actor;
 pub mod actors;
 pub mod claude_account;
 pub mod config;
+pub mod doctor;
 pub mod doing;
 pub mod github;
 pub mod handoff;

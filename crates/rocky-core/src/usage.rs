@@ -365,6 +365,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky mcp"),
     (UsageSource::Cli, "rocky tailscale"),
     (UsageSource::Cli, "rocky config"),
+    (UsageSource::Cli, "rocky doctor"),
     (UsageSource::Cli, "rocky tokens"),
     (UsageSource::Cli, "rocky tokens here"),
     (UsageSource::Cli, "rocky verify"),
