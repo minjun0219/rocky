@@ -7,7 +7,7 @@ use rockyd::spawnctl::*;
 
 fn session(cwd: &str, kind: &str, state: Option<&str>) -> AgentSession {
     AgentSession {
-        pid: 1,
+        pid: Some(1),
         cwd: cwd.into(),
         kind: kind.into(),
         id: None,
