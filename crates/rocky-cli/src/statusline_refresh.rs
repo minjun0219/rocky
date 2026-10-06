@@ -159,7 +159,11 @@ fn load_token(
     );
     match std::fs::read_to_string(&file) {
         Ok(raw) => match claude_account::parse_token(&raw) {
-            Ok(token) => return claude_account::check_token(token, now).map_err(Failure::from),
+            // 원인을 앞에, 어느 파일인지는 뒤에 — statusline 은 에러를 40바이트에서 자른다.
+            Ok(token) => {
+                return claude_account::check_token(token, now)
+                    .map_err(|e| Failure::from(format!("{e} (file: {})", file.display())))
+            }
             Err(e) => errors.push(format!("file: {}: {e}", file.display())),
         },
         Err(e) => errors.push(format!("file: {}: {e}", file.display())),

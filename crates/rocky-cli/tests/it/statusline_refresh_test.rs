@@ -262,9 +262,18 @@ fn refresh_reads_the_credentials_file_and_refuses_an_expired_token() {
     )
     .unwrap();
     home.refresh(&api.url, &[]);
-    assert_eq!(
-        usage_json(&home.bucket(Some(EMAIL)))["last_error"],
-        rocky_core::claude_account::TOKEN_EXPIRED
+    let error = usage_json(&home.bucket(Some(EMAIL)))["last_error"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // 원인이 앞, 어느 파일인지가 뒤.
+    assert!(
+        error.starts_with(rocky_core::claude_account::TOKEN_EXPIRED),
+        "{error}"
+    );
+    assert!(
+        error.ends_with(&format!("(file: {})", creds.display())),
+        "{error}"
     );
     assert!(api.requests.lock().unwrap().is_empty());
 }
