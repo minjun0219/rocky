@@ -240,6 +240,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬 자동 기동을 거치지 않고 300ms 안에 못 받으면 빈 출력 | [statusline](./docs/features/statusline.md) |
 | 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다 | [spawn](./docs/features/spawn.md) |
+| 세션 목록(`claude agents`) | pid 없는 잠든 행을 버리지 않는다. 작업 요약은 `detail`·`needs`·`updatedAt` 만, 못 읽으면 그 행만 비운다 — *the session list is readable remotely* | [sessions](./docs/features/sessions.md) |
 
 ## 리뷰 기준
 
