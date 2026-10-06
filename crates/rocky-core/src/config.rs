@@ -507,6 +507,55 @@ pub struct RcConfig {
     pub targets: Vec<String>,
     /// 감시 — 꺼진 고정 서버를 데몬이 스스로 띄운다. 기본 꺼짐(옛 주기 잡과 동시에 띄우지 않게 켜는 날을 고른다).
     pub supervise: bool,
+    /// 야간 재시작 — 블록이 있을 때만 돈다(기본 꺼짐).
+    pub nightly: Option<NightlyConfig>,
+}
+
+/// `rc.nightly` — 매일 `at` 에 `claude update` 뒤 구버전이면서 쉬는 서버만 다시 띄운다(`rocky_core::rc` 의 야간 판정).
+/// 시각은 이 기기의 현지 시각이다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NightlyConfig {
+    /// 돌 시각. 기본 04:30.
+    pub at: chrono::NaiveTime,
+    /// 바쁜 서버를 기다리고 못 뜬 서버를 다시 띄우는 마감(같은 날). 기본 07:00 — 사람이 맥을 쓰기 전.
+    pub busy_until: chrono::NaiveTime,
+    /// 열린 세션이 있는 서버를 "쉰다" 고 볼 대화 기록 무변화 시간. 기본 60분.
+    pub quiet: std::time::Duration,
+}
+
+impl Default for NightlyConfig {
+    fn default() -> Self {
+        let hm = |h, m| chrono::NaiveTime::from_hms_opt(h, m, 0).expect("고정 시각");
+        NightlyConfig {
+            at: hm(4, 30),
+            busy_until: hm(7, 0),
+            quiet: std::time::Duration::from_secs(60 * 60),
+        }
+    }
+}
+
+/// 블록이 객체면 켜진다. 모양이 틀린 칸은 기본값으로 읽는다(fail-open).
+fn parse_nightly(value: &serde_json::Value) -> Option<NightlyConfig> {
+    let block = value.as_object()?;
+    let base = NightlyConfig::default();
+    let time = |key: &str, default| {
+        block
+            .get(key)
+            .and_then(|v| v.as_str())
+            .and_then(crate::rc::parse_hhmm)
+            .unwrap_or(default)
+    };
+    Some(NightlyConfig {
+        at: time("at", base.at),
+        busy_until: time("busyUntil", base.busy_until),
+        quiet: block
+            .get("quietMinutes")
+            .and_then(|v| v.as_u64())
+            .filter(|m| *m > 0)
+            .map_or(base.quiet, |m| {
+                std::time::Duration::from_secs(m.saturating_mul(60))
+            }),
+    })
 }
 
 /// 파일 없음 / 파싱 실패 / 블록 없음 / `enabled: false` 는 None(꺼짐, fail-open). 모양이 틀린 칸은 빈 값으로
@@ -542,6 +591,7 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
         pinned: names("pinned"),
         targets: names("targets"),
         supervise: block.get("supervise").and_then(|v| v.as_bool()) == Some(true),
+        nightly: block.get("nightly").and_then(parse_nightly),
     })
 }
 

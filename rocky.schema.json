@@ -186,6 +186,28 @@
           "type": "boolean",
           "description": "감시 — 꺼진 고정 서버를 데몬이 2분마다 보고 스스로 띄운다(기본 false). 같은 일을 하는 다른 주기 잡이 있으면 그것을 끄는 날에 켠다. 데몬을 다시 띄워야 적용된다."
         },
+        "nightly": {
+          "type": "object",
+          "description": "야간 재시작 — 매일 at 에 claude update 뒤, 기동 버전이 설치 버전과 다르고 쉬는 서버만 다시 띄운다. 블록이 있으면 켜진다(기본 꺼짐). 맥이 그 시각에 자고 있었으면 깬 뒤 한 번 돈다. 같은 일을 하는 다른 야간 잡이 있으면 그것을 끄는 날에 켠다. 데몬을 다시 띄워야 적용된다.",
+          "properties": {
+            "at": {
+              "type": "string",
+              "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$",
+              "description": "돌 시각(이 기기의 현지 시각, HH:MM). 기본 04:30."
+            },
+            "busyUntil": {
+              "type": "string",
+              "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$",
+              "description": "바쁜 서버를 기다리고 못 뜬 서버를 다시 띄우는 마감(같은 날 HH:MM). 그보다 늦게 돌면 기다리지 않고 다음 날로 넘긴다. 기본 07:00."
+            },
+            "quietMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "열린 세션이 있는 서버를 쉰다고 볼 대화 기록 무변화 시간(분). 세션이 없는 서버는 늘 쉬는 것이다. 기본 60."
+            }
+          },
+          "additionalProperties": false
+        },
         "root": {
           "type": "string",
           "minLength": 1,

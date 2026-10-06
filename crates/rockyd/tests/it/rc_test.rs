@@ -50,6 +50,7 @@ fn config() -> RcConfig {
         pinned: vec!["repo-a".into()],
         targets: vec!["repo-b".into()],
         supervise: false,
+        nightly: None,
     }
 }
 
