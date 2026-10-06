@@ -209,6 +209,8 @@ pub fn rc_handles(
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+mod nightly;
+
 use rocky_core::rc::{LaunchMode, RcAction, RcResult, Registration, Target};
 
 /// (argv, 작업 폴더, stdout 파일, stderr 파일) → pid.
@@ -222,6 +224,8 @@ pub struct RcOps {
     /// `kill(pid, sig)` 가 성공했나 — `sig == 0` 이면 살아 있나.
     pub signal: Arc<dyn Fn(u32, i32) -> bool + Send + Sync>,
     pub sleep: Arc<dyn Fn(Duration) -> BoxFut<()> + Send + Sync>,
+    /// 이 기기의 현지 시각 — 야간의 마감(07:00)을 잰다. 테스트는 `sleep` 과 함께 흐르는 가짜 시계를 넣는다.
+    pub now: Arc<dyn Fn() -> chrono::NaiveDateTime + Send + Sync>,
 }
 
 pub fn default_ops() -> RcOps {
@@ -256,6 +260,7 @@ pub fn default_ops() -> RcOps {
             unsafe { libc::kill(pid, sig) == 0 }
         }),
         sleep: Arc::new(|d| Box::pin(tokio::time::sleep(d))),
+        now: Arc::new(|| chrono::Local::now().naive_local()),
     }
 }
 

@@ -1,4 +1,4 @@
-use rocky_cli::rc_cmd::{human_uptime, render_result, render_status};
+use rocky_cli::rc_cmd::{human_uptime, render_nightly, render_result, render_status};
 use serde_json::json;
 
 #[test]
@@ -97,5 +97,34 @@ fn status_shows_supervise_and_auth_suspect() {
     assert!(
         last.starts_with("감시: 켜짐 — 마지막 ") && last.ends_with(":30"),
         "{out}"
+    );
+}
+
+#[test]
+fn nightly_preview_lists_what_would_happen() {
+    let raw = json!({
+        "startedAt": "2026-10-07T04:30:00Z",
+        "dryRun": true,
+        "update": "건너뜀(리허설) · 설치 2.1.300",
+        "version": "2.1.300",
+        "items": [
+            {"label": "repo-a", "outcome": "would-restart", "note": "2.1.283 → 2.1.300 · 새 세션과 함께"},
+            {"label": "b", "outcome": "would-wait", "note": "작업 중 — 07:00 까지 5분마다 다시 본다"},
+            {"label": "c", "outcome": "current", "note": "2.1.300"},
+            {"label": "d", "outcome": "skipped", "note": "기동 버전 기록 없음 — 구버전인지 모른다"}
+        ]
+    });
+    assert_eq!(
+        render_nightly(&raw),
+        "야간 리허설 — update: 건너뜀(리허설) · 설치 2.1.300\n\
+         ↻ repo-a  2.1.283 → 2.1.300 · 새 세션과 함께\n\
+         … b       작업 중 — 07:00 까지 5분마다 다시 본다\n\
+         = c       2.1.300\n\
+         – d       기동 버전 기록 없음 — 구버전인지 모른다"
+    );
+    let blocked = json!({"dryRun": true, "update": "x", "blocked": "logged-out", "items": []});
+    assert_eq!(
+        render_nightly(&blocked),
+        "야간 리허설 — update: x\n전부 건너뜀 — logged-out"
     );
 }

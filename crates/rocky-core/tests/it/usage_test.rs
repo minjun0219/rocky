@@ -42,6 +42,10 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         Some("POST /api/rc/servers/:ref/restart")
     );
     assert_eq!(
+        normalize_route("GET", "/api/rc/nightly/preview").as_deref(),
+        Some("GET /api/rc/nightly/preview")
+    );
+    assert_eq!(
         normalize_route("GET", "/api/todos").as_deref(),
         Some("GET /api/todos")
     );
