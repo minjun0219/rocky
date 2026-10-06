@@ -867,3 +867,49 @@ async fn a_reused_pid_is_never_signalled() {
     );
     assert!(!record(&rc).exists(), "틀린 기록은 지운다");
 }
+
+async fn close_stray(rc: &Rc, key: &str, opts: ReqOptions<'_>) -> (u16, serde_json::Value) {
+    call(
+        &rc.state,
+        "POST",
+        &format!("/api/rc/strays/{key}/stop"),
+        None,
+        opts,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_stray_server_closes_by_label_or_pid_and_only_locally() {
+    let f = fx();
+    // 대상 밖 서버 pid 400 이 워크트리 폴더(todo-1)에서 돈다.
+    let rc = rc_fixture(&f, none, |w, _| {
+        w.server_before = true;
+        w.alive.insert(400);
+    });
+    let remote = ReqOptions {
+        peer: Some("100.64.0.1"),
+        ..Default::default()
+    };
+    assert_eq!(close_stray(&rc, "todo-1", remote).await.0, 403);
+    assert_eq!(close_stray(&rc, "nope", ReqOptions::default()).await.0, 404);
+    rc.world.lock().unwrap().ps_fails = true;
+    assert_eq!(
+        close_stray(&rc, "todo-1", ReqOptions::default()).await.0,
+        409
+    );
+    assert!(
+        rc.world.lock().unwrap().alive.contains(&400),
+        "모르면 손대지 않는다"
+    );
+    rc.world.lock().unwrap().ps_fails = false;
+
+    let (code, body) = close_stray(&rc, "todo-1", ReqOptions::default()).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["pid"], 400);
+    assert_eq!(body["down"], true);
+    assert!(
+        !rc.world.lock().unwrap().alive.contains(&400),
+        "pid 로 내렸다"
+    );
+}

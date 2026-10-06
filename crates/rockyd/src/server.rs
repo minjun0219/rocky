@@ -2189,6 +2189,39 @@ async fn dispatch(
             });
         }
     }
+    // ── 대상 밖 서버 닫기 — 핸드오프 서버 닫기와 같은 등급(로컬 전용, pid 로만, 그 폴더의 rc 서버일 때만) ──
+    if *method == Method::POST {
+        if let Some(key) = path
+            .strip_prefix("/api/rc/strays/")
+            .and_then(|rest| rest.strip_suffix("/stop"))
+        {
+            if !local {
+                return Ok(error_response(
+                    "대상 밖 서버 닫기는 이 기기(루프백)에서 온 요청만 받는다 — 세션을 끝내는 일이다",
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+            let Some(control) = state.rc_control.clone() else {
+                return Ok(error_response(
+                    "이 기기에서는 rc 가 꺼져 있다",
+                    StatusCode::NOT_FOUND,
+                ));
+            };
+            use crate::rc::RcRefusal;
+            return Ok(match control.stop_stray(&percent_decode(key)).await {
+                Ok((stray, down)) => ok_json(&json!({
+                    "label": stray.label,
+                    "pid": stray.pid,
+                    "dir": stray.dir,
+                    "down": down,
+                })),
+                Err(RcRefusal::NotFound(m)) => error_response(&m, StatusCode::NOT_FOUND),
+                Err(RcRefusal::Busy(m)) | Err(RcRefusal::Ambiguous(m)) => {
+                    error_response(&m, StatusCode::CONFLICT)
+                }
+            });
+        }
+    }
     // ── rc 서버 띄우기 · 재시작 — 프로세스를 띄우므로 세션 띄우기와 같은 등급(로컬 전용). 일은 백그라운드, 바로 202 ──
     if *method == Method::POST {
         if let Some((label, verb)) = path

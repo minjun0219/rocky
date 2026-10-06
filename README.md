@@ -107,6 +107,7 @@ rocky rc agy stop                # agy remote-control stop(정지 + 등록 해�
 rocky rc nightly --dry-run       # 야간 재시작 리허설 — 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다)
 rocky rc nightly                 # 야간 재시작을 지금 한 번(백그라운드) — 결과는 rocky rc 의 "야간:" 줄
 rocky rc stop rocky-41           # 새 세션 띄우기가 띄운 핸드오프 서버를 닫는다(할 일 참조로, pid 로만 — 워크트리는 남는다)
+rocky rc stop cc-usage           # 대상 밖 서버를 닫는다(폴더 이름이나 pid 로 — 설정 대상은 닫지 않는다)
 rocky rc report                  # 마지막 야간 보고 — 서버마다 결과, rocky 세 층 버전 · 최신 태그, agy(읽기만이라 확인 규칙에 안 걸린다)
 ```
 
@@ -128,6 +129,7 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 | `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 띄우므로 로컬 전용(403). rc 가 꺼진 기기면 404 |
 | `POST /api/rc/nightly` | 야간 재시작을 지금 한 번 — 로컬 전용(403, 서버를 내리고 띄운다). 바로 202, 결과는 현황의 `nightly.last`. 이미 도는 중이면 409, rc 가 꺼진 기기면 404. 배너를 띄우지 않고 일정의 날짜 기록도 건드리지 않는다 |
 | `POST /api/rc/handoffs/:ref/stop` | 핸드오프 서버 닫기 — 할 일 참조(`rocky-41`)나 라벨로 고르고, 지금 그 폴더에서 그 pid 로 도는 rc 서버일 때만 pid 로 내린다(SIGTERM → 20초 → SIGKILL, 다 기다렸다 답한다). 로컬 전용(403). 기록이 없으면 404, 이미 내려가 있으면 기록을 지우고 404, 현황을 못 읽으면 손대지 않고 409. 워크트리는 남긴다 |
+| `POST /api/rc/strays/:ref/stop` | 대상 밖 서버 닫기 — 폴더 이름(라벨)이나 pid 로 고르고(같은 이름이 둘이면 409 로 pid 를 대라고 한다), 캐시 없이 다시 재서 그 pid 가 지금 그 폴더의 rc 서버일 때만 pid 로 내린다. 설정 대상은 고를 수 없다. 로컬 전용(403), 현황을 못 읽으면 손대지 않고 409 |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.

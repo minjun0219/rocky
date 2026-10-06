@@ -22,6 +22,7 @@ export type WebUsageEvent =
   | 'web:rc-start'
   | 'web:rc-restart'
   | 'web:handoff-close'
+  | 'web:stray-close'
   | 'web:agent-row'
   | 'web:access-logout';
 

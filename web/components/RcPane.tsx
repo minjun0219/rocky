@@ -161,7 +161,7 @@ function ServerItemView({
   stray?: boolean;
   /** 프로브가 실패했다 — 떠 있지 않은 것으로 나온 행은 "꺼짐" 이 아니라 "모름" 이다. */
   unknown?: boolean;
-  /** 행 오른쪽 주 액션과 그 아래 확인 줄 — 로컬 화면의 설정 대상만(대상 밖 서버는 화면이 움직이지 않는다). */
+  /** 행 오른쪽 주 액션과 그 아래 확인 줄 — 로컬 화면에서만(설정 대상은 띄우기 · 재시작, 대상 밖 서버는 닫기). */
   button?: React.ReactNode;
   below?: React.ReactNode;
 }) {
@@ -222,26 +222,78 @@ function ServerItemView({
 }
 
 /**
- * 핸드오프 서버 한 줄 — 보드의 새 세션 띄우기가 띄운 것. 주 액션은 닫기(로컬 화면만): 세션을 끝내고 되돌릴 수 없어 같은
- * 자리 아래 한 줄로 한 번 더 묻는다. 워크트리는 남는다.
+ * 서버를 닫는 주 액션 — 세션을 끝내고 되돌릴 수 없어 같은 자리 아래 한 줄로 한 번 더 묻는다(좁은 패널에 모달을 띄우지 않는다).
+ * 핸드오프 서버와 대상 밖 서버가 같이 쓴다. 폴더(워크트리)는 남는다.
  */
-function HandoffItem({ row, closable }: { row: RcHandoffRow; closable: boolean }) {
-  const closeHandoff = useUiStore((s) => s.closeHandoff);
+function useCloseAction({
+  name,
+  sessions,
+  close,
+}: {
+  name: string;
+  sessions: number;
+  close: () => Promise<void>;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const close = async () => {
+  const run = async () => {
     setConfirming(false);
     setClosing(true);
     setError(null);
     try {
-      await closeHandoff(row.label);
+      await close();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setClosing(false);
     }
   };
+  const button = closing ? null : (
+    <button
+      type="button"
+      className="min-h-8 shrink-0 rounded-md border border-line px-2.5 text-chip text-text hover:bg-surface-2"
+      aria-expanded={confirming}
+      aria-label={`${name} 닫기`}
+      onClick={() => setConfirming(!confirming)}
+    >
+      닫기
+    </button>
+  );
+  const below = confirming ? (
+    <div className="flex flex-wrap items-center gap-2 px-3.5 pb-2.5 pl-[42px]">
+      <span className="text-chip text-muted">
+        {sessions > 0 ? `세션 ${sessions}개가 끝나요` : '서버를 내려요'} — 폴더는 그대로 남아요
+      </span>
+      <button
+        type="button"
+        className="min-h-8 rounded-md bg-mine-soft px-2.5 text-chip font-semibold text-mine"
+        onClick={() => void run()}
+      >
+        끝내고 닫기
+      </button>
+      <button
+        type="button"
+        className="tap text-chip text-faint hover:text-text"
+        onClick={() => setConfirming(false)}
+      >
+        취소
+      </button>
+    </div>
+  ) : error ? (
+    <p className="mb-0 mt-0 px-3.5 pb-2.5 pl-[42px] text-chip text-mine">{error}</p>
+  ) : null;
+  return { button, below, closing };
+}
+
+/** 핸드오프 서버 한 줄 — 보드의 새 세션 띄우기가 띄운 것. 주 액션은 닫기(로컬 화면만). */
+function HandoffItem({ row, closable }: { row: RcHandoffRow; closable: boolean }) {
+  const closeHandoff = useUiStore((s) => s.closeHandoff);
+  const { button, below, closing } = useCloseAction({
+    name: row.name,
+    sessions: row.sessions,
+    close: () => closeHandoff(row.label),
+  });
   const meta = [
     row.todoRef,
     row.sessions > 0 ? `세션 ${row.sessions}` : null,
@@ -266,43 +318,25 @@ function HandoffItem({ row, closable }: { row: RcHandoffRow; closable: boolean }
             {meta}
           </span>
         </span>
-        {closable && !closing ? (
-          <button
-            type="button"
-            className="min-h-8 shrink-0 rounded-md border border-line px-2.5 text-chip text-text hover:bg-surface-2"
-            aria-expanded={confirming}
-            aria-label={`${row.name} 닫기`}
-            onClick={() => setConfirming(!confirming)}
-          >
-            닫기
-          </button>
-        ) : null}
+        {closable ? button : null}
       </div>
-      {confirming ? (
-        <div className="flex flex-wrap items-center gap-2 px-3.5 pb-2.5 pl-[42px]">
-          <span className="text-chip text-muted">
-            {row.sessions > 0 ? `세션 ${row.sessions}개가 끝나요` : '서버를 내려요'} — 워크트리는
-            남아요
-          </span>
-          <button
-            type="button"
-            className="min-h-8 rounded-md bg-mine-soft px-2.5 text-chip font-semibold text-mine"
-            onClick={() => void close()}
-          >
-            끝내고 닫기
-          </button>
-          <button
-            type="button"
-            className="tap text-chip text-faint hover:text-text"
-            onClick={() => setConfirming(false)}
-          >
-            취소
-          </button>
-        </div>
-      ) : error ? (
-        <p className="mb-0 mt-0 px-3.5 pb-2.5 pl-[42px] text-chip text-mine">{error}</p>
-      ) : null}
+      {closable ? below : null}
     </li>
+  );
+}
+
+/** 대상 밖 서버 한 줄 — 로컬 화면이면 닫기(pid 로, 데몬이 그 폴더의 rc 서버인지 다시 본다). */
+function StrayItem({ row, closable }: { row: RcStrayRow; closable: boolean }) {
+  const closeStray = useUiStore((s) => s.closeStray);
+  const { button, below } = useCloseAction({
+    name: row.label,
+    sessions: row.sessions,
+    close: () => closeStray(row.pid),
+  });
+  return closable ? (
+    <ServerItemView row={row} stray button={button} below={below} />
+  ) : (
+    <ServerItemView row={row} stray />
   );
 }
 
@@ -602,7 +636,7 @@ export function RcPane() {
           <Head name="대상 밖" count={String(rc.strays.length)} />
           <Card>
             {rc.strays.map((s) => (
-              <ServerItem key={s.pid} row={s} stray />
+              <StrayItem key={s.pid} row={s} closable={actionable} />
             ))}
           </Card>
         </>
