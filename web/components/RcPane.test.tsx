@@ -297,3 +297,55 @@ describe('원격 제어 — 야간 재시작', () => {
     expect(screen.queryByText(/야간 재시작/)).toBeNull();
   });
 });
+
+describe('RcPane 핸드오프 서버', () => {
+  const handoff = {
+    label: 'handoff-rocky-41',
+    name: 'rocky-41: 핸드오프 작업',
+    todoRef: 'rocky-41',
+    dir: '/w/rocky/.claude/worktrees/todo-41',
+    pid: 500,
+    uptimeSecs: 600,
+    sessions: 1,
+  };
+
+  test('대상 밖 앞에 따로 — 닫기는 한 번 더 묻고 라벨로 닫는다', async () => {
+    const closeHandoff = mock(async () => {});
+    renderWithStore(<RcPane />, {
+      rc: status({ handoffs: [handoff] }),
+      loadRc,
+      closeHandoff,
+      spawnAllowed: true,
+    });
+    const heads = [...document.querySelectorAll('h2')].map((h) => h.textContent);
+    expect(heads).toEqual(['고정1/2', '부를 수 있음0/1', '핸드오프1', '대상 밖1', '환경']);
+    expect(screen.getByText('rocky-41: 핸드오프 작업')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'rocky-41: 핸드오프 작업 닫기' }));
+    expect(closeHandoff).not.toHaveBeenCalled();
+    expect(screen.getByText(/세션 1개가 끝나요 — 워크트리는 남아요/)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: '끝내고 닫기' }));
+    expect(closeHandoff).toHaveBeenCalledWith('handoff-rocky-41');
+  });
+
+  test('노출된 화면에서는 닫기가 없다', () => {
+    renderWithStore(<RcPane />, {
+      rc: status({ handoffs: [handoff] }),
+      loadRc,
+      spawnAllowed: false,
+    });
+    expect(screen.queryByRole('button', { name: /닫기/ })).toBeNull();
+  });
+
+  test('현황을 못 읽었으면 닫기가 없다', () => {
+    renderWithStore(<RcPane />, {
+      rc: status({ handoffs: [handoff], probeError: 'ps 실패' }),
+      loadRc,
+      spawnAllowed: true,
+    });
+    expect(screen.queryByRole('button', { name: /닫기/ })).toBeNull();
+  });
+
+  test('요약의 세션 수에 핸드오프 서버도 든다', () => {
+    expect(rcCounts(status({ handoffs: [handoff] })).sessions).toBe(4);
+  });
+});

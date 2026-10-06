@@ -8,7 +8,10 @@ import { IssueAction } from './IssueAction';
 import { FormatToolbar } from '../FormatToolbar';
 import { Markdown } from '../Markdown';
 import { PR_ICON } from '../NowTable';
-import { SpawnAction } from './SpawnAction';
+import type { SpawnResult } from '../../types';
+
+/** 보내기 대상 — 이 할 일의 워크트리에 새 세션을 띄운다(`POST /api/todos/:ref/spawn`). */
+const NEW_SESSION = '__new__';
 
 export function TodoDetail() {
   const detail = useUiStore((s) => s.detail);
@@ -22,6 +25,10 @@ export function TodoDetail() {
   const fetchSessions = useUiStore((s) => s.fetchSessions);
   const sendHandoff = useUiStore((s) => s.sendHandoff);
   const cancelHandoff = useUiStore((s) => s.cancelHandoff);
+  const spawnSession = useUiStore((s) => s.spawnSession);
+  const spawnAllowed = useUiStore((s) => s.spawnAllowed);
+  const rc = useUiStore((s) => s.rc);
+  const loadRc = useUiStore((s) => s.loadRc);
   const prs = useUiStore((s) => s.prs);
   const todo = detail?.todo;
   const [desc, setDesc] = useState(todo?.description ?? '');
@@ -49,6 +56,13 @@ export function TodoDetail() {
   // 방금 보낸 핸드오프가 세션을 깨웠나 — 대기 줄에 "바로 전달" / "다음 턴에 집는다" 를 말한다.
   const [handoffWoke, setHandoffWoke] = useState<boolean | null>(null);
   const [handoffError, setHandoffError] = useState<string | null>(null);
+  // 새 세션 — 보드에 메인 레포 경로가 없거나 경로 문제로 실패하면 이 칸을 연다. 결과는 패널을 닫은 뒤 한 줄로.
+  const [askingPath, setAskingPath] = useState(false);
+  const [handoffPath, setHandoffPath] = useState('');
+  const [spawned, setSpawned] = useState<SpawnResult | null>(null);
+  // 보낸 뒤 응답이 오기 전에 다른 할 일로 바뀌면 그 응답을 이 화면에 그리지 않는다 — 새 세션은 몇십 초 걸린다.
+  const currentTodoId = useRef(todo?.id);
+  currentTodoId.current = todo?.id;
 
   useEffect(() => {
     if (!editingDesc) {
@@ -73,6 +87,9 @@ export function TodoDetail() {
     setHandoffBusy(false);
     setHandoffError(null);
     setHandoffWoke(null);
+    setAskingPath(false);
+    setHandoffPath('');
+    setSpawned(null);
   }, [todo?.id]);
 
   if (!todo) {
@@ -90,29 +107,74 @@ export function TodoDetail() {
   // `fetchSessions` 는 실패를 던지지 않고 `sessions.available:false + reason` 으로
   // 흡수한다 — 조회 실패는 그 상태 하나로만 표현한다. 여기서 또 잡아 `handoffError` 에
   // 넣으면 같은 실패를 말하는 자리가 둘이 된다.
+  const board = boards.find((b) => b.id === todo.boardId);
+  const newSession = handoffSession === NEW_SESSION;
+  // 새 세션은 프로세스를 띄우는 일이라 로컬 화면에서만 고를 수 있다. 기본으로 고른다 — 보내기의 첫 갈래다.
   const openHandoff = async () => {
     setHandoffOpen(true);
     setHandoffError(null);
+    setSpawned(null);
+    setAskingPath(false);
+    setHandoffPath('');
+    setHandoffSession(spawnAllowed ? NEW_SESSION : '');
+    if (!rc) {
+      // 이 기기의 원격 제어 여부 — 상세로 바로 들어오면 아직 안 읽혔다(새 세션 줄의 문구가 갈린다).
+      void loadRc();
+    }
     await fetchSessions();
   };
 
   const submitHandoff = async () => {
+    if (newSession && !board?.path && !askingPath) {
+      // 워크트리를 만들 자리를 먼저 받는다 — 성공한 뒤에만 보드에 저장된다.
+      setAskingPath(true);
+      return;
+    }
     setHandoffBusy(true);
     setHandoffError(null);
+    const sentFor = todo.id;
+    const stillHere = () => currentTodoId.current === sentFor;
     try {
-      const woke = await sendHandoff(todo.id, {
-        sessionId: handoffSession || undefined,
-        note: handoffNote || undefined,
-      });
-      setHandoffWoke(woke);
+      if (newSession) {
+        const result = await spawnSession(todo.id, {
+          note: handoffNote.trim() || undefined,
+          path: askingPath ? handoffPath.trim() : undefined,
+        });
+        if (!stillHere()) {
+          return;
+        }
+        setSpawned(result);
+        setHandoffWoke(result.woke ?? null);
+        setAskingPath(false);
+      } else {
+        const woke = await sendHandoff(todo.id, {
+          sessionId: handoffSession || undefined,
+          note: handoffNote || undefined,
+        });
+        if (!stillHere()) {
+          return;
+        }
+        setHandoffWoke(woke);
+      }
       // 성공했을 때만 닫는다 — 실패하면 고쳐서 다시 낼 수 있어야 한다.
       setHandoffOpen(false);
       setHandoffNote('');
       setHandoffSession('');
     } catch (error) {
-      setHandoffError(error instanceof Error ? error.message : String(error));
+      if (!stillHere()) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      setHandoffError(message);
+      // 경로 문제면 고칠 값을 보여 준다. rc 서버 · 세션 실패는 경로와 무관하니 사유만.
+      if (newSession && /경로|git 워크트리가 아니다:/.test(message)) {
+        setAskingPath(true);
+        setHandoffPath(handoffPath || board?.path || '');
+      }
     } finally {
-      setHandoffBusy(false);
+      if (stillHere()) {
+        setHandoffBusy(false);
+      }
     }
   };
 
@@ -399,8 +461,16 @@ export function TodoDetail() {
               <select
                 className="w-full min-w-0 rounded-md border border-line bg-surface px-2 py-[5px] text-sm text-text"
                 value={handoffSession}
+                aria-label="보낼 대상"
                 onChange={(e) => setHandoffSession(e.target.value)}
               >
+                {spawnAllowed ? (
+                  <option value={NEW_SESSION}>
+                    {rc?.configured === false
+                      ? '새 세션 — 백그라운드(--bg) ⚠'
+                      : '새 세션 — 이 할 일의 워크트리(원격 제어)'}
+                  </option>
+                ) : null}
                 <option value="">자동 (이 보드의 세션)</option>
                 {sessions.list.map((session) => (
                   <option key={session.sessionId} value={session.sessionId}>
@@ -408,14 +478,39 @@ export function TodoDetail() {
                   </option>
                 ))}
               </select>
+              {newSession && askingPath ? (
+                <input
+                  className="w-full"
+                  value={handoffPath}
+                  placeholder="/Users/…/레포 절대경로"
+                  aria-label="메인 레포 절대경로"
+                  onChange={(e) => setHandoffPath(e.target.value)}
+                />
+              ) : null}
               <input
                 value={handoffNote}
                 placeholder="메모 (선택)"
+                aria-label="세션에 함께 보낼 메모"
                 onChange={(e) => setHandoffNote(e.target.value)}
               />
-              <button type="button" onClick={() => void submitHandoff()} disabled={handoffBusy}>
-                보내기
+              <button
+                type="button"
+                onClick={() => void submitHandoff()}
+                disabled={handoffBusy || (newSession && askingPath && handoffPath.trim() === '')}
+              >
+                {handoffBusy && newSession ? '띄우는 중… (보통 몇십 초)' : '보내기'}
               </button>
+              {newSession && rc?.configured === false ? (
+                <p className="w-full text-meta text-p1">
+                  이 기기는 원격 제어가 꺼져 있어 백그라운드 세션으로 띄워요 — ssh · 로그인이 끊겨
+                  PR 까지 못 갈 수 있어요
+                </p>
+              ) : null}
+              {!spawnAllowed ? (
+                <p className="w-full text-meta text-muted">
+                  새 세션은 로컬(루프백) 주소로 연 화면에서만 띄울 수 있어요
+                </p>
+              ) : null}
             </>
           ) : (
             <p>세션 목록을 가져오지 못했어요: {sessions.reason}</p>
@@ -427,8 +522,25 @@ export function TodoDetail() {
           ) : null}
         </div>
       ) : null}
+      {spawned && !handoffOpen ? (
+        <div className="mt-1.5 flex flex-col gap-1 text-meta leading-[1.4] text-handoff [&_code]:select-all">
+          {spawned.server ? (
+            <span>
+              원격 제어 “{spawned.server.name}” 의 세션에 넘겼어요 — 폰 · 웹의 원격 제어 목록에서
+              이어 볼 수 있어요. 끝나면 원격 제어 탭에서 닫아 주세요
+            </span>
+          ) : spawned.reused ? null : (
+            <>
+              <span>
+                세션 {spawned.sessionShortId} · {spawned.worktreePath}
+              </span>
+              <code>claude attach {spawned.sessionShortId}</code>
+              {spawned.warning ? <span className="text-p1">⚠ {spawned.warning}</span> : null}
+            </>
+          )}
+        </div>
+      ) : null}
       <IssueAction todo={todo} />
-      <SpawnAction todo={todo} />
     </div>
   );
 }

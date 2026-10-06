@@ -1,8 +1,8 @@
 import { audit } from './support/audit';
 import { expect, row, test } from './support/test';
 
-// 상세에서 누르지 않는 버튼: "GitHub 이슈 만들기"(실제 GitHub 에 이슈를 연다), "새 세션 띄우기"(claude 세션을
-// 띄운다), "에이전트에게 보내기"(살아 있는 세션에 일을 넘긴다). 격리된 데몬이어도 이 셋은 바깥에 닿는다.
+// 상세에서 누르지 않는 버튼: "GitHub 이슈 만들기"(실제 GitHub 에 이슈를 연다), "에이전트에게 보내기"(새 세션 — rc 서버를
+// 띄우거나 — 이나 살아 있는 세션에 일을 넘긴다). 격리된 데몬이어도 이 둘은 바깥에 닿는다.
 
 test('상세에서 제목·설명·댓글을 고친다', async ({ page, api, tag }) => {
   await api.todo({ title: tag });

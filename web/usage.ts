@@ -21,6 +21,7 @@ export type WebUsageEvent =
   | 'web:worklog-todo'
   | 'web:rc-start'
   | 'web:rc-restart'
+  | 'web:handoff-close'
   | 'web:agent-row'
   | 'web:access-logout';
 

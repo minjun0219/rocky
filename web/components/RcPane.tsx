@@ -11,7 +11,7 @@ import {
 import { useEffect, useState } from 'react';
 import { formatStamp, rcVisible } from '../lib';
 import { useUiStore } from '../store';
-import type { RcServerRow, RcStatus, RcStrayRow } from '../types';
+import type { RcHandoffRow, RcServerRow, RcStatus, RcStrayRow } from '../types';
 
 /** 화면이 보일 때만 이 간격으로 다시 읽는다 — 데몬이 5초 캐시하고 `ps` 를 돌리는 비용이 있다. */
 const POLL_MS = 30_000;
@@ -47,7 +47,10 @@ export function rcCounts(rc: RcStatus): {
     running: rc.servers.filter((s) => s.running).length,
     total: rc.servers.length,
     pinnedOff: rc.probeError ? 0 : rc.servers.filter((s) => s.pinned && !s.running).length,
-    sessions: [...rc.servers, ...rc.strays].reduce((sum, s) => sum + s.sessions, 0),
+    sessions: [...rc.servers, ...rc.strays, ...(rc.handoffs ?? [])].reduce(
+      (sum, s) => sum + s.sessions,
+      0,
+    ),
   };
 }
 
@@ -218,6 +221,91 @@ function ServerItemView({
   );
 }
 
+/**
+ * 핸드오프 서버 한 줄 — 보드의 새 세션 띄우기가 띄운 것. 주 액션은 닫기(로컬 화면만): 세션을 끝내고 되돌릴 수 없어 같은
+ * 자리 아래 한 줄로 한 번 더 묻는다. 워크트리는 남는다.
+ */
+function HandoffItem({ row, closable }: { row: RcHandoffRow; closable: boolean }) {
+  const closeHandoff = useUiStore((s) => s.closeHandoff);
+  const [confirming, setConfirming] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const close = async () => {
+    setConfirming(false);
+    setClosing(true);
+    setError(null);
+    try {
+      await closeHandoff(row.label);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClosing(false);
+    }
+  };
+  const meta = [
+    row.todoRef,
+    row.sessions > 0 ? `세션 ${row.sessions}` : null,
+    rcUptime(row.uptimeSecs) || null,
+    closing ? '닫는 중…' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <li className="border-t border-line/70 first:border-t-0">
+      <div className="flex w-full items-center gap-2.5 px-3.5 py-2.5" title={row.dir}>
+        <span
+          className="mt-0.5 flex w-4 shrink-0 justify-center text-run"
+          role="img"
+          aria-label="실행 중"
+        >
+          <CircleDot size={14} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm leading-[1.45] text-text">{row.name}</span>
+          <span className="mt-0.5 block truncate font-mono text-chip tabular-nums text-muted">
+            {meta}
+          </span>
+        </span>
+        {closable && !closing ? (
+          <button
+            type="button"
+            className="min-h-8 shrink-0 rounded-md border border-line px-2.5 text-chip text-text hover:bg-surface-2"
+            aria-expanded={confirming}
+            aria-label={`${row.name} 닫기`}
+            onClick={() => setConfirming(!confirming)}
+          >
+            닫기
+          </button>
+        ) : null}
+      </div>
+      {confirming ? (
+        <div className="flex flex-wrap items-center gap-2 px-3.5 pb-2.5 pl-[42px]">
+          <span className="text-chip text-muted">
+            {row.sessions > 0 ? `세션 ${row.sessions}개가 끝나요` : '서버를 내려요'} — 워크트리는
+            남아요
+          </span>
+          <button
+            type="button"
+            className="min-h-8 rounded-md bg-mine-soft px-2.5 text-chip font-semibold text-mine"
+            onClick={() => void close()}
+          >
+            끝내고 닫기
+          </button>
+          <button
+            type="button"
+            className="tap text-chip text-faint hover:text-text"
+            onClick={() => setConfirming(false)}
+          >
+            취소
+          </button>
+        </div>
+      ) : error ? (
+        <p className="mb-0 mt-0 px-3.5 pb-2.5 pl-[42px] text-chip text-mine">{error}</p>
+      ) : null}
+    </li>
+  );
+}
+
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
@@ -306,7 +394,8 @@ export function RcSummary() {
                   className="w-full px-3.5 py-2.5 text-left text-chip text-link"
                   onClick={() => setView('rc')}
                 >
-                  원격 제어 탭에서 전체 {rc.servers.length + rc.strays.length}개 보기 ›
+                  원격 제어 탭에서 전체{' '}
+                  {rc.servers.length + rc.strays.length + (rc.handoffs?.length ?? 0)}개 보기 ›
                 </button>
               </li>
             ) : null}
@@ -422,7 +511,7 @@ function AgyItem({ agy, first }: { agy: NonNullable<RcStatus['antigravity']>; fi
 }
 
 /**
- * 원격 제어 탭 — 고정 → 부를 수 있음 → 대상 밖 → 환경(로그인 · Antigravity). claude rc 는 보기만 한다: 목록은
+ * 원격 제어 탭 — 고정 → 부를 수 있음 → 핸드오프 → 대상 밖 → 환경(로그인 · Antigravity). claude rc 는 보기만 한다: 목록은
  * `rocky.json` 의 `rc` 블록에서 고치고(설정 화면을 패널에 두지 않는다), 띄우기·재시작은 다음 조각이다. rc 블록이
  * 없는 기기에서도 agy 가 있으면 Antigravity 줄만 보인다.
  */
@@ -494,6 +583,16 @@ export function RcPane() {
                 unknown={Boolean(rc.probeError)}
                 actionable={actionable}
               />
+            ))}
+          </Card>
+        </>
+      ) : null}
+      {rc.handoffs && rc.handoffs.length > 0 ? (
+        <>
+          <Head name="핸드오프" count={String(rc.handoffs.length)} tone="run" />
+          <Card>
+            {rc.handoffs.map((h) => (
+              <HandoffItem key={h.pid} row={h} closable={actionable} />
             ))}
           </Card>
         </>
