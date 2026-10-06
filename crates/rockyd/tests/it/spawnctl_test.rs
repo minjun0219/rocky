@@ -260,3 +260,44 @@ fn forgetting_unknown_is_fine() {
 fn default_ttl_is_60s() {
     assert_eq!(RECENT_SPAWN_TTL, Duration::from_secs(60));
 }
+
+#[test]
+fn try_reserve_holds_while_in_flight_then_counts_the_ttl() {
+    let spawns = RecentSpawns::new(Duration::from_millis(30));
+    let first = spawns.try_reserve("/w/todo-1").expect("비어 있으면 잡는다");
+    assert!(
+        spawns.try_reserve("/w/todo-1").is_none(),
+        "진행 중이면 못 잡는다"
+    );
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(
+        spawns.try_reserve("/w/todo-1").is_none(),
+        "TTL 이 지나도 진행 중이면 막는다 — 오래 걸리는 기동"
+    );
+    drop(first);
+    assert!(spawns.is_recent("/w/todo-1"), "끝난 뒤부터 TTL 을 센다");
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(spawns.try_reserve("/w/todo-1").is_some());
+}
+
+#[test]
+fn a_released_reservation_frees_the_path_and_only_its_own() {
+    let spawns = RecentSpawns::new(Duration::from_secs(60));
+    let failed = spawns.try_reserve("/w/todo-1").unwrap();
+    failed.release();
+    assert!(
+        !spawns.is_recent("/w/todo-1"),
+        "확실히 안 띄웠으면 곧바로 다시"
+    );
+
+    // 옛 예약이 늦게 끝나도 그 사이 새로 잡힌 예약을 지우지 않는다(토큰).
+    let old = spawns.try_reserve("/w/todo-2").unwrap();
+    spawns.forget("/w/todo-2");
+    let new = spawns.try_reserve("/w/todo-2").unwrap();
+    old.release();
+    assert!(
+        spawns.try_reserve("/w/todo-2").is_none(),
+        "새 예약은 그대로 진행 중"
+    );
+    drop(new);
+}

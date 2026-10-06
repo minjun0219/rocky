@@ -372,6 +372,40 @@ async fn concurrent_requests_spawn_only_once() {
 }
 
 #[tokio::test]
+async fn requests_overlapping_on_the_session_list_spawn_only_once() {
+    // 예약 확인(`is_recent`)과 잡기 사이에 세션 목록 await 가 있다 — 둘이 그 사이에 겹쳐도 하나만 띄운다.
+    let f = fx();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let state = rebuild(&f, {
+        let calls = calls.clone();
+        move |o| {
+            o.sessions = Some(Arc::new(|| {
+                Box::pin(async {
+                    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                    available(vec![])
+                })
+            }));
+            o.spawn = Some(Arc::new(move |_input: SpawnInput| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { Ok("5acaaaeb".to_string()) })
+            }));
+            o.path_exists = Some(Arc::new(|_| true));
+            o.real_path = Some(Arc::new(|p| Ok(p.to_string())));
+        }
+    });
+    let todo = seed(&f);
+    let path = format!("/api/todos/{}/spawn", todo.id);
+    let (a, b) = tokio::join!(
+        call(&state, "POST", &path, None, ReqOptions::default()),
+        call(&state, "POST", &path, None, ReqOptions::default())
+    );
+    let mut statuses = [a.0, b.0];
+    statuses.sort();
+    assert_eq!(statuses, [201, 409]);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn definitely_failed_spawn_releases_reservation() {
     let f = fx();
     let calls = Arc::new(AtomicUsize::new(0));
