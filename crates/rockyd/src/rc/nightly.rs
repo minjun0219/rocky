@@ -491,15 +491,25 @@ impl RcController {
                 Attempted::Untouched => {}
             }
         }
-        // 남은 것 — canary 가 떴을 때만 있다(모두 손대지 못했으면 비어 있다).
+        // 남은 것 — canary 를 시험했을 때만 있다(모두 손대지 못했으면 비어 있다).
         let rest: Vec<Req> = reqs.collect();
         if !down.is_empty() {
-            report.canary_failed = true;
-            for r in rest {
-                let note = format!("먼저 시도한 {canary_label} 가 안 돼서 건드리지 않음");
-                self.skip_req(r, &note, report);
+            // canary 가 못 떴다 — 나머지는 아직 내리지 않고 canary 부터 마감까지 회복해 본다. 뜨면 새 버전이 돌고 네트워크도
+            // 붙은 것이니 나머지를 이어서 한다(순간 장애 하나로 하룻밤을 통째로 넘기지 않게). 끝내 안 뜨면 나머지는 그대로 둔다.
+            let canary_up = self
+                .recover(std::mem::take(&mut down), current, deadline, until, report)
+                .await;
+            if !canary_up {
+                report.canary_failed = true;
+                for r in rest {
+                    let note =
+                        format!("먼저 시도한 {canary_label} 가 마감까지 안 떠서 건드리지 않음");
+                    self.skip_req(r, &note, report);
+                }
+                return;
             }
-        } else if !rest.is_empty() {
+        }
+        if !rest.is_empty() {
             if self.wait_online("rest").await {
                 let results = futures_join(rest.into_iter().map(|r| {
                     let this = self.clone();
@@ -564,7 +574,7 @@ impl RcController {
             report.items.push(NightlyItem {
                 label,
                 outcome: NightlyOutcome::Restarted,
-                note: restart_note(&r.decision, current),
+                note: restart_note(&r.decision, current, self.launched_mode(&r.target.label)),
             });
             return Attempted::Up;
         }
@@ -595,9 +605,9 @@ impl RcController {
         }
     }
 
-    /// 내리고 못 띄운 것을 마감까지 1 · 2 · 4 · 8 · 16분 간격으로 다시 띄운다 — 이어받기는 이미 실패했으니 새로, `already
-    /// served` 를 만나도 그 자리에서 기다리지 않는다(이 간격이 곧 재시도다 — 기다리면 마감을 넘긴다). 그새 떠 있으면 다시
-    /// 띄우지 않는다. 마감까지 안 뜬 것은 표식을 남긴 채 놓는다.
+    /// 내리고 못 띄운 것을 마감까지 1 · 2 · 4 · 8 · 16분 간격으로 다시 띄운다 — 처음에 못 박은 세션이 있으면 그 세션으로(마지막
+    /// 시도만 새로), `already served` 를 만나도 그 자리에서 기다리지 않는다(이 간격이 곧 재시도다 — 기다리면 마감을 넘긴다). 그새
+    /// 떠 있으면 다시 띄우지 않는다. 마감까지 안 뜬 것은 표식을 남긴 채 놓는다. 다 떴으면 true.
     async fn recover(
         &self,
         mut down: Vec<Req>,
@@ -605,7 +615,7 @@ impl RcController {
         deadline: NaiveDateTime,
         until: &str,
         report: &mut NightlyReport,
-    ) {
+    ) -> bool {
         let mut attempt = 1;
         while !down.is_empty() {
             let now = (self.ops.now)();
@@ -636,11 +646,20 @@ impl RcController {
                     });
                     continue;
                 }
-                let mode = rc::retry_mode(r.target.pinned);
+                // 처음에 못 박은 세션이 있으면 그 세션으로 다시 — 실패가 네트워크 탓이어도 새 세션으로 띄우면 대화를 버린다
+                // (2026-10-07 실측). 다음 대기가 마감을 넘는 마지막 시도만 새로 띄운다 — 못 박은 세션이 정말 못 쓰는 것이면
+                // 서버를 내린 채 아침을 맞지 않게.
+                let last_try = (self.ops.now)()
+                    + chrono::Duration::from_std(rc::recovery_wait(attempt)).unwrap_or_default()
+                    >= deadline;
+                let command = match self.pinned_session(&label) {
+                    Some(id) if !last_try => RcCommand::Pin(id),
+                    _ => RcCommand::Revive(rc::retry_mode(r.target.pinned)),
+                };
                 let result = self
                     .attempt(
                         &r.target,
-                        RcCommand::Revive(mode),
+                        command,
                         Policy {
                             backoff: &[],
                             known_version: current,
@@ -656,7 +675,7 @@ impl RcController {
                         outcome: NightlyOutcome::Restarted,
                         note: format!(
                             "{} ({}번째 재시도)",
-                            restart_note(&r.decision, current),
+                            restart_note(&r.decision, current, self.launched_mode(&r.target.label)),
                             attempt - 1
                         ),
                     });
@@ -666,6 +685,7 @@ impl RcController {
             }
             down = still;
         }
+        let all_up = down.is_empty();
         for r in down {
             self.release(&r.target.label);
             self.event(
@@ -679,6 +699,7 @@ impl RcController {
                 note: format!("내렸지만 {until} 까지 못 띄움 — {}", self.down_hint()),
             });
         }
+        all_up
     }
 
     /// 바쁜 서버 — 쉬게 될 때까지 5분마다 다시 보며 마감까지 기다린다. 풀린 것은 같은 순서(canary · 회복)로. 회복이 마감을
@@ -859,7 +880,7 @@ impl RcController {
                 let (outcome, note) = match d.reason {
                     NightlyReason::Restart => (
                         NightlyOutcome::WouldRestart,
-                        restart_note(&d, current.as_deref()),
+                        restart_note(&d, current.as_deref(), None),
                     ),
                     NightlyReason::Busy if deadline > (self.ops.now)() => (
                         NightlyOutcome::WouldWait,
@@ -942,8 +963,16 @@ fn or_unknown(v: Option<&str>) -> &str {
     v.unwrap_or("?")
 }
 
-fn restart_note(d: &NightlyDecision, current: Option<&str>) -> String {
-    let mode = d.mode.map(|m| rc::mode_note(m, false)).unwrap_or("");
+/// `from → to · 방식` — 방식은 실제로 뜬 것(`launched`)이 있으면 그것, 없으면(미리보기) 판정 때 정한 것.
+fn restart_note(
+    d: &NightlyDecision,
+    current: Option<&str>,
+    launched: Option<rc::LaunchMode>,
+) -> String {
+    let mode = launched
+        .or(d.mode)
+        .map(|m| rc::mode_note(m, false))
+        .unwrap_or("");
     format!(
         "{} → {} · {mode}",
         or_unknown(d.from.as_deref()),
