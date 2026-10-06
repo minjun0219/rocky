@@ -1,5 +1,25 @@
 # @minjun0219/rocky
 
+## 0.46.0
+
+### Minor Changes
+
+- [#406](https://github.com/minjun0219/rocky/pull/406) [`cca0ee4`](https://github.com/minjun0219/rocky/commit/cca0ee48d7f39ede80c23c7ac2d8cf222f4ca44c) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션이 MCP `todo_status` 로 스스로 시작한 할 일에도 그 세션을 귀속시킨다(PostToolUse 훅 `rocky hook claim-doing`). 그동안 세션 귀속은 핸드오프로 받은 작업에만 붙어 statusline 보드 줄의 `⏺ {mine.ref} {mine.title}`·`💬 {mine.comments}` 와 워크로그 턴의 `todo:<ref>` 태그가 거의 나오지 않았다. Stop 훅의 "닫았나?" 확인은 지금처럼 핸드오프로 받은 할 일에만 한다. 데몬 DB 에 컬럼 하나(`todos.doing_session_claimed`)가 더해진다.
+
+- [#400](https://github.com/minjun0219/rocky/pull/400) [`4d62ae0`](https://github.com/minjun0219/rocky/commit/4d62ae02e19f975bc7dc57d3451774045ae99e94) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드의 새 세션 띄우기가 띄운 rc 서버(핸드오프 서버)를 `rocky rc` 에 "핸드오프:" 로 따로 보이고(`GET /api/rc/servers` 의 `handoffs`), `rocky rc stop <할 일>`(`POST /api/rc/handoffs/:ref/stop`, 로컬 전용)로 닫는다 — 지금 그 폴더에서 그 pid 로 도는 rc 서버일 때만 pid 로 내리고 워크트리는 남긴다. README 의 권장 확인 규칙에 `Bash(rocky rc stop:*)` 를 더했다.
+
+- [#407](https://github.com/minjun0219/rocky/pull/407) [`20aa72e`](https://github.com/minjun0219/rocky/commit/20aa72ed6a0a22274ed58e68ae4dcd2b6635a329) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc stop` 이 대상 밖 서버(rocky.json 목록에 없는 폴더의 rc 서버)도 닫는다 — 폴더 이름이나 pid 로 고르고(`POST /api/rc/strays/:ref/stop`, 로컬 전용), 지금 그 폴더의 rc 서버일 때만 pid 로 내린다. 웹 원격 제어 탭의 "대상 밖" 줄에도 닫기를 둔다(한 번 더 묻는다). 설정 대상은 닫지 않는다.
+
+- [#408](https://github.com/minjun0219/rocky/pull/408) [`c8a95bd`](https://github.com/minjun0219/rocky/commit/c8a95bd01f880eb8ab98bba52d7d21c14ebe7efb) Thanks [@minjun0219](https://github.com/minjun0219)! - 실험 기능 `lab`(0.44.0, Claude Code function hooks 모듈)을 뺀다 — 90일 사용 0회. `rocky.json` 에 `lab` 블록이 남아 있으면 지운다(이제 스키마가 모르는 키로 잡는다).
+
+- [#403](https://github.com/minjun0219/rocky/pull/403) [`e357d2e`](https://github.com/minjun0219/rocky/commit/e357d2e03d946942f4d71810daba07774955ba21) Thanks [@minjun0219](https://github.com/minjun0219)! - statusline 보드 줄 템플릿에 `{pr.ready}`(이 세션이 구독한 열린 PR 중 머지 후보 수)와 `{pr.conflict}`(충돌 수)를 더한다. 기본 템플릿도 바꾼다 — 핸드오프 수 `{inbox}` 의 표시를 받은편지함으로 오해하게 하던 `✉` 에서 `🤝` 로, 그리고 `✅ {pr.ready}` · `⛔ {pr.conflict}` 를 넣었다. 템플릿을 직접 적어 둔 설정은 그대로이니 필요하면 새 변수를 넣는다.
+
+- [#401](https://github.com/minjun0219/rocky/pull/401) [`3f4bdc6`](https://github.com/minjun0219/rocky/commit/3f4bdc60b99ba9acebe1aab39115977a90608ebd) Thanks [@minjun0219](https://github.com/minjun0219)! - 할 일 상세의 "에이전트에게 보내기" 와 "새 세션 띄우기" 를 한 패널로 합쳤다 — 대상 첫 줄이 "새 세션 — 이 할 일의 워크트리(원격 제어)"(로컬 화면에서만, 기본 선택)이고 그 아래 기존 세션들이다. 원격 제어 탭에 "핸드오프" 절을 두어 새 세션 띄우기가 띄운 서버를 보이고, 한 번 더 물은 뒤 닫는다(워크트리는 남는다).
+
+### Patch Changes
+
+- [#405](https://github.com/minjun0219/rocky/pull/405) [`c60bff0`](https://github.com/minjun0219/rocky/commit/c60bff0745939480c2a9c19ced1d49027745c8dc) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc restart`(와 야간 재시작)가 열려 있던 대화가 아니라 서버가 처음 만든 세션을 이어받던 것을 고쳤다 — `claude rc -c` 는 "그 폴더에서 마지막 서버가 처음 만든 세션" 을 되살린다. 이제 내리기 전에 그 서버의 열린 세션 id 를 읽어 `--session-id` 로 못 박는다(여럿이면 가장 최근에 대화한 것).
+
 ## 0.45.0
 
 ### Minor Changes
