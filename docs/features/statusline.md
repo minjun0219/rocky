@@ -47,13 +47,21 @@
   그 시각(`state.json` 의 `credits_spending_at`)부터 3초에 걸쳐 원래 색으로 — 다시 안 쓰면 바로 옅게. 색을 섞을 수 없는 터미널은
   회색 ↔ 원래 색. 골든 대조는 `creditFade: false` 로 돈다(끄면 cc-usage 와 같은 바이트).
 
+- **`source` 는 그 실행에서만 덮을 수 있다** — 설정 < `ROCKY_STATUSLINE_SOURCE` < `--source`(`limits::override_source`). 모르는
+  환경 변수 값은 무시, 모르는 플래그 값은 `[rocky] --source "…": …` 한 줄만 낸다. 갱신 자식에게는 **같은 환경 변수로** 넘긴다
+  (`statusline_refresh::spawn_detached`) — 안 넘기면 자식이 설정·물려받은 값으로 다시 판단해 부모와 다른 모드로 돈다.
+- **`none` 과 agy 는 Claude 쪽을 건드리지 않는다**(`limits::local_limits`) — 토큰·API·캐시·계정 파일을 읽지도 쓰지도 않는다.
+  같은 머신 Claude 세션의 캐시를 읽으면 그 숫자가 다른 호스트의 줄에 그려진다. agy(stdin `product: "antigravity"`)는 `source`
+  와 무관하게 이쪽이고, 한도는 `quota` 의 모델 버킷(`gemini-*` / `3p-*`, 모델 이름으로 고름)이다. 고른 버킷이 없거나 모델
+  이름을 모르면 창을 비운다 — 다른 버킷의 숫자를 대신 그리지 않는다. 경보는 배지로 고정(깜빡임은 캐시가 있어야 센다).
+
 ## 코드
 
 | 무엇 | 어디 |
 | --- | --- |
 | 세그먼트 렌더 | `crates/rocky-core/src/statusline.rs` |
 | `--full` 렌더·폭·git·extra | `crates/rocky-core/src/statusline/{full,width,git,extra}.rs` |
-| 한도 판정 | `crates/rocky-core/src/limits.rs` |
+| 한도 판정 | `crates/rocky-core/src/limits.rs`, agy `limits/agy.rs` |
 | CLI 입구 | `crates/rocky-cli/src/commands.rs`·`client.rs`(`rocky statusline`) |
 | 하위 프로세스(마감·그룹 kill) | `crates/rocky-cli/src/{bounded,git_status}.rs` |
 | 계정 판단·캐시·갱신 | `crates/rocky-core/src/claude_account.rs`, `crates/rocky-cli/src/{statusline_cache,statusline_refresh}.rs` |

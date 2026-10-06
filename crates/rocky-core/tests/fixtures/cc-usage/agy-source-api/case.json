@@ -1,0 +1,18 @@
+{
+  "why": "agy 는 source 와 무관하게 quota 로 그린다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "api"
+  },
+  "stdin": "{\"cwd\":\"{{HOME}}/project\",\"session_id\":\"agy-s\",\"product\":\"antigravity\",\"plan_tier\":\"Google AI Pro\",\"model\":{\"id\":\"GPT-OSS 120B (Medium)\",\"display_name\":\"GPT-OSS 120B (Medium)\",\"effort\":\"high\"},\"workspace\":{\"current_dir\":\"{{HOME}}/project\",\"project_dir\":\"{{HOME}}/project\"},\"context_window\":{\"used_percentage\":12,\"context_window_size\":1048576},\"quota\":{\"gemini-5h\":{\"remaining_fraction\":0.86,\"reset_time\":\"2026-09-16T09:00:00.000Z\"},\"gemini-weekly\":{\"remaining_fraction\":0.94,\"reset_time\":\"2026-09-19T07:40:00.000Z\"},\"3p-5h\":{\"remaining_fraction\":0,\"reset_time\":\"2026-09-16T09:00:00.000Z\"},\"3p-weekly\":{\"remaining_fraction\":0.25,\"reset_time\":\"2026-09-19T07:40:00.000Z\"}}}",
+  "allow": [],
+  "usage": null,
+  "state": null,
+  "account": null,
+  "repo": [],
+  "gitEnv": {},
+  "args": [],
+  "sourceEnv": null
+}

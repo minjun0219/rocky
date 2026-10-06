@@ -77,12 +77,16 @@ pub fn run(cfg: &StatuslineConfig, now: DateTime<Utc>) {
 
 /// statusline 이 갱신을 띄운다 — 새 세션(`setsid`)으로 떼어 내 statusline 이 끝나거나 끊겨도 살아남게 하고, 입출력은
 /// 모두 버린다. 띄우지 못하면 `false`(다음 렌더가 다시 시도한다).
-pub fn spawn_detached() -> bool {
+///
+/// `source` 는 부모가 이번 실행에서 정한 값이다 — 환경 변수로 넘긴다. 넘기지 않으면 자식이 설정 파일이나 물려받은
+/// 환경 변수로 다시 판단해 부모와 다른 모드로 돈다(물려받은 값이 `none` 이면 아무것도 안 한다).
+pub fn spawn_detached(source: Source) -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };
     let mut cmd = std::process::Command::new(exe);
     cmd.args(["statusline", "refresh"])
+        .env(rocky_core::limits::SOURCE_ENV, source.as_str())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

@@ -26,5 +26,7 @@
     "GIT_COMMITTER_DATE": "2026-09-16T00:00:00+00:00",
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": "/dev/null"
-  }
+  },
+  "args": [],
+  "sourceEnv": null
 }

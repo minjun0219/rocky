@@ -1,0 +1,18 @@
+{
+  "why": "모르는 환경 변수 값은 무시하고 설정을 쓴다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":1789549200}}}",
+  "allow": [],
+  "usage": null,
+  "state": null,
+  "account": null,
+  "repo": [],
+  "gitEnv": {},
+  "args": [],
+  "sourceEnv": "bogus"
+}

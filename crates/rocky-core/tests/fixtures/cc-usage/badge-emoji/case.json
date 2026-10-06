@@ -17,5 +17,7 @@
   "state": null,
   "account": "work@example.com",
   "repo": [],
-  "gitEnv": {}
+  "gitEnv": {},
+  "args": [],
+  "sourceEnv": null
 }

@@ -689,3 +689,181 @@ fn credit_glow_fades_in_when_credits_start_burning() {
     };
     assert_eq!(credit_glow(&c, &unknown, &mut state, now()).0, None);
 }
+
+/// agy 1.2.14 가 실제로 준 stdin 에서 식별 정보를 뺀 것(cc-usage `agy_test.go`).
+fn agy_input(model: &str) -> Input {
+    Input::parse(&format!(
+        r#"{{
+  "cwd": "/w", "session_id": "s",
+  "model": {{"id": "{model}", "display_name": "{model}", "effort": "high"}},
+  "workspace": {{"current_dir": "/w", "project_dir": "/w"}},
+  "context_window": {{"context_window_size": 1048576, "used_percentage": 0}},
+  "product": "antigravity",
+  "quota": {{
+    "3p-5h":         {{"remaining_fraction": 1,          "reset_time": "2026-10-01T05:15:36Z"}},
+    "3p-weekly":     {{"remaining_fraction": 0.25,       "reset_time": "2026-10-08T00:15:36Z"}},
+    "gemini-5h":     {{"remaining_fraction": 0.8596034,  "reset_time": "2026-10-01T04:15:38Z"}},
+    "gemini-weekly": {{"remaining_fraction": 0.93826973, "reset_time": "2026-10-07T08:19:44Z"}}
+  }},
+  "plan_tier": "Google AI Pro", "terminal_width": 140
+}}"#
+    ))
+}
+
+fn oct1() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339("2026-10-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc)
+}
+
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() < 0.01
+}
+
+#[test]
+fn agy_limits_pick_the_bucket_by_model() {
+    use rocky_core::limits::agy_limits;
+    for (model, five, seven) in [
+        ("Gemini 3.8 Flash (High)", 14.04, 6.17),
+        ("Claude Opus 4.6 (Thinking)", 0.0, 75.0),
+        ("GPT-OSS 120B (Medium)", 0.0, 75.0),
+        // 접두사가 달라도 gemini 를 품으면 gemini 버킷이다.
+        ("Google Gemini 4 Ultra", 14.04, 6.17),
+    ] {
+        let input = agy_input(model);
+        assert!(input.is_agy(), "{model}");
+        let lim = agy_limits(&input, oct1());
+        let (f, s) = (lim.five_hour.unwrap(), lim.seven_day.unwrap());
+        assert!(
+            near(f.percent, five) && near(s.percent, seven),
+            "{model}: {lim:?}"
+        );
+        assert!(f.resets_at.is_some() && lim.from_stdin, "{model}");
+    }
+}
+
+#[test]
+fn agy_limits_draw_nothing_rather_than_a_wrong_bucket() {
+    use rocky_core::limits::agy_limits;
+    for raw in [
+        r#"{"product":"antigravity","model":{"display_name":"Gemini"}}"#,
+        // 고른 버킷이 없으면 다른 버킷으로 대신하지 않는다.
+        r#"{"product":"antigravity","model":{"display_name":"Gemini"},"quota":{"3p-5h":{"remaining_fraction":0.5}}}"#,
+        // 범위 밖 비율 — 단위를 모른다.
+        r#"{"product":"antigravity","model":{"display_name":"Gemini"},"quota":{"gemini-5h":{"remaining_fraction":42}}}"#,
+        // 이미 리셋된 창.
+        r#"{"product":"antigravity","model":{"display_name":"Gemini"},"quota":{"gemini-5h":{"remaining_fraction":0.1,"reset_time":"2026-09-30T00:00:00Z"}}}"#,
+        // 모델 이름을 모르면 어느 버킷인지 모른다(타입이 틀린 model 도 이름이 빈다).
+        r#"{"product":"antigravity","quota":{"3p-5h":{"remaining_fraction":0.25}}}"#,
+        r#"{"product":"antigravity","model":"gemini","quota":{"3p-5h":{"remaining_fraction":0.25}}}"#,
+    ] {
+        let lim = agy_limits(&Input::parse(raw), oct1());
+        assert!(
+            lim.five_hour.is_none() && lim.seven_day.is_none(),
+            "{raw}: {lim:?}"
+        );
+    }
+}
+
+#[test]
+fn agy_window_clamps_edge_noise() {
+    use rocky_core::limits::agy_limits;
+    for (fraction, want) in [
+        ("-1e-9", Some(100.0)), // 소진 직후의 음수 오차 — 창이 사라지면 안 된다
+        ("1.0000001", Some(0.0)),
+        ("0.5", Some(50.0)),
+        ("1.5", None), // 단위를 모른다
+        ("-0.2", None),
+        ("null", None),
+    ] {
+        let raw = format!(
+            r#"{{"product":"antigravity","model":{{"display_name":"Gemini"}},"quota":{{"gemini-5h":{{"remaining_fraction":{fraction}}}}}}}"#
+        );
+        let got = agy_limits(&Input::parse(&raw), oct1())
+            .five_hour
+            .map(|w| w.percent);
+        assert!(
+            match (got, want) {
+                (Some(g), Some(w)) => near(g, w),
+                (g, w) => g.is_none() && w.is_none(),
+            },
+            "{fraction}: {got:?} want {want:?}"
+        );
+    }
+}
+
+#[test]
+fn only_none_and_agy_stay_off_the_claude_path() {
+    use rocky_core::limits::local_limits;
+    let agy = agy_input("Gemini 3.8 Flash (High)");
+    let claude = Input::parse(r#"{"model":{"display_name":"Opus 5"}}"#);
+    // product 가 antigravity 가 아니면 quota 가 와도 Claude 경로다.
+    let other = Input::parse(
+        r#"{"product":"claude-code","model":{"display_name":"Gemini"},"quota":{"gemini-5h":{"remaining_fraction":0.1}}}"#,
+    );
+    assert!(!other.is_agy());
+    for (name, source, input, local, has_limits) in [
+        ("claude auto", Source::Auto, &claude, false, false),
+        ("claude api", Source::Api, &claude, false, false),
+        ("claude none", Source::None, &claude, true, false),
+        ("other product", Source::Auto, &other, false, false),
+        ("agy auto", Source::Auto, &agy, true, true),
+        ("agy api", Source::Api, &agy, true, true),
+        ("agy none", Source::None, &agy, true, false),
+    ] {
+        let got = local_limits(&cfg(source, None), input, oct1());
+        assert_eq!(got.is_some(), local, "{name}");
+        assert_eq!(
+            got.is_some_and(|(l, _)| l.five_hour.is_some()),
+            has_limits,
+            "{name}"
+        );
+    }
+}
+
+/// agy 의 경보는 깜빡이지 않는다 — 단계가 오른 시각을 적을 캐시가 없다.
+#[test]
+fn agy_alert_is_a_steady_badge() {
+    use rocky_core::limits::local_limits;
+    let raw = r#"{"product":"antigravity","model":{"display_name":"Gemini"},"quota":{"gemini-5h":{"remaining_fraction":0}}}"#;
+    let (_, alert) = local_limits(&cfg(Source::Auto, None), &Input::parse(raw), oct1()).unwrap();
+    assert_eq!(
+        (alert.level, alert.window, alert.burst),
+        (AlertLevel::Over, "5h", false)
+    );
+}
+
+#[test]
+fn source_override_flag_beats_env_beats_config() {
+    use rocky_core::limits::override_source;
+    assert_eq!(
+        override_source(Source::Stdin, None, None),
+        Ok(Source::Stdin)
+    );
+    assert_eq!(
+        override_source(Source::Stdin, Some("none"), None),
+        Ok(Source::None)
+    );
+    // 모르는 환경 변수 값은 무시 — 오타 하나로 설정값까지 잃지 않는다.
+    assert_eq!(
+        override_source(Source::Stdin, Some("bogus"), None),
+        Ok(Source::Stdin)
+    );
+    assert_eq!(
+        override_source(Source::Stdin, Some("none"), Some("api")),
+        Ok(Source::Api)
+    );
+    // 빈 플래그는 덮지 않는다.
+    assert_eq!(
+        override_source(Source::Api, Some(""), Some("")),
+        Ok(Source::Api)
+    );
+    // 모르는 플래그 값은 에러 — 명령줄은 고친 사람이 바로 본다.
+    assert_eq!(
+        override_source(Source::Stdin, None, Some("bogus")),
+        Err("--source \"bogus\": auto|stdin|api|none 중 하나".to_string())
+    );
+    for s in [Source::Auto, Source::Stdin, Source::Api, Source::None] {
+        assert_eq!(Source::parse(s.as_str()), Some(s));
+    }
+}

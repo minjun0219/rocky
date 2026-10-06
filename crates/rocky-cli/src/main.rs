@@ -54,8 +54,13 @@ fn run(argv: &[String]) -> Result<(), String> {
     // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬 자동 기동을 거치지 않는다.
     // statusline 이 detached 로 띄우는 갱신 — 사람이 부를 일은 없다(도움말에도 없다).
     if command == "statusline" && rest.first().map(String::as_str) == Some("refresh") {
-        let cfg =
+        let mut cfg =
             rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+        // 부모 statusline 이 정한 source 를 환경 변수로 받는다(`statusline_refresh::spawn_detached`).
+        let env = std::env::var(rocky_core::limits::SOURCE_ENV).ok();
+        cfg.limits.source =
+            rocky_core::limits::override_source(cfg.limits.source, env.as_deref(), None)
+                .unwrap_or(cfg.limits.source);
         rocky_cli::statusline_refresh::run(&cfg, commands::statusline_now());
         return Ok(());
     }
@@ -65,6 +70,7 @@ fn run(argv: &[String]) -> Result<(), String> {
             parsed.str_flag("cwd"),
             parsed.str_flag("session"),
             parsed.bool_flag("full"),
+            parsed.str_flag("source"),
         );
         return Ok(());
     }
