@@ -11,7 +11,8 @@
   워크트리가 아니라 **레포 루트**다(Claude Code 2.1.289 — 워크트리 경로는 `state.json` 의 `worktreePath` 에만 있다). 버리면 그
   세션이 든 doing 이 `gone` 이 되어 자동 해제된다. 필수 필드는 `cwd`·`sessionId`·`name` 뿐이다.
 - **잠든·끝난 세션은 목록에 남되 일을 새로 넘길 곳은 아니다.** doing 생존(`resolve_doing_state`)·자동 해제(`board_has_session`)
-  판정에는 보이고, 핸드오프 **자동** 대상에서만 뺀다(`takes_handoff` — `blocked`·`done`).
+  판정에는 보이고, 핸드오프 **자동** 대상과 spawn 의 세션 재사용에서만 뺀다(`takes_handoff` — `blocked`·`done`). spawn 가드는 잠든
+  세션을 보고 409 를 낸다([spawn](spawn.md)).
 - **background 행의 작업 요약(`job`)은 Claude Code 의 내부 파일에서 고른 것만 싣는다.** `<CLAUDE_CONFIG_DIR 또는 ~/.claude>/jobs/<짧은
   id>/state.json` 의 `detail`·`needs`·`updatedAt` 셋뿐 — 같은 파일의 제안 답장·토큰·첫 프롬프트(`intent`)·환경(`providerEnv`)은
   싣지 않는다. `/api/sessions` 는 원격(테일넷·터널)에서도 읽히는 경로다. 필드를 늘리려면 이 목록부터 고친다.
@@ -75,9 +76,10 @@
 | 세션 멈추기 · attach 복사 | 판정 `crates/rocky-core/src/sessions.rs`(`stop_target`), 실행 `crates/rockyd/src/sessions_exec.rs`(`stop_session`), 라우트 `POST /api/sessions/stop` `server.rs`, 캐시 비우기 `sessions_exec.rs`(`swr_sessions_with_invalidate`), 화면 `AgentsPane.tsx`(`useStopAction` · `AttachCopy`) |
 | 피드 행 | `web/lib.ts`(`nowRows`), 누르면 탭으로 `web/components/NowTable.tsx` |
 
-테스트: `crates/rocky-core/tests/it/sessions_test.rs`(`background_rows_without_pid_are_kept`, `job_state_*`),
+테스트: `crates/rocky-core/tests/it/sessions_test.rs`(`background_rows_without_pid_are_kept`, `job_state_*`, `job_worktree_reads_worktree_path_only`),
 `crates/rocky-core/tests/it/doing_test.rs`(`dormant_blocked_background_is_idle_not_gone`),
 `crates/rockyd/tests/it/server_handoff_test.rs`(`background_sessions_carry_job_summary`, `auto_match_skips_dormant_background_sessions`),
+`crates/rockyd/tests/it/server_spawn_test.rs`(`dormant_session_*`),
 `crates/rockyd/tests/it/prwatch_test.rs`(`web_message_goes_to_a_registered_session_only_from_a_local_request`),
 `crates/rocky-core/tests/it/sessions_test.rs`(`stop_target_takes_only_live_background_sessions`),
 `crates/rockyd/tests/it/server_handoff_test.rs`(`stop_runs_claude_stop_for_live_background_sessions_only`),
@@ -87,4 +89,3 @@
 ## 함정
 
 - 테스트 픽스처의 잠든 행 cwd 를 워크트리 경로로 두면 핸드오프 후보 회귀가 테스트에서 안 드러난다 — 실제처럼 레포 루트로.
-- spawn 가드(`find_live_session_at`)는 cwd 를 워크트리 경로와 정확히 비교해 잠든 세션을 못 본다(이전부터의 한계, 후속).

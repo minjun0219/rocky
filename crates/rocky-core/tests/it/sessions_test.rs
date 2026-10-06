@@ -2,8 +2,8 @@
 //! (RunCommand 실행·TTL 캐시는 데몬 쪽이라 Phase 2 에서 포팅한다.)
 
 use rocky_core::sessions::{
-    claude_jobs_dir, job_state_path, match_board, parse_job_state, parse_sessions, stop_target,
-    SessionsResult, StopRefusal,
+    claude_jobs_dir, job_state_path, match_board, parse_job_state, parse_job_worktree,
+    parse_sessions, stop_target, SessionsResult, StopRefusal,
 };
 
 const SAMPLE: &str = r#"[
@@ -149,6 +149,19 @@ fn job_state_without_known_fields_is_none() {
         parse_job_state(r#"{"state":"working","detail":"  "}"#),
         None
     );
+}
+
+#[test]
+fn job_worktree_reads_worktree_path_only() {
+    let raw = r#"{"state":"blocked","cwd":"/w/acorn-server","worktreePath":"/w/acorn-server/.claude/worktrees/todo-25"}"#;
+    assert_eq!(
+        parse_job_worktree(raw).as_deref(),
+        Some("/w/acorn-server/.claude/worktrees/todo-25"),
+        "cwd(레포 루트)가 아니라 worktreePath"
+    );
+    assert_eq!(parse_job_worktree(r#"{"cwd":"/w/acorn-server"}"#), None);
+    assert_eq!(parse_job_worktree(r#"{"worktreePath":""}"#), None);
+    assert_eq!(parse_job_worktree("not json"), None);
 }
 
 #[test]

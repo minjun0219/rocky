@@ -68,25 +68,75 @@ fn parse_background_id_unknown_format_is_none() {
 #[test]
 fn finds_live_background_session_at_worktree() {
     let sessions = vec![session("/w/todo-1", "background", Some("working"))];
-    assert!(find_live_session_at(&sessions, "/w/todo-1").is_some());
+    assert!(find_live_session_at(&sessions, "/w/todo-1", |_| None).is_some());
 }
 
 #[test]
 fn done_sessions_are_ignored() {
     let sessions = vec![session("/w/todo-1", "background", Some("done"))];
-    assert!(find_live_session_at(&sessions, "/w/todo-1").is_none());
+    assert!(find_live_session_at(&sessions, "/w/todo-1", |_| None).is_none());
 }
 
 #[test]
 fn stateless_interactive_session_counts_as_live() {
     let sessions = vec![session("/w/todo-1", "interactive", None)];
-    assert!(find_live_session_at(&sessions, "/w/todo-1").is_some());
+    assert!(find_live_session_at(&sessions, "/w/todo-1", |_| None).is_some());
+}
+
+/// 잠든 background 행은 cwd 가 레포 루트로 온다 — 워크트리는 `state.json` 의 `worktreePath` 로만 맞는다.
+#[test]
+fn dormant_session_matches_by_job_worktree() {
+    let mut dormant = session("/w", "background", Some("blocked"));
+    dormant.id = Some("0da6a98a".into());
+    let sessions = vec![dormant];
+    let job = |s: &AgentSession| (s.id.as_deref() == Some("0da6a98a")).then(|| "/w/todo-1".into());
+    assert!(find_live_session_at(&sessions, "/w/todo-1", job).is_some());
+    assert!(find_live_session_at(&sessions, "/w/todo-2", job).is_none());
+    assert!(
+        find_live_session_at(&sessions, "/w/todo-1", |_| None).is_none(),
+        "state.json 을 못 읽으면 cwd 로만 본다"
+    );
+}
+
+/// 같은 워크트리에 잠든 세션과 일을 받을 수 있는 세션이 같이 있으면 목록 순서와 상관없이 받을 수 있는 쪽.
+#[test]
+fn session_that_takes_work_wins_over_dormant_one_in_any_order() {
+    let mut dormant = session("/w/todo-1", "background", Some("blocked"));
+    dormant.session_id = "dormant".into();
+    let mut live = session("/w/todo-1", "interactive", None);
+    live.session_id = "live".into();
+    for sessions in [
+        vec![dormant.clone(), live.clone()],
+        vec![live.clone(), dormant.clone()],
+    ] {
+        let found = find_live_session_at(&sessions, "/w/todo-1", |_| None).unwrap();
+        assert_eq!(found.session_id, "live");
+    }
+    assert_eq!(
+        find_live_session_at(&[dormant], "/w/todo-1", |_| None)
+            .unwrap()
+            .session_id,
+        "dormant",
+        "잠든 세션뿐이어도 돌려준다 — 호출자가 409 를 낸다"
+    );
+}
+
+#[test]
+fn job_worktree_with_trailing_slash_matches() {
+    let sessions = vec![session("/w", "background", Some("blocked"))];
+    assert!(find_live_session_at(&sessions, "/w/todo-1", |_| Some("/w/todo-1/".into())).is_some());
+}
+
+#[test]
+fn done_session_is_ignored_even_by_job_worktree() {
+    let sessions = vec![session("/w", "background", Some("done"))];
+    assert!(find_live_session_at(&sessions, "/w/todo-1", |_| Some("/w/todo-1".into())).is_none());
 }
 
 #[test]
 fn other_paths_do_not_match() {
     let sessions = vec![session("/w/other", "background", Some("working"))];
-    assert!(find_live_session_at(&sessions, "/w/todo-1").is_none());
+    assert!(find_live_session_at(&sessions, "/w/todo-1", |_| None).is_none());
 }
 
 #[test]
