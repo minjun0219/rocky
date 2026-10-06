@@ -42,7 +42,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky comment REF "본문"                 todo 에 댓글 (에이전트/사람 공용 타임라인)
   rocky issue REF [--repo OWNER/NAME]      todo 를 GitHub 이슈로 (gh CLI 필요)
   rocky handoff REF [--session NAME] [--message "본문"]  실행 중인 세션에 작업 요청 보내기
-  rocky handoff REF --cancel               대기 중인 요청 취소
+  rocky handoff REF --cancel               아직 착수 안 된 요청 취소(대기 중 → 받고 착수 안 한 것)
   rocky spawn REF [--message "본문"]        그 todo 전용 워크트리에 새 세션 띄우기
   rocky sessions                           실행 중인 Claude Code 세션 (* = 이 보드)
   rocky pr [--board K|--all] [--json]      구독한 열린 PR — 확인·머지 가능 / 충돌 / 대기

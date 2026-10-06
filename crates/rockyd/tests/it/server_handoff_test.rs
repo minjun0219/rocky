@@ -7,7 +7,7 @@ use crate::common::*;
 use rocky_core::sessions::SessionsResult;
 use rocky_core::types::*;
 use rockyd::sessions_exec::{fixed_sessions, SessionsProvider};
-use serde_json::json;
+use serde_json::{json, Value};
 
 fn fixture_sessions() -> SessionsResult {
     available(vec![
@@ -833,4 +833,207 @@ async fn auto_match_skips_dormant_background_sessions() {
     )
     .await;
     assert_eq!(status, 409, "잠든 세션뿐이면 사람이 고른다: {body}");
+}
+
+// ── start 직전: 받은 세션이 사라진 배달 무효 ──
+
+/// `session_id` 앞으로 배달까지 마친 핸드오프 — 배달 시각을 `minutes` 분 전으로 돌린다.
+fn delivered_ago(f: &Fx, todo: &Todo, session_id: &str, minutes: i64) -> Handoff {
+    let handoff = f
+        .store
+        .create_handoff(&handoff_input(&todo.id, session_id))
+        .unwrap();
+    f.store.claim_handoff(session_id, HandoffVia::Stop).unwrap();
+    let at = (chrono::Utc::now() - chrono::Duration::minutes(minutes))
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    rusqlite::Connection::open(&f.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE handoffs SET created_at = ?1, delivered_at = ?1 WHERE id = ?2",
+            rusqlite::params![at, handoff.id],
+        )
+        .unwrap();
+    handoff
+}
+
+async fn start_as(state: &Arc<rockyd::server::ServerState>, todo: &Todo, actor: &str) -> Value {
+    let (status, body) = call(
+        state,
+        "POST",
+        &format!("/api/todos/{}/status", todo.id),
+        Some(json!({"action":"start"})),
+        ReqOptions {
+            actor,
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    body
+}
+
+fn handoff_status(f: &Fx, id: &str) -> HandoffStatus {
+    f.store
+        .list_handoffs(&ListHandoffsFilter::default())
+        .unwrap()
+        .into_iter()
+        .find(|h| h.id == id)
+        .unwrap()
+        .status
+}
+
+/// 멈춘 세션이 받고 사라진 배달을 다른 세션의 start 가 수락하지 않는다 — doing 이 사라진 세션에 귀속되면
+/// Stop 확인 · 턴 태그가 엉뚱한 곳으로 가고 24시간 뒤 자동 해제가 일하는 중인 할 일을 멈춘다(2026-10-05 실측).
+#[tokio::test]
+async fn agent_start_cancels_a_delivery_whose_session_is_gone() {
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.spawn_sessions = Some(fixed_sessions(available(vec![sess(
+            1,
+            "/w/rocky-todo",
+            "sess-1",
+            "rocky-todo-1e",
+            "busy",
+        )])))
+    });
+    let todo = create(&f, "rocky-todo", "x");
+    let stale = delivered_ago(&f, &todo, "sess-gone", 30);
+
+    let body = start_as(&state, &todo, "claude-code").await;
+    assert!(body["doingSessionId"].is_null(), "{body}");
+    assert_eq!(handoff_status(&f, &stale.id), HandoffStatus::Cancelled);
+    let history = f
+        .store
+        .list_history(&ListHistoryFilter {
+            entity_id: Some(todo.id.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        history
+            .iter()
+            .any(|h| h.action == "handoff-cancel" && h.actor == rockyd::sweep::SWEEP_ACTOR),
+        "{history:?}"
+    );
+}
+
+/// 받은 세션이 죽은 걸 보고 사람이 곧바로 다시 보냈으면 — 옛 배달은 유예 안이어도 밀린 것이라 취소되고, 새로 받은
+/// 세션의 start 가 제 배달을 수락한다.
+#[tokio::test]
+async fn early_resend_does_not_leave_the_dead_delivery_to_be_accepted() {
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.spawn_sessions = Some(fixed_sessions(available(vec![sess(
+            2,
+            "/w/rocky-todo",
+            "sess-b",
+            "rocky-todo-b",
+            "busy",
+        )])))
+    });
+    let todo = create(&f, "rocky-todo", "x");
+    let dead = delivered_ago(&f, &todo, "sess-a", 3);
+    let resent = delivered_ago(&f, &todo, "sess-b", 1);
+
+    let body = start_as(&state, &todo, "claude-code").await;
+    assert_eq!(body["doingSessionId"], "sess-b", "{body}");
+    assert_eq!(handoff_status(&f, &dead.id), HandoffStatus::Cancelled);
+    assert_eq!(handoff_status(&f, &resent.id), HandoffStatus::Delivered);
+}
+
+/// 받은 세션이 살아서 쉬고 있어도, 사람이 다시 보냈으면 옛 배달은 버린 것이다 — 새로 받은 세션의 start 가 제 것을 수락한다.
+#[tokio::test]
+async fn resend_past_an_idle_session_drops_its_delivery() {
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.spawn_sessions = Some(fixed_sessions(available(vec![
+            sess(1, "/w/rocky-todo", "sess-a", "rocky-todo-a", "idle"),
+            sess(2, "/w/rocky-todo", "sess-b", "rocky-todo-b", "busy"),
+        ])))
+    });
+    let todo = create(&f, "rocky-todo", "x");
+    let idle = delivered_ago(&f, &todo, "sess-a", 30);
+    let resent = delivered_ago(&f, &todo, "sess-b", 1);
+
+    let body = start_as(&state, &todo, "claude-code").await;
+    assert_eq!(body["doingSessionId"], "sess-b", "{body}");
+    assert_eq!(handoff_status(&f, &idle.id), HandoffStatus::Cancelled);
+    assert_eq!(handoff_status(&f, &resent.id), HandoffStatus::Delivered);
+}
+
+/// 받은 세션이 살아 있거나(쉬어도), 배달 직후거나, 목록을 못 얻으면 그대로 수락한다.
+#[tokio::test]
+async fn agent_start_accepts_a_delivery_that_is_alive_fresh_or_unknown() {
+    let cases: [(&str, i64, SessionsResult); 3] = [
+        (
+            "살아 있음",
+            30,
+            available(vec![sess(
+                1,
+                "/w/rocky-todo",
+                "sess-1",
+                "rocky-todo-1e",
+                "idle",
+            )]),
+        ),
+        ("배달 직후", 1, available(vec![])),
+        ("목록 모름", 30, SessionsResult::unavailable("테스트")),
+    ];
+    for (label, minutes, sessions) in cases {
+        let f = fx();
+        let state = rebuild(&f, |o| o.spawn_sessions = Some(fixed_sessions(sessions)));
+        let todo = create(&f, "rocky-todo", "x");
+        let handoff = delivered_ago(&f, &todo, "sess-1", minutes);
+        let body = start_as(&state, &todo, "claude-code").await;
+        assert_eq!(body["doingSessionId"], "sess-1", "{label}: {body}");
+        assert_eq!(
+            handoff_status(&f, &handoff.id),
+            HandoffStatus::Delivered,
+            "{label}"
+        );
+    }
+}
+
+/// 사람이 누른 start 는 핸드오프를 수락하지 않으므로 세션 목록을 부르지도 않는다.
+#[tokio::test]
+async fn human_start_does_not_look_up_sessions() {
+    let f = fx();
+    let counter = Arc::new(AtomicUsize::new(0));
+    let state = rebuild(&f, |o| {
+        o.spawn_sessions = Some(counting(counter.clone(), available(vec![])))
+    });
+    let todo = create(&f, "rocky-todo", "x");
+    let handoff = delivered_ago(&f, &todo, "sess-gone", 30);
+    start_as(&state, &todo, "logan").await;
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+    assert_eq!(handoff_status(&f, &handoff.id), HandoffStatus::Delivered);
+}
+
+/// 받고 착수 안 한 배달은 사람이 취소할 수 있다(할 일 상세 · `rocky handoff --cancel`), 착수한 것은 거절한다.
+#[tokio::test]
+async fn cancel_route_takes_unstarted_delivery_but_not_accepted() {
+    let f = fx();
+    let todo = create(&f, "rocky-todo", "x");
+    let unstarted = delivered_ago(&f, &todo, "sess-1", 0);
+    let (status, body) = post(
+        &f.state,
+        &format!("/api/handoffs/{}/cancel", unstarted.id),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "cancelled");
+
+    let other = create(&f, "rocky-todo", "y");
+    let accepted = delivered_ago(&f, &other, "sess-2", 0);
+    f.store
+        .set_todo_status(&other.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    let (status, _) = post(
+        &f.state,
+        &format!("/api/handoffs/{}/cancel", accepted.id),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, 400);
 }

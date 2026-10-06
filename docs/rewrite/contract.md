@@ -100,7 +100,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | POST `/api/sections/:id/archive` | — | `{ok:true}` | 섹션은 id 로만 |
 | GET `/api/todos/:ref` | `?board=&includeArchived=` | `{todo: TodoView, history, comments}` | history는 `DETAIL_HISTORY_EXCLUDED`(comment/comment-edit) 제외 |
 | PATCH `/api/todos/:ref` | patch 필드 | `TodoView` | |
-| POST `/api/todos/:ref/status` | `{action!}` | `TodoView` | action ∉ {start,stop,done,reopen,archive,unarchive} → 400 `invalid action: …` |
+| POST `/api/todos/:ref/status` | `{action!}` | `TodoView` | action ∉ {start,stop,done,reopen,archive,unarchive} → 400 `invalid action: …`. 에이전트의 start 는 먼저 버려진 착수 안 된 배달(10분 지나 세션 없음 · 다시 보내 밀렸고 세션이 일하지 않음)을 취소한다(MCP `todo_status` 도) |
 | POST `/api/todos/:ref/issue` | `{repo?}` (옵션 본문) | 201 `{url, todo}` | 중복 409 `{error, url}` (사전·사후 동일 본문). 로컬 전용 |
 | POST `/api/todos/:ref/board` | `{board!}` | `TodoView` | 보드 간 이동 |
 | POST `/api/todos/:ref/move` | `{before!}` — ref 또는 **명시적 null**(맨 끝) | `TodoView` | before 키 부재 400 (null과 빠뜨림 구분) |
@@ -113,7 +113,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | PATCH `/api/notes/:ref` | `{title?, content?, mode?}` | `NoteView` | |
 | POST `/api/notes/:ref/(archive\|unarchive)` | — | `NoteView` | |
 | POST `/api/notes/:ref/(pin\|unpin)` | — | `NoteView` | `pinnedAt`을 채우거나 비운다. 이미 그 상태면 그대로(히스토리 없음) |
-| POST `/api/handoffs/:id/cancel` | — | `Handoff` | |
+| POST `/api/handoffs/:id/cancel` | — | `Handoff` | pending 이거나 배달됐지만 착수 안 한(`acceptedAt`·`completedAt` 없음) 것만 — 그 밖 400 |
 
 ### 보드 메타 (PATCH /api/boards/:key)
 

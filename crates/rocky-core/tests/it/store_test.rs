@@ -2293,8 +2293,9 @@ fn cancel_makes_cancelled_and_unclaimable() {
     assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_none());
 }
 
+/// 받고 착수 안 한 배달은 취소된다 — 그 뒤의 `start`(다른 세션이 눌러도)는 그것을 수락하지 않는다.
 #[test]
-fn delivered_handoff_cannot_be_cancelled() {
+fn delivered_but_unstarted_handoff_can_be_cancelled() {
     let f = fx();
     let todo = create(&f.store, "rocky-todo", "x", "logan");
     let handoff = f
@@ -2302,8 +2303,33 @@ fn delivered_handoff_cannot_be_cancelled() {
         .create_handoff(&handoff_input(&todo.id, "sess-1", "logan"))
         .unwrap();
     f.store.claim_handoff("sess-1", HandoffVia::Stop).unwrap();
+    let cancelled = f.store.cancel_handoff(&handoff.id, "logan").unwrap();
+    assert_eq!(cancelled.status, HandoffStatus::Cancelled);
+    let started = f
+        .store
+        .set_todo_status(&todo.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    assert!(started.doing_session_id.is_none());
+}
+
+/// 착수한 배달은 취소하지 않는다 — 그 기록이 doing 귀속의 근거다.
+#[test]
+fn accepted_handoff_cannot_be_cancelled() {
+    let f = fx();
+    let todo = create(&f.store, "rocky-todo", "x", "logan");
+    let handoff = f
+        .store
+        .create_handoff(&handoff_input(&todo.id, "sess-1", "logan"))
+        .unwrap();
+    f.store.claim_handoff("sess-1", HandoffVia::Stop).unwrap();
+    f.store
+        .set_todo_status(&todo.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
     let msg = err_of(f.store.cancel_handoff(&handoff.id, "logan"));
-    assert!(msg.to_lowercase().contains("pending"), "{msg}");
+    assert!(
+        msg.contains("delivered-but-not-started") && msg.contains(&handoff.id),
+        "{msg}"
+    );
 }
 
 #[test]

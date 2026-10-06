@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { act, cleanup, screen } from '@testing-library/react';
+import { act, cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { HandoffView } from '../types';
 import { boardFixture, renderWithStore, todoFixture } from '../test-support';
@@ -94,14 +94,16 @@ describe('DetailDrawer 미착수 핸드오프', () => {
 
   function mountWith(handoffs: HandoffView[]) {
     const fetchSessions = mock(async () => {});
+    const cancelHandoff = mock(async (_id: string) => {});
     renderWithStore(<DetailDrawer />, {
       detail: { kind: 'todo', todo: todoFixture(), history: [], comments: [] },
       sections: [],
       handoffs,
       sessions: { available: false, reason: '테스트', list: [] },
       fetchSessions,
+      cancelHandoff,
     });
-    return { fetchSessions };
+    return { fetchSessions, cancelHandoff };
   }
 
   const unstartedNotice = () => screen.queryByRole('status');
@@ -131,6 +133,28 @@ describe('DetailDrawer 미착수 핸드오프', () => {
     const { fetchSessions } = mountWith([handoffFixture()]);
     await userEvent.click(screen.getByRole('button', { name: '다시 보내기' }));
     expect(fetchSessions).toHaveBeenCalledTimes(1);
+  });
+
+  // 남겨 두면 다음 start 가 이 배달을 수락해 doing 이 그 세션에 귀속된다.
+  test('취소는 그 배달 건을 취소한다', async () => {
+    const { cancelHandoff } = mountWith([handoffFixture()]);
+    await userEvent.click(within(screen.getByRole('status')).getByRole('button', { name: '취소' }));
+    expect(cancelHandoff.mock.calls).toEqual([['h1']] as never);
+  });
+
+  // 목록은 최신순으로 온다 — 다음 start 가 수락할 가장 오래된 것을 보이고 접는다.
+  test('미착수가 여럿이면 가장 오래된 것을 보이고 취소한다', async () => {
+    const { cancelHandoff } = mountWith([
+      handoffFixture({
+        id: 'h-new',
+        sessionName: 'new-one',
+        createdAt: '2026-07-28T00:00:00.000Z',
+      }),
+      handoffFixture({ id: 'h-old', sessionName: 'old-one' }),
+    ]);
+    expect(unstartedNotice()?.textContent).toContain('old-one');
+    await userEvent.click(within(screen.getByRole('status')).getByRole('button', { name: '취소' }));
+    expect(cancelHandoff.mock.calls).toEqual([['h-old']] as never);
   });
 });
 

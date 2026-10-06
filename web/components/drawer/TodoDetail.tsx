@@ -102,7 +102,10 @@ export function TodoDetail() {
   const pending = handoffs.find((h) => h.todoId === todo.id && h.status === 'pending');
   // 집어갔는데 아무것도 안 한 건. 대기 중인 새 요청이 이미 있으면 굳이 과거를 들추지
   // 않는다 — 사용자는 이미 다시 보낸 상태다.
-  const unstarted = pending ? undefined : handoffs.find((h) => h.todoId === todo.id && h.unstarted);
+  // 목록은 최신순 — 다음 `start` 가 수락할 가장 오래된 것을 보인다(취소도 그것을 접는다).
+  const unstarted = pending
+    ? undefined
+    : handoffs.filter((h) => h.todoId === todo.id && h.unstarted).at(-1);
 
   // `fetchSessions` 는 실패를 던지지 않고 `sessions.available:false + reason` 으로
   // 흡수한다 — 조회 실패는 그 상태 하나로만 표현한다. 여기서 또 잡아 `handoffError` 에
@@ -448,6 +451,10 @@ export function TodoDetail() {
               한 번 더 조용히 묻힐 뿐이다. 패널을 열어 지금 살아 있는 세션을 고르게 한다. */}
           <button type="button" onClick={() => void openHandoff()}>
             다시 보내기
+          </button>
+          {/* 남겨 두면 다음 `start` 가 이 배달을 수락해 doing 이 그 세션에 귀속된다 — 접을 길을 준다. */}
+          <button type="button" onClick={() => void cancelHandoff(unstarted.id)}>
+            취소
           </button>
         </div>
       ) : null}

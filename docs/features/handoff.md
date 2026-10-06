@@ -22,6 +22,19 @@
   - 세션 목록의 **pid 없는 background 행도 세션이다.** 사람 답을 기다리며 잠든(`state: blocked`) 세션은 `pid`·`status` 없이
     온다(Claude Code 2.1.289, cwd 는 워크트리가 아니라 레포 루트) — 버리면 그 doing 이 `gone` 이 되어 자동 해제된다. `blocked` 는
     `idle` 로 읽는다.
+- **착수 안 된 배달의 취소 · 무효.** 취소(`POST /api/handoffs/:id/cancel`)는 대기 중인 것과 **배달됐지만 착수 안 한 것**을
+  받고, 착수 · 완료된 것은 거절한다(그 기록이 귀속의 근거). 에이전트의 `start`(REST · MCP 둘 다) 직전에 데몬이
+  `drop_gone_handoffs` 로 그 할 일 앞의 착수 안 된 배달 중 버려진 것을 취소한다(actor `rocky`) — 그대로 두면 그 `start` 가
+  가장 오래된 것을 수락해 doing 이 엉뚱한 세션에 귀속되고, Stop 확인 · 턴 태그가 빗나가며 24시간 뒤 자동 해제가 일하는 중인
+  할 일을 멈춘다(2026-10-05 실측). 버려진 것(`overdue_unaccepted` → `gone_handoffs`):
+  - 배달 뒤 `GONE_HANDOFF_GRACE_SECS`(10분)가 지났고 받은 세션이 목록에 없거나 끝난(`done`) 것. 유예는 막 뜬 세션이
+    `claude agents` 에 늦게 잡히는 틈.
+  - 더 새 요청(취소 안 된 것)에 **밀린** 것 — 사람이 다시 보냈다. 유예 없이, 받은 세션이 `busy` 가 아니기만 해도(쉬는 세션도)
+    버려진 것으로 본다. `start` 를 부르는 세션은 그 턴에 있어 `busy` 라 제 배달을 버리지 않는다.
+  - 세션 목록을 못 얻으면 손대지 않는다. 밀리지 않았고 받은 세션이 살아 있으면 남긴다 — 그 배달을 다른 세션이 착수하면
+    여전히 받은 세션에 귀속된다(실제 호출 세션으로 옮기는 것은 이 규칙 밖).
+  - 주기 스윕으로 하지 않는다 — 아무도 착수하지 않은 동안엔 할 일 상세의 "받았지만 착수하지 않았어요" 경고가 사람에게 남아야
+    한다. 그 경고와 취소 버튼은 다음 `start` 가 수락할 가장 오래된 것을 보인다.
 - **자동 해제.** `rockyd::sweep` 는 에이전트가 든 `gone` doing 중 24시간 지난 것만 자동으로 멈추고 이유를 댓글로 남긴다
   (`should_auto_release`). 사람이 든 것·`idle`·`unknown` 은 건드리지 않는다.
 - **닫았는지 묻기.** 핸드오프 주입문은 착수(`start`)와 함께 닫는 법(`done`/`stop`)을 말한다. `Stop` 훅(`handoff-stop`)은 이 세션에
@@ -37,7 +50,8 @@
 | 무엇 | 어디 |
 | --- | --- |
 | 큐·배달·주입문 | `crates/rocky-core/src/handoff.rs`, 받은편지함 문구 `crates/rocky-core/src/peer_inbox.rs` |
-| doing 상태 판정 | `crates/rocky-core/src/doing.rs` |
+| doing 상태 판정 · 취소 대상(`cancel_target`) · 사라진 배달(`overdue_unaccepted`·`gone_handoffs`) | `crates/rocky-core/src/doing.rs` |
+| `start` 직전 무효 | `crates/rockyd/src/server.rs` `drop_gone_handoffs`(REST 상태 라우트 · `mcp.rs` `todo_status`) |
 | 자동 해제 잡 | `crates/rockyd/src/sweep.rs` |
 | 훅(`handoff-stop`·`notify-todo`·`log-turn`·`claim-doing`) | `crates/rocky-cli/src/hooks.rs`, 턴 추출 `crates/rocky-core/src/transcript.rs` |
 

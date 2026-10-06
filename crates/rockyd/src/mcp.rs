@@ -238,6 +238,22 @@ impl TodoMcp {
     )]
     async fn todo_status(&self, Parameters(args): Parameters<TodoStatusArgs>) -> CallToolResult {
         let started = std::time::Instant::now();
+        if args.action == StatusAction::Start {
+            // 받은 세션이 사라진 배달 건을 먼저 취소한다 — 안 그러면 이 start 가 그것을 수락해 엉뚱한 세션에 귀속된다.
+            // 보드를 못 풀면 건너뛴다(그 오류는 아래 본 처리가 낸다).
+            if let Ok(board_id) =
+                resolve_board_id(&self.state.store, args.board.as_deref(), &args.id)
+            {
+                let actor = args.actor.as_deref().unwrap_or("agent");
+                crate::server::drop_gone_handoffs(
+                    &self.state,
+                    &args.id,
+                    board_id.as_deref(),
+                    actor,
+                )
+                .await;
+            }
+        }
         let out = tool_outcome(self.todo_status_inner(args));
         self.record_tool("todo_status", started, &out);
         out

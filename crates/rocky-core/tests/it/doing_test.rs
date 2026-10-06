@@ -1,8 +1,9 @@
 //! TS 원본 `src/doing.test.ts` 포팅.
 
 use rocky_core::doing::{
-    auto_release_note, board_has_session, doing_unchanged, handoff_phase, is_unstarted,
-    resolve_doing_state, should_auto_release, DoingState, HandoffPhase, AUTO_RELEASE_GRACE_SECS,
+    auto_release_note, board_has_session, cancel_target, doing_unchanged, gone_handoffs,
+    handoff_phase, is_unstarted, overdue_unaccepted, resolve_doing_state, should_auto_release,
+    DoingState, HandoffPhase, Overdue, AUTO_RELEASE_GRACE_SECS, GONE_HANDOFF_GRACE_SECS,
 };
 use rocky_core::sessions::{AgentSession, SessionsResult};
 use rocky_core::types::*;
@@ -367,6 +368,162 @@ fn pending_is_not_unstarted() {
 #[test]
 fn unavailable_sessions_is_not_judged() {
     assert!(!is_unstarted(&handoff(), &unavailable()));
+}
+
+// ── 착수 안 된 배달의 취소 · 무효 ──
+
+/// 배달 시각에서 `secs` 뒤.
+fn after_delivery(secs: i64) -> String {
+    let at =
+        chrono::DateTime::parse_from_rfc3339(handoff().delivered_at.as_deref().unwrap()).unwrap();
+    (at + chrono::Duration::seconds(secs)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+#[test]
+fn cancel_target_prefers_pending_then_oldest_unstarted_delivery() {
+    let old = Handoff {
+        id: "old".into(),
+        created_at: "2026-07-29T00:00:00.000Z".into(),
+        ..handoff()
+    };
+    let accepted = Handoff {
+        id: "accepted".into(),
+        created_at: "2026-07-28T00:00:00.000Z".into(),
+        accepted_at: Some("2026-07-28T00:01:00.000Z".into()),
+        ..handoff()
+    };
+    let pending = Handoff {
+        id: "pending".into(),
+        status: HandoffStatus::Pending,
+        delivered_at: None,
+        delivered_via: None,
+        ..handoff()
+    };
+    let other = Handoff {
+        id: "other".into(),
+        todo_id: "t2".into(),
+        status: HandoffStatus::Pending,
+        ..handoff()
+    };
+    let all = [
+        handoff(),
+        accepted.clone(),
+        old.clone(),
+        pending.clone(),
+        other,
+    ];
+    assert_eq!(
+        cancel_target(&all, "t1").map(|h| h.id.as_str()),
+        Some("pending")
+    );
+    // 대기가 없으면 착수 안 한 배달 중 가장 오래된 것 — 착수한 것은 고르지 않는다.
+    let delivered = [handoff(), accepted.clone(), old];
+    assert_eq!(
+        cancel_target(&delivered, "t1").map(|h| h.id.as_str()),
+        Some("old")
+    );
+    assert!(cancel_target(&[accepted], "t1").is_none());
+    assert!(cancel_target(&all, "t3").is_none());
+}
+
+#[test]
+fn overdue_is_unstarted_delivery_past_the_grace() {
+    let hs = [handoff()];
+    assert!(overdue_unaccepted(
+        &hs,
+        &after_delivery(GONE_HANDOFF_GRACE_SECS - 1),
+        GONE_HANDOFF_GRACE_SECS
+    )
+    .is_empty());
+    assert_eq!(
+        overdue_unaccepted(
+            &hs,
+            &after_delivery(GONE_HANDOFF_GRACE_SECS),
+            GONE_HANDOFF_GRACE_SECS
+        )
+        .len(),
+        1
+    );
+    // 착수했거나 아직 대기인 것은 대상이 아니다.
+    let accepted = [Handoff {
+        accepted_at: Some("2026-07-30T00:01:00.000Z".into()),
+        ..handoff()
+    }];
+    let pending = [Handoff {
+        status: HandoffStatus::Pending,
+        ..handoff()
+    }];
+    let late = after_delivery(GONE_HANDOFF_GRACE_SECS * 10);
+    assert!(overdue_unaccepted(&accepted, &late, GONE_HANDOFF_GRACE_SECS).is_empty());
+    assert!(overdue_unaccepted(&pending, &late, GONE_HANDOFF_GRACE_SECS).is_empty());
+}
+
+/// 사람이 다시 보내 더 새 요청이 생긴 배달은 유예 없이 본다 — 막 받은 세션의 것이 아니다. 취소된 새 요청은 밀어내지 않는다.
+#[test]
+fn superseded_delivery_is_checked_within_the_grace() {
+    let resent = Handoff {
+        id: "resent".into(),
+        session_id: "sess-b".into(),
+        created_at: "2026-07-30T00:02:00.000Z".into(),
+        delivered_at: Some("2026-07-30T00:02:01.000Z".into()),
+        ..handoff()
+    };
+    let soon = after_delivery(60);
+    let hs = [resent.clone(), handoff()];
+    let found = overdue_unaccepted(&hs, &soon, GONE_HANDOFF_GRACE_SECS);
+    let ids: Vec<(&str, bool)> = found
+        .iter()
+        .map(|o| (o.handoff.id.as_str(), o.superseded))
+        .collect();
+    assert_eq!(ids, vec![("h1", true)]);
+    let cancelled = Handoff {
+        status: HandoffStatus::Cancelled,
+        ..resent
+    };
+    assert!(overdue_unaccepted(&[cancelled, handoff()], &soon, GONE_HANDOFF_GRACE_SECS).is_empty());
+}
+
+#[test]
+fn gone_is_missing_or_finished_session_and_never_unknown() {
+    let h = handoff();
+    let overdue = [Overdue {
+        handoff: &h,
+        superseded: false,
+    }];
+    // 목록에 없다 → 사라졌다.
+    assert_eq!(gone_handoffs(&overdue, &available(vec![])).len(), 1);
+    // 끝난 background 행은 목록에 남아도 사라진 것이다.
+    let done = AgentSession {
+        state: Some("done".into()),
+        ..session()
+    };
+    assert_eq!(gone_handoffs(&overdue, &available(vec![done])).len(), 1);
+    // 살아 있으면(쉬고 있어도) 아니다.
+    let idle = AgentSession {
+        status: "idle".into(),
+        ..session()
+    };
+    assert!(gone_handoffs(&overdue, &available(vec![idle])).is_empty());
+    assert!(gone_handoffs(&overdue, &available(vec![session()])).is_empty());
+    // 목록을 못 얻으면 판단하지 않는다.
+    assert!(gone_handoffs(&overdue, &unavailable()).is_empty());
+}
+
+/// 다시 보내 밀린 배달은 받은 세션이 쉬기만 해도 버려진 것 — 일하는 중(busy)이면 남긴다.
+#[test]
+fn superseded_delivery_is_gone_unless_its_session_is_busy() {
+    let h = handoff();
+    let overdue = [Overdue {
+        handoff: &h,
+        superseded: true,
+    }];
+    let idle = AgentSession {
+        status: "idle".into(),
+        ..session()
+    };
+    assert_eq!(gone_handoffs(&overdue, &available(vec![idle])).len(), 1);
+    assert!(gone_handoffs(&overdue, &available(vec![session()])).is_empty());
+    assert!(gone_handoffs(&overdue, &unavailable()).is_empty());
 }
 
 // ── 자동 해제 ────────────────────────────────────────────────────────────────
