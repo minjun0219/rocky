@@ -723,8 +723,17 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
    ingress:
      - hostname: board.<도메인>
        service: http://127.0.0.1:8636
+       originRequest:
+         access:                # 연결기가 Access JWT(서명·aud·만료)를 검증한 뒤에만 데몬으로 넘긴다
+           required: true
+           teamName: <팀>       # <팀>.cloudflareaccess.com 의 <팀>
+           audTag:
+             - <AUD 태그>       # Applications → 이 앱 → Overview 의 Application Audience (AUD) Tag
      - service: http_status:404
    ```
+
+   `originRequest.access` 는 1의 Access 가 실제로 걸렸는지 **원본 쪽에서 다시** 확인한다 — Access 앱이 지워지거나 정책이
+   풀려도 JWT 가 없거나 틀린 요청은 데몬에 닿지 않는다. AUD 태그는 3의 확인 요청이 받는 302 의 `meta` 토큰(`aud`)에도 있다.
 
 3. DNS를 붙인다 — `cloudflared tunnel route dns rocky-board board.<도메인>`. Access 앱이 1에서 이미
    이 호스트명을 덮고 있어야 한다. **터널을 켜기 전에** 확인할 수 있다 — Access 는 엣지에서 먼저 막으므로
@@ -759,8 +768,9 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
 - **cross-site 가드** — 브라우저는 `https://board.<도메인>`을 같은 출처로 보므로(`Sec-Fetch-Site:
   same-origin`) 변경 요청이 막히지 않는다. 데몬이 `Host` 를 보지 않는 이유가 이것이다.
 - **한계** — 맥이 자면 안 보인다(테일넷과 같음). 맥이 자도 보여야 하면 워커 미러(스펙의 "CF Worker
-  중계")가 다음 단계다. Access의 JWT를 데몬이 검증하지는 않는다 — 원본(127.0.0.1)은 터널 말고는
-  닿을 길이 없으니 엣지 검증으로 충분하다고 본다. 터널 자격 파일은 홈에 남는 평문이라 "홈에 평문 토큰을 두지 않는다" 원칙과
+  중계")가 다음 단계다. Access JWT 는 연결기(`originRequest.access`)가 검증하고 **데몬은 하지 않는다** — 원본(127.0.0.1)은
+  터널 말고는 닿을 길이 없다(단 `todo.expose` 의 `lan`·`tailscale-serve` 는 터널을 거치지 않으니 Access 와 무관하게 무인증이다).
+  Access 이메일로 권한을 나누게 되면(원격에서 세션 띄우기 등) 그때 데몬도 JWT 를 검증해야 한다. 터널 자격 파일은 홈에 남는 평문이라 "홈에 평문 토큰을 두지 않는다" 원칙과
   같은 취급(600, 백업 제외).
 - `todo.expose` 채널은 건드리지 않는다 — 터널은 데몬 밖 프로세스라 데몬 설정이 필요 없다.
 - **로그아웃** — Access 로 들어온 화면의 `⋯` 메뉴 맨 아래(로그인한 이메일 옆). `/cdn-cgi/access/logout` 으로 가며 Access
