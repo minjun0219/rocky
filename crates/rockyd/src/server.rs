@@ -192,7 +192,7 @@ pub struct ServerState {
     /// 세션 받은편지함 등록부 — 훅이 `session_id → 소켓` 을 알려 준다(`rocky_core::peer_inbox`).
     /// 데몬 수명 상태다: 훅이 턴마다 다시 등록하므로 재기동 뒤 첫 턴에 다시 채워진다.
     inboxes: Mutex<HashMap<String, rocky_core::peer_inbox::InboxRegistration>>,
-    /// 세션에 보낸 기록 — 최근 `DELIVERY_LOG_MAX` 건, 메모리에만(웹 "세션 전달" 현황).
+    /// 세션에 보낸 기록 — 최근 `DELIVERY_LOG_MAX` 건(웹 "세션 전달" 현황). DB 에도 남겨 다시 뜰 때 되살린다.
     deliveries: Mutex<std::collections::VecDeque<rocky_core::peer_inbox::Delivery>>,
     /// "보내지 않기" 를 켠 세션 — PR·수집함 알림을 이 세션에는 보내지 않는다. 메모리에만(데몬을 다시
     /// 띄우면 풀린다 — 세션은 오래 살지 않는다).
@@ -378,6 +378,13 @@ impl ServerState {
 
     /// 세션에 보낸 한 건을 적는다(오래된 것부터 버린다).
     pub fn record_delivery(&self, delivery: rocky_core::peer_inbox::Delivery) {
+        // 못 남겨도 메모리 기록은 그대로 — 전달 자체와는 무관하다.
+        if let Err(e) = self.store.save_delivery(&delivery, DELIVERY_LOG_MAX) {
+            eprintln!(
+                "rocky: 전달 기록을 남기지 못했다 (kind={}, at={}, ok={}) — {e}",
+                delivery.kind, delivery.at, delivery.ok
+            );
+        }
         let mut log = self.deliveries.lock().expect("deliveries poisoned");
         log.push_front(delivery);
         log.truncate(DELIVERY_LOG_MAX);
@@ -552,6 +559,11 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
                 Duration::from_secs(30 * 60),
             )
         });
+    // 전달 기록도 되살린다 — 배포마다 데몬이 다시 떠도 "예전에 못 보냈나" 가 남는다.
+    let deliveries = options
+        .store
+        .load_deliveries(DELIVERY_LOG_MAX)
+        .unwrap_or_default();
     // 받은편지함 등록은 DB 에서 되살린다 — 다시 뜬 뒤 세션이 다시 등록하기 전에 도는 첫 PR 감시 tick 의 알림이 갈 곳이 있게.
     let since = chrono::Utc::now().timestamp() - rocky_core::peer_inbox::REGISTRATION_TTL_SECS;
     let inboxes: HashMap<String, rocky_core::peer_inbox::InboxRegistration> = options
@@ -614,7 +626,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         open_prs: Mutex::new(HashMap::new()),
         gh_viewer: Mutex::new(None),
         inboxes: Mutex::new(inboxes),
-        deliveries: Mutex::new(std::collections::VecDeque::new()),
+        deliveries: Mutex::new(deliveries.into()),
         muted: Mutex::new(std::collections::HashSet::new()),
         _subscription: subscription,
         _doc_subscription: doc_subscription,

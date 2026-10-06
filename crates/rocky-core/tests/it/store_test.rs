@@ -4129,3 +4129,26 @@ fn claim_doing_session_needs_the_same_fresh_start() {
         .is_none());
     let _ = since;
 }
+
+#[test]
+fn delivery_log_survives_reopen_and_keeps_only_the_newest() {
+    let mut f = fx();
+    let delivery = |subject: &str, ok: bool| rocky_core::peer_inbox::Delivery {
+        at: "2026-10-06T00:00:00Z".into(),
+        kind: "pr-review".into(),
+        subject: subject.into(),
+        url: None,
+        session_id: "s1".into(),
+        ok,
+        reason: (!ok).then(|| "받을 세션 등록 없음".to_string()),
+    };
+    for (subject, ok) in [("a", true), ("b", false), ("c", true)] {
+        f.store.save_delivery(&delivery(subject, ok), 2).unwrap();
+    }
+    f.reload();
+    let log = f.store.load_deliveries(50).unwrap();
+    let subjects: Vec<&str> = log.iter().map(|d| d.subject.as_str()).collect();
+    assert_eq!(subjects, vec!["c", "b"], "새 것부터, keep 건만");
+    assert_eq!(log[1].reason.as_deref(), Some("받을 세션 등록 없음"));
+    assert!(!log[1].ok);
+}
