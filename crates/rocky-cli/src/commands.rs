@@ -1631,7 +1631,7 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 /// 보드 줄 — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
 /// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
 fn statusline_full(ctx: &CliContext) {
-    use rocky_core::limits::{alert, credits, select, Input, StateFile, UsageCache};
+    use rocky_core::limits::{alert, credits, Input};
     use rocky_core::statusline::extra::{expand, output_lines, Vars};
     use rocky_core::statusline::full::{lines, Style, View};
 
@@ -1658,10 +1658,10 @@ fn statusline_full(ctx: &CliContext) {
             .collect();
 
         let limits_cfg = &cfg.limits;
-        // usage·state 캐시를 읽고 쓰는 배선은 아직 없다 — 빈 캐시는 cc-usage 의 첫 렌더와 같다.
-        let (state, cache) = (StateFile::default(), UsageCache::default());
-        let selected = select(limits_cfg, &input, &state, &cache, now);
-        let limits = selected.unwrap_or_default();
+        let observed =
+            crate::statusline_cache::observe(limits_cfg, cfg.config_dir.as_deref(), &input, now);
+        let limits = observed.as_ref().map(|(lim, _)| *lim).unwrap_or_default();
+        let cache = observed.as_ref().map(|(_, usage)| usage);
         let home = std::env::var("HOME").ok();
         let git = crate::git_status::read(input.dir(), crate::git_status::GIT_TIMEOUT);
         let view = View {
@@ -1671,10 +1671,10 @@ fn statusline_full(ctx: &CliContext) {
             effort: &input.effort,
             context_pct: input.context_pct,
             limits,
-            usage: selected.map(|_| &cache),
+            usage: cache,
             alert: alert(limits_cfg, &limits),
-            credits: selected.map_or_else(Default::default, |_| {
-                credits(limits_cfg, &limits, &cache, now)
+            credits: cache.map_or_else(Default::default, |usage| {
+                credits(limits_cfg, &limits, usage, now)
             }),
             currency: limits_cfg.currency(),
             home: home.as_deref(),
@@ -1701,7 +1701,7 @@ fn statusline_full(ctx: &CliContext) {
 /// 테스트 전용 — RFC3339 시각을 주면 "지금" 을 고정한다(골든 대조용, cc-usage 의 `CC_USAGE_NOW` 와 같은 자리).
 const STATUSLINE_NOW_ENV: &str = "ROCKY_STATUSLINE_NOW";
 
-fn statusline_now() -> chrono::DateTime<chrono::Utc> {
+pub fn statusline_now() -> chrono::DateTime<chrono::Utc> {
     std::env::var(STATUSLINE_NOW_ENV)
         .ok()
         .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())

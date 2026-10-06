@@ -19,13 +19,18 @@ const PIPE_GRACE: Duration = Duration::from_millis(100);
 /// spawn 만 잠그므로 실행은 여전히 나란히 돈다.
 static SPAWN: Mutex<()> = Mutex::new(());
 
+/// spawn 잠금 — 이 프로세스에서 자식을 띄우는 곳(`run`, detached 갱신)은 모두 이것을 잡고 띄운다.
+pub(crate) fn spawn_lock() -> std::sync::MutexGuard<'static, ()> {
+    SPAWN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// `argv` 를 셸 없이 돌려 stdout 을 바이트 그대로 돌려준다. 실행 파일이 없거나, 0 이 아닌 코드로 끝났거나, 마감을
 /// 넘겼거나, 끝난 뒤에도 자식이 파이프를 붙잡고 있으면 `None` — 어느 쪽이든 statusline 에는 아무것도 붙지 않는다.
 /// stderr 는 읽어서 버린다(닫히는지만 본다).
 pub fn run(argv: &[String], timeout: Duration) -> Option<Vec<u8>> {
     let (program, args) = argv.split_first()?;
     let mut child = {
-        let _guard = SPAWN.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = spawn_lock();
         Command::new(program)
             .args(args)
             .stdin(Stdio::null())
