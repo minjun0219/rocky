@@ -35,6 +35,12 @@ const VERSION_RETRY_FOR: Duration = Duration::from_secs(90);
 const ONLINE_RETRY_EVERY: Duration = Duration::from_secs(10);
 const ONLINE_RETRY_FOR: Duration = Duration::from_secs(3 * 60);
 const ONLINE_TIMEOUT: Duration = Duration::from_secs(10);
+/// rocky 버전 확인 — 플러그인 id, 릴리스 태그를 볼 레포(공개라 자격 없이 ls-remote), 명령 한도, 태그 재시도.
+const ROCKY_PLUGIN: &str = "rocky@rocky-marketplace";
+const ROCKY_REPO: &str = "https://github.com/minjun0219/rocky";
+const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+const TAG_TRIES: u32 = 4;
+const TAG_RETRY_EVERY: Duration = Duration::from_secs(30);
 
 /// 야간의 메모리 상태 — 일정이 켜졌나, 지금 도나, 마지막 결과.
 #[derive(Default)]
@@ -42,6 +48,8 @@ pub(super) struct NightlyRun {
     scheduled: bool,
     running: bool,
     last: Option<NightlyReport>,
+    /// `rc/nightly.json` 의 마지막 결과를 읽어 들였나 — 일정이 꺼진 기기도 손으로 돌린 보고를 데몬 재시작 뒤에 본다.
+    loaded: bool,
 }
 
 /// `rc/nightly.json` — 마지막으로 돈 날(맥이 자고 넘긴 날을 깬 뒤 따라잡는 근거)과 마지막 결과.
@@ -121,18 +129,23 @@ impl RcController {
         }
     }
 
-    /// 일정을 켠다 — 현황에 시각이 실리고, 마지막 결과를 파일에서 읽어 둔다.
+    /// 일정을 켠다 — 현황에 시각이 실린다.
     pub fn enable_nightly(&self) {
-        let last = self.read_nightly_file().last;
-        let mut run = self.nightly.lock().unwrap_or_else(|e| e.into_inner());
-        run.scheduled = true;
-        if run.last.is_none() {
-            run.last = last;
-        }
+        self.nightly
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .scheduled = true;
     }
 
     pub(super) fn nightly_info(&self) -> Option<NightlyInfo> {
-        let run = self.nightly.lock().unwrap_or_else(|e| e.into_inner());
+        let mut run = self.nightly.lock().unwrap_or_else(|e| e.into_inner());
+        // 마지막 결과는 처음 볼 때 파일에서 한 번 읽는다 — 그 뒤로는 돌 때마다 메모리가 새것이다.
+        if !run.loaded {
+            run.loaded = true;
+            if run.last.is_none() {
+                run.last = self.read_nightly_file().last;
+            }
+        }
         let at = run
             .scheduled
             .then(|| self.nightly_config().at.format("%H:%M").to_string());
@@ -199,9 +212,103 @@ impl RcController {
             self.nightly_pass(&status, current.as_deref(), &cfg, &mut report)
                 .await;
         }
+        report.rocky = Some(self.rocky_versions().await);
+        report.agy = self.agy_record().await;
         report.finished_at = Some(chrono::Utc::now().to_rfc3339());
         self.finish_nightly(&report, notify);
         report
+    }
+
+    /// rocky 세 층의 버전과 최신 릴리스 태그 — 보고에 남길 뿐 설치하지 않는다(올리는 건 `rocky update`). 태그는
+    /// 네트워크를 타서 새벽에 덜 붙어 있을 수 있으니 몇 번 다시 본다. 재시작 판정과는 상관없다.
+    async fn rocky_versions(&self) -> rc::RockyVersions {
+        let run = |argv: &[&str], timeout| {
+            (self.runner)(
+                argv.iter().map(|s| s.to_string()).collect(),
+                String::new(),
+                timeout,
+            )
+        };
+        let (plugins, cli) = tokio::join!(
+            run(
+                &["claude", "plugin", "list", "--json"],
+                VERSION_PROBE_TIMEOUT
+            ),
+            run(&["rocky", "--version"], VERSION_PROBE_TIMEOUT),
+        );
+        let mut latest = None;
+        for attempt in 1..=TAG_TRIES {
+            let tags = run(
+                &["git", "ls-remote", "--tags", "--refs", ROCKY_REPO, "v*"],
+                VERSION_PROBE_TIMEOUT,
+            )
+            .await;
+            latest = tags.ok().then(|| rc::latest_tag(&tags.stdout)).flatten();
+            if latest.is_some() || attempt == TAG_TRIES {
+                break;
+            }
+            (self.ops.sleep)(TAG_RETRY_EVERY).await;
+        }
+        let versions = rc::RockyVersions {
+            plugin: plugins
+                .ok()
+                .then(|| rc::parse_plugin_version(&plugins.stdout, ROCKY_PLUGIN))
+                .flatten(),
+            cli: cli
+                .ok()
+                .then(|| rc::parse_tool_version(&cli.stdout))
+                .flatten(),
+            daemon: env!("CARGO_PKG_VERSION").to_string(),
+            latest,
+        };
+        self.event(
+            "nightly-rocky",
+            "",
+            serde_json::json!({ "versions": versions, "status": versions.status() }),
+        );
+        versions
+    }
+
+    /// agy 버전과 원격 제어 데몬 — 보고에 남길 뿐 손대지 않는다(데몬은 agy 가 올린 launchd 잡이 살린다). agy 가 없으면 None.
+    async fn agy_record(&self) -> Option<rc::AgyRecord> {
+        let run = |argv: &[&str]| {
+            (self.runner)(
+                argv.iter().map(|s| s.to_string()).collect(),
+                String::new(),
+                VERSION_PROBE_TIMEOUT,
+            )
+        };
+        let (version, status) = tokio::join!(
+            run(&["agy", "--version"]),
+            run(&["agy", "remote-control", "status"])
+        );
+        let status = super::agy_status(&status)?;
+        let started = match status.pid {
+            Some(pid) => {
+                let ps = run(&["ps", "-o", "etime=", "-p", &pid.to_string()]).await;
+                ps.ok()
+                    .then(|| rc::parse_etime(ps.stdout.trim()))
+                    .flatten()
+                    .and_then(|secs| i64::try_from(secs).ok())
+                    .map(|secs| chrono::Utc::now().timestamp() - secs)
+            }
+            None => None,
+        };
+        let binary_mtime = (self.ops.binary_mtime)("agy");
+        let record = rc::AgyRecord {
+            version: version
+                .ok()
+                .then(|| rc::parse_tool_version(&version.stdout))
+                .flatten(),
+            state: status.state,
+            pid: status.pid,
+            instance: status.instance,
+            started,
+            binary_mtime,
+            old_binary: rc::agy_old_binary(started, binary_mtime),
+        };
+        self.event("nightly-agy", "", serde_json::json!(record));
+        Some(record)
     }
 
     /// `claude update` 뒤 판정에 쓸 설치 버전. 실패해도 그때 설치된 버전으로 판정한다 — 성공 여부는 문구가 아니라 종료

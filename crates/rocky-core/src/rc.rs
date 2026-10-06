@@ -1002,6 +1002,12 @@ pub struct NightlyReport {
     /// 먼저 내린 하나가 안 떠서 나머지를 건드리지 않았다.
     #[serde(default, skip_serializing_if = "is_false")]
     pub canary_failed: bool,
+    /// rocky 세 층의 버전과 최신 릴리스 태그 — 진짜 실행에만(리허설은 네트워크를 타지 않는다).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rocky: Option<RockyVersions>,
+    /// agy 와 그 원격 제어 데몬 — 진짜 실행에만, agy 가 없으면 None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agy: Option<AgyRecord>,
     #[serde(default)]
     pub items: Vec<NightlyItem>,
 }
@@ -1122,4 +1128,102 @@ pub fn short_subject(subject: &str) -> String {
     } else {
         head
     }
+}
+
+// ── 야간 보고의 rocky 버전 ──────────────────────────────────────────────────────
+// 옛 CLI 의 야간이 남기던 것이다 — 설치는 하지 않는다(올리는 건 `rocky update`). 기록만 해서 사람이 밀린 것을 본다.
+
+/// rocky 세 층의 버전과 최신 릴리스 태그. 못 잰 칸은 None.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RockyVersions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
+    pub daemon: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<String>,
+}
+
+impl RockyVersions {
+    /// `current`(셋 다 최신) · `behind`(하나라도 밀림) · `unknown`(하나라도 못 잼).
+    pub fn status(&self) -> &'static str {
+        let layers = [
+            self.plugin.as_deref(),
+            self.cli.as_deref(),
+            Some(self.daemon.as_str()),
+        ];
+        match self.latest.as_deref() {
+            Some(latest) if layers.iter().all(|v| v.is_some()) => {
+                if layers.iter().all(|v| *v == Some(latest)) {
+                    "current"
+                } else {
+                    "behind"
+                }
+            }
+            _ => "unknown",
+        }
+    }
+}
+
+/// `claude plugin list --json` 에서 그 id 의 version.
+pub fn parse_plugin_version(json: &str, id: &str) -> Option<String> {
+    serde_json::from_str::<Vec<serde_json::Value>>(json.trim())
+        .ok()?
+        .into_iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))?
+        .get("version")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// `rocky 0.42.0` 같은 출력의 첫 줄 마지막 칸(`v` 는 뗀다).
+pub fn parse_tool_version(out: &str) -> Option<String> {
+    let last = out.trim().lines().next()?.split_whitespace().last()?;
+    Some(last.trim_start_matches('v').to_string())
+}
+
+/// `git ls-remote --tags --refs <repo> 'v*'` 에서 가장 높은 정식 릴리스(`vX.Y.Z`, `v` 뗀 것). 사전 릴리스(`-rc.1`)는 뺀다 —
+/// 설치되는 것은 정식 릴리스다. 문자열이 아니라 숫자로 비교한다.
+pub fn latest_tag(ls_remote: &str) -> Option<String> {
+    ls_remote
+        .lines()
+        .filter_map(|l| l.split_whitespace().nth(1)?.strip_prefix("refs/tags/v"))
+        .filter_map(|v| semver(v).map(|n| (n, v)))
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, v)| v.to_string())
+}
+
+// ── 야간 보고의 agy ─────────────────────────────────────────────────────────────
+// 옛 CLI 의 야간이 남기던 것이다 — 설치 · 재시작은 하지 않는다(agy 데몬은 agy 가 올린 launchd 잡이 살린다). 기동 시각과
+// 실행 파일 mtime 을 같이 남겨, agy 업데이트 뒤 데몬이 새 바이너리로 다시 떴는지를 본다.
+
+/// agy 버전과 원격 제어 데몬의 상태. 못 잰 칸은 None.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgyRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// `agy remote-control status` 의 첫 `Daemon state`. 데몬이 없으면 None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    /// 데몬 프로세스가 뜬 시각(unix 초).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started: Option<i64>,
+    /// agy 실행 파일의 mtime(unix 초) — 업데이트는 이 파일을 제자리에서 바꾼다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_mtime: Option<i64>,
+    /// 데몬이 지금 설치된 agy 보다 먼저 떴다 — 업데이트 뒤 옛 바이너리로 돈다.
+    #[serde(default)]
+    pub old_binary: bool,
+}
+
+/// 데몬이 옛 바이너리로 도나 — 실행 파일이 데몬 기동보다 나중에 바뀌었다. 둘 중 하나라도 모르면 false.
+pub fn agy_old_binary(started: Option<i64>, binary_mtime: Option<i64>) -> bool {
+    matches!((started, binary_mtime), (Some(s), Some(m)) if m > s)
 }

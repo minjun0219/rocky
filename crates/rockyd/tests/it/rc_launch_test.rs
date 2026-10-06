@@ -90,6 +90,7 @@ fn ops(world: Arc<Mutex<World>>) -> RcOps {
         // 시간은 흐르지 않는다 — 대기 횟수만 센다.
         sleep: Arc::new(|_| Box::pin(async {})),
         now: Arc::new(|| chrono::Local::now().naive_local()),
+        binary_mtime: Arc::new(|_| None),
     }
 }
 

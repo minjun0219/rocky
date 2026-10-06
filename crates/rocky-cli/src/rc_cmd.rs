@@ -9,10 +9,12 @@
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 //! - `rocky rc nightly [--dry-run]` — 야간 재시작을 지금 한 번 돌린다(데몬이 백그라운드로, 결과는 `rocky rc`).
 //!   `--dry-run` 은 리허설: 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다).
+//! - `rocky rc report` — 마지막 야간 보고(서버마다 결과 · rocky · agy). 읽기만 해서 `nightly` 와 이름을 갈랐다 —
+//!   `permissions.ask` 의 `rocky rc nightly:*` 확인에 걸리지 않게.
 
 use std::time::{Duration, Instant};
 
-use rocky_core::rc::AgyAction;
+use rocky_core::rc::{AgyAction, RockyVersions};
 use serde_json::{json, Value};
 
 use crate::client::{request_value, request_value_within, CliContext};
@@ -20,7 +22,7 @@ use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run]";
+const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run] | rocky rc report";
 /// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// `--activity` 응답 한도 — 데몬이 대상마다 git 을 띄워 기다렸다 답한다.
@@ -104,6 +106,23 @@ pub fn cmd_rc(
             }
             let row = wait_for_result(ctx, label)?;
             printer.emit(&row, || render_result(label, &row));
+            Ok(())
+        }
+        Some("report") => {
+            // 마지막 야간 보고 — 현황의 `nightly.last` 를 리허설과 같은 모양으로. 없으면 `--json` 은 null.
+            let raw = request_value(ctx, "GET", "/api/rc/servers", None)?;
+            let last = raw
+                .get("nightly")
+                .and_then(|n| n.get("last"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            printer.emit(&last, || {
+                if last.is_null() {
+                    "남은 야간 보고가 없다 — 야간 재시작이 아직 돈 적이 없다".into()
+                } else {
+                    render_nightly(&last)
+                }
+            });
             Ok(())
         }
         Some("nightly") => {
@@ -360,6 +379,12 @@ pub fn render_nightly(raw: &Value) -> String {
     if let Some(reason) = raw.get("blocked").and_then(Value::as_str) {
         out.push(format!("전부 건너뜀 — {reason}"));
     }
+    if let Some(r) = raw.get("rocky").filter(|v| !v.is_null()) {
+        out.push(rocky_line(r));
+    }
+    if let Some(a) = raw.get("agy").filter(|v| !v.is_null()) {
+        out.push(nightly_agy_line(a));
+    }
     let items = raw
         .get("items")
         .and_then(Value::as_array)
@@ -501,4 +526,52 @@ pub fn activity_summary(a: &Value, now: i64) -> String {
         }
     }
     out
+}
+
+/// `rocky: 플러그인 0.42.0 · CLI 0.42.0 · 데몬 0.42.0 · 최신 0.42.0 — 최신`. 판정은 `RockyVersions::status`.
+pub fn rocky_line(r: &Value) -> String {
+    let v = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("?").to_string();
+    let status = serde_json::from_value::<RockyVersions>(r.clone())
+        .map(|versions| versions.status())
+        .unwrap_or("unknown");
+    let verdict = match status {
+        "current" => "최신",
+        "behind" => "밀려 있다",
+        _ => "일부를 못 쟀다",
+    };
+    format!(
+        "rocky: 플러그인 {} · CLI {} · 데몬 {} · 최신 {} — {verdict}",
+        v("plugin"),
+        v("cli"),
+        v("daemon"),
+        v("latest")
+    )
+}
+
+/// `agy: 1.2.14 · 데몬 running (pid 4242, 10-02 21:38 기동) — 업데이트 전 바이너리로 돈다`.
+pub fn nightly_agy_line(a: &Value) -> String {
+    let version = a.get("version").and_then(Value::as_str).unwrap_or("?");
+    let Some(state) = a.get("state").and_then(Value::as_str) else {
+        return format!("agy: {version} · 데몬 꺼짐");
+    };
+    let mut detail = Vec::new();
+    if let Some(pid) = a.get("pid").and_then(Value::as_u64) {
+        detail.push(format!("pid {pid}"));
+    }
+    if let Some(t) = a
+        .get("started")
+        .and_then(Value::as_i64)
+        .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
+    {
+        let local = t.with_timezone(&chrono::Local).format("%m-%d %H:%M");
+        detail.push(format!("{local} 기동"));
+    }
+    let mut line = format!("agy: {version} · 데몬 {state}");
+    if !detail.is_empty() {
+        line.push_str(&format!(" ({})", detail.join(", ")));
+    }
+    if a.get("oldBinary").and_then(Value::as_bool) == Some(true) {
+        line.push_str(" — 업데이트 전 바이너리로 돈다");
+    }
+    line
 }

@@ -48,6 +48,10 @@ struct World {
     close_session_after: Option<(&'static str, usize)>,
     /// `ps` 를 이만큼 부른 뒤 그 라벨에 세션이 열린다(판정 뒤 대화를 시작했다).
     open_session_after: Option<(&'static str, usize)>,
+    /// `agy remote-control status` 출력 — None 이면 agy 가 없다.
+    agy_status: Option<&'static str>,
+    /// agy 실행 파일의 mtime(unix 초).
+    agy_mtime: Option<i64>,
 }
 
 fn at(h: u32, m: u32) -> NaiveDateTime {
@@ -80,6 +84,8 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         fail_ps_call: None,
         close_session_after: None,
         open_session_after: None,
+        agy_status: None,
+        agy_mtime: None,
     }))
 }
 
@@ -95,6 +101,17 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
     Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
         let mut w = w.lock().unwrap();
         let out = match (argv[0].as_str(), argv.get(1).map(String::as_str)) {
+            // agy 데몬의 떠 있은 시간 — 서버 목록 `ps` 와 따로 센다.
+            ("ps", Some("-o")) => ok(" 01:00:00\n".into()),
+            ("agy", Some("--version")) if w.agy_status.is_some() => ok("agy 1.2.14\n".into()),
+            ("agy", Some("remote-control")) => match w.agy_status {
+                Some(out) => {
+                    let sub = argv[2..].join(" ");
+                    w.log.push(format!("agy {sub}"));
+                    ok(out.into())
+                }
+                None => CmdOutput::failure("agy 없음"),
+            },
             ("ps", _)
                 if {
                     w.ps_calls += 1;
@@ -144,6 +161,13 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
             ("claude", Some("update")) => ok("Successfully updated".into()),
             ("claude", Some("auth")) => ok(format!(r#"{{"loggedIn": {}}}"#, w.logged_in)),
             ("curl", _) if w.online => ok(String::new()),
+            ("claude", Some("plugin")) => {
+                ok(r#"[{"id":"rocky@rocky-marketplace","version":"0.40.0"}]"#.into())
+            }
+            ("rocky", _) => ok("rocky 0.40.0".into()),
+            ("git", Some("ls-remote")) if w.online => {
+                ok("x\trefs/tags/v0.40.0\ny\trefs/tags/v9.9.9\n".into())
+            }
             _ => CmdOutput::failure("없음"),
         };
         Box::pin(async move { out })
@@ -151,7 +175,13 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
 }
 
 fn ops(world: Arc<Mutex<World>>) -> RcOps {
-    let (w1, w2, w3, w4) = (world.clone(), world.clone(), world.clone(), world);
+    let (w1, w2, w3, w4, w5) = (
+        world.clone(),
+        world.clone(),
+        world.clone(),
+        world.clone(),
+        world,
+    );
     RcOps {
         spawn: Arc::new(
             move |argv: &[String], _dir: &Path, out: &Path, err: &Path| {
@@ -193,6 +223,11 @@ fn ops(world: Arc<Mutex<World>>) -> RcOps {
             Box::pin(async {})
         }),
         now: Arc::new(move || w4.lock().unwrap().clock),
+        binary_mtime: Arc::new(move |name| {
+            (name == "agy")
+                .then_some(w5.lock().unwrap().agy_mtime)
+                .flatten()
+        }),
     }
 }
 
@@ -731,4 +766,92 @@ async fn a_canary_that_started_talking_is_skipped_not_waited_on() {
         f.world.lock().unwrap().clock < at(4, 35),
         "10분을 기다리지 않았다"
     );
+}
+
+#[tokio::test]
+async fn the_report_records_rocky_versions_without_installing() {
+    let w = world(at(4, 30), &[], vec![]);
+    let f = fixture(w, &[]);
+    let report = run(&f).await;
+    let r = report.rocky.expect("rocky 버전을 남긴다");
+    assert_eq!(r.plugin.as_deref(), Some("0.40.0"));
+    assert_eq!(r.cli.as_deref(), Some("0.40.0"));
+    assert_eq!(r.daemon, env!("CARGO_PKG_VERSION"));
+    assert_eq!(r.latest.as_deref(), Some("9.9.9"));
+    assert_eq!(r.status(), "behind", "밀려 있어도 설치하지 않는다 — 기록만");
+
+    // 태그를 끝내 못 받으면 30초 간격으로 네 번 보고 모름으로 남긴다.
+    let w = world(at(4, 30), &[], vec![]);
+    w.lock().unwrap().online = false;
+    let f = fixture(w, &[]);
+    let report = run(&f).await;
+    assert_eq!(report.rocky.unwrap().latest, None);
+    assert_eq!(
+        f.world.lock().unwrap().clock,
+        at(4, 31) + chrono::Duration::seconds(30),
+        "세 번 쉬었다(90초)"
+    );
+}
+
+#[tokio::test]
+async fn the_report_records_agy_without_touching_it() {
+    // agy 가 없으면 남기지 않는다.
+    let f = fixture(world(at(4, 30), &[], vec![]), &[]);
+    assert_eq!(run(&f).await.agy, None);
+
+    // 데몬이 뜬 뒤(1시간 전) 실행 파일이 바뀌었다 — 옛 바이너리로 돈다.
+    let w = world(at(4, 30), &[], vec![]);
+    {
+        let mut w = w.lock().unwrap();
+        w.agy_status = Some(
+            "Daemon state = running\nDaemon pid = 4242\nDaemon state = active\nInstance name: mac-dark-plume (find it at https://antigravity.google.com)\n",
+        );
+        w.agy_mtime = Some(chrono::Utc::now().timestamp() - 60);
+    }
+    let f = fixture(w, &[]);
+    let a = run(&f).await.agy.expect("agy 를 남긴다");
+    assert_eq!(a.version.as_deref(), Some("1.2.14"));
+    assert_eq!(a.state.as_deref(), Some("running"));
+    assert_eq!(a.pid, Some(4242));
+    assert_eq!(a.instance.as_deref(), Some("mac-dark-plume"));
+    let started = a.started.expect("ps etime 으로 기동 시각을 잰다");
+    assert!((chrono::Utc::now().timestamp() - 3600 - started).abs() < 60);
+    assert!(a.old_binary, "기동보다 나중에 바뀐 실행 파일");
+    let log = f.world.lock().unwrap().log.clone();
+    assert!(
+        !log.is_empty() && log.iter().all(|l| l == "agy status"),
+        "agy 는 기록만 — 켜거나 끄지 않는다: {log:?}"
+    );
+
+    // 데몬이 꺼져 있으면 상태 없이 버전만.
+    let w = world(at(4, 30), &[], vec![]);
+    w.lock().unwrap().agy_status = Some("Daemon status: not running\n");
+    let f = fixture(w, &[]);
+    let a = run(&f).await.agy.expect("설치는 돼 있다");
+    assert_eq!((a.state, a.pid, a.started), (None, None, None));
+    assert!(!a.old_binary);
+}
+
+#[tokio::test]
+async fn the_last_report_survives_a_daemon_restart_without_a_schedule() {
+    // 일정 없이 손으로 돌린 보고 — 데몬을 다시 띄워도(새 컨트롤러) 파일에서 읽어 현황에 싣는다.
+    let w = world(at(4, 30), &[], vec![]);
+    let mut cfg = config();
+    cfg.nightly = None;
+    let f = fixture_with(w.clone(), &[], cfg.clone());
+    f.control.begin_nightly().unwrap();
+    f.control.run_nightly(&f.notify).await;
+
+    let again = Arc::new(RcController::new(
+        Some(cfg),
+        f.dir.path().join("home").to_string_lossy().into_owned(),
+        f.dir.path().join("rc"),
+        runner(w.clone()),
+        ops(w),
+    ));
+    let mut status = rocky_core::rc::RcStatus::unconfigured();
+    again.decorate(&mut status);
+    let nightly = status.nightly.expect("파일의 마지막 보고를 싣는다");
+    assert_eq!(nightly.at, None);
+    assert!(nightly.last.is_some());
 }
