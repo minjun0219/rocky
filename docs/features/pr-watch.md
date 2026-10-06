@@ -31,7 +31,9 @@
 - **받은편지함 등록은 `session_inboxes` 에도 남겨** 데몬이 다시 떠도 되살린다. 되살린 등록은 훅이 다시 등록하기 전까지 그 세션이
   살아 있고 소켓 이름의 pid 가 그 세션의 것일 때만 쓴다(`restored_registration_live`, 캐시 없는 세션 목록; 못 읽으면 보내지 않는다 —
   소켓 경로는 다른 세션이 다시 쓸 수 있다).
-- 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리, 못 보낸 건은 `reason`), `POST /api/deliveries/mute` 로 세션별 "보내지
+- 세션 전달은 `GET /api/deliveries`(받는 세션·최근 50건, 메모리, 못 보낸 건은 `reason`; 끝난 세션의 등록은 세션 목록과 대조해 빼고
+  `ended` 로 개수만 — 보이기만 하는 판단이라 캐시 목록이고 못 얻으면 빼지 않는다. 등록 자체는 TTL 로만 걷는다: `/clear` 된 옛 id 도
+  목록에서 사라지는데 그 등록이 남아야 다음 등록 때 `superseded_sessions` 가 `/clear` 를 알아본다), `POST /api/deliveries/mute` 로 세션별 "보내지
   않기"(PR 알림은 버리고 수집함 알림은 미룬다, 메모리) — 둘 다 로컬 전용.
 - **`/clear` 뒤의 구독은 웹에서 사람이 정한다.** `/clear`·세션 안 `/resume` 은 세션 id 만 바꾸고 프로세스·소켓(`<pid>.sock`)은
   그대로다(Claude Code 2.1.288 실측). 받은편지함 등록 때 같은 소켓으로 **지금 프로세스가 뜬 뒤**(소켓 파일 mtime = 프로세스 시작, 실측)

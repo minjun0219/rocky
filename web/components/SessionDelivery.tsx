@@ -192,6 +192,11 @@ export function SessionDelivery() {
               ))}
             </ul>
           )}
+          {status.ended ? (
+            <p className="m-0 mb-3 text-meta text-faint">
+              끝난 세션 {status.ended}개는 뺐어요 — 등록은 하루 뒤에 걷혀요.
+            </p>
+          ) : null}
           {status.subscriptions.length > 0 ? (
             <ul className="m-0 mb-3 list-none p-0" aria-label="수집함 구독">
               {status.subscriptions.map((sub) => (

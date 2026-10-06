@@ -432,6 +432,8 @@ export interface DeliveryStatus {
     /** 이 세션이 지금 PR 알림을 받는 보드들 — 보드마다 가장 최근의(보내지 않기가 아닌) 세션. */
     receivesPrFor: string[];
   }[];
+  /** 등록은 남았지만 끝난 세션 수 — 목록에서 뺐다(등록은 하루 TTL 로 걷힌다). 옛 데몬은 없다. */
+  ended?: number;
   subscriptions: { source: string; sessionId: string }[];
   recent: {
     at: string;

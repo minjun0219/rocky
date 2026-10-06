@@ -109,6 +109,21 @@ pub fn restored_registration_live(
         .any(|s| s.session_id == registration.session_id && pid.is_none_or(|p| s.pid == Some(p)))
 }
 
+/// 등록한 세션이 아직 살아 있나 — 웹 "세션 전달" 카드에서 끝난 세션을 빼는 데 쓴다(보이기만 — 등록은 TTL 로만 걷는다:
+/// `/clear` 된 옛 id 도 세션 목록에서는 사라지는데, 그 등록이 남아 있어야 다음 등록 때 `superseded_sessions` 가
+/// `/clear` 를 알아본다). 세션 목록을 못 얻었으면 참 — 모름을 없음으로 치지 않는다. 목록에 없거나 background 수명이
+/// `done` 이면 끝난 것이다.
+pub fn registration_alive(
+    registration: &InboxRegistration,
+    sessions: &crate::sessions::SessionsResult,
+) -> bool {
+    !sessions.available
+        || sessions
+            .sessions
+            .iter()
+            .any(|s| s.session_id == registration.session_id && s.state.as_deref() != Some("done"))
+}
+
 /// 데몬이 세션 받은편지함에 보낸 한 건 — 웹의 "세션 전달" 현황용(메모리에만, 최근 몇십 건).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
