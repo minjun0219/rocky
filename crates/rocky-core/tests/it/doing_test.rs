@@ -50,6 +50,7 @@ fn doing_todo() -> Todo {
         doing_by: Some("claude-code".into()),
         doing_since: None,
         doing_session_id: None,
+        doing_session_claimed: false,
         position: 1,
         created_at: "2026-07-01T00:00:00.000Z".into(),
         updated_at: "2026-07-01T00:00:00.000Z".into(),
@@ -82,6 +83,7 @@ fn handoff() -> Handoff {
 fn attributed_busy_session_is_live() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     assert_eq!(
@@ -94,6 +96,7 @@ fn attributed_busy_session_is_live() {
 fn attributed_idle_session_is_idle() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -110,6 +113,7 @@ fn attributed_idle_session_is_idle() {
 fn background_state_done_is_gone_even_if_listed() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -130,6 +134,7 @@ fn background_state_done_is_gone_even_if_listed() {
 fn dormant_blocked_background_is_idle_not_gone() {
     let todo = Todo {
         doing_session_id: Some("0da6a98a".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let sessions = rocky_core::sessions::parse_sessions(
@@ -145,6 +150,7 @@ fn dormant_blocked_background_is_idle_not_gone() {
 fn missing_session_is_gone() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -162,6 +168,7 @@ fn short_spawn_id_finds_session_too() {
     // createSpawnedHandoff 는 full UUID 가 아니라 짧은 8자 id 를 저장한다.
     let todo = Todo {
         doing_session_id: Some("a1b2c3d4".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -232,6 +239,7 @@ fn human_doing_is_not_judged() {
 fn unavailable_sessions_is_always_unknown() {
     let attributed = Todo {
         doing_session_id: Some("sess-x".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     assert_eq!(
@@ -380,6 +388,7 @@ fn doing_by(actor: &str, since: &str) -> Todo {
         doing_by: Some(actor.into()),
         doing_since: Some(since.into()),
         doing_session_id: None,
+        doing_session_claimed: false,
         position: 1,
         created_at: since.into(),
         updated_at: since.into(),

@@ -464,3 +464,59 @@ async fn my_subscribed_prs_show_ready_and_conflict() {
     // 세션을 모르는 호출(옛 extra 명령)에는 붙지 않는다.
     assert_eq!(line_from(&state, "?cwd=/w/rocky-todo").await, "");
 }
+
+/// 세션이 스스로 든 doing — PostToolUse 훅이 `POST /api/sessions/doing` 으로 귀속시키면 보드 줄의 ⏺ 가 그 세션에 붙는다.
+/// 원격에는 라우트가 없는 것처럼 보이고(404), 조건이 안 맞으면 204 로 아무것도 하지 않는다.
+#[tokio::test]
+async fn a_self_started_doing_is_claimed_by_the_session_hook() {
+    let f = fx();
+    let todo = f
+        .store
+        .create_todo(
+            &CreateTodoInput {
+                board: "rocky-todo".into(),
+                title: "스스로 든 것".into(),
+                ..Default::default()
+            },
+            "logan",
+        )
+        .unwrap();
+    f.store
+        .set_todo_status(&todo.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    let state = statusline_state(&f, Some("[⏺ {mine.ref}]"));
+    assert_eq!(
+        line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await,
+        ""
+    );
+
+    let body = serde_json::json!({"sessionId": "sess-live", "todoId": todo.id});
+    let (status, _) = call(
+        &state,
+        "POST",
+        "/api/sessions/doing",
+        Some(body.clone()),
+        ReqOptions {
+            peer: Some("100.64.0.9"),
+            ..ReqOptions::default()
+        },
+    )
+    .await;
+    assert_eq!(status, 404, "원격에는 없다");
+
+    let (status, claimed) = post(&state, "/api/sessions/doing", body.clone()).await;
+    assert_eq!(status, 200, "{claimed}");
+    assert_eq!(claimed["doingSessionClaimed"], true);
+    assert_eq!(
+        line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await,
+        "⏺ rocky-todo-1"
+    );
+    // 다시 불러도 덮지 않는다(이미 귀속).
+    let (status, _) = post(
+        &state,
+        "/api/sessions/doing",
+        serde_json::json!({"sessionId": "sess-other", "todoId": todo.id}),
+    )
+    .await;
+    assert_eq!(status, 204);
+}

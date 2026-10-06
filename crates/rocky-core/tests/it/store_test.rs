@@ -4011,3 +4011,63 @@ fn quick_check_is_ok_on_a_healthy_db() {
     let f = fx();
     assert_eq!(f.store.quick_check().unwrap(), "ok");
 }
+
+/// 세션이 스스로 든 doing 에만 귀속이 붙는다 — 에이전트가 방금 start 했고 귀속이 없을 때. 사람이 든 것·핸드오프로 받은 것·
+/// doing 이 아닌 것은 그대로다. stop/done 은 귀속과 표시를 같이 지운다.
+#[test]
+fn claim_doing_session_only_for_a_fresh_agent_start() {
+    let f = fx();
+    let mine = create(&f.store, "rocky-todo", "스스로", "logan");
+    f.store
+        .set_todo_status(&mine.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    let claimed = f
+        .store
+        .claim_doing_session(&mine.id, "sess-1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.doing_session_id.as_deref(), Some("sess-1"));
+    assert!(claimed.doing_session_claimed);
+    // 이미 귀속이 있으면 덮지 않는다.
+    assert!(f
+        .store
+        .claim_doing_session(&mine.id, "sess-2")
+        .unwrap()
+        .is_none());
+
+    let human = create(&f.store, "rocky-todo", "사람", "logan");
+    f.store
+        .set_todo_status(&human.id, StatusAction::Start, "logan", None)
+        .unwrap();
+    assert!(f
+        .store
+        .claim_doing_session(&human.id, "sess-1")
+        .unwrap()
+        .is_none());
+
+    let idle = create(&f.store, "rocky-todo", "안 든 것", "logan");
+    assert!(f
+        .store
+        .claim_doing_session(&idle.id, "sess-1")
+        .unwrap()
+        .is_none());
+
+    // 핸드오프로 받은 것은 핸드오프 귀속이고 표시가 없다.
+    let handed = create(&f.store, "rocky-todo", "넘겨받음", "logan");
+    f.store
+        .create_handoff(&handoff_input(&handed.id, "sess-3", "logan"))
+        .unwrap();
+    f.store.claim_handoff("sess-3", HandoffVia::Stop).unwrap();
+    let started = f
+        .store
+        .set_todo_status(&handed.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    assert_eq!(started.doing_session_id.as_deref(), Some("sess-3"));
+    assert!(!started.doing_session_claimed);
+
+    let stopped = f
+        .store
+        .set_todo_status(&mine.id, StatusAction::Stop, "claude-code", None)
+        .unwrap();
+    assert!(stopped.doing_session_id.is_none() && !stopped.doing_session_claimed);
+}

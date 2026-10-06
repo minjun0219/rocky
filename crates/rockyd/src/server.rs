@@ -1954,6 +1954,34 @@ async fn dispatch(
             .unwrap());
     }
 
+    // ── 세션이 스스로 든 doing 의 귀속 — PostToolUse 훅만 부른다 ──
+    if *method == Method::POST && path == "/api/sessions/doing" {
+        // 데몬의 할 일에 세션을 붙이는 쓰기라 원격에는 존재 자체를 드러내지 않는다(404 위장).
+        if !local {
+            return Ok(error_response(
+                &format!("not found: {method} {path}"),
+                StatusCode::NOT_FOUND,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let session_id = str_field(&body, "sessionId").unwrap_or("");
+        let todo_id = str_field(&body, "todoId").unwrap_or("");
+        if session_id.is_empty() || todo_id.is_empty() {
+            return Ok(error_response(
+                "sessionId and todoId are required",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        return Ok(match store.claim_doing_session(todo_id, session_id)? {
+            Some(todo) => ok_json(&with_ref_todo(store, todo)?),
+            // 조건이 안 맞으면(이미 귀속·방금 시작이 아님 등) 아무것도 하지 않았다 — 실패가 아니다.
+            None => Response::builder()
+                .status(StatusCode::NO_CONTENT)
+                .body(Body::empty())
+                .unwrap(),
+        });
+    }
+
     // ── handoffs ──
     if *method == Method::POST && path == "/api/handoffs/claim" {
         // 훅만 부르는 라우트 — 원격에는 존재 자체를 드러내지 않는다(404 위장).

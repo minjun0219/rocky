@@ -340,6 +340,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Hook, "hook notify-todo"),
     (UsageSource::Hook, "hook handoff-stop"),
     (UsageSource::Hook, "hook log-turn"),
+    (UsageSource::Hook, "hook claim-doing"),
     (UsageSource::Hook, "hook lab"),
     (UsageSource::Cli, "rocky ls"),
     (UsageSource::Cli, "rocky next"),

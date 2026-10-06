@@ -104,11 +104,13 @@ pub struct HeldTodo {
     pub title: String,
     /// GitHub PR 을 링크했다 — 머지를 기다리는 중이라 Stop 확인에서 묻지 않는다(머지되면 데몬이 완료한다).
     pub awaits_pr: bool,
+    /// 핸드오프가 아니라 세션이 스스로 `start` 한 것을 훅이 귀속시켰다 — Stop 확인에서 묻지 않는다(턴 태그·statusline 은 쓴다).
+    pub claimed: bool,
 }
 
 /// `GET /api/todos?status=doing` 응답(JSON 배열)에서 **이 세션이 든 것만** 고른다 — `doingSessionId` 가
-/// 훅의 `session_id` 와 같은 것. 핸드오프를 받아 `start` 한 세션에만 이 귀속이 붙는다(사람이 누른 start 나
-/// 세션이 스스로 든 것은 없다). 보관된 것은 뺀다.
+/// 훅의 `session_id` 와 같은 것. 핸드오프를 받아 `start` 한 세션, 그리고 세션이 스스로 `start` 한 것(PostToolUse 훅
+/// `claim-doing` — `claimed`)에 이 귀속이 붙는다. 사람이 누른 start 는 없다. 보관된 것은 뺀다.
 pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldTodo> {
     todos
         .as_array()
@@ -133,6 +135,10 @@ pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldT
                                         .is_some()
                                 })
                             }),
+                        claimed: t
+                            .get("doingSessionClaimed")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
                     })
                 })
                 .collect()
@@ -145,7 +151,8 @@ pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldT
 /// 턴)면 묻지 않는다 — 안 그러면 "아직 하는 중" 이라 답한 세션을 영영 못 멈춘다. PR 을 링크한 할 일(`awaits_pr`)도
 /// 묻지 않는다 — 머지를 기다리는 동안 턴마다 막히고, 머지되면 데몬이 완료한다.
 pub fn held_todo_reminder(held: &[HeldTodo], stop_hook_active: bool) -> Option<String> {
-    let held: Vec<&HeldTodo> = held.iter().filter(|t| !t.awaits_pr).collect();
+    // 스스로 든 것(claimed)은 묻지 않는다 — 오너 결정(2026-10-06): 귀속은 statusline·턴 태그에만, 확인은 핸드오프로 받은 것에만.
+    let held: Vec<&HeldTodo> = held.iter().filter(|t| !t.awaits_pr && !t.claimed).collect();
     if stop_hook_active || held.is_empty() {
         return None;
     }
@@ -166,4 +173,42 @@ pub fn held_todo_reminder(held: &[HeldTodo], stop_hook_active: bool) -> Option<S
             .to_string(),
     );
     Some(lines.join("\n"))
+}
+
+/// PostToolUse 훅 입력 → 세션이 방금 `start` 한 할 일의 id 들. `tool_input.action` 이 start 가 아니면 비고, 시작이 실패했으면
+/// (응답에 doing 상태의 할 일이 없으면) 빈다. MCP 도구의 응답은 문자열 JSON 을 품은 content 블록이라 모양을 가리지 않고 훑는다.
+pub fn started_todo_ids(input: &serde_json::Value) -> Vec<String> {
+    let is_start = input.pointer("/tool_input/action").and_then(|v| v.as_str()) == Some("start");
+    if !is_start {
+        return Vec::new();
+    }
+    let mut ids = Vec::new();
+    if let Some(response) = input.get("tool_response") {
+        collect_doing_ids(response, &mut ids);
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn collect_doing_ids(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::String(s) => {
+            if let Ok(inner) = serde_json::from_str::<serde_json::Value>(s) {
+                if inner.is_object() || inner.is_array() {
+                    collect_doing_ids(&inner, out);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|i| collect_doing_ids(i, out)),
+        serde_json::Value::Object(map) => {
+            if map.get("status").and_then(|s| s.as_str()) == Some("doing") {
+                if let Some(id) = map.get("id").and_then(|s| s.as_str()) {
+                    out.push(id.to_string());
+                }
+            }
+            map.values().for_each(|i| collect_doing_ids(i, out));
+        }
+        _ => {}
+    }
 }

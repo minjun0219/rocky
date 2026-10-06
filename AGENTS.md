@@ -19,8 +19,8 @@ CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` �
 - **데몬 `rockyd`**(`crates/rockyd`) — 머신 전체에 하나, `127.0.0.1:8636`, SQLite는 `~/.config/rocky/todo/`.
   보드 REST + SSE, `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`와 토큰 색인을 읽는
   `token_summary` / `token_current_session`을 담은 streamable HTTP MCP, **웹 UI**(`web/`, 릴리스 때 `dist/`로 빌드해 바이너리 옆 `dist/`를 `/`에 서빙)를 낸다.
-- **CLI `rocky`**(`crates/rocky-cli`) — 얇은 HTTP 클라이언트 + 훅 입구 네 개(`hook ensure-daemon` /
-  `notify-todo` / `handoff-stop` / `log-turn`). `bin/rocky`는 플러그인 버전에 맞는 릴리스 tarball을 받아
+- **CLI `rocky`**(`crates/rocky-cli`) — 얇은 HTTP 클라이언트 + 훅 입구 다섯 개(`hook ensure-daemon` /
+  `notify-todo` / `handoff-stop` / `log-turn` / `claim-doing`). `bin/rocky`는 플러그인 버전에 맞는 릴리스 tarball을 받아
   바이너리를 실행하는 sh 부트스트랩이다.
 - **worklog stdio MCP 서버**(`rocky mcp worklog`, `crates/rocky-cli/src/worklog_mcp.rs`) — 프로젝트별
   `worklog_*` 도구 4개. 워크로그는 호출자의 레포 루트가 키인데 데몬은 호출자의 cwd를 모르므로 데몬이
@@ -43,7 +43,7 @@ CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` �
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
 
 **Claude Code 전용 표면**(MCP 도구가 아니라 Codex/opencode 에는 안 보인다): `plugin/commands/`의 슬래시
-커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · Stop)과 function hooks 모듈(`modules` →
+커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · PostToolUse · Stop)과 function hooks 모듈(`modules` →
 `plugin/hooks/lab/`, 실험), `plugin/skills/`의 번들 스킬, `plugin/agents/`의 서브에이전트. 호스트의 한계가 아니라 연결 방식의 선택이다 — `docs/architecture.md`.
 
 > **범위 판단 전에 먼저 읽을 것.** rocky는 지금 가진 도구로 범위가 정해진 제품이 아니라 개인 플러그인이다.
@@ -59,7 +59,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── plugin/                     ★ Claude Code 플러그인 — 플러그인 캐시로 복사되는 유일한 것
 │   ├── .claude-plugin/plugin.json  플러그인 메타데이터 + MCP 서버 두 개(rocky = 데몬 http, worklog = stdio)
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
-│   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), Stop(handoff-stop → log-turn)
+│   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
 │   ├── hooks/lab/ types/       function hooks 모듈(실험 — rocky.json `lab` 블록일 때만) + 그 `$.state` 계약. tsconfig.json 은 엔진 타입을 extends
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
 │   └── scripts/permalink.ts    /rocky:review-request 가 쓴다 — 설치 후에도 있으려면 플러그인 안에 있어야 한다

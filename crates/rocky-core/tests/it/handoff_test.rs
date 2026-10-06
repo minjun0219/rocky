@@ -120,11 +120,13 @@ fn held_todos_are_the_doing_ones_attributed_to_this_session() {
                 todo_ref: "rocky-1".into(),
                 title: "내 것".into(),
                 awaits_pr: false,
+                claimed: false,
             },
             HeldTodo {
                 todo_ref: "rocky-6".into(),
                 title: "PR 올림".into(),
                 awaits_pr: true,
+                claimed: false,
             }
         ]
     );
@@ -137,6 +139,7 @@ fn the_stop_reminder_asks_once_and_never_loops() {
         todo_ref: "rocky-1".into(),
         title: "보드 피드".into(),
         awaits_pr: false,
+        claimed: false,
     }];
     let reminder = held_todo_reminder(&held, false).expect("들고 있으면 묻는다");
     assert!(
@@ -159,6 +162,7 @@ fn the_stop_reminder_skips_todos_waiting_on_a_pr() {
         todo_ref: "rocky-2".into(),
         title: "PR 올림".into(),
         awaits_pr: true,
+        claimed: false,
     };
     assert_eq!(
         held_todo_reminder(std::slice::from_ref(&waiting), false),
@@ -170,6 +174,7 @@ fn the_stop_reminder_skips_todos_waiting_on_a_pr() {
             todo_ref: "rocky-1".into(),
             title: "아직 하는 중".into(),
             awaits_pr: false,
+            claimed: false,
         },
     ];
     let reminder = held_todo_reminder(&both, false).expect("PR 없는 것은 묻는다");
@@ -177,4 +182,62 @@ fn the_stop_reminder_skips_todos_waiting_on_a_pr() {
         reminder.contains("rocky-1") && !reminder.contains("rocky-2"),
         "{reminder}"
     );
+}
+
+/// 세션이 스스로 든 것(훅이 귀속 — `doingSessionClaimed`)도 이 세션의 것이지만 Stop 에서는 묻지 않는다(오너 결정 2026-10-06).
+#[test]
+fn self_started_todos_are_held_but_not_asked_about() {
+    let todos = serde_json::json!([
+        { "ref": "rocky-7", "title": "스스로 든 것", "status": "doing", "doingSessionId": "s1", "doingSessionClaimed": true },
+        { "ref": "rocky-8", "title": "넘겨받은 것", "status": "doing", "doingSessionId": "s1" }
+    ]);
+    let held = held_by_session(&todos, "s1");
+    assert_eq!(held.len(), 2);
+    assert!(held[0].claimed && !held[1].claimed);
+    let reminder = held_todo_reminder(&held, false).expect("넘겨받은 것은 묻는다");
+    assert!(
+        reminder.contains("rocky-8") && !reminder.contains("rocky-7"),
+        "{reminder}"
+    );
+    assert_eq!(held_todo_reminder(&held[..1], false), None);
+}
+
+/// PostToolUse 입력에서 방금 start 한 할 일 — MCP 응답은 문자열 JSON 을 품은 content 블록이다. start 가 아니거나 실패했으면 없다.
+#[test]
+fn started_todo_ids_read_the_mcp_response() {
+    use rocky_core::handoff::started_todo_ids;
+    let todo =
+        serde_json::json!({"id": "abc123", "ref": "rocky-9", "status": "doing", "title": "t"})
+            .to_string();
+    let input = |action: &str, response: serde_json::Value| {
+        serde_json::json!({
+            "session_id": "s1",
+            "tool_name": "mcp__plugin_rocky_rocky__todo_status",
+            "tool_input": {"id": "rocky-9", "action": action},
+            "tool_response": response,
+        })
+    };
+    let blocks = serde_json::json!([{"type": "text", "text": todo}]);
+    assert_eq!(
+        started_todo_ids(&input("start", blocks.clone())),
+        ["abc123"]
+    );
+    assert_eq!(
+        started_todo_ids(&input(
+            "start",
+            serde_json::json!({"content": blocks.clone()})
+        )),
+        ["abc123"]
+    );
+    assert!(started_todo_ids(&input("done", blocks)).is_empty());
+    // 실패한 start — 에러 문구뿐이다.
+    let failed = serde_json::json!([{"type": "text", "text": "todo not found: rocky-9"}]);
+    assert!(started_todo_ids(&input("start", failed)).is_empty());
+    // 이미 끝난 할 일의 응답(status done)도 아니다.
+    let done = serde_json::json!({"id": "abc123", "status": "done"}).to_string();
+    assert!(started_todo_ids(&input(
+        "start",
+        serde_json::json!([{"type": "text", "text": done}])
+    ))
+    .is_empty());
 }

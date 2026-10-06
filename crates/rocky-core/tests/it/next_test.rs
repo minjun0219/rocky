@@ -39,6 +39,7 @@ fn todo() -> TodoView {
             doing_by: None,
             doing_since: None,
             doing_session_id: None,
+            doing_session_claimed: false,
             position: seq,
             created_at: "2026-07-01T00:00:00.000Z".into(),
             updated_at: "2026-07-01T00:00:00.000Z".into(),
