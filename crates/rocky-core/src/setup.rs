@@ -36,11 +36,28 @@ pub fn statusline_snippet(port: u16) -> String {
     )
 }
 
-/// `settings.json` 의 `statusLine.command` 가 rocky 세그먼트를 부르는가. 명령이 스크립트
-/// 경로 하나면(보통 그렇다) 그 파일 내용을 `script_body` 로 같이 넘긴다.
+/// `settings.json` 의 `statusLine.command` 가 rocky 세그먼트를 부르는가 — 데몬의 `/api/statusline` 을 붙였거나,
+/// `rocky statusline`(·`--full` 같은 플래그만)을 직접 부른다(그 명령이 보드 줄을 그린다 — 조각을 또 붙이면 보드
+/// 줄이 두 번 나온다). 명령이 스크립트 경로 하나면(보통 그렇다) 그 파일 내용을 `script_body` 로 같이 넘긴다.
 pub fn statusline_wired(command: Option<&str>, script_body: Option<&str>) -> bool {
-    let needle = "/api/statusline";
-    command.is_some_and(|c| c.contains(needle)) || script_body.is_some_and(|b| b.contains(needle))
+    let wired = |text: &str| text.contains("/api/statusline") || invokes_rocky_statusline(text);
+    command.is_some_and(wired) || script_body.is_some_and(wired)
+}
+
+/// 어느 줄이 `rocky statusline` 을 그리는 형태로 부르는가 — 실행 파일 이름이 `rocky`(경로 포함)이고 다음이
+/// `statusline`, 그 뒤는 없거나 플래그. `rocky statusline guard`·`doctor` 같은 하위 명령은 그리지 않는다.
+fn invokes_rocky_statusline(text: &str) -> bool {
+    text.lines().any(|line| {
+        let tokens: Vec<&str> = line
+            .split_whitespace()
+            .map(|t| t.trim_matches(|c| c == '"' || c == '\''))
+            .collect();
+        tokens.windows(2).enumerate().any(|(i, pair)| {
+            (pair[0] == "rocky" || pair[0].ends_with("/rocky"))
+                && pair[1] == "statusline"
+                && tokens.get(i + 2).is_none_or(|next| next.starts_with('-'))
+        })
+    })
 }
 
 /// 설정 파일 상태.

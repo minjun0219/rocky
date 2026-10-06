@@ -194,6 +194,26 @@ fn statusline_wiring_is_detected_in_command_or_script() {
 }
 
 #[test]
+fn calling_rocky_statusline_directly_counts_as_wired() {
+    // `rocky statusline`(·플래그)은 보드 줄을 직접 그린다 — 조각을 또 붙이라고 하면 보드 줄이 두 번.
+    assert!(statusline_wired(
+        Some("/Users/me/.local/bin/rocky statusline --full"),
+        None
+    ));
+    assert!(statusline_wired(Some("rocky statusline"), None));
+    assert!(statusline_wired(
+        Some("/x/statusline.sh"),
+        Some("#!/bin/sh\nexec \"$HOME/.local/bin/rocky\" statusline --source api")
+    ));
+    // 그리지 않는 하위 명령·다른 도구는 아니다
+    assert!(!statusline_wired(Some("rocky statusline guard"), None));
+    assert!(!statusline_wired(
+        Some("/x/not-rocky statusline --full"),
+        None
+    ));
+}
+
+#[test]
 fn default_config_is_valid_json_with_schema_and_safe_defaults() {
     let text = default_config_json();
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();

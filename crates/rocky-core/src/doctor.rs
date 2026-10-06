@@ -85,6 +85,16 @@ fn pr_watch_check(health: &Value, now: DateTime<Utc>) -> Check {
         );
     };
     if watch.get("available").and_then(Value::as_bool) != Some(true) {
+        // 데몬이 막 떴다 — tick 은 실패해도 늘 `lastTick`·`reason` 을 함께 남기므로, 둘 다 없으면 첫 바퀴 전이다.
+        if str_of(watch, "lastTick").is_none() && str_of(watch, "reason").is_none() {
+            return check(
+                "pr-watch",
+                CheckKind::Info,
+                true,
+                "PR 감시 — 첫 바퀴 전(데몬이 막 떴다)".into(),
+                None,
+            );
+        }
         let reason = str_of(watch, "reason").unwrap_or("이유 모름");
         return check(
             "pr-watch",
