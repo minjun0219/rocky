@@ -3930,7 +3930,8 @@ impl TodoStore {
         Ok(claimed)
     }
 
-    /// 대기 중인 요청을 취소한다.
+    /// 아직 착수되지 않은 요청을 취소한다 — 대기 중이거나, 배달됐지만 아무도 `start` 하지 않은 것. 착수·완료된 것은
+    /// 거절한다(그 기록이 doing 귀속의 근거다). 배달 건을 취소하면 다음 `start` 가 그것을 수락하지 않는다.
     pub fn cancel_handoff(&self, id: &str, actor: &str) -> StoreResult<Handoff> {
         let mut events = Vec::new();
         let handoff = {
@@ -3943,8 +3944,13 @@ impl TodoStore {
                 )
                 .optional()?
                 .ok_or_else(|| StoreError::new(format!("handoff not found: {id}")))?;
-            if row.status != HandoffStatus::Pending {
-                return Err(StoreError::new(format!("handoff is not pending: {id}")));
+            let unstarted = row.status == HandoffStatus::Delivered
+                && row.accepted_at.is_none()
+                && row.completed_at.is_none();
+            if row.status != HandoffStatus::Pending && !unstarted {
+                return Err(StoreError::new(format!(
+                    "handoff is neither pending nor delivered-but-not-started: {id}"
+                )));
             }
             conn.execute(
                 "UPDATE handoffs SET status = 'cancelled' WHERE id = ?1",

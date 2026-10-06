@@ -806,3 +806,64 @@ async fn token_tools_read_the_transcript_index() {
     .await;
     assert!(is_error);
 }
+
+/// `todo_status` start 도 REST 와 같이 — 받은 세션이 사라진 배달을 먼저 취소해, 이 start 가 그것을 수락해 사라진
+/// 세션에 귀속되지 않게 한다.
+#[tokio::test]
+async fn todo_status_start_cancels_a_delivery_whose_session_is_gone() {
+    use rocky_core::types::*;
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.spawn_sessions = Some(rockyd::sessions_exec::fixed_sessions(
+            crate::common::available(vec![]),
+        ))
+    });
+    let todo = f
+        .store
+        .create_todo(
+            &CreateTodoInput {
+                board: "rocky".into(),
+                title: "x".into(),
+                ..Default::default()
+            },
+            "logan",
+        )
+        .unwrap();
+    let handoff = f
+        .store
+        .create_handoff(&CreateHandoffInput {
+            todo_ref: todo.id.clone(),
+            session_id: "sess-gone".into(),
+            session_name: None,
+            session_cwd: None,
+            note: None,
+            actor: "logan".into(),
+            current_board_id: None,
+        })
+        .unwrap();
+    f.store
+        .claim_handoff("sess-gone", HandoffVia::Stop)
+        .unwrap();
+    let at = (chrono::Utc::now() - chrono::Duration::hours(1))
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    rusqlite::Connection::open(&f.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE handoffs SET delivered_at = ?1 WHERE id = ?2",
+            rusqlite::params![at, handoff.id],
+        )
+        .unwrap();
+
+    let started = ok_call(
+        &state,
+        "todo_status",
+        json!({"id": todo.id, "action": "start", "actor": "claude-code"}),
+    )
+    .await;
+    assert!(started["doingSessionId"].is_null(), "{started}");
+    let after = f
+        .store
+        .list_handoffs(&ListHandoffsFilter::default())
+        .unwrap();
+    assert_eq!(after[0].status, HandoffStatus::Cancelled);
+}

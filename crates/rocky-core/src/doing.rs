@@ -198,3 +198,82 @@ pub fn is_unstarted(handoff: &Handoff, sessions: &SessionsResult) -> bool {
         Some(session) => state_of_session(session) != DoingState::Live,
     }
 }
+
+/// 아직 아무도 착수하지 않은 배달 건 — 대기(pending) 다음으로 취소할 수 있는 것.
+fn awaits_start(handoff: &Handoff) -> bool {
+    handoff.status == HandoffStatus::Delivered
+        && handoff.accepted_at.is_none()
+        && handoff.completed_at.is_none()
+}
+
+/// `rocky handoff REF --cancel` 이 취소할 한 건 — 대기 중인 요청이 먼저, 없으면 배달됐지만 착수 안 한 것 중 가장 오래된
+/// 것(다음 `start` 가 수락할 바로 그것). `handoffs` 는 아무 순서여도 된다.
+pub fn cancel_target<'a>(handoffs: &'a [Handoff], todo_id: &str) -> Option<&'a Handoff> {
+    let of_todo = || handoffs.iter().filter(move |h| h.todo_id == todo_id);
+    of_todo()
+        .filter(|h| h.status == HandoffStatus::Pending)
+        .min_by(|a, b| a.created_at.cmp(&b.created_at))
+        .or_else(|| {
+            of_todo()
+                .filter(|h| awaits_start(h))
+                .min_by(|a, b| a.created_at.cmp(&b.created_at))
+        })
+}
+
+/// 배달 뒤 이만큼은 받은 세션이 목록에 없어도 무효로 하지 않는다 — 막 뜬 세션이 `claude agents` 에 늦게 잡히는 틈.
+pub const GONE_HANDOFF_GRACE_SECS: i64 = 10 * 60;
+
+/// 배달됐지만 착수 안 한 건 중 다른 세션의 `start` 가 수락하기 전에 받은 세션을 볼 것.
+#[derive(Debug, Clone, Copy)]
+pub struct Overdue<'a> {
+    pub handoff: &'a Handoff,
+    /// 더 새 요청에 밀렸다 — 사람이 다시 보냈다. 받은 세션이 일하는 중이 아니면 버린 것으로 본다.
+    pub superseded: bool,
+}
+
+/// 볼 것 — 배달 뒤 유예가 지났거나, **더 새 요청에 밀린 것**(막 받은 세션의 것이 아니니 유예가 필요 없다). `handoffs` 는
+/// 그 할 일의 핸드오프 전부(상태 무관). 비면 세션 목록을 부르지 않는다.
+pub fn overdue_unaccepted<'a>(
+    handoffs: &'a [Handoff],
+    now_iso: &str,
+    grace_secs: i64,
+) -> Vec<Overdue<'a>> {
+    let Some(now) = iso_epoch(Some(now_iso)) else {
+        return Vec::new();
+    };
+    handoffs
+        .iter()
+        .filter(|h| awaits_start(h))
+        .filter_map(|h| {
+            let superseded = handoffs.iter().any(|later| {
+                later.status != HandoffStatus::Cancelled && later.created_at > h.created_at
+            });
+            let past_grace =
+                iso_epoch(h.delivered_at.as_deref()).is_some_and(|at| now - at >= grace_secs);
+            (superseded || past_grace).then_some(Overdue {
+                handoff: h,
+                superseded,
+            })
+        })
+        .collect()
+}
+
+/// 그중 버려진 것 — 받은 세션이 목록에 없거나 끝난(`done`) background 행이면 버려진 것이고, 다시 보내 밀린 것은 받은
+/// 세션이 일하는 중(`busy`)이 아니기만 해도 버려진 것이다(사람이 다른 세션을 골랐다 — `start` 를 부르는 세션은 그 턴에
+/// 있어 `busy` 다). 목록을 못 얻었으면 비운다(모름 ≠ 없음).
+pub fn gone_handoffs<'a>(overdue: &[Overdue<'a>], sessions: &SessionsResult) -> Vec<&'a Handoff> {
+    if !sessions.available {
+        return Vec::new();
+    }
+    overdue
+        .iter()
+        .filter(
+            |o| match find_session(&sessions.sessions, &o.handoff.session_id) {
+                None => true,
+                Some(s) if o.superseded => state_of_session(s) != DoingState::Live,
+                Some(s) => state_of_session(s) == DoingState::Gone,
+            },
+        )
+        .map(|o| o.handoff)
+        .collect()
+}

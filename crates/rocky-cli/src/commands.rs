@@ -626,7 +626,8 @@ pub fn cmd_section(
     }
 }
 
-/// `handoff` — 실행 중인 세션에 작업 요청. `--cancel` 이면 대기 중인 요청 취소.
+/// `handoff` — 실행 중인 세션에 작업 요청. `--cancel` 이면 아직 착수 안 된 요청 하나를 취소 — 대기 중인 것이
+/// 먼저, 없으면 배달됐지만 아무도 `start` 하지 않은 것.
 pub fn cmd_handoff(
     ctx: &CliContext,
     rest: &[String],
@@ -644,16 +645,23 @@ pub fn cmd_handoff(
         // board 로 거르지 않는다 — 해석된 **실제 todo id** 로 찾으므로 필터가 불필요하고
         // 오히려 해롭다: `board` 는 cwd 유추값인데 REF 는 다른 보드를 가리킬 수 있어
         // (`other-12`), 거르면 실재하는 요청을 못 찾는다.
-        let pending: Vec<rocky_core::types::Handoff> =
-            request(ctx, "GET", "/api/handoffs?status=pending", None)?;
         let detail = request_value(ctx, "GET", &todo_ref_path(id, "", board), None)?;
         let todo_id = detail
             .get("todo")
             .and_then(|t| t.get("id"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| format!("{id} 를 찾지 못했다"))?;
-        let Some(target) = pending.into_iter().find(|h| h.todo_id == todo_id) else {
-            return Err(format!("{id} 앞으로 대기 중인 요청이 없다"));
+        // 그 할 일의 것만 받는다 — 완료된 배달도 `delivered` 로 남아 전체 이력을 받으면 이력에 비례해 커진다.
+        let handoffs: Vec<rocky_core::types::Handoff> = request(
+            ctx,
+            "GET",
+            &format!("/api/handoffs?todo={}", encode_uri_component(todo_id)),
+            None,
+        )?;
+        let Some(target) = rocky_core::doing::cancel_target(&handoffs, todo_id) else {
+            return Err(format!(
+                "{id} 앞으로 취소할 요청이 없다 — 대기 중이거나 받고 착수하지 않은 것만 취소한다"
+            ));
         };
         let raw = request_value(
             ctx,
@@ -661,7 +669,22 @@ pub fn cmd_handoff(
             &format!("/api/handoffs/{}/cancel", encode_uri_component(&target.id)),
             None,
         )?;
-        printer.emit(&raw, || format!("✓ {id} 핸드오프 취소"));
+        // 고른 뒤 세션이 집어 갔을 수 있다 — 문구는 취소된 결과의 배달 여부로 정한다.
+        let delivered_to = raw
+            .get("deliveredAt")
+            .is_some_and(|v| !v.is_null())
+            .then(|| {
+                target
+                    .session_name
+                    .clone()
+                    .unwrap_or_else(|| target.session_id.clone())
+            });
+        printer.emit(&raw, || match &delivered_to {
+            Some(session) => {
+                format!("✓ {id} 핸드오프 취소 — {session} 이(가) 받았지만 착수하지 않은 것")
+            }
+            None => format!("✓ {id} 핸드오프 취소"),
+        });
         return Ok(());
     }
 
