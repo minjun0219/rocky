@@ -147,6 +147,11 @@ in git history.
   (background subagent, effort levels, `--fix` / `--comment`), so the only part it did not cover — checking the
   implementation against the requirements — moved into `/rocky:finish` step 2.5, which dispatches the `reviewer`
   subagent for risky changes. Slash commands are not in the usage log, so there is no call count to cite.
+- **2026-10-06** — `/rocky:spec-check` added. The requirements check from step 2.5 can now be called on its own —
+  mid-work, after review rounds, or on work handed back from another host — and step 2.5 calls it. It also stops
+  the session paraphrasing the requirements into one paragraph: sources go to the `reviewer` verbatim, because a
+  paraphrase written by the implementer carries the very reading the fresh context exists to avoid. `reviewer` is
+  unchanged (still reachable directly for a general review); spec-check scopes it to requirements only.
 - **2026-07-30** — `/rocky:review-pr` renamed to `/rocky:resolve-reviews`. The old name parsed as
   verb + object ("review the PR" — which is what the built-in `/review` does), so it kept getting
   confused with `/rocky:review`. The new name says what it does to what: it resolves review threads.

@@ -36,6 +36,7 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
   - `/rocky:next`: 보드에서 다음 작업을 골라 착수한다.
   - `/rocky:brainstorm`: 아이디어를 설계로 다듬는다. 게이트가 아니라 필요할 때 부르는 도구다.
   - `/rocky:review-request`: 게이트 → 커밋 → 푸시 → PR 생성까지 한다.
+  - `/rocky:spec-check`: 구현이 요구사항대로 됐는지만 본다. 요구사항 원문(인자·대화·보드 할 일·스펙 문서·이슈)을 모아 `reviewer`에게 diff와 함께 넘기고, 항목마다 충족·빠짐·다르게 해석·요청 안 한 것으로 판정받는다. 버그는 기본 `/code-review` 몫이다. `/rocky:review-request`가 위험한 변경일 때 부르고, 작업 중간이나 다른 호스트에 넘긴 일이 돌아왔을 때 따로 불러도 된다.
   - `/rocky:review-fix`: PR에 붙은 리뷰를 반영한다. 스레드에는 리액션(🚀 수정 완료 / 👀 결정 필요)으로 상태만 남기고, 코멘트·resolve·머지는 사람이 한다.
   - `/rocky:config`: 설치·설정을 점검하고 빠진 것을 하나씩 물어 채운다.
   - `/rocky:usage`: 사용 로그를 읽고 뺄 것·손볼 것·더 쓸 것을 제안한다. 판단은 사람이 한다.
@@ -45,7 +46,7 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
 - **수집함 CLI**: `rocky inbox [--json]`이 소스별 항목을 보여 준다(✓는 이미 어느 보드든 올라간 것). `rocky today`와 세션 시작 요약은 아직 안 올린 항목을 최대 3개 싣는다. 세션에 "gh-bugs 구독해"라고 하면(`rocky inbox subscribe`) 그 뒤 새 항목을 데몬이 그 세션에 알린다. 착수는 사람이 정한다([`docs/board.md`](./docs/board.md) "요약").
 - **훅** (`hooks/hooks.json`): `SessionStart`가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit`이 사람이 보드에서 바꾼 것을 세션에 알리고, `PostToolUse`가 세션이 `todo_status` 로 스스로 시작한 할 일에 그 세션을 귀속시키고(statusline ⏺·턴 태그용 — Stop 의 "닫았나?" 확인은 핸드오프로 받은 것에만), `Stop`이 핸드오프를 집은 뒤 턴을 워크로그에 자동으로 남긴다(`kind:"turn"`, LLM을 쓰지 않는다, `worklog.autoCapture`로 끈다). 모든 훅은 실패해도 세션을 막지 않는다.
 - **스킬** (`skills/`): rocky 를 **쓰는** 에이전트가 상황에 맞을 때 읽는 문서다(평소엔 컨텍스트를 쓰지 않는다). `pull-request`는 PR 구독과 받은편지함 메시지별 할 일, `token-usage`는 모델·effort 고르기, `branch-verify`는 기본 브랜치 검증 결과 읽기, `handoff`는 보드에서 넘겨받은 일의 start→done, `worklog`는 무엇을 언제 기록하나를 다룬다. rocky 를 **고치는** 에이전트용 기능 문서는 레포의 `docs/features/`에 따로 있다. `board`는 보드 에티켓(start→done, 링크 첨부, 보관만)과 MCP·CLI 폴백을, `writing-cc-plugin`은 Claude Code 플러그인 작성 가이드와 매니페스트·컴포넌트·배포 레퍼런스를 담는다.
-- **서브에이전트** (`agents/`): `reviewer`는 새 컨텍스트에서 **diff와 요구사항만** 받아 검토하는 읽기 전용 리뷰어다. `/rocky:review-request`가 위험한 변경일 때 요구사항 대비 점검으로 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘"처럼 직접 부를 수도 있다. 돌려 본 것만 통과라고 쓰고, 통과처럼 보이는 실패(false pass)를 따로 챙기며, 파일을 고치거나 머지하지 않는다.
+- **서브에이전트** (`agents/`): `reviewer`는 새 컨텍스트에서 **diff와 요구사항만** 받아 검토하는 읽기 전용 리뷰어다. `/rocky:spec-check`이 요구사항 대비 점검으로 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘"처럼 직접 부를 수도 있다. 돌려 본 것만 통과라고 쓰고, 통과처럼 보이는 실패(false pass)를 따로 챙기며, 파일을 고치거나 머지하지 않는다.
   `quick-fix`(Sonnet)와 `merge-cleanup`(Haiku)은 `/rocky:review-fix`의 기계적인 단계 — 충돌 해소·판단이 필요 없는 리뷰 수정·CI 실패, 머지 뒤 정리 — 를 가벼운 모델과 **새 맥락**에서 맡는다. 긴 세션이 몇 줄짜리 손질을 위해 대화 전체를 요청마다 다시 읽지 않게 하려는 것이다. 둘 다 강제 푸시·`-D`·코멘트·resolve·머지를 하지 않고, 판단이 필요한 건은 메인 세션에 돌려준다.
 
 ### 토큰 사용 — 모델·effort 고르기
