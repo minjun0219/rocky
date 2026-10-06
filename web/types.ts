@@ -254,7 +254,7 @@ export interface PrSnapshot {
 }
 
 /** 보드 화면의 보기 — 피드(첫 화면) / 할 일 목록 / 노트 / 작업로그 / GitHub / 원격 제어(rc 서버). */
-export type BoardView = 'feed' | 'todos' | 'notes' | 'worklog' | 'github' | 'rc';
+export type BoardView = 'feed' | 'todos' | 'notes' | 'worklog' | 'github' | 'agents' | 'rc';
 
 /** `GET /api/rc/servers` 의 대상 행 — Rust `rocky_core::rc::ServerRow` 의 사본. */
 export interface RcServerRow {

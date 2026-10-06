@@ -148,6 +148,10 @@ PATH에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`.
   앰버는 에이전트, 블루는 사람, 과거로 갈수록 흐려진다. 옆의 "에이전트 · 3시간 전" 이 마지막
   활동이고, 눈금 위에 올리면 그 한 건의 actor·시각이 뜬다. 보드가 지금 얼마나 뜨겁고 누가
   데우고 있는지를 보는 자리다.
+- **에이전트 탭** — `GET /api/sessions`(= `claude agents --json`)를 내 차례(background `blocked`) → 실행 중 →
+  쉬는 중으로 묶는다. background 행에는 Claude Code 가 `~/.claude/jobs/<id>/state.json` 에 남긴 요약(`job`)을
+  데몬이 붙여 준다 — 내 차례면 기다리는 것(`needs`), 아니면 지금 하는 일(`detail`). 내부 파일이라 못 읽으면 그
+  줄만 빈다. 할 일을 든 세션(핸드오프 귀속)은 행을 눌러 그 할 일을 연다. 화면 규칙은 `web/DESIGN.md` "Layout" 8.
 - 글자 크기는 여섯 단(`text-micro` 11 · `chip` 12 · `meta` 13 · `sm` 14 · `body` 15 · `title` 20,
   `web/styles/tokens.css`)뿐이다 — 임의 px 유틸리티를 새로 만들지 않는다.
 

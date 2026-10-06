@@ -46,7 +46,7 @@ export interface Route {
   view?: Exclude<BoardView, 'feed'>;
 }
 
-const VIEWS: readonly BoardView[] = ['feed', 'todos', 'notes', 'worklog', 'github', 'rc'];
+const VIEWS: readonly BoardView[] = ['feed', 'todos', 'notes', 'worklog', 'github', 'agents', 'rc'];
 
 /** `?view=todos` → `'todos'`. 모르는 값·피드는 undefined(첫 화면). */
 function parseViewParam(search: string): Route['view'] {
