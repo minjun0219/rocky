@@ -918,6 +918,10 @@ async fn web_message_goes_to_a_registered_session_only_from_a_local_request() {
     let (_, deliveries) = get(&f.state, "/api/deliveries").await;
     assert_eq!(deliveries["recent"][0]["kind"], "message");
     assert_eq!(deliveries["recent"][0]["ok"], true);
+    // 본문은 전달 기록(SQLite·화면)에 남기지 않는다 — 비밀이 섞일 수 있다. 길이만.
+    let subject = deliveries["recent"][0]["subject"].as_str().unwrap();
+    assert!(!subject.contains("내일"), "{subject}");
+    assert!(subject.contains("자)"), "{subject}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
