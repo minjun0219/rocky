@@ -47,7 +47,7 @@ use crate::github::{
 };
 use crate::inbox_exec::{cached_inbox_dynamic, InboxFetch, InboxProvider, SourcesFn};
 use crate::runner::{default_runner, Runner};
-use crate::sessions_exec::{cached_sessions, swr_sessions, uncached_sessions, SessionsProvider};
+use crate::sessions_exec::{swr_sessions, uncached_sessions, SessionsProvider};
 use crate::spawnctl::{
     default_spawn_fn, find_live_session_at, worktree_name_for, worktree_path_for, RecentSpawns,
     SpawnFn, SpawnInput, RECENT_SPAWN_TTL,
@@ -72,7 +72,7 @@ pub struct ServerOptions {
     pub sessions: Option<SessionsProvider>,
     /// spawn 라우트 전용 — 기본은 **캐시 없는** 조회기 (spawn 이전 스냅샷 금지).
     pub spawn_sessions: Option<SessionsProvider>,
-    /// statusline 라우트 전용 — 기본 TTL 15초 (초당 도는 유일한 경로).
+    /// statusline 라우트 전용 — 기본은 새 값 15초·낡은 값 30분의 SWR (초당 도는 유일한 경로라 요청이 조회를 기다리지 않는다).
     pub statusline_sessions: Option<SessionsProvider>,
     pub gh_runner: Option<Runner>,
     pub spawn: Option<SpawnFn>,
@@ -143,7 +143,7 @@ pub struct ServerState {
     statusline_template: String,
     sessions: SessionsProvider,
     spawn_sessions: SessionsProvider,
-    statusline_sessions: SessionsProvider,
+    pub(crate) statusline_sessions: SessionsProvider,
     gh_runner: Runner,
     spawn: SpawnFn,
     path_exists: PathExists,
@@ -539,7 +539,16 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
     let statusline_sessions = options
         .statusline_sessions
         .or(injected)
-        .unwrap_or_else(|| cached_sessions(default_gh.clone(), Duration::from_secs(15)));
+        // 15초가 지나면 낡은 값을 바로 주고 뒤에서 한 번 새로 받는다 — 만료 때마다 그 요청이 `claude agents --json`
+        // (~220ms, 콜드 수 초)을 기다리면 CLI 의 300ms 마감에 걸려 보드 줄이 비었다(rocky-47: curl p99 441ms · max 1s).
+        // 새로 받는 간격은 15초 그대로라 배경 부하는 늘지 않는다.
+        .unwrap_or_else(|| {
+            swr_sessions(
+                default_gh.clone(),
+                Duration::from_secs(15),
+                Duration::from_secs(30 * 60),
+            )
+        });
     // 받은편지함 등록은 DB 에서 되살린다 — 다시 뜬 뒤 세션이 다시 등록하기 전에 도는 첫 PR 감시 tick 의 알림이 갈 곳이 있게.
     let since = chrono::Utc::now().timestamp() - rocky_core::peer_inbox::REGISTRATION_TTL_SECS;
     let inboxes: HashMap<String, rocky_core::peer_inbox::InboxRegistration> = options

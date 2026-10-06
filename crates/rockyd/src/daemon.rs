@@ -364,11 +364,13 @@ pub async fn run_daemon(
         std::time::Duration::from_secs(60),
     );
     state.set_db_integrity(integrity);
-    // 세션 목록 예열 — 비어 있으면 첫 요청이 `claude agents --json`(콜드 수 초)을 기다린다.
+    // 세션 목록 예열 — 비어 있으면 첫 요청이 `claude agents --json`(콜드 수 초)을 기다린다. statusline 은 조회기가 따로라
+    // 같이 데운다(초당 도는 자리라 첫 요청이 마감에 걸리면 보드 줄이 빈다).
     {
         let state = state.clone();
         tokio::spawn(async move {
             state.sessions().await;
+            (state.statusline_sessions)().await;
         });
     }
     // 죽은 세션이 쥔 doing 자동 해제 — 기동 1분 뒤부터 10분마다.
