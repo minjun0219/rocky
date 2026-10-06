@@ -51,7 +51,7 @@ pub fn doctor(
     let (state, usage, account) = match &slot {
         Some(slot) => {
             println!("config_dir:    {}", slot.config_dir.display());
-            let account = slot.read_account();
+            let (account, bucket) = crate::statusline_guard::account_bucket(slot);
             match (&account, slot.account_paths.first()) {
                 (Some(a), _) if !a.email.is_empty() => println!("계정:          {}", a.email),
                 (Some(_), _) => println!("계정:          (이메일 없음 — API 키 인증 등)"),
@@ -86,7 +86,6 @@ pub fn doctor(
                 )
                 .display()
             );
-            let bucket = slot.bucket(account.as_ref().map(|a| a.email.as_str()));
             println!("cache dir:     {}", bucket.display());
             let state: StateFile = read(&state_file(&bucket));
             let usage: UsageCache = read(&usage_file(&bucket));
@@ -123,7 +122,9 @@ pub fn doctor(
             false,
         ),
     };
-    // guard 가 꺼져 있으면 막고 안 막고를 말하지 않는다 — 어차피 아무것도 막지 않는다.
+    // guard 가 꺼져 있으면 막고 안 막고를 말하지 않는다 — 어차피 아무것도 막지 않는다. 홈을 모르면 guard 는 캐시를 못 읽어
+    // 막지 않는다(fail-open).
+    let blocks = blocks && slot.is_some();
     match (cfg.limits.guard, blocks) {
         (false, _) => println!("크레딧:        {state_text} ({from})"),
         (true, true) => {

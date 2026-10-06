@@ -27,7 +27,8 @@
   계정마다 나누지만 막힌 세션과 다른 환경의 터미널에서 불러도 풀리게 둔다) · guard 의 계정은 statusline 과 같은 규칙으로 정한다 ·
   probe·doctor 는 `rocky statusline probe` · `rocky statusline doctor [--session ID]`(cc-usage `--session-id` — rocky 의 기존 플래그
   이름을 쓴다). doctor 는 rocky 의 자리(설정 파일 `rocky.json`·계정별 캐시 폴더)를 찍고, 계정(이메일) 줄과 덤프의 `allow` 를 더
-  보인다. 타임아웃 안내의 설정 키는 `timeoutMs`.
+  보인다. 타임아웃 안내의 설정 키는 `timeoutMs`. doctor 의 extra 실패 문구 속 OS 에러는 Rust 표준 꼴이다(미설치 `foo: No such
+  file or directory (os error 2)` — cc-usage `exec: "foo": executable file not found in $PATH`, 시그널 `signal: 9 (SIGKILL)` — `signal: killed`).
 - **미러 대상에서 뺀 것:** cc-usage 의 `update` · `config` · `version` — rocky 에 같은 일을 하는 명령(`rocky update` ·
   `rocky config`)이 있다. guard · agy 는 지금 쓰지 않아도 "기능 동일" 에 넣는다(조각 5).
 

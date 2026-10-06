@@ -574,3 +574,42 @@ fn doctor_explains_skipped_keychain_and_expired_tokens() {
         "{out}"
     );
 }
+
+/// 계정 파일을 못 읽으면(원자적 재작성 중 등) guard 는 statusline 이 남긴 계정 캐시로 간다 — doctor 도 같은 폴더를 보인다.
+/// 홈을 모르면 guard 는 막지 않으므로 doctor 도 막는다고 말하지 않는다.
+#[test]
+fn doctor_shows_the_bucket_guard_actually_reads() {
+    let home = Home::new(
+        Some(EMAIL),
+        serde_json::json!({"source": "api", "guard": true}),
+    );
+    let slot = rocky_core::claude_account::cache_slot(
+        &home.path.join(".cache"),
+        &home.path.join(".claude"),
+    );
+    std::fs::create_dir_all(&slot).unwrap();
+    std::fs::write(
+        slot.join("account.json"),
+        serde_json::json!({"source": home.account_file(), "email": EMAIL, "at": "-/-", "checked_at": NOW}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(home.account_file(), "{ half-written").unwrap();
+    let (_, out, _) = home.run("http://127.0.0.1:1/usage", &[], &["statusline", "doctor"]);
+    assert!(
+        out.contains(&format!(
+            "cache dir:     {}",
+            home.bucket(Some(EMAIL)).display()
+        )),
+        "{out}"
+    );
+
+    let (_, out, _) = home.run(
+        "http://127.0.0.1:1/usage",
+        &[("HOME", "")],
+        &["statusline", "doctor"],
+    );
+    assert!(
+        out.contains("크레딧:        모름 (-) — guard 가 막지 않습니다"),
+        "{out}"
+    );
+}

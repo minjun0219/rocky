@@ -33,6 +33,18 @@ pub fn check(cfg: &StatuslineConfig, now: DateTime<Utc>) -> Option<String> {
         return None;
     }
     let slot = Slot::from_env(cfg.config_dir.as_deref())?;
+    let (account, bucket) = account_bucket(&slot);
+    let state: StateFile = read(&state_file(&bucket));
+    let usage: UsageCache = read(&usage_file(&bucket));
+    let allow: AllowFile = allow_path().map(|p| read(&p)).unwrap_or_default();
+    let lim = select(limits, &Input::default(), &state, &usage, now)?;
+    let hint = account.and_then(|a| a.extra_usage_enabled);
+    guard(limits, &lim, &usage, &allow, hint, now)
+}
+
+/// guard 가 볼 계정과 그 캐시 폴더 — 계정 파일을 직접 읽고, 못 읽으면 statusline 이 남긴 계정 캐시의 이메일로. doctor 도 이것을
+/// 써서 guard 가 실제로 읽는 폴더를 보인다.
+pub fn account_bucket(slot: &Slot) -> (Option<claude_account::AccountFile>, PathBuf) {
     let account = slot.read_account();
     let email = match &account {
         Some(a) => Some(a.email.clone()),
@@ -42,12 +54,7 @@ pub fn check(cfg: &StatuslineConfig, now: DateTime<Utc>) -> Option<String> {
         }
     };
     let bucket = slot.bucket(email.as_deref());
-    let state: StateFile = read(&state_file(&bucket));
-    let usage: UsageCache = read(&usage_file(&bucket));
-    let allow: AllowFile = allow_path().map(|p| read(&p)).unwrap_or_default();
-    let lim = select(limits, &Input::default(), &state, &usage, now)?;
-    let hint = account.and_then(|a| a.extra_usage_enabled);
-    guard(limits, &lim, &usage, &allow, hint, now)
+    (account, bucket)
 }
 
 /// `allow [DURATION|off]` — 기본 30분. `off`·`0` 이면 guard 를 다시 켠다. 돌려주는 문구를 stdout 에 낸다.
