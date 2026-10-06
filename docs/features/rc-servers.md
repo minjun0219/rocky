@@ -74,8 +74,8 @@
   못 뜬 대상의 잠금은 **회복이 끝날 때까지 쥔다** — 놓으면 감시가 표식을 보고 같은 대상을 띄워 회복과 겹친다. 마감까지 못 띄운 것은
   표식을 남긴 채 놓는다 — 감시가 서버 모드로 띄운다. `already served` 재시도는 1 · 2 · 4 · 6분(낮보다 길게). 대상은 **설정 대상 중 떠 있는 것**뿐이다(strays 는 기록이 없다). 프로브 실패 · 로그아웃이면
   전체를 건너뛴다(`nightly_blocked`). 배너는 못 띄운 서버나 canary 실패가 있을 때만. 보고(`NightlyReport.rocky`)에 rocky 세 층 버전
-  (`claude plugin list --json` · `rocky --version` · 데몬 자기 버전)과 최신 릴리스 태그(`git ls-remote` — 30초 간격 4번)를 남긴다. 설치는
-  하지 않는다. agy 도 남긴다(`NightlyReport.agy` — `agy --version` · `remote-control status`, 데몬 pid 의 `ps etime` 으로 기동 시각,
+  (`claude plugin list --json` · `ROCKY_USAGE=0 rocky --version` — 사용 로그를 오염시키지 않게 · 데몬 자기 버전)과 최신 릴리스 태그(`git ls-remote` — 30초 간격 4번)를 남긴다. 설치는
+  하지 않는다. agy 도 남긴다(`NightlyReport.agy` — `agy --version` · `remote-control status`(둘 다 실패해야 미설치 — 상태만 실패하면 상태 칸만 빈다), 데몬 pid 의 `ps etime` 으로 기동 시각,
   PATH 의 실행 파일 mtime(`RcOps.binary_mtime`), 실행 파일이 기동보다 나중에 바뀌었으면 `oldBinary`) — 켜거나 끄지 않는다. 리허설은
   둘 다 싣지 않는다. 마지막 보고는 `rocky rc report`(읽기만 — `nightly` 와 이름을 갈라 `rocky rc nightly:*` 확인 규칙에 걸리지 않게 했다).
   마지막 보고는 처음 현황을 낼 때 `rc/nightly.json` 에서 읽는다 — 일정이 꺼진 기기에서 손으로 돌린 보고도 데몬을 다시 띄운 뒤에 보인다. 손 실행(`POST /api/rc/nightly`, `rocky rc nightly`)은 같은 길로 한 번 — 배너 없이, 날짜 기록(`lastRun`)도 건드리지 않는다.

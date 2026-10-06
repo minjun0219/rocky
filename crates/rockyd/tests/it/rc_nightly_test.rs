@@ -52,6 +52,8 @@ struct World {
     agy_status: Option<&'static str>,
     /// agy 실행 파일의 mtime(unix 초).
     agy_mtime: Option<i64>,
+    /// agy 는 있는데 `remote-control status` 만 빈 출력으로 실패한다.
+    agy_status_fails: bool,
 }
 
 fn at(h: u32, m: u32) -> NaiveDateTime {
@@ -86,6 +88,7 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         open_session_after: None,
         agy_status: None,
         agy_mtime: None,
+        agy_status_fails: false,
     }))
 }
 
@@ -103,7 +106,10 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
         let out = match (argv[0].as_str(), argv.get(1).map(String::as_str)) {
             // agy 데몬의 떠 있은 시간 — 서버 목록 `ps` 와 따로 센다.
             ("ps", Some("-o")) => ok(" 01:00:00\n".into()),
-            ("agy", Some("--version")) if w.agy_status.is_some() => ok("agy 1.2.14\n".into()),
+            ("agy", Some("--version")) if w.agy_status.is_some() || w.agy_status_fails => {
+                ok("agy 1.2.14\n".into())
+            }
+            ("agy", Some("remote-control")) if w.agy_status_fails => CmdOutput::failure(""),
             ("agy", Some("remote-control")) => match w.agy_status {
                 Some(out) => {
                     let sub = argv[2..].join(" ");
@@ -164,7 +170,10 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
             ("claude", Some("plugin")) => {
                 ok(r#"[{"id":"rocky@rocky-marketplace","version":"0.40.0"}]"#.into())
             }
-            ("rocky", _) => ok("rocky 0.40.0".into()),
+            // 사용 로그를 끈 채로만 답한다 — 그냥 `rocky --version` 이면 못 잰 것으로 남아 테스트가 깨진다.
+            ("env", Some("ROCKY_USAGE=0")) if argv.get(2).map(String::as_str) == Some("rocky") => {
+                ok("rocky 0.40.0".into())
+            }
             ("git", Some("ls-remote")) if w.online => {
                 ok("x\trefs/tags/v0.40.0\ny\trefs/tags/v9.9.9\n".into())
             }
@@ -830,6 +839,14 @@ async fn the_report_records_agy_without_touching_it() {
     let a = run(&f).await.agy.expect("설치는 돼 있다");
     assert_eq!((a.state, a.pid, a.started), (None, None, None));
     assert!(!a.old_binary);
+
+    // 상태 조회만 실패했으면 버전은 남긴다 — 미설치처럼 보이지 않게.
+    let w = world(at(4, 30), &[], vec![]);
+    w.lock().unwrap().agy_status_fails = true;
+    let f = fixture(w, &[]);
+    let a = run(&f).await.agy.expect("버전은 쟀다");
+    assert_eq!(a.version.as_deref(), Some("1.2.14"));
+    assert_eq!((a.state, a.pid), (None, None));
 }
 
 #[tokio::test]

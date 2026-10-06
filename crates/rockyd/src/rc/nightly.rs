@@ -234,7 +234,11 @@ impl RcController {
                 &["claude", "plugin", "list", "--json"],
                 VERSION_PROBE_TIMEOUT
             ),
-            run(&["rocky", "--version"], VERSION_PROBE_TIMEOUT),
+            // 사용 로그를 끄고 부른다 — 안 그러면 야간마다 `rocky version` 사용으로 잡혀 표면 판단 숫자가 오염된다.
+            run(
+                &["env", "ROCKY_USAGE=0", "rocky", "--version"],
+                VERSION_PROBE_TIMEOUT
+            ),
         );
         let mut latest = None;
         for attempt in 1..=TAG_TRIES {
@@ -282,8 +286,15 @@ impl RcController {
             run(&["agy", "--version"]),
             run(&["agy", "remote-control", "status"])
         );
-        let status = super::agy_status(&status)?;
-        let started = match status.pid {
+        // 둘 다 실패해야 "agy 없음" 이다 — 상태 조회만 실패했으면 버전은 남기고 상태 칸만 비운다.
+        let status = super::agy_status(&status);
+        if status.is_none() && !version.ok() {
+            return None;
+        }
+        let (state, pid, instance) = status
+            .map(|s| (s.state, s.pid, s.instance))
+            .unwrap_or_default();
+        let started = match pid {
             Some(pid) => {
                 let ps = run(&["ps", "-o", "etime=", "-p", &pid.to_string()]).await;
                 ps.ok()
@@ -300,9 +311,9 @@ impl RcController {
                 .ok()
                 .then(|| rc::parse_tool_version(&version.stdout))
                 .flatten(),
-            state: status.state,
-            pid: status.pid,
-            instance: status.instance,
+            state,
+            pid,
+            instance,
             started,
             binary_mtime,
             old_binary: rc::agy_old_binary(started, binary_mtime),
