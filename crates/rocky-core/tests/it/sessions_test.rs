@@ -2,7 +2,8 @@
 //! (RunCommand 실행·TTL 캐시는 데몬 쪽이라 Phase 2 에서 포팅한다.)
 
 use rocky_core::sessions::{
-    claude_jobs_dir, job_state_path, match_board, parse_job_state, parse_sessions, SessionsResult,
+    claude_jobs_dir, job_state_path, match_board, parse_job_state, parse_sessions, stop_target,
+    SessionsResult, StopRefusal,
 };
 
 const SAMPLE: &str = r#"[
@@ -172,4 +173,45 @@ fn jobs_dir_follows_claude_config_dir() {
     );
     env.insert("CLAUDE_CONFIG_DIR".into(), " ".into());
     assert!(claude_jobs_dir(&env).ends_with(".claude/jobs"));
+}
+
+/// 멈추기는 살아 있는(pid 있는) background 세션만 — 전체 id·짧은 id 둘 다로 찾고, 명령에는 목록의 짧은 id 를 넘긴다.
+#[test]
+fn stop_target_takes_only_live_background_sessions() {
+    let rows = r#"[
+      {"pid":1,"id":"aaaa1111","cwd":"/repo","kind":"background","startedAt":1,"sessionId":"aaaa1111-full","name":"working","status":"busy","state":"working"},
+      {"pid":2,"id":"bbbb2222","cwd":"/repo","kind":"background","startedAt":2,"sessionId":"bbbb2222-full","name":"blocked","status":"waiting","state":"blocked"},
+      {"id":"cccc3333","cwd":"/repo","kind":"background","startedAt":3,"sessionId":"cccc3333-full","name":"dormant","state":"blocked"},
+      {"pid":4,"id":"dddd4444","cwd":"/repo","kind":"background","startedAt":4,"sessionId":"dddd4444-full","name":"done","status":"idle","state":"done"},
+      {"pid":5,"cwd":"/repo","kind":"interactive","startedAt":5,"sessionId":"eeee5555-full","name":"term","status":"idle"},
+      {"pid":6,"id":"../x","cwd":"/repo","kind":"background","startedAt":6,"sessionId":"ffff6666-full","name":"odd","status":"busy","state":"working"},
+      {"pid":7,"cwd":"/repo","kind":"background","startedAt":7,"sessionId":"gggg7777-full","name":"no-id","status":"busy","state":"working"}
+    ]"#;
+    let sessions = parse_sessions(rows).sessions;
+    assert_eq!(
+        stop_target(&sessions, "aaaa1111-full"),
+        Ok("aaaa1111".into())
+    );
+    assert_eq!(stop_target(&sessions, "bbbb2222"), Ok("bbbb2222".into()));
+    assert_eq!(
+        stop_target(&sessions, "cccc3333-full"),
+        Err(StopRefusal::Dormant)
+    );
+    assert_eq!(
+        stop_target(&sessions, "dddd4444-full"),
+        Err(StopRefusal::Finished)
+    );
+    assert_eq!(
+        stop_target(&sessions, "eeee5555-full"),
+        Err(StopRefusal::Interactive)
+    );
+    assert_eq!(
+        stop_target(&sessions, "ffff6666-full"),
+        Err(StopRefusal::NoShortId)
+    );
+    assert_eq!(
+        stop_target(&sessions, "gggg7777-full"),
+        Err(StopRefusal::NoShortId)
+    );
+    assert_eq!(stop_target(&sessions, "nope"), Err(StopRefusal::NotListed));
 }

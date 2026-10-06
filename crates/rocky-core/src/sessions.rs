@@ -152,11 +152,68 @@ pub fn parse_job_state(raw: &str) -> Option<JobSummary> {
     (summary != JobSummary::default()).then_some(summary)
 }
 
-/// 짧은 id 의 `state.json` 경로. id 는 CLI 출력에서 온 값이라 경로 조각으로 쓰기 전에 영숫자만 받는다 —
-/// `..` 나 `/` 가 섞이면 `None`.
+/// 짧은 id 로 쓸 수 있는 값인가 — CLI 출력에서 온 값이라 경로 조각·명령 인자로 쓰기 전에 영숫자 64자 이하만 받는다.
+pub fn is_safe_short_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// 짧은 id 의 `state.json` 경로. `..` 나 `/` 가 섞인 id 면 `None`([`is_safe_short_id`]).
 pub fn job_state_path(jobs_dir: &std::path::Path, id: &str) -> Option<std::path::PathBuf> {
-    let safe = !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric());
-    safe.then(|| jobs_dir.join(id).join("state.json"))
+    is_safe_short_id(id).then(|| jobs_dir.join(id).join("state.json"))
+}
+
+/// 멈출 수 없는 이유 — [`stop_target`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopRefusal {
+    /// 목록에 없다 — 이미 끝났거나 잘못된 id.
+    NotListed,
+    /// interactive 세션 — 그 터미널이 주인이다.
+    Interactive,
+    /// 끝난 background 세션.
+    Finished,
+    /// 프로세스 없이 잠든 background 세션 — 이 경우의 `claude stop` 은 재 보지 못했다.
+    Dormant,
+    /// `claude stop` 에 넘길 짧은 id 가 없거나 형식이 다르다.
+    NoShortId,
+}
+
+impl StopRefusal {
+    pub fn message(self) -> &'static str {
+        match self {
+            StopRefusal::NotListed => "세션 목록에 없다 — 이미 끝났을 수 있다",
+            StopRefusal::Interactive => "interactive 세션은 멈출 수 없다 — 그 터미널에서 끝낸다",
+            StopRefusal::Finished => "이미 끝난 세션이다",
+            StopRefusal::Dormant => {
+                "프로세스 없이 잠든 세션이다 — 답하려면 claude attach, 치우려면 claude rm"
+            }
+            StopRefusal::NoShortId => "claude stop 에 넘길 짧은 id 가 없다",
+        }
+    }
+}
+
+/// `claude stop` 할 세션의 짧은 id — 살아 있는(pid 있는) background 세션만. `session_id` 는 전체 id 와 짧은 id 둘 다 받는다.
+/// 명령 인자는 사람이 보낸 값이 아니라 **목록에서 온 짧은 id** 다.
+///
+/// 실측(Claude Code 2.1.289): 살아 있는 세션에 stop 하면 대화·워크트리는 남고(`claude attach` 로 잇는다) 기본 목록에서
+/// 빠진다 — `blocked` 도 `stopped` 가 되어 "내 차례" 에서 사라진다. pid 없이 잠든 세션은 재 보지 못해 받지 않는다.
+pub fn stop_target(sessions: &[AgentSession], session_id: &str) -> Result<String, StopRefusal> {
+    let session = sessions
+        .iter()
+        .find(|s| s.session_id == session_id || s.id.as_deref() == Some(session_id))
+        .ok_or(StopRefusal::NotListed)?;
+    if session.kind != "background" {
+        return Err(StopRefusal::Interactive);
+    }
+    if matches!(session.state.as_deref(), Some("done" | "stopped")) {
+        return Err(StopRefusal::Finished);
+    }
+    if session.pid.is_none() {
+        return Err(StopRefusal::Dormant);
+    }
+    match session.id.as_deref() {
+        Some(id) if is_safe_short_id(id) => Ok(id.to_string()),
+        _ => Err(StopRefusal::NoShortId),
+    }
 }
 
 /// background 작업 폴더 — `$CLAUDE_CONFIG_DIR/jobs`, 없으면 `~/.claude/jobs`.

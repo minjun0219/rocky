@@ -77,6 +77,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/sessions` | `?board=` | `{available, reason?, sessions: (AgentSession & {matched, job?})[]}` | matched는 board 없으면 전부 false. `job`은 background 행의 작업 요약(`~/.claude/jobs/<id>/state.json`, 못 읽으면 없음) |
 | GET·POST·DELETE `/api/verify/subscriptions` | POST `{board?, branch?, sessionId}` · DELETE `?board=&branch=` | 목록 `[{board, branch, sessionId?, createdAt}]` · `{subscribed}` · `{removed}` | **포팅 후 추가** — 기본 브랜치 검증 결과 구독(대상마다 세션 하나). 바꾸기는 로컬 전용(403), 원격 조회는 `sessionId` 를 가린다, 설정에 없는 대상은 404 |
 | POST `/api/sessions/message` | `{sessionId, text}` | `{sent: true}` | **포팅 후 추가** — 웹 에이전트 탭이 그 세션의 받은편지함에 한 줄(2000자까지). 로컬 요청만(아니면 403), 등록 없는 세션은 409(`error` 에 이유) |
+| POST `/api/sessions/stop` | `{sessionId}`(전체 id 또는 짧은 id) | `{stopped: true, id}` | **포팅 후 추가** — 웹 에이전트 탭이 살아 있는 background 세션을 `claude stop <짧은 id>` 로 멈춘다. 로컬 요청만(아니면 403), 목록에 없으면 404, interactive·끝남·pid 없이 잠든 세션·세션 목록을 못 읽음·CLI 실패는 409(`error` 에 이유). 성공하면 세션 목록 캐시를 비운다 |
 | POST `/api/handoffs/claim` | `{sessionId!, via?}` | `ClaimedHandoff` 또는 **204** | 로컬 전용(404 위장). via는 'prompt' 외엔 'stop' |
 | GET `/api/handoffs` | `?board=&status=&open=true&todo=` | `HandoffView[]` | 없는 board 명시 → `[]`, `todo`(참조 · id)도 못 풀면 `[]`. `open` = pending + 미완료 delivered, **보관된 todo의 것은 제외**. stale/unstarted 판정은 아래 |
 | GET `/api/changes` | `?sinceId=&limit=` | `ChangeFeedEntry[]` | sinceId 음수/비정수 400 |

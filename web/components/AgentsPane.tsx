@@ -1,7 +1,13 @@
 import { Circle, CircleAlert, CircleCheck, CircleDot, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { type AgentPhase, type AgentRow, agentSections, agentSince } from '../agents';
-import { formatAge } from '../lib';
+import {
+  type AgentPhase,
+  type AgentRow,
+  agentSections,
+  agentSince,
+  isSafeShortId,
+} from '../agents';
+import { copyRefWithFeedback, formatAge } from '../lib';
 import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 import { StateIcon, useNow } from './NowTable';
@@ -112,17 +118,29 @@ function AgentItem(props: {
   const { row, now } = props;
   const openTodoDetail = useUiStore((s) => s.openTodoDetail);
   const { session, todo } = row;
+  const background = session.kind === 'background';
+  const asleep = background && session.pid === undefined;
   // 세션을 움직이는 일이라 로컬 화면에서만(세션 띄우기와 같은 경계 — 서버도 거절한다). 끝난 세션과 pid 없이 잠든
   // background 세션은 받은편지함 소켓을 들을 프로세스가 없다.
-  const canMessage =
-    useUiStore((s) => s.spawnAllowed) &&
-    row.phase !== 'done' &&
-    !(session.kind === 'background' && session.pid === undefined);
+  const local = useUiStore((s) => s.spawnAllowed);
+  const canMessage = local && row.phase !== 'done' && !asleep;
+  // 짧은 id 는 CLI 출력에서 온 값이라 형식을 본 뒤에만 명령으로 쓴다.
+  const shortId = background && session.id && isSafeShortId(session.id) ? session.id : undefined;
+  // 멈추기는 살아 있는 background 세션만 — 최종 판정은 데몬(`stop_target`). 잠든 세션의 stop 은 재 보지 못했다.
+  const stop = useStopAction(session.sessionId, canMessage && shortId !== undefined);
+  const attach = shortId ? <AttachCopy id={shortId} /> : null;
+  const extras =
+    stop.button || attach ? (
+      <>
+        {stop.button}
+        {attach}
+      </>
+    ) : null;
   const job = session.job;
   const summary = row.phase === 'blocked' ? (job?.needs ?? job?.detail) : job?.detail;
   const meta = [
     row.place,
-    session.kind === 'background' ? '백그라운드' : null,
+    background ? '백그라운드' : null,
     formatAge(agentSince(row), now, { since: row.phase !== 'blocked' }),
     row.phase === 'done' ? '끝남' : null,
     todo?.ref,
@@ -160,14 +178,110 @@ function AgentItem(props: {
           <div className={className}>{body}</div>
         )}
         {canMessage ? (
-          <MessageToggle
-            sessionId={session.sessionId}
-            draft={props.draft}
-            onDraft={props.onDraft}
-          />
+          <MessageToggle sessionId={session.sessionId} draft={props.draft} onDraft={props.onDraft}>
+            {extras}
+          </MessageToggle>
+        ) : extras ? (
+          <div className={ACTIONS_COLUMN}>{extras}</div>
         ) : null}
       </div>
+      {stop.below}
     </li>
+  );
+}
+
+/** 행 오른쪽 버튼 — 메시지 · 멈추기 · attach. 좁은 패널에서는 위아래로 쌓아 글자 칸을 지키고, 넓으면 한 줄로. */
+const ACTIONS_COLUMN =
+  'flex shrink-0 flex-col items-end gap-1 px-3 py-2.5 sm:flex-row sm:items-center';
+
+/**
+ * 멈추기 — 하던 턴이 끊기므로 같은 자리 아래 한 줄로 한 번 더 묻는다(원격 제어의 재시작과 같은 모양, 모달 없음). 대화·
+ * 워크트리는 남아 `claude attach` 로 잇는다. 멈추면 행이 목록에서 빠진다.
+ */
+function useStopAction(sessionId: string, enabled: boolean) {
+  const stopSession = useUiStore((s) => s.stopSession);
+  const [confirming, setConfirming] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!enabled) {
+    return { button: null, below: null };
+  }
+  const run = async () => {
+    setConfirming(false);
+    setStopping(true);
+    setError(null);
+    try {
+      await stopSession(sessionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStopping(false);
+    }
+  };
+  const button = stopping ? (
+    <span className="text-meta text-muted">멈추는 중…</span>
+  ) : (
+    <button
+      type="button"
+      className="drawer-btn"
+      aria-expanded={confirming}
+      onClick={() => {
+        // 지난 실패 문구는 다시 물을 때 지운다 — 취소해도 되살아나지 않게.
+        setError(null);
+        setConfirming(!confirming);
+      }}
+    >
+      멈추기
+    </button>
+  );
+  const below = confirming ? (
+    <div className="flex flex-wrap items-center gap-2 px-3.5 pb-2.5 pl-[42px]">
+      <span className="text-chip text-muted">
+        하던 일이 끊겨요 — 대화는 남아 claude attach 로 이어요
+      </span>
+      <button
+        type="button"
+        className="min-h-8 rounded-md bg-mine-soft px-2.5 text-chip font-semibold text-mine"
+        onClick={() => void run()}
+      >
+        지금 멈추기
+      </button>
+      <button
+        type="button"
+        className="tap text-chip text-faint hover:text-text"
+        onClick={() => setConfirming(false)}
+      >
+        취소
+      </button>
+    </div>
+  ) : error ? (
+    <p role="status" className="mb-0 mt-0 px-3.5 pb-2.5 pl-[42px] text-chip text-mine">
+      {error}
+    </p>
+  ) : null;
+  return { button, below };
+}
+
+/**
+ * `claude attach <짧은 id>` 를 복사한다 — 출력·답장은 터미널 몫이라 화면은 명령만 건넨다. 복사는 아무것도 움직이지 않아
+ * 노출된 화면에도 둔다. pid 없이 잠든 세션(메시지로 못 깨운다)에 답하는 길이 이것이다.
+ */
+function AttachCopy({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  const command = `claude attach ${id}`;
+  return (
+    <button
+      type="button"
+      className="drawer-btn"
+      title={`${command} 복사`}
+      aria-label={copied ? '복사됨' : `${command} 복사`}
+      onClick={() => {
+        logUsage('web:session-attach-copy');
+        void copyRefWithFeedback(command, setCopied);
+      }}
+    >
+      {copied ? '복사됨' : 'attach'}
+    </button>
   );
 }
 
@@ -179,10 +293,13 @@ function MessageToggle({
   sessionId,
   draft,
   onDraft,
+  children,
 }: {
   sessionId: string;
   draft?: string;
   onDraft: (text: string | undefined) => void;
+  /** 입력칸이 닫혀 있을 때 메시지 버튼 밑에 놓을 다른 버튼(멈추기 · attach). */
+  children?: React.ReactNode;
 }) {
   const send = useUiStore((s) => s.sendSessionMessage);
   const open = draft !== undefined;
@@ -207,7 +324,7 @@ function MessageToggle({
   };
   if (!open) {
     return (
-      <div className="flex shrink-0 flex-col items-end gap-1 px-3 py-2.5">
+      <div className={ACTIONS_COLUMN}>
         <button
           type="button"
           className="drawer-btn"
@@ -218,6 +335,7 @@ function MessageToggle({
         >
           메시지
         </button>
+        {children}
         {result ? (
           <span role="status" className={`text-meta ${result.ok ? 'text-muted' : 'text-p1'}`}>
             {result.text}

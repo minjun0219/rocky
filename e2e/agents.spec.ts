@@ -3,7 +3,7 @@ import { audit } from './support/audit';
 import { AGENTS } from './support/claude';
 import { expect, tab, test } from './support/test';
 
-// 세션은 가짜 `claude` 픽스처(`support/claude.ts`)다. 행의 "메시지" 버튼은 누르지 않는다 — 세션을 움직이는 버튼이다.
+// 세션은 가짜 `claude` 픽스처(`support/claude.ts`)다. 행의 "메시지"·"멈추기" 버튼은 누르지 않는다 — 세션을 움직이는 버튼이다.
 
 const agentsPane = (page: Page) => page.getByRole('main', { name: '에이전트' });
 
@@ -25,6 +25,12 @@ test('에이전트 탭이 세션을 내 차례·실행 중·쉬는 중으로 묶
   // 작업 요약 줄 — 내 차례는 기다리는 것(needs), 실행 중은 하는 일(detail).
   await expect(group('내 차례').locator('li').first()).toContainText(AGENTS.blocked.needs);
   await expect(group('실행 중')).toContainText(AGENTS.working.detail);
+  // 멈추기는 살아 있는 background 행에만, attach 복사는 background 행 전부(잠든 행 포함).
+  const working = group('실행 중').locator('li', { hasText: AGENTS.working.name });
+  await expect(working.getByRole('button', { name: '멈추기' })).toBeVisible();
+  await expect(working.getByRole('button', { name: 'claude attach e2ewrk01 복사' })).toBeVisible();
+  await expect(group('내 차례').getByRole('button', { name: '멈추기' })).toHaveCount(0);
+  await expect(group('내 차례').getByRole('button', { name: /^claude attach / })).toHaveCount(2);
   await audit(page, '에이전트 탭');
 });
 

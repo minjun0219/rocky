@@ -25,14 +25,15 @@ use rocky_core::local_request::{
     access_user_email, is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE,
     NON_LOCAL_AGY_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE,
     NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SESSION_MESSAGE,
-    NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE, NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE,
+    NON_LOCAL_SESSION_STOP_MESSAGE, NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
+    NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
 };
 use rocky_core::sessions::{
-    job_state_path, match_board, parse_job_state, takes_handoff, AgentSession, JobSummary,
-    SessionsResult,
+    job_state_path, match_board, parse_job_state, stop_target, takes_handoff, AgentSession,
+    JobSummary, SessionsResult, StopRefusal,
 };
 use rocky_core::statusline::{
     board_key_for_cwd, render_statusline, BoardLocation, StatuslineData, StatuslineMine,
@@ -50,7 +51,9 @@ use crate::github::{
 };
 use crate::inbox_exec::{cached_inbox_dynamic, InboxFetch, InboxProvider, SourcesFn};
 use crate::runner::{default_runner, Runner};
-use crate::sessions_exec::{swr_sessions, uncached_sessions, SessionsProvider};
+use crate::sessions_exec::{
+    swr_sessions_with_invalidate, uncached_sessions, SessionsInvalidate, SessionsProvider,
+};
 use crate::spawnctl::{
     default_spawn_fn, find_live_session_at, worktree_name_for, worktree_path_for, RecentSpawns,
     SpawnFn, SpawnInput, RECENT_SPAWN_TTL,
@@ -147,6 +150,8 @@ pub struct ServerState {
     sessions: SessionsProvider,
     spawn_sessions: SessionsProvider,
     pub(crate) statusline_sessions: SessionsProvider,
+    /// 위 두 SWR 캐시를 비운다 — 주입한 조회기(테스트)면 아무것도 안 한다.
+    sessions_invalidate: SessionsInvalidate,
     gh_runner: Runner,
     spawn: SpawnFn,
     path_exists: PathExists,
@@ -211,6 +216,12 @@ impl ServerState {
     /// 일반 라우트와 같은(오래된 값을 바로 주는) 세션 목록 — 읽기만 하는 쪽(요약·목록)과 기동 예열이 쓴다.
     pub async fn sessions(&self) -> SessionsResult {
         (self.sessions)().await
+    }
+
+    /// 세션 목록 캐시를 비운다 — 세션을 멈춘 쪽이 부른다. 안 비우면 `/api/sessions`·statusline·`doingState` 가 멈춘 세션을
+    /// 오래된 값으로 최대 30분 더 본다(다른 탭·폰 포함).
+    pub fn invalidate_sessions(&self) {
+        (self.sessions_invalidate)();
     }
 
     /// 캐시 없는 세션 목록 — 판단이 상태를 바꾸는 쪽(스윕의 자동 해제)이 쓴다. 오래된 목록으로 보면
@@ -532,14 +543,18 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
     // sessions 하나만 넣었을 때 세 라우트가 같은 결정론적 목록을 보게 한다
     // (TS `resolveSpawnSessions` / statuslineSessions 배선과 동일).
     let injected = options.sessions.clone();
+    // 기본 SWR 캐시를 비우는 손잡이들 — 세션을 멈춘 뒤 오래된 목록이 돌아오지 않게 한다.
+    let mut invalidates: Vec<SessionsInvalidate> = Vec::new();
     let sessions = injected.clone().unwrap_or_else(|| {
         // 오래된 값은 30분까지 바로 주고 뒤에서 새로 받는다 — 60초였을 땐 잠깐 쉬고 온 첫 요청마다
         // `claude agents --json`(콜드 3초)을 기다렸다(rocky-23). 상태를 바꾸는 판단(스윕)은 `fresh_sessions`.
-        swr_sessions(
+        let (provider, invalidate) = swr_sessions_with_invalidate(
             default_gh.clone(),
             Duration::from_secs(3),
             Duration::from_secs(30 * 60),
-        )
+        );
+        invalidates.push(invalidate);
+        provider
     });
     // spawn 라우트만 기본이 **캐시 없는** 조회기 — 가드가 spawn 이전 스냅샷을 보면 안 된다.
     let spawn_sessions = options
@@ -553,12 +568,19 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         // (~220ms, 콜드 수 초)을 기다리면 CLI 의 300ms 마감에 걸려 보드 줄이 비었다(rocky-47: curl p99 441ms · max 1s).
         // 새로 받는 간격은 15초 그대로라 배경 부하는 늘지 않는다.
         .unwrap_or_else(|| {
-            swr_sessions(
+            let (provider, invalidate) = swr_sessions_with_invalidate(
                 default_gh.clone(),
                 Duration::from_secs(15),
                 Duration::from_secs(30 * 60),
-            )
+            );
+            invalidates.push(invalidate);
+            provider
         });
+    let sessions_invalidate: SessionsInvalidate = Arc::new(move || {
+        for invalidate in &invalidates {
+            invalidate();
+        }
+    });
     // 전달 기록도 되살린다 — 배포마다 데몬이 다시 떠도 "예전에 못 보냈나" 가 남는다.
     let deliveries = options
         .store
@@ -581,6 +603,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         sessions,
         spawn_sessions,
         statusline_sessions,
+        sessions_invalidate,
         gh_runner: gh_runner.clone(),
         spawn: options.spawn.unwrap_or_else(default_spawn_fn),
         path_exists: options
@@ -1289,6 +1312,62 @@ async fn dispatch(
                 Err(reason) => {
                     error_response(&format!("보내지 못했다 — {reason}"), StatusCode::CONFLICT)
                 }
+            },
+        );
+    }
+
+    // 웹 에이전트 탭에서 background 세션을 멈춘다(`claude stop`) — 대화·워크트리는 남고 `claude attach` 로 잇는다. 하던 턴을
+    // 끊는 일이라 로컬 요청만. 대상은 캐시 없는 목록에서 고르고(살아 있는 background 만), 명령에는 목록의 짧은 id 만 넘긴다.
+    if path == "/api/sessions/stop" && *method == Method::POST {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_SESSION_STOP_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let session_id = str_field(&body, "sessionId").unwrap_or("").trim();
+        if session_id.is_empty() {
+            return Ok(error_response(
+                "sessionId 가 필요하다",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let listed = state.fresh_sessions().await;
+        if !listed.available {
+            let reason = listed
+                .reason
+                .as_deref()
+                .unwrap_or("세션 목록을 읽지 못했다");
+            return Ok(error_response(
+                &format!("멈추지 못했다({session_id}) — {reason}"),
+                StatusCode::CONFLICT,
+            ));
+        }
+        let id = match stop_target(&listed.sessions, session_id) {
+            Ok(id) => id,
+            Err(refusal) => {
+                let status = if refusal == StopRefusal::NotListed {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::CONFLICT
+                };
+                return Ok(error_response(
+                    &format!("멈추지 못했다({session_id}) — {}", refusal.message()),
+                    status,
+                ));
+            }
+        };
+        return Ok(
+            match crate::sessions_exec::stop_session(&state.runner(), &id).await {
+                Ok(()) => {
+                    state.invalidate_sessions();
+                    ok_json(&json!({ "stopped": true, "id": id }))
+                }
+                Err(reason) => error_response(
+                    &format!("멈추지 못했다(claude stop {id}) — {reason}"),
+                    StatusCode::CONFLICT,
+                ),
             },
         );
     }

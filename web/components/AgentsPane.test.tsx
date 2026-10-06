@@ -36,6 +36,25 @@ const busy: SessionRow = {
   matched: false,
 };
 
+/** 살아 있는 background 세션 — 멈출 수 있다. */
+const working: SessionRow = {
+  pid: 9,
+  kind: 'background',
+  id: 'aaaa1111',
+  sessionId: 'aaaa1111-full',
+  name: 'todo-3',
+  cwd: '/w/rocky/.claude/worktrees/todo-3',
+  status: 'busy',
+  state: 'working',
+  startedAt: Date.parse('2026-10-06T00:00:00Z'),
+  matched: false,
+};
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+
 describe('AgentsPane', () => {
   test('내 차례 행은 기다리는 것을 싣고, 든 할 일이 있으면 눌러 연다', async () => {
     const openTodoDetail = mock(async () => {});
@@ -124,22 +143,125 @@ describe('AgentsPane', () => {
     ).toBe('쓰던 글');
   });
 
-  test('pid 없이 잠든 background 세션에는 버튼이 없다 — 받은편지함을 들을 프로세스가 없다', () => {
+  test('pid 없이 잠든 background 세션에는 attach 복사만 — 받은편지함을 들을 프로세스가 없다', async () => {
+    const written: string[] = [];
+    // test:dom 은 한 프로세스라 스텁이 다른 파일로 새지 않게 되돌린다(TodoItem.test 와 같은 방식).
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (t: string) => void written.push(t) },
+    });
+    try {
+      renderWithStore(<AgentsPane />, {
+        agents: { available: true, list: [blocked] },
+        loadAgents,
+        boards: [],
+        selected: 'all',
+        nowTodos: [],
+        spawnAllowed: true,
+      });
+      expect(screen.queryByRole('button', { name: '메시지' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '멈추기' })).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'claude attach 0da6a98a 복사' }));
+      expect(written).toEqual(['claude attach 0da6a98a']);
+    } finally {
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      } else {
+        delete (navigator as { clipboard?: unknown }).clipboard;
+      }
+    }
+  });
+
+  test('살아 있는 background 세션은 한 번 더 묻고 멈춘다 — 행을 빼고 목록을 다시 읽는다', async () => {
+    const calls: { path: string; method: string; body?: unknown }[] = [];
+    let listed: SessionRow[] = [working];
+    globalThis.fetch = (async (input: string, init?: RequestInit) => {
+      // 사용 로그(`/api/usage`)는 세지 않는다
+      if (input !== '/api/usage') {
+        calls.push({
+          path: input,
+          method: init?.method ?? 'GET',
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+      }
+      if (input === '/api/sessions/stop') {
+        // 데몬은 멈춘 뒤 세션 목록 캐시를 비운다 — 다음 목록에는 없다
+        listed = [];
+      }
+      const body =
+        input === '/api/sessions/stop'
+          ? { stopped: true, id: 'aaaa1111' }
+          : { available: true, sessions: listed };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
     renderWithStore(<AgentsPane />, {
-      agents: { available: true, list: [blocked] },
+      agents: { available: true, list: [working] },
+      boards: [],
+      selected: 'all',
+      nowTodos: [],
+      spawnAllowed: true,
+    });
+    const row = screen.getByRole('region', { name: '실행 중' });
+    expect(within(row).getByRole('button', { name: '메시지' })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'claude attach aaaa1111 복사' })).toBeTruthy();
+    await userEvent.click(within(row).getByRole('button', { name: '멈추기' }));
+    // 하던 일이 끊긴다는 것과 되돌리는 길을 밝히고, 누를 때까지는 아무것도 보내지 않는다
+    expect(within(row).getByText(/대화는 남아 claude attach 로 이어요/)).toBeTruthy();
+    expect(calls).toEqual([]);
+    await userEvent.click(within(row).getByRole('button', { name: '지금 멈추기' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: '실행 중' })).toBeNull());
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { path: '/api/sessions/stop', method: 'POST', body: { sessionId: 'aaaa1111-full' } },
+        { path: '/api/sessions', method: 'GET', body: undefined },
+      ]),
+    );
+    expect(screen.queryByRole('region', { name: '실행 중' })).toBeNull();
+  });
+
+  test('형식이 다른 짧은 id 는 명령으로 쓰지 않는다 — attach·멈추기 둘 다 없다', () => {
+    renderWithStore(<AgentsPane />, {
+      agents: { available: true, list: [{ ...working, id: 'aa;rm -rf ~' }] },
       loadAgents,
       boards: [],
       selected: 'all',
       nowTodos: [],
       spawnAllowed: true,
     });
-    expect(screen.queryByRole('button', { name: '메시지' })).toBeNull();
+    expect(screen.getByRole('button', { name: '메시지' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '멈추기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^claude attach / })).toBeNull();
   });
 
-  test('노출된 화면이거나 끝난 세션에는 메시지 버튼이 없다', () => {
+  test('못 멈추면 데몬이 준 이유를 그 행 아래에 보인다 — 다시 물으면 지운다', async () => {
+    const stopSession = mock(async () => {
+      throw new Error('멈추지 못했다(claude stop aaaa1111) — No job matching');
+    });
+    renderWithStore(<AgentsPane />, {
+      agents: { available: true, list: [working] },
+      loadAgents,
+      boards: [],
+      selected: 'all',
+      nowTodos: [],
+      spawnAllowed: true,
+      stopSession,
+    });
+    await userEvent.click(screen.getByRole('button', { name: '멈추기' }));
+    await userEvent.click(screen.getByRole('button', { name: '지금 멈추기' }));
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('No job matching'),
+    );
+    expect(stopSession).toHaveBeenCalledWith('aaaa1111-full');
+    await userEvent.click(screen.getByRole('button', { name: '멈추기' }));
+    await userEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(screen.queryByText(/No job matching/)).toBeNull();
+  });
+
+  test('노출된 화면이거나 끝난 세션에는 메시지·멈추기 버튼이 없다 — attach 복사는 남는다', () => {
     const done: SessionRow = { ...blocked, sessionId: 'done-1', name: 'old', state: 'done' };
     renderWithStore(<AgentsPane />, {
-      agents: { available: true, list: [busy, done] },
+      agents: { available: true, list: [busy, done, working] },
       loadAgents,
       boards: [],
       selected: 'all',
@@ -147,6 +269,8 @@ describe('AgentsPane', () => {
       spawnAllowed: false,
     });
     expect(screen.queryByRole('button', { name: '메시지' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '멈추기' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'claude attach aaaa1111 복사' })).toBeTruthy();
     cleanup();
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [done] },

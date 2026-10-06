@@ -1063,3 +1063,125 @@ async fn get_handoffs_filters_by_todo() {
     assert_eq!(status, 200);
     assert_eq!(body, json!([]));
 }
+
+/// 세션 멈추기 — 로컬 요청만, 살아 있는 background 세션만, `claude stop` 에는 목록의 짧은 id 를 넘긴다. CLI 가 실패하면
+/// 그 이유를 409 로 그대로 보인다.
+#[tokio::test]
+async fn stop_runs_claude_stop_for_live_background_sessions_only() {
+    use rockyd::runner::{CmdOutput, Runner};
+
+    let mut live = sess(
+        10,
+        "/w/rocky/.claude/worktrees/todo-3",
+        "aaaa1111-full",
+        "todo-3",
+        "busy",
+    );
+    live.kind = "background".into();
+    live.id = Some("aaaa1111".into());
+    live.state = Some("working".into());
+    let mut dormant = live.clone();
+    dormant.pid = None;
+    dormant.session_id = "bbbb2222-full".into();
+    dormant.id = Some("bbbb2222".into());
+    dormant.state = Some("blocked".into());
+    let mut failing = live.clone();
+    failing.session_id = "cccc3333-full".into();
+    failing.id = Some("cccc3333".into());
+    let calls: Arc<std::sync::Mutex<Vec<Vec<String>>>> = Arc::default();
+    let seen = calls.clone();
+    let runner: Runner = Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
+        seen.lock().unwrap().push(argv.clone());
+        Box::pin(async move {
+            if argv.get(2).map(String::as_str) == Some("cccc3333") {
+                CmdOutput {
+                    code: 1,
+                    stdout: String::new(),
+                    stderr: "No job matching 'cccc3333'.".into(),
+                }
+            } else {
+                CmdOutput {
+                    code: 0,
+                    stdout: "stopped".into(),
+                    stderr: String::new(),
+                }
+            }
+        })
+    });
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![
+            live,
+            dormant,
+            failing,
+            sess(1, "/w/rocky", "term-full", "term", "idle"),
+        ])));
+        o.gh_runner = Some(runner);
+    });
+
+    let remote = call(
+        &state,
+        "POST",
+        "/api/sessions/stop",
+        Some(json!({ "sessionId": "aaaa1111-full" })),
+        ReqOptions {
+            peer: Some("100.64.0.1"),
+            ..ReqOptions::default()
+        },
+    )
+    .await;
+    assert_eq!(remote.0, 403, "노출된 표면은 거절");
+    let (status, _) = post(&state, "/api/sessions/stop", json!({ "sessionId": " " })).await;
+    assert_eq!(status, 400);
+    let (status, _) = post(&state, "/api/sessions/stop", json!({ "sessionId": "nope" })).await;
+    assert_eq!(status, 404);
+    let (status, body) = post(
+        &state,
+        "/api/sessions/stop",
+        json!({ "sessionId": "term-full" }),
+    )
+    .await;
+    assert_eq!(status, 409);
+    assert!(
+        body["error"].as_str().unwrap().contains("term-full"),
+        "{body}"
+    );
+    let (status, _) = post(
+        &state,
+        "/api/sessions/stop",
+        json!({ "sessionId": "bbbb2222-full" }),
+    )
+    .await;
+    assert_eq!(status, 409, "pid 없이 잠든 세션은 받지 않는다");
+    assert!(
+        calls.lock().unwrap().is_empty(),
+        "거절한 요청은 claude 를 부르지 않는다"
+    );
+
+    let (status, body) = post(
+        &state,
+        "/api/sessions/stop",
+        json!({ "sessionId": "aaaa1111-full" }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["id"], "aaaa1111");
+    let (status, body) = post(
+        &state,
+        "/api/sessions/stop",
+        json!({ "sessionId": "cccc3333-full" }),
+    )
+    .await;
+    assert_eq!(status, 409);
+    assert!(
+        body["error"].as_str().unwrap().contains("No job matching"),
+        "{body}"
+    );
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            vec!["claude".to_string(), "stop".into(), "aaaa1111".into()],
+            vec!["claude".to_string(), "stop".into(), "cccc3333".into()],
+        ]
+    );
+}
