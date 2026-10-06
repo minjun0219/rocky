@@ -121,6 +121,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
         antigravity,
         probe_error,
         supervise: None,
+        nightly: None,
     }
 }
 
@@ -210,6 +211,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod nightly;
+pub use nightly::{spawn_rc_nightly, NIGHTLY_CHECK};
 
 use rocky_core::rc::{LaunchMode, RcAction, RcResult, Registration, Target};
 
@@ -306,6 +308,7 @@ pub struct RcController {
     busy: std::sync::Mutex<HashMap<String, RcAction>>,
     last: std::sync::Mutex<HashMap<String, RcResult>>,
     supervise: std::sync::Mutex<SuperviseState>,
+    nightly: std::sync::Mutex<nightly::NightlyRun>,
 }
 
 /// 감시의 메모리 상태 — 켜졌나, 마지막 바퀴, 자격 기록(파일과 같은 값), 대상별 연속 실패와 다음 시도 시각(unix 초).
@@ -337,6 +340,7 @@ impl RcController {
             busy: std::sync::Mutex::new(HashMap::new()),
             last: std::sync::Mutex::new(HashMap::new()),
             supervise: std::sync::Mutex::new(SuperviseState::default()),
+            nightly: std::sync::Mutex::new(nightly::NightlyRun::default()),
         }
     }
 
@@ -381,6 +385,7 @@ impl RcController {
             row.last_result = last.get(&row.label).cloned();
         }
         drop((busy, last));
+        status.nightly = self.nightly_info();
         let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
         if !sup.enabled {
             return;
@@ -558,8 +563,33 @@ impl RcController {
 
     /// `begin` 이 받은 일을 끝까지 한다 — 결과를 남기고 진행 중 표시를 푼다.
     pub async fn run(&self, target: Target, command: RcCommand) -> RcResult {
+        let result = self
+            .attempt(&target, command, &rc::REGISTRATION_BACKOFF, None)
+            .await;
+        self.release(&target.label);
+        result
+    }
+
+    /// 진행 중 표시를 푼다.
+    fn release(&self, label: &str) {
+        self.busy
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(label);
+    }
+
+    /// 한 번 해 보고 결과를 남긴다 — 진행 중 표시는 그대로 둔다(야간은 못 뜬 대상을 회복이 끝날 때까지 쥔다).
+    /// `backoff` 는 `already served` 를 만났을 때 쉬는 간격들, `known_version` 은 이미 잰 설치 버전(기동 기록에 쓴다 —
+    /// None 이면 잰다).
+    async fn attempt(
+        &self,
+        target: &Target,
+        command: RcCommand,
+        backoff: &[Duration],
+        known_version: Option<&str>,
+    ) -> RcResult {
         let started = std::time::Instant::now();
-        let outcome = self.execute(&target, command).await;
+        let outcome = self.execute(target, command, backoff, known_version).await;
         let (ok, message) = match outcome {
             Ok(m) => (true, m),
             Err(m) => (false, m),
@@ -578,18 +608,24 @@ impl RcController {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(target.label.clone(), result.clone());
-        self.busy
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&target.label);
         result
     }
 
-    async fn execute(&self, target: &Target, command: RcCommand) -> Result<String, String> {
+    async fn execute(
+        &self,
+        target: &Target,
+        command: RcCommand,
+        backoff: &[Duration],
+        known_version: Option<&str>,
+    ) -> Result<String, String> {
         // 기동 버전 기록에 쓸 설치 버전을 먼저 잰다 — 내리기 전에(새 바이너리의 첫 실행이 멎어도 서버가 꺼져 있는 시간이
         // 늘지 않게), 프로브보다 먼저(멎은 동안 현황이 묵지 않게). 지금 떠 있는지는 그 뒤 캐시 없이 다시 잰다 — 묵은 현황으로
-        // 내리면 엉뚱한 pid 를 내린다.
-        let version = self.claude_version().await;
+        // 내리면 엉뚱한 pid 를 내린다. 야간은 update 뒤 이미 잰 값을 넘긴다 — 다시 재면 또 멎을 수 있고, 못 재면 기록을
+        // 지워 다음 야간이 그 서버를 모르게 된다.
+        let version = match known_version {
+            Some(v) => Some(v.to_string()),
+            None => self.claude_version().await,
+        };
         let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(format!("현황을 못 읽어 손대지 않았다 — {err}"));
@@ -630,7 +666,7 @@ impl RcController {
             (RcCommand::Restart { .. }, None) => rc::START_MODE,
         };
         let fresh = matches!(command, RcCommand::Restart { fresh: true });
-        self.launch_until_up(target, mode, fresh, version.as_deref())
+        self.launch_until_up(target, mode, fresh, version.as_deref(), backoff)
             .await
     }
 
@@ -654,9 +690,10 @@ impl RcController {
         first: LaunchMode,
         fresh: bool,
         version: Option<&str>,
+        backoff: &[Duration],
     ) -> Result<String, String> {
         let mut mode = first;
-        let mut backoff = rc::REGISTRATION_BACKOFF.iter();
+        let mut backoff = backoff.iter();
         let mut retried_mode = false;
         loop {
             let pid = self.launch(target, mode, version)?;
@@ -675,7 +712,7 @@ impl RcController {
                     self.stop(&target.label, pid).await;
                     let Some(wait) = backoff.next() else {
                         return Err(
-                            "already served — claude.ai 쪽 등록이 3분 넘게 남아 있다. 잠시 뒤 다시"
+                            "already served — claude.ai 쪽 등록이 쉬고 다시 띄워도 풀리지 않았다. 잠시 뒤 다시"
                                 .into(),
                         );
                     };
@@ -772,6 +809,15 @@ impl RcController {
                 name.strip_suffix(".revive").map(str::to_string)
             })
             .collect()
+    }
+
+    /// 내리기 **전에** 찍는다 — 도중에 데몬이 죽어도 감시가 살리게. 내용은 폴더(사람이 볼 때).
+    fn mark_revive(&self, target: &Target) {
+        let _ = std::fs::create_dir_all(&self.log_dir);
+        let _ = std::fs::write(
+            self.log_path(&target.label, "revive"),
+            format!("{}\n", target.dir),
+        );
     }
 
     fn clear_revive(&self, label: &str, by: &str) {

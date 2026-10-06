@@ -174,6 +174,9 @@ pub struct RcStatus {
     /// 감시(`rc.supervise`)가 켜져 있으면 그 상태 — 꺼져 있으면 None.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supervise: Option<SuperviseInfo>,
+    /// 야간 재시작 — 일정이 켜져 있거나 손으로 돌린 결과가 있으면.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nightly: Option<NightlyInfo>,
 }
 
 /// 감시 상태 — 마지막 바퀴 시각과, 데몬 맥락이 지금 로그아웃으로 보이는지(그동안은 되살리지 못한다).
@@ -200,6 +203,7 @@ impl RcStatus {
             antigravity: None,
             probe_error: None,
             supervise: None,
+            nightly: None,
         }
     }
 }
@@ -926,6 +930,9 @@ pub struct NightlyReport {
     /// 전체를 건너뛴 이유(`nightly_blocked`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked: Option<String>,
+    /// 먼저 내린 하나가 안 떠서 나머지를 건드리지 않았다.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub canary_failed: bool,
     #[serde(default)]
     pub items: Vec<NightlyItem>,
 }
@@ -934,4 +941,16 @@ impl NightlyReport {
     pub fn count(&self, outcome: NightlyOutcome) -> usize {
         self.items.iter().filter(|i| i.outcome == outcome).count()
     }
+}
+
+/// 현황의 야간 상태.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NightlyInfo {
+    /// 매일 돌 시각(HH:MM). 일정이 꺼져 있으면 None(손으로 돌린 결과만 있다).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last: Option<NightlyReport>,
 }

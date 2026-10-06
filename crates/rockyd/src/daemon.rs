@@ -334,15 +334,22 @@ pub async fn run_daemon(
         ..ServerOptions::new(store)
     });
     // rc 감시 — `rc.supervise` 일 때만. 꺼진 고정 서버를 2분마다 되살리고, 데몬 맥락의 자격이 끊기거나 돌아오면 배너 한 번.
-    if let (Some(control), Some(true)) = (rc_control, rc.as_ref().map(|c| c.supervise)) {
-        let notify_runner = crate::runner::default_runner();
-        let verify_notify = crate::verify::osascript_verify_notifier(notify_runner);
-        crate::rc::spawn_rc_supervisor(
-            control,
-            Arc::new(move |title, body| verify_notify(title, body)),
-            rocky_core::rc::SUPERVISE_FIRST,
-            rocky_core::rc::SUPERVISE_INTERVAL,
-        );
+    // 야간 재시작 — `rc.nightly` 일 때만. 못 띄운 서버는 표식을 남기고 감시가 살리므로 둘을 함께 켠다.
+    if let (Some(control), Some(config)) = (rc_control, rc.as_ref()) {
+        let verify_notify =
+            crate::verify::osascript_verify_notifier(crate::runner::default_runner());
+        let notify: crate::rc::RcNotifier = Arc::new(move |title, body| verify_notify(title, body));
+        if config.supervise {
+            crate::rc::spawn_rc_supervisor(
+                control.clone(),
+                notify.clone(),
+                rocky_core::rc::SUPERVISE_FIRST,
+                rocky_core::rc::SUPERVISE_INTERVAL,
+            );
+        }
+        if config.nightly.is_some() {
+            crate::rc::spawn_rc_nightly(control, notify);
+        }
     }
     // 로그 색인 — 작업로그·사용 로그·Claude Code 트랜스크립트(JSONL)를 logs.db 로. 전용 OS 스레드라 보드 DB 잠금도 tokio 워커도 쓰지 않는다.
     crate::logindex::spawn_indexer(

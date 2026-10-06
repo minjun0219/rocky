@@ -309,6 +309,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "POST /api/rc/servers/:ref/start"),
     (UsageSource::Rest, "POST /api/rc/servers/:ref/restart"),
     (UsageSource::Rest, "GET /api/rc/nightly/preview"),
+    (UsageSource::Rest, "POST /api/rc/nightly"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
