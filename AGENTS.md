@@ -237,7 +237,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 로그 색인 | JSONL 이 진실, `logs.db` 는 지워도 다시 만드는 파생물 — *never route writes through the daemon* | [log-index](./docs/features/log-index.md) |
 | 토큰 색인 | 훅을 걸지 않는다(트랜스크립트만). 같은 `message.id` 는 한 번만 센다 | [tokens](./docs/features/tokens.md) |
 | 기본 브랜치 검증 | opt-in, 명령은 설정 파일에만. 보드 레포의 작업 트리·브랜치를 건드리지 않는다(detached 워크트리). 준비 실패는 커밋 탓으로 남기지 않는다 | [verify](./docs/features/verify.md) |
-| rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
+| rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬 자동 기동을 거치지 않고 300ms 안에 못 받으면 빈 출력 | [statusline](./docs/features/statusline.md) |
 | 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다 | [spawn](./docs/features/spawn.md) |
 | 세션 목록(`claude agents`) | pid 없는 잠든 행을 버리지 않는다. 작업 요약은 `detail`·`needs`·`updatedAt` 만, 못 읽으면 그 행만 비운다 — *the session list is readable remotely* | [sessions](./docs/features/sessions.md) |
