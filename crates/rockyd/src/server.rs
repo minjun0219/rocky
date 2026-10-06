@@ -2154,6 +2154,41 @@ async fn dispatch(
             }
         });
     }
+    // ── 핸드오프 서버 닫기 — 세션을 끝내는 일이라 로컬 전용. pid 로만, 그 폴더의 rc 서버일 때만 내린다 ──
+    if *method == Method::POST {
+        if let Some(key) = path
+            .strip_prefix("/api/rc/handoffs/")
+            .and_then(|rest| rest.strip_suffix("/stop"))
+        {
+            if !local {
+                return Ok(error_response(
+                    "핸드오프 서버 닫기는 이 기기(루프백)에서 온 요청만 받는다 — 세션을 끝내는 일이다",
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+            let Some(control) = state.rc_control.clone() else {
+                return Ok(error_response(
+                    "이 기기에서는 rc 가 꺼져 있다",
+                    StatusCode::NOT_FOUND,
+                ));
+            };
+            use crate::rc::RcRefusal;
+            return Ok(match control.stop_handoff(&percent_decode(key)).await {
+                Ok((record, down)) => ok_json(&json!({
+                    "label": record.label,
+                    "name": record.name,
+                    "pid": record.pid,
+                    "dir": record.dir,
+                    "todoRef": record.todo_ref,
+                    "down": down,
+                })),
+                Err(RcRefusal::NotFound(m)) => error_response(&m, StatusCode::NOT_FOUND),
+                Err(RcRefusal::Busy(m)) | Err(RcRefusal::Ambiguous(m)) => {
+                    error_response(&m, StatusCode::CONFLICT)
+                }
+            });
+        }
+    }
     // ── rc 서버 띄우기 · 재시작 — 프로세스를 띄우므로 세션 띄우기와 같은 등급(로컬 전용). 일은 백그라운드, 바로 202 ──
     if *method == Method::POST {
         if let Some((label, verb)) = path
@@ -3239,7 +3274,7 @@ async fn spawn_rc(
         rocky_core::rc::handoff_server_name(req.board_key, req.todo.number, &req.todo.title);
     let since = chrono::Utc::now().timestamp();
     let server_pid = match control
-        .launch_handoff(&log_label, worktree_path, &server_name)
+        .launch_handoff(&log_label, worktree_path, &server_name, req.todo_ref)
         .await
     {
         Ok(pid) => pid,
@@ -3254,6 +3289,7 @@ async fn spawn_rc(
     {
         crate::rc::HandoffWait::Found(session) => session,
         crate::rc::HandoffWait::ServerGone(tail) => {
+            control.forget_handoff(&log_label);
             reservation.release();
             return Ok(error_response(
                 &format!("rc 서버 \"{server_name}\"(pid {server_pid}) 가 세션 등록 전에 내려갔다 — {tail}"),

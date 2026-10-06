@@ -8,10 +8,12 @@
 use std::path::Path;
 use std::time::Duration;
 
-use rocky_core::peer_inbox::InboxRegistration;
-use rocky_core::rc::{self, AuthState, Registration};
+use std::path::PathBuf;
 
-use super::{argv, probe, RcController};
+use rocky_core::peer_inbox::InboxRegistration;
+use rocky_core::rc::{self, AuthState, HandoffServerRecord, RcStatus, Registration};
+
+use super::{argv, probe, RcController, RcRefusal};
 
 /// git 명령 한도 — `worktree add` 는 큰 레포에서 수십 초. fetch 는 짧게(실패해도 받아 둔 origin 기준으로 딴다).
 const GIT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -172,7 +174,13 @@ impl RcController {
 
     /// 단일 세션 서버를 띄우고 등록(`· Connected ·`)까지 본다 — 서버 pid. `already served`(같은 폴더의 서버를 방금 내렸다)는
     /// 다시 해 보지 않는다 — 그 서버는 내리고 기다릴 시간을 알린다. 기동 로그는 `rc/<label>.out` · `.err`.
-    pub async fn launch_handoff(&self, label: &str, dir: &str, name: &str) -> Result<u32, String> {
+    pub async fn launch_handoff(
+        &self,
+        label: &str,
+        dir: &str,
+        name: &str,
+        todo_ref: &str,
+    ) -> Result<u32, String> {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
         let argv = rc::handoff_server_argv(name);
@@ -188,10 +196,22 @@ impl RcController {
             label,
             serde_json::json!({ "pid": pid, "dir": dir, "name": name }),
         );
+        let up = |pid: u32| {
+            // 현황이 대상 밖 서버에서 이 서버를 가려내고, 닫기가 이 pid 를 쓴다.
+            self.write_handoff_record(&HandoffServerRecord {
+                label: label.to_string(),
+                name: name.to_string(),
+                pid,
+                dir: dir.to_string(),
+                todo_ref: todo_ref.to_string(),
+                started_at: chrono::Utc::now().to_rfc3339(),
+            });
+            Ok(pid)
+        };
         match self.judge(label, pid).await {
-            Registration::Connected => Ok(pid),
+            Registration::Connected => up(pid),
             // 등록 문구는 못 봤지만 떠 있다 — 세션 등록을 기다려 본다.
-            Registration::Pending if (self.ops.signal)(pid, 0) => Ok(pid),
+            Registration::Pending if (self.ops.signal)(pid, 0) => up(pid),
             Registration::Served => {
                 let down = self.stop(label, pid).await;
                 Err(format!(
@@ -243,6 +263,126 @@ impl RcController {
             }
             (self.ops.sleep)(SESSION_POLL).await;
         }
+    }
+
+    fn handoff_dir(&self) -> PathBuf {
+        self.log_dir.join("handoff")
+    }
+
+    fn write_handoff_record(&self, record: &HandoffServerRecord) {
+        let dir = self.handoff_dir();
+        let written = std::fs::create_dir_all(&dir).and_then(|()| {
+            let raw = serde_json::to_string(record).map_err(std::io::Error::other)?;
+            std::fs::write(dir.join(format!("{}.json", record.label)), raw)
+        });
+        if let Err(e) = written {
+            // 서버는 떴다 — 기록만 못 남겼다(현황에는 대상 밖으로 보이고, 닫기는 rocky rc 로 못 찾는다).
+            self.event(
+                "handoff-record",
+                &record.label,
+                serde_json::json!({ "dir": dir, "error": e.to_string() }),
+            );
+        }
+    }
+
+    /// 핸드오프 서버 기록을 지운다 — 서버가 내려갔다. 라벨은 데몬이 만든 안전한 이름(`handoff_log_label`)일 때만 이 길로.
+    pub fn forget_handoff(&self, label: &str) {
+        let _ = std::fs::remove_file(self.handoff_dir().join(format!("{label}.json")));
+    }
+
+    /// 기록과 그 파일 경로 — 지울 때는 읽은 경로를 쓴다(손으로 고친 파일의 `label` 로 경로를 만들지 않게).
+    fn handoff_records(&self) -> Vec<(PathBuf, HandoffServerRecord)> {
+        let Ok(entries) = std::fs::read_dir(self.handoff_dir()) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(|e| {
+                let path = e.ok()?.path();
+                let raw = std::fs::read_to_string(&path).ok()?;
+                Some((path, serde_json::from_str(&raw).ok()?))
+            })
+            .collect()
+    }
+
+    /// 현황에서 핸드오프 서버를 대상 밖 서버와 가른다. 현황은 몇 초 낡은 캐시일 수 있다 — 그 사이 끝난 대상 밖 서버는 빼고
+    /// (닫은 직후), 기록은 프로브가 성공했고 **그 pid 가 정말 없을 때만** 지운다(막 띄운 서버가 낡은 스냅숏에 아직 없어도
+    /// 기록을 지키게 — *never act on a stale or failed probe*).
+    pub(super) fn decorate_handoffs(&self, status: &mut RcStatus) {
+        if !status.configured {
+            return;
+        }
+        status.strays.retain(|s| (self.ops.signal)(s.pid, 0));
+        let records = self.handoff_records();
+        if records.is_empty() {
+            return;
+        }
+        let plain: Vec<HandoffServerRecord> = records.iter().map(|(_, r)| r.clone()).collect();
+        let strays = std::mem::take(&mut status.strays);
+        let (handoffs, strays, gone) = rc::split_handoffs(strays, &plain);
+        status.handoffs = handoffs;
+        status.strays = strays;
+        if status.probe_error.is_some() {
+            return;
+        }
+        for (path, record) in &records {
+            if gone.contains(&record.label) && !(self.ops.signal)(record.pid, 0) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
+    /// 핸드오프 서버를 닫는다 — 라벨이나 할 일 참조로 고르고, 지금 그 폴더에서 그 pid 로 도는 rc 서버일 때만(`handoff_is_live`)
+    /// pid 로 내린다(SIGTERM → 유예 → SIGKILL). 프로브가 실패하면 손대지 않는다. 워크트리는 남긴다(커밋 안 된 작업이 있을 수 있다).
+    pub async fn stop_handoff(&self, key: &str) -> Result<(HandoffServerRecord, bool), RcRefusal> {
+        let records = self.handoff_records();
+        let plain: Vec<HandoffServerRecord> = records.iter().map(|(_, r)| r.clone()).collect();
+        let Some(record) = rc::find_handoff(&plain, key).cloned() else {
+            return Err(RcRefusal::NotFound(format!(
+                "핸드오프 서버가 없다: {key} — rocky rc 로 본다"
+            )));
+        };
+        let path = records
+            .iter()
+            .find(|(_, r)| r.label == record.label)
+            .map(|(p, _)| p.clone());
+        let forget = || {
+            if let Some(path) = &path {
+                let _ = std::fs::remove_file(path);
+            }
+        };
+        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        if let Some(err) = status.probe_error {
+            return Err(RcRefusal::Busy(format!(
+                "rc 현황을 못 읽어 닫지 않았다 — {err}"
+            )));
+        }
+        if !status
+            .strays
+            .iter()
+            .any(|s| rc::handoff_is_live(&record, s))
+        {
+            // 신호를 보내지 않는다 — 그 pid 가 살아 있어도 이제 그 폴더의 rc 서버가 아니다(재사용된 pid).
+            forget();
+            let why = if (self.ops.signal)(record.pid, 0) {
+                "그 pid 는 이제 그 폴더의 rc 서버가 아니다 — 손대지 않고 기록만 지웠다"
+            } else {
+                "이미 내려가 있다 — 기록을 지웠다"
+            };
+            return Err(RcRefusal::NotFound(format!(
+                "\"{}\"(pid {}) — {why}",
+                record.name, record.pid
+            )));
+        }
+        let down = self.stop(&record.label, record.pid).await;
+        if down {
+            forget();
+        }
+        self.event(
+            "handoff-stop",
+            &record.label,
+            serde_json::json!({ "pid": record.pid, "down": down }),
+        );
+        Ok((record, down))
     }
 
     /// 기동 err 로그의 마지막 줄 — 비었으면 로그 경로를 댄다.

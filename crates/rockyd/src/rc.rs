@@ -117,6 +117,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
         configured: true,
         servers,
         strays,
+        handoffs: Vec::new(),
         auth: rc::parse_auth_status(&auth.stdout),
         antigravity,
         probe_error,
@@ -481,6 +482,7 @@ impl RcController {
             }
         }
         status.nightly = self.nightly_info();
+        self.decorate_handoffs(status);
         let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
         if !sup.enabled {
             return;

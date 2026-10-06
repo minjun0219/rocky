@@ -173,6 +173,9 @@ pub struct RcStatus {
     pub configured: bool,
     pub servers: Vec<ServerRow>,
     pub strays: Vec<StrayRow>,
+    /// 데몬이 띄운 핸드오프 서버(보드의 새 세션 띄우기) — 대상 밖 서버에서 가려낸 것(`split_handoffs`). 없으면 비운다.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub handoffs: Vec<HandoffServerRow>,
     pub auth: AuthState,
     /// `agy` 가 없으면 None. `rc` 블록과 상관없이 `agy` 설치 여부를 따른다(그 기기에서 agy 를 쓰면 보인다).
     pub antigravity: Option<AgyStatus>,
@@ -207,6 +210,7 @@ impl RcStatus {
             configured: false,
             servers: Vec::new(),
             strays: Vec::new(),
+            handoffs: Vec::new(),
             auth: AuthState::Unknown,
             antigravity: None,
             probe_error: None,
@@ -1350,4 +1354,86 @@ pub fn worktree_base(origin_head: &str) -> Option<String> {
 /// 워크트리 브랜치 — Claude Code `--worktree <이름>` 과 같은 이름(`worktree-<이름>`)이라 예전 spawn 의 워크트리와 이어진다.
 pub fn worktree_branch(worktree_name: &str) -> String {
     format!("worktree-{worktree_name}")
+}
+
+/// 데몬이 띄운 핸드오프 서버의 기록(`<todo dir>/rc/handoff/<label>.json`) — 현황이 대상 밖 서버에서 가려내고, 닫기가 pid 를
+/// 고른다. 서버가 내려가면(닫기 · 사라짐) 지운다.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffServerRecord {
+    /// 기동 로그 라벨(`handoff_log_label`) — 파일 이름이기도 하다.
+    pub label: String,
+    /// claude.ai 에 보이는 이름(`<보드>-<n>: <요약>`).
+    pub name: String,
+    pub pid: u32,
+    pub dir: String,
+    /// 할 일 참조(`rocky-41`) — 닫기를 이걸로도 부른다.
+    pub todo_ref: String,
+    /// RFC 3339.
+    pub started_at: String,
+}
+
+/// 현황의 핸드오프 서버 한 줄.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffServerRow {
+    pub label: String,
+    pub name: String,
+    pub todo_ref: String,
+    pub dir: String,
+    pub pid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uptime_secs: Option<u64>,
+    pub sessions: usize,
+}
+
+/// 대상 밖 서버 중 기록과 **pid · 폴더가 둘 다 맞는** 것을 핸드오프 행으로 가린다 — 나머지는 그대로 대상 밖. pid 만 보면
+/// 재사용된 pid 를 잡는다. 셋째 값은 떠 있지 않은 기록(지워도 되는 것)의 라벨 — 프로브가 실패했으면 호출자가 지우지 않는다.
+pub fn split_handoffs(
+    strays: Vec<StrayRow>,
+    records: &[HandoffServerRecord],
+) -> (Vec<HandoffServerRow>, Vec<StrayRow>, Vec<String>) {
+    let mut handoffs = Vec::new();
+    let mut rest = Vec::new();
+    let mut seen = HashSet::new();
+    for stray in strays {
+        let record = records.iter().find(|r| handoff_is_live(r, &stray));
+        match record {
+            Some(r) => {
+                seen.insert(r.label.clone());
+                handoffs.push(HandoffServerRow {
+                    label: r.label.clone(),
+                    name: r.name.clone(),
+                    todo_ref: r.todo_ref.clone(),
+                    dir: stray.dir.clone(),
+                    pid: stray.pid,
+                    uptime_secs: stray.uptime_secs,
+                    sessions: stray.sessions,
+                });
+            }
+            None => rest.push(stray),
+        }
+    }
+    let gone = records
+        .iter()
+        .filter(|r| !seen.contains(&r.label))
+        .map(|r| r.label.clone())
+        .collect();
+    (handoffs, rest, gone)
+}
+
+/// 그 대상 밖 서버가 이 기록의 서버인가 — pid · 폴더가 **둘 다** 맞아야 한다(pid 만 보면 재사용된 pid 를 잡는다). 현황의
+/// 가려내기와 닫기가 같은 판정을 쓴다.
+pub fn handoff_is_live(record: &HandoffServerRecord, stray: &StrayRow) -> bool {
+    record.pid == stray.pid && record.dir.trim_end_matches('/') == stray.dir
+}
+
+/// 닫을 핸드오프 서버를 고른다 — 라벨이나 할 일 참조(`rocky-41`, 대소문자 무시)로.
+pub fn find_handoff<'a>(
+    records: &'a [HandoffServerRecord],
+    key: &str,
+) -> Option<&'a HandoffServerRecord> {
+    records
+        .iter()
+        .find(|r| r.label == key || r.todo_ref.eq_ignore_ascii_case(key))
 }
