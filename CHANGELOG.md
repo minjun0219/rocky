@@ -1,5 +1,13 @@
 # @minjun0219/rocky
 
+## 0.43.0
+
+### Minor Changes
+
+- [#379](https://github.com/minjun0219/rocky/pull/379) [`8d7ede7`](https://github.com/minjun0219/rocky/commit/8d7ede70eaf0d764dcb8ad917c43142f4f82ff54) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 이 한도 경보를 깜빡이고 계정 배지를 붙인다. 5h/7d 가 임박(`alertPercent`)·소진으로 오르면 그 창이 6초 동안 0.5초마다 배지와 굵은 빨강을 오간 뒤 배지로 남는다(창이 리셋되면 다시 무장). `rocky.json` 의 `statusline.badges` 에 이메일을 키로 `emoji` 또는 `glyph`+`color` 를 적으면 로그인된 계정이 상태 줄 앞에 표시된다. cc-usage 와 같은 출력이다.
+
+- [#381](https://github.com/minjun0219/rocky/pull/381) [`5fb55d2`](https://github.com/minjun0219/rocky/commit/5fb55d239d56fb26a113ea8cc8ec17fe29005404) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 의 크레딧 금액이 쓰는 중인지 색으로 알려 준다. 안 쓸 때는 원래 색(사용률 그라데이션)을 회색 쪽으로 반 섞은 옅은 색이고, 쓰기 시작하면(이번 window 에서 늘었거나 15분 안에 늘어남) 3초에 걸쳐 원래 색으로 페이드한다. 다시 안 쓰면 바로 옅어진다. `rocky.json` 의 `statusline.creditFade: false` 로 끄면 cc-usage 와 같은 색이다.
+
 ## 0.42.0
 
 ### Minor Changes
