@@ -262,6 +262,14 @@ pub fn default_ops() -> RcOps {
 /// 기동 버전을 재는 `claude --version` 한도 — 새 바이너리의 첫 실행은 Gatekeeper 검사로 수십 초 멎는다(실측 8~35초).
 const VERSION_TIMEOUT: Duration = Duration::from_secs(40);
 
+/// 기록 파일을 지운다 — 처음부터 없었으면 지운 것이다.
+fn forget(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
 /// 띄우기인가 재시작인가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RcCommand {
@@ -726,10 +734,19 @@ impl RcController {
         // 기동 버전 기록 — 야간 재시작이 이것과 설치 버전을 맞대 구버전을 가린다. 못 쟀으면 지운다: 옛 값을 남기면 새
         // 바이너리로 뜬 서버를 구버전으로 보고, 빈 기록은 "모름" 이라 야간이 건드리지 않는다.
         let record = self.log_path(&target.label, "version");
-        let _ = match version {
+        let written = match version {
             Some(v) => std::fs::write(&record, format!("{v}\n")),
-            None => std::fs::remove_file(&record),
+            None => forget(&record),
         };
+        if let Err(e) = written {
+            // 기동은 이미 됐다 — 서버는 그대로 두고, 옛 값만은 남기지 않으려 한 번 더 지워 본다.
+            let forgotten = forget(&record).is_ok();
+            self.event(
+                "version-record",
+                &target.label,
+                serde_json::json!({ "path": record, "error": e.to_string(), "forgotten": forgotten }),
+            );
+        }
         self.event(
             "start",
             &target.label,

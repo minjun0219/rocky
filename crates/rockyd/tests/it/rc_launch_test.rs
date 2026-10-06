@@ -735,3 +735,34 @@ async fn supervise_keeps_the_mark_when_the_revive_fails() {
     assert_eq!(control.supervise_tick(&notify).await, vec!["repo-b"]);
     assert!(mark.exists(), "다음 바퀴(쉬기 뒤)에 다시 띄운다");
 }
+
+#[tokio::test]
+async fn a_record_that_cannot_be_written_is_not_left_stale() {
+    // 기록 자리에 폴더가 있으면 쓰기도 지우기도 실패한다 — 기동은 그대로 되고, 왜 못 남겼는지 이벤트에 남긴다.
+    let dir = tempfile::tempdir().unwrap();
+    let record = dir.path().join("rc/repo-a.version");
+    std::fs::create_dir_all(&record).unwrap();
+    let world = Arc::new(Mutex::new(World {
+        next_pid: 200,
+        script: vec![READY].into(),
+        ..Default::default()
+    }));
+    let control = controller(
+        dir.path(),
+        with_version(probe_runner(false, false), Some("2.1.300")),
+        world,
+    );
+    let target = control.begin("repo-a", RcCommand::Start).unwrap();
+    assert!(control.run(target, RcCommand::Start).await.ok);
+    let line = std::fs::read_to_string(dir.path().join("rc/events.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|v| v["event"] == "version-record")
+        .expect("기록 실패를 남긴다");
+    assert!(line["fields"]["path"]
+        .as_str()
+        .unwrap()
+        .ends_with("repo-a.version"));
+    assert_eq!(line["fields"]["forgotten"], false);
+}
