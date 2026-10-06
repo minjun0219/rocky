@@ -5,7 +5,10 @@ import type { BoardView, RcStatus, SessionRow } from './types';
 import type { Board, Comment, HistoryEntry, Section, SpawnResult, StatusAction } from './types';
 import {
   advanceSeen,
+  type CollectSeen,
+  collectSeenOf,
   markSeen,
+  readCollectSeen,
   readSeen,
   rcVisible,
   readThemePref,
@@ -13,6 +16,7 @@ import {
   THEME_KEY,
   type ThemePref,
   type Slice,
+  writeCollectSeen,
 } from './lib';
 import { logUsage, setUsageActor } from './usage';
 import {
@@ -160,6 +164,10 @@ interface UiState {
   detail: DetailState | null;
   /** todo id → 마지막으로 확인한 댓글 시각. localStorage 의 화면용 사본. */
   seenComments: Record<string, string>;
+  /** 피드에서 펼쳐 본 수집함 묶음 — localStorage 의 화면용 사본(`readCollectSeen`). */
+  collectSeen: CollectSeen | null;
+  /** 지금 수집함 묶음을 본 것으로 적는다 — 새 것이 올 때까지 피드의 내 차례에서 빠진다. */
+  markCollectSeen: () => void;
   /**
    * 이 화면의 출처에서 GitHub 이슈를 만들 수 있는지 — `/api/health` 가 알려준다.
    * 노출된 데몬(LAN/tailscale)을 거쳐 열린 화면에서는 false 다. 어디까지나 **힌트**로,
@@ -404,6 +412,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   connected: false,
   detail: null,
   seenComments: readSeen(localStorage),
+  collectSeen: readCollectSeen(localStorage),
   issueCreateAllowed: true,
   spawnAllowed: true,
   accessUser: null,
@@ -889,6 +898,17 @@ export const useUiStore = create<UiState>((set, get) => ({
     const { actor } = get();
     await api(`/api/todos/${id}`, actor, { method: 'PATCH', body: JSON.stringify(patch) });
     await get().refetch();
+  },
+
+  markCollectSeen: () => {
+    const { collect, collectItems } = get();
+    const seen = collectSeenOf(collect ?? 0, collectItems);
+    try {
+      writeCollectSeen(localStorage, seen);
+    } catch {
+      // 저장 못 해도 이 화면에서는 빠진다.
+    }
+    set({ collectSeen: seen });
   },
 
   setTodoStatus: async (id, action) => {

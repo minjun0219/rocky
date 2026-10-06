@@ -91,6 +91,7 @@ export function useNowRows(
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
   const collectItems = useUiStore((s) => s.collectItems);
+  const collectSeen = useUiStore((s) => s.collectSeen);
   const agents = useUiStore((s) => (s.showAgents ? s.agents?.list : undefined));
   return nowRows({
     todos: nowTodos,
@@ -98,6 +99,7 @@ export function useNowRows(
     seen: seenComments,
     collect,
     collectItems,
+    collectSeen,
     agents,
     expanded,
     expandUnread,
@@ -110,8 +112,16 @@ export function MineSection() {
   // 요약 줄 둘은 따로 펼친다 — "내 차례 N개 더" 가 오래된 읽지 않은 댓글까지 쏟지 않게.
   const [expanded, setExpanded] = useState(false);
   const [expandUnread, setExpandUnread] = useState(false);
-  // 수집함 행은 눌러서 펼치고 접는다 — 항목이 뭔지 피드에서 바로 보이게.
+  // 수집함 행은 눌러서 펼치고 접는다 — 항목이 뭔지 피드에서 바로 보이게. 펼치면 그 묶음을 본 것으로 적어, 접은
+  // 뒤로는 새 것이 올 때까지 내 차례에서 빠진다(펼친 동안은 남는다). 전체 목록은 GitHub 탭의 수집함에 있다.
   const [expandCollect, setExpandCollect] = useState(false);
+  const markCollectSeen = useUiStore((s) => s.markCollectSeen);
+  const toggleCollect = () => {
+    if (!expandCollect) {
+      markCollectSeen();
+    }
+    setExpandCollect(!expandCollect);
+  };
   const rows = useNowRows(expanded, expandUnread, expandCollect);
   const mine = rows.filter((r) => r.group !== 'run');
   const now = useNow(mine, 0);
@@ -139,7 +149,7 @@ export function MineSection() {
                 row={row}
                 now={now}
                 {...(row.key === 'collect'
-                  ? { onToggle: () => setExpandCollect((v) => !v), toggled: expandCollect }
+                  ? { onToggle: toggleCollect, toggled: expandCollect }
                   : {})}
               />
             ),

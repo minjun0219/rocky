@@ -99,6 +99,9 @@ describe('NowTable', () => {
     expect(screen.getByRole('heading', { name: /내 차례\s*1/ })).toBeTruthy();
     await userEvent.click(row);
     expect(screen.queryByRole('link', { name: /페르소나 힌트/ })).toBeNull();
+    // 펼쳐 본 묶음은 접으면 새 것이 올 때까지 내 차례에서 빠진다
+    expect(screen.queryByRole('button', { name: /보드로 옮기지 않은 항목/ })).toBeNull();
+    expect(screen.getByText('내 차례 없음')).toBeTruthy();
   });
 
   test('내 차례가 5행을 넘으면 "N개 더" — 누르면 펼친다', async () => {

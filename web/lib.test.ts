@@ -5,6 +5,9 @@ import type { TodoView } from './types';
 import type { NowRow } from './lib';
 import {
   ALL_SLICES,
+  collectSeenOf,
+  readCollectSeen,
+  writeCollectSeen,
   slicesFor,
   mineCount,
   failingSurfaces,
@@ -755,6 +758,49 @@ describe('formatAge — DESIGN.md Time Display', () => {
       false,
     );
     expect(needsSecondTick([], NOW)).toBe(false);
+  });
+});
+
+describe('nowRows — 본 수집함', () => {
+  const items = [
+    { source: 'todoist', title: 'a', url: 'u1' },
+    { source: 'todoist', title: 'b', url: 'u2' },
+  ];
+  const seen = collectSeenOf(2, items);
+  const keys = (input: Partial<Parameters<typeof nowRows>[0]>) =>
+    nowRows({ todos: [], handoffs: [], seen: {}, ...input }).map((r) => r.key);
+
+  test('펼쳐 본 묶음은 새 것이 올 때까지 내지 않는다 — 펼친 동안은 낸다', () => {
+    expect(keys({ collect: 2, collectItems: items, collectSeen: seen })).toEqual([]);
+    expect(
+      keys({ collect: 2, collectItems: items, collectSeen: seen, expandCollect: true }),
+    ).toContain('collect');
+    expect(keys({ collect: 2, collectItems: items, collectSeen: null })).toContain('collect');
+  });
+
+  test('보드로 옮겨 줄기만 한 것은 새 것이 아니고, 늘었거나 못 본 항목이면 새 것이다', () => {
+    expect(keys({ collect: 1, collectItems: items.slice(1), collectSeen: seen })).toEqual([]);
+    expect(keys({ collect: 3, collectItems: items, collectSeen: seen })).toContain('collect');
+    const swapped = [
+      items[0] as (typeof items)[number],
+      { source: 'todoist', title: 'c', url: 'u3' },
+    ];
+    expect(keys({ collect: 2, collectItems: swapped, collectSeen: seen })).toContain('collect');
+  });
+
+  test('본 기록은 저장소에서 되읽고, 깨진 값은 본 적 없음이다', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    expect(readCollectSeen(storage)).toBeNull();
+    writeCollectSeen(storage, seen);
+    expect(readCollectSeen(storage)).toEqual(seen);
+    store.set('rocky-seen-collect', '{"keys":"x","count":1}');
+    expect(readCollectSeen(storage)).toBeNull();
+    store.set('rocky-seen-collect', 'not json');
+    expect(readCollectSeen(storage)).toBeNull();
   });
 });
 
