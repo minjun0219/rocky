@@ -77,13 +77,7 @@ async fn background_sessions_carry_job_summary() {
     .unwrap();
     std::fs::create_dir_all(jobs.path().join("bad00000")).unwrap();
     std::fs::write(jobs.path().join("bad00000/state.json"), "not json").unwrap();
-    let mut blocked = sess(
-        0,
-        "/w/rocky-todo/.claude/worktrees/todo-25",
-        "0da6a98a-full",
-        "rocky-todo-25",
-        "idle",
-    );
+    let mut blocked = sess(0, "/w/rocky-todo", "0da6a98a-full", "rocky-todo-25", "idle");
     blocked.pid = None;
     blocked.kind = "background".into();
     blocked.id = Some("0da6a98a".into());
@@ -112,7 +106,6 @@ async fn background_sessions_carry_job_summary() {
     let by_id = |id: &str| sessions.iter().find(|s| s["sessionId"] == id).unwrap();
     let job = &by_id("0da6a98a-full")["job"];
     assert_eq!(job["needs"], "룰셋을 끌지 정해 주세요");
-    assert_eq!(job["tokens"], 129916);
     assert!(
         by_id("0da6a98a-full").get("pid").is_none(),
         "pid 없는 행은 pid 를 싣지 않는다"

@@ -129,10 +129,14 @@ fn job_state_keeps_only_what_the_screen_uses() {
       "tokens":129916,"needs":"1) 워크트리 정리 2) 룰셋 결정","suggestedReply":"룰셋 끄고 정리해줘",
       "output":{"result":"done"},"intent":"# 긴 첫 프롬프트","updatedAt":"2026-08-10T08:28:00.000Z"}"##;
     let job = parse_job_state(raw).unwrap();
+    let json = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        json.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["detail", "needs", "updatedAt"],
+        "제안 답장·토큰은 싣지 않는다"
+    );
     assert_eq!(job.detail.as_deref(), Some("3 PR 머지, 결정 대기"));
     assert_eq!(job.needs.as_deref(), Some("1) 워크트리 정리 2) 룰셋 결정"));
-    assert_eq!(job.suggested_reply.as_deref(), Some("룰셋 끄고 정리해줘"));
-    assert_eq!(job.tokens, Some(129916));
     assert_eq!(job.updated_at.as_deref(), Some("2026-08-10T08:28:00.000Z"));
 }
 

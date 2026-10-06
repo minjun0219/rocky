@@ -187,8 +187,6 @@ export interface JobSummary {
   detail?: string;
   /** 사람에게 필요한 것 — `blocked` 일 때 무엇을 기다리는지. */
   needs?: string;
-  suggestedReply?: string;
-  tokens?: number;
   /** 요약을 마지막으로 고친 시각(ISO). */
   updatedAt?: string;
 }

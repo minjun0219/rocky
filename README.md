@@ -172,7 +172,7 @@ claude plugin install rocky@rocky-marketplace
 | `ROCKY_WORKLOG_AUTO_CAPTURE` | `1` | `Stop` 훅 턴 자동 기록 on/off. `0`/`false`/`off`/`no`만 끈다 |
 | `ROCKY_USAGE` | `1` | 사용 로그 on/off. `0`/`false`/`off`/`no`만 끈다 |
 | `ROCKY_USAGE_DIR` | `~/.config/rocky/usage` | 사용 로그 JSONL 위치. `usage.dir`보다 우선 |
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | 데몬이 토큰 색인할 트랜스크립트 루트(`<값>/projects`). `tokens.dir`가 있으면 그쪽이 우선 |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | 데몬이 토큰 색인할 트랜스크립트 루트(`<값>/projects`, `tokens.dir`가 있으면 그쪽이 우선)와 `/api/sessions`가 붙이는 background 작업 요약(`<값>/jobs`) |
 
 ## 문서 맵
 

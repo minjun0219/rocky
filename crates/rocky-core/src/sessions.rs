@@ -117,7 +117,7 @@ pub fn match_board<'a>(sessions: &'a [AgentSession], board_key: &str) -> Vec<&'a
 }
 
 /// background 세션의 작업 요약 — Claude Code 가 `<설정 폴더>/jobs/<짧은 id>/state.json` 에 남기는 것 중
-/// 화면에 쓸 것만 고른다(`claude agents` 화면이 보여 주는 그 요약). 문서화되지 않은 내부 파일이라 형식이
+/// 화면에 쓸 것만 고른다 — 제안 답장(`suggestedReply`)·토큰 같은 나머지는 원격에서도 읽히는 응답에 싣지 않는다. 문서화되지 않은 내부 파일이라 형식이
 /// 바뀌면 [`parse_job_state`] 가 `None` 을 내고, 화면은 그 줄만 비운다.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,12 +128,6 @@ pub struct JobSummary {
     /// 사람에게 필요한 것 — `blocked` 일 때 무엇을 기다리는지.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs: Option<String>,
-    /// Claude 가 제안한 답장.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suggested_reply: Option<String>,
-    /// 지금까지 쓴 토큰.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tokens: Option<i64>,
     /// 요약을 마지막으로 고친 시각(ISO).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
@@ -153,8 +147,6 @@ pub fn parse_job_state(raw: &str) -> Option<JobSummary> {
     let summary = JobSummary {
         detail: text("detail"),
         needs: text("needs"),
-        suggested_reply: text("suggestedReply"),
-        tokens: row.get("tokens").and_then(|v| v.as_i64()),
         updated_at: text("updatedAt"),
     };
     (summary != JobSummary::default()).then_some(summary)
