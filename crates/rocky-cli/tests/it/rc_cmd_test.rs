@@ -159,3 +159,14 @@ fn nightly_line_summarizes_the_last_run() {
         "야간: 마지막 ? — 전부 건너뜀(logged-out)"
     );
 }
+
+#[test]
+fn stale_rows_say_so() {
+    let raw = json!({
+        "configured": true,
+        "servers": [{"label": "a", "dir": "/w/a", "pinned": false, "running": true, "pid": 1, "sessions": 0, "stale": true}],
+        "strays": [],
+        "auth": "in"
+    });
+    assert!(render_status(&raw).starts_with("● a  구버전\n"));
+}

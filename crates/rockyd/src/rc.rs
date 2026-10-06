@@ -385,6 +385,14 @@ impl RcController {
             row.last_result = last.get(&row.label).cloned();
         }
         drop((busy, last));
+        // 구버전 — 기동 버전 기록이 설치 버전과 다르다. 설치 버전은 설치 경로로 읽는다(화면 폴링마다 claude 를 띄우지 않게).
+        if let Some(installed) = nightly::installed_version_fs(&self.home) {
+            for row in &mut status.servers {
+                row.stale = row.running
+                    && std::fs::read_to_string(self.log_path(&row.label, "version"))
+                        .is_ok_and(|r| !r.trim().is_empty() && r.trim() != installed);
+            }
+        }
         status.nightly = self.nightly_info();
         let sup = self.supervise.lock().unwrap_or_else(|e| e.into_inner());
         if !sup.enabled {

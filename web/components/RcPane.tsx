@@ -5,10 +5,11 @@ import {
   CircleAlert,
   CircleDot,
   CircleHelp,
+  Moon,
   Server,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { rcVisible } from '../lib';
+import { formatStamp, rcVisible } from '../lib';
 import { useUiStore } from '../store';
 import type { RcServerRow, RcStatus, RcStrayRow } from '../types';
 
@@ -172,6 +173,7 @@ function ServerItemView({
     running ? null : unsure ? '모름' : '꺼짐',
     row.sessions > 0 ? `세션 ${row.sessions}` : null,
     rcUptime(row.uptimeSecs) || null,
+    'stale' in row && row.stale ? '구버전' : null,
     stray ? row.dir.replace(/^\/(?:Users|home)\/[^/]+/, '~') : null,
     action ? ACTION_TEXT[action] : null,
   ]
@@ -311,6 +313,58 @@ export function RcSummary() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * 야간 재시작 요약 — `마지막 10-07 04:31 · 재시작 3 · 건너뜀 2 · 못 띄움 1`. 도는 중이거나 아직 안 돌았으면 그 말.
+ * 못 띄운 서버는 감시가 되살리지만 사람이 알아야 하니 수를 따로 센다.
+ */
+export function rcNightlyText(
+  nightly: NonNullable<RcStatus['nightly']>,
+  now = new Date(),
+): {
+  text: string;
+  down: number;
+} {
+  if (nightly.running) {
+    return { text: '도는 중', down: 0 };
+  }
+  const last = nightly.last;
+  if (!last) {
+    return { text: '아직 안 돌았다', down: 0 };
+  }
+  const when = last.finishedAt ? formatStamp(last.finishedAt, now) : '?';
+  if (last.blocked) {
+    return { text: `마지막 ${when} · 전부 건너뜀(${last.blocked})`, down: 0 };
+  }
+  const count = (o: string) => last.items.filter((i) => i.outcome === o).length;
+  const down = count('down');
+  const parts = [`마지막 ${when}`, `재시작 ${count('restarted')}`, `건너뜀 ${count('skipped')}`];
+  if (down > 0) {
+    parts.push(`못 띄움 ${down}`);
+  }
+  return { text: parts.join(' · '), down };
+}
+
+function NightlyItem({ nightly }: { nightly: NonNullable<RcStatus['nightly']> }) {
+  const { text, down } = rcNightlyText(nightly);
+  return (
+    <li className="flex items-center gap-2.5 border-t border-line/70 px-3.5 py-2.5">
+      <span className={down > 0 ? 'text-mine' : 'text-faint'}>
+        <Moon size={14} aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm text-text">
+          야간 재시작{nightly.at ? ` ${nightly.at}` : ''}
+        </span>
+        <span
+          className={`mt-0.5 block truncate font-mono text-chip tabular-nums ${down > 0 ? 'text-mine' : 'text-muted'}`}
+        >
+          {text}
+        </span>
+      </span>
+    </li>
   );
 }
 
@@ -471,6 +525,7 @@ export function RcPane() {
           <span className="ml-auto font-mono text-chip text-muted">{auth}</span>
         </li>
         {rc.antigravity ? <AgyItem agy={rc.antigravity} first={false} /> : null}
+        {rc.nightly ? <NightlyItem nightly={rc.nightly} /> : null}
       </Card>
       <p className="mt-3 text-chip text-faint">
         목록은 rocky.json 의 rc 블록에서 고친다

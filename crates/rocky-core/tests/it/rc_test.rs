@@ -417,6 +417,7 @@ fn row(label: &str, pinned: bool, running: bool) -> ServerRow {
         action: None,
         last_result: None,
         auth_suspect: false,
+        stale: false,
     }
 }
 
