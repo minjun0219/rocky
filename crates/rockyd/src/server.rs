@@ -3064,7 +3064,8 @@ async fn spawn_route(
         Ok(())
     };
 
-    // 이미 도는 세션이 있으면 새로 띄우지 않는다 — 세션 재사용(기존 큐로 pending).
+    // 이미 도는 세션이 있으면 새로 띄우지 않는다 — 세션 재사용(기존 큐로 pending). 받은편지함을 등록한 세션이면 핸드오프
+    // 라우트처럼 깨운다 — 쉬는 rc 세션은 깨우지 않으면 사람이 뭔가 칠 때까지 집지 않는다.
     if let Some(live) = find_live_session_at(&sessions.sessions, &worktree_path) {
         let handoff = store.create_handoff(&CreateHandoffInput {
             todo_ref: r.to_string(),
@@ -3076,13 +3077,37 @@ async fn spawn_route(
             current_board_id: current_board_id.clone(),
         })?;
         persist_path_if_given(store)?;
+        let woke =
+            wake_for_handoff(state, &live.session_id, &live.name, &todo_ref, &todo.title).await;
         return Ok(json_response(
-            &json!({ "handoff": handoff, "reused": true, "worktreePath": worktree_path }),
+            &json!({ "handoff": handoff, "reused": true, "worktreePath": worktree_path, "woke": woke }),
             StatusCode::CREATED,
         ));
     }
 
     let session_name = format!("{}-{}", board_key.as_deref().unwrap_or("todo"), todo.number);
+
+    // rc 가 켜진 기기 — 워크트리에서 단일 세션 rc 서버를 띄우고, 그 세션에 핸드오프를 넣어 깨운다(`rc::handoff`). `claude --bg`
+    // 세션은 로그인 세션 밖이라 ssh · 자격이 끊겨 PR 로 끝나는 일을 끝내지 못한다.
+    if let Some(control) = state.rc_control.clone() {
+        return spawn_rc(
+            state,
+            &control,
+            SpawnRc {
+                r,
+                todo: &todo,
+                todo_ref: &todo_ref,
+                board_key: board_key.as_deref().unwrap_or("todo"),
+                board_path: &board_path,
+                worktree_path: &worktree_path,
+                note,
+                actor,
+                current_board_id,
+            },
+            persist_path_if_given,
+        )
+        .await;
+    }
     // 예약은 실행 **전**, 확인과 함께 한 락 안에서 — 앞의 `is_recent` 와 여기 사이에 세션 목록 await 가 끼어 겹친 요청이 둘 다
     // 여기까지 올 수 있다. 진 쪽은 409.
     let Some(reservation) = state.recent_spawns.try_reserve(&worktree_path) else {
@@ -3128,9 +3153,184 @@ async fn spawn_route(
         current_board_id,
     })?;
     Ok(json_response(
-        &json!({ "handoff": handoff, "reused": false, "worktreePath": worktree_path, "sessionShortId": short_id }),
+        &json!({
+            "handoff": handoff,
+            "reused": false,
+            "worktreePath": worktree_path,
+            "sessionShortId": short_id,
+            "warning": BG_SPAWN_WARNING,
+        }),
         StatusCode::CREATED,
     ))
+}
+
+/// spawn 의 rc 갈래에 넘기는 것 — 라우트가 이미 검증 · 정규화한 값.
+struct SpawnRc<'a> {
+    r: &'a str,
+    todo: &'a Todo,
+    todo_ref: &'a str,
+    board_key: &'a str,
+    board_path: &'a str,
+    worktree_path: &'a str,
+    note: Option<String>,
+    actor: &'a str,
+    current_board_id: Option<String>,
+}
+
+/// spawn 의 rc 갈래 — 예약 → 점검(현황 · 자격 · 이미 있는 서버) → 워크트리 → 대기 중 핸드오프 재확인 → 서버 → 세션 등록 →
+/// 핸드오프 + 깨우기. 예약은 확실히 아무것도 안 띄웠을 때만 되돌리고, 서버가 뜬 뒤의 실패는 서버를 남긴 채 그 이름을 알린다.
+async fn spawn_rc(
+    state: &Arc<ServerState>,
+    control: &crate::rc::RcController,
+    req: SpawnRc<'_>,
+    persist_path_if_given: impl Fn(&TodoStore) -> StoreResult<()>,
+) -> StoreResult<Response> {
+    let store = &state.store;
+    let worktree_path = req.worktree_path;
+    // 확인과 예약을 한 락 안에서 — 앞의 `is_recent` 와 여기 사이의 await 로 겹친 요청이 둘 다 올 수 있다. 요청이 끝날 때까지
+    // 진행 중으로 잡혀 오래 걸려도(워크트리 · 서버 · 세션 등록) TTL 이 도중에 끝나지 않는다.
+    let Some(reservation) = state.recent_spawns.try_reserve(worktree_path) else {
+        return Ok(error_response(
+            &format!("방금 이 워크트리에 세션을 띄웠다(또는 띄우는 중이다) — 잠시 후 다시 시도하라: {worktree_path}"),
+            StatusCode::CONFLICT,
+        ));
+    };
+    if let Err(e) = control.check_handoff_dir(worktree_path).await {
+        reservation.release();
+        return Ok(error_response(&e, StatusCode::CONFLICT));
+    }
+    // 기동 로그 · 이벤트 라벨 — 보드 key 는 원격에서 바꿀 수 있어 파일 이름에 안전한 글자만.
+    let log_label = rocky_core::rc::handoff_log_label(req.board_key, req.todo.number);
+    let base = match control
+        .ensure_worktree(
+            req.board_path,
+            worktree_path,
+            &worktree_name_for(req.todo.number),
+            &log_label,
+        )
+        .await
+    {
+        Ok(base) => base,
+        Err(e) => {
+            reservation.release();
+            return Ok(error_response(&e, StatusCode::BAD_REQUEST));
+        }
+    };
+    // 시작할 때 본 대기 중 핸드오프를 띄우기 직전에 한 번 더 — 그 사이 다른 길로 넘겨졌으면 서버를 띄우지 않는다.
+    if store.pending_handoff_of(&req.todo.id)?.is_some() {
+        reservation.release();
+        return Ok(error_response(
+            &format!("이 항목은 이미 다른 세션 앞에 대기 중이다: {}", req.r),
+            StatusCode::CONFLICT,
+        ));
+    }
+    let server_name =
+        rocky_core::rc::handoff_server_name(req.board_key, req.todo.number, &req.todo.title);
+    let since = chrono::Utc::now().timestamp();
+    let server_pid = match control
+        .launch_handoff(&log_label, worktree_path, &server_name)
+        .await
+    {
+        Ok(pid) => pid,
+        Err(e) => {
+            reservation.release();
+            return Ok(error_response(&e, StatusCode::BAD_REQUEST));
+        }
+    };
+    let session = match control
+        .wait_handoff_session(&log_label, server_pid, since, || state.inboxes())
+        .await
+    {
+        crate::rc::HandoffWait::Found(session) => session,
+        crate::rc::HandoffWait::ServerGone(tail) => {
+            reservation.release();
+            return Ok(error_response(
+                &format!("rc 서버 \"{server_name}\"(pid {server_pid}) 가 세션 등록 전에 내려갔다 — {tail}"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        crate::rc::HandoffWait::TimedOut { ps_error } => {
+            // 서버는 떴다 — 남긴다(폰 · 웹에서 열 수 있다). 예약도 남긴다.
+            let why = ps_error
+                .map(|e| format!(" — 그동안 ps 를 못 읽었다: {e}"))
+                .unwrap_or_default();
+            return Ok(error_response(
+                &format!(
+                    "rc 서버 \"{server_name}\"(pid {server_pid}) 는 떴는데 {}초 안에 세션이 받은편지함을 등록하지 않았다{why}. 폰 · 웹에서 열 수 있다 — 서버는 그대로 두었다",
+                    crate::rc::HANDOFF_SESSION_WAIT.as_secs()
+                ),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+    // 여기서부터의 실패는 서버를 남긴다 — 사람이 그 서버를 알아보게 이름 · pid 를 붙인다.
+    let recorded = persist_path_if_given(store).and_then(|()| {
+        store.create_handoff(&CreateHandoffInput {
+            todo_ref: req.r.to_string(),
+            session_id: session.session_id.clone(),
+            session_name: Some(server_name.clone()),
+            session_cwd: Some(worktree_path.to_string()),
+            note: req.note,
+            actor: req.actor.to_string(),
+            current_board_id: req.current_board_id,
+        })
+    });
+    let handoff = match recorded {
+        Ok(handoff) => handoff,
+        Err(e) => {
+            return Ok(error_response(
+                &format!(
+                    "rc 서버 \"{server_name}\"(pid {server_pid}) 의 세션을 찾았는데 핸드오프를 남기지 못했다 — {e}. 서버는 그대로 두었다"
+                ),
+                StatusCode::CONFLICT,
+            ))
+        }
+    };
+    let woke = wake_for_handoff(
+        state,
+        &session.session_id,
+        &server_name,
+        req.todo_ref,
+        &req.todo.title,
+    )
+    .await;
+    Ok(json_response(
+        &json!({
+            "handoff": handoff,
+            "reused": false,
+            "worktreePath": worktree_path,
+            "server": { "pid": server_pid, "name": server_name },
+            "base": base.flatten(),
+            "woke": woke,
+        }),
+        StatusCode::CREATED,
+    ))
+}
+
+/// rc 가 꺼진 기기의 `claude --bg` 세션 — 로그인 세션 밖에서 돌아 ssh · 자격이 끊길 수 있다(2026-09-04 · 2026-10-05 실측).
+const BG_SPAWN_WARNING: &str =
+    "claude --bg 세션은 로그인 세션 밖에서 돌아 ssh · 자격이 끊길 수 있다 — PR 로 끝나는 일은 끝내지 못할 수 있다(rc 가 켜진 기기는 rc 서버로 띄운다)";
+
+/// 핸드오프를 받은 세션을 깨운다 — 핸드오프 라우트와 같은 poke(늘리지 않는다), 받은편지함이 없으면 false.
+async fn wake_for_handoff(
+    state: &Arc<ServerState>,
+    session_id: &str,
+    session_name: &str,
+    todo_ref: &str,
+    todo_title: &str,
+) -> bool {
+    let poke = build_handoff_poke(&HandoffPokeInput {
+        session_name,
+        todo_ref,
+        todo_title,
+    });
+    wake_session(
+        state,
+        session_id,
+        &poke.message,
+        format!("{todo_ref} {todo_title}"),
+    )
+    .await
 }
 
 /// GET /api/handoffs — stale/unstarted 판정 포함.

@@ -355,10 +355,46 @@ fn spawn_shows_short_id_and_attach_command_when_new() {
             reused: false,
             worktree_path: "/w/rocky-todo/.claude/worktrees/todo-12".into(),
             session_short_id: Some("1e2f3a4b".into()),
+            server: None,
+            woke: None,
+            warning: Some("claude --bg 세션은 자격이 끊길 수 있다".into()),
         },
     );
     assert!(out.contains("1e2f3a4b"), "{out}");
     assert!(out.contains("claude attach 1e2f3a4b"), "{out}");
+    assert!(
+        out.ends_with("\n  ⚠ claude --bg 세션은 자격이 끊길 수 있다"),
+        "{out}"
+    );
+}
+
+/// rc 가 켜진 기기 — 서버 이름을 보이고 attach 명령은 주지 않는다(폰 · 웹에서 이어 본다).
+#[test]
+fn spawn_on_rc_names_the_server_and_says_who_closes_it() {
+    let out = format_spawn_result(
+        "rocky-12",
+        &SpawnResult {
+            handoff: handoff_fixture(),
+            reused: false,
+            worktree_path: "/w/rocky-todo/.claude/worktrees/todo-12".into(),
+            session_short_id: None,
+            server: Some(SpawnServer {
+                pid: 4242,
+                name: "rocky-12: 핸드오프 작업".into(),
+            }),
+            woke: Some(true),
+            warning: None,
+        },
+    );
+    assert!(
+        out.starts_with(
+            "✓ rocky-12 → rc 서버 \"rocky-12: 핸드오프 작업\"(pid 4242) 의 세션에 넘겼다"
+        ),
+        "{out}"
+    );
+    assert!(out.contains("서버는 사람이 닫는다"), "{out}");
+    assert!(!out.contains("claude attach"), "{out}");
+    assert!(!out.contains("깨우지 못했다"), "{out}");
 }
 
 /// 재사용이면 새 세션을 띄우지 않았으므로 attach 명령을 주지 않는다.
@@ -371,9 +407,16 @@ fn spawn_reuse_queues_into_the_running_session() {
             reused: true,
             worktree_path: "/w/rocky-todo".into(),
             session_short_id: None,
+            server: None,
+            woke: Some(false),
+            warning: None,
         },
     );
     assert!(out.contains("이미 도는 세션"), "{out}");
+    assert!(
+        out.contains("깨우지 못했다"),
+        "받은편지함이 없으면 다음 턴에 집는다: {out}"
+    );
     assert!(out.contains("rocky-todo-1e"), "{out}");
     assert!(!out.contains("claude attach"), "{out}");
 }

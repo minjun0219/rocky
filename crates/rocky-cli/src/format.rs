@@ -324,6 +324,22 @@ pub struct SpawnResult {
     pub worktree_path: String,
     #[serde(default)]
     pub session_short_id: Option<String>,
+    /// rc 가 켜진 기기 — 띄운 핸드오프 서버. 없으면 `claude --bg` 로 띄웠다(옛 데몬도).
+    #[serde(default)]
+    pub server: Option<SpawnServer>,
+    /// 받은 세션을 받은편지함으로 깨웠나. 옛 데몬은 보내지 않는다.
+    #[serde(default)]
+    pub woke: Option<bool>,
+    /// `claude --bg` 로 띄웠을 때의 경고(자격 · ssh 가 끊길 수 있다).
+    #[serde(default)]
+    pub warning: Option<String>,
+}
+
+/// 핸드오프 서버 — `claude rc --spawn session` 의 pid 와 이름.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SpawnServer {
+    pub pid: u32,
+    pub name: String,
 }
 
 /// `spawn` 결과를 사람이 읽는 한두 줄로 렌더한다.
@@ -332,25 +348,38 @@ pub struct SpawnResult {
 /// `claude attach` 명령을 함께 준다. `sessionName` 은 표시용 스냅샷이라 없을 수 있어
 /// `sessionId` 로 떨어뜨린다 — 빈 괄호는 어디로 보냈는지 못 읽게 만든다.
 pub fn format_spawn_result(r#ref: &str, result: &SpawnResult) -> String {
+    let path = &result.worktree_path;
+    // 깨우지 못했으면 다음 턴(사람이 칠 때)에야 집는다.
+    let asleep = if result.woke == Some(false) {
+        "\n  깨우지 못했다 — 그 세션의 다음 턴에 집는다"
+    } else {
+        ""
+    };
     if result.reused {
         let target = result
             .handoff
             .session_name
             .as_deref()
             .unwrap_or(&result.handoff.session_id);
-        format!(
-            "✓ {ref} → 이미 도는 세션({target})에 큐잉 · {}",
-            result.worktree_path,
-            ref = r#ref
-        )
-    } else {
-        let short = result.session_short_id.as_deref().unwrap_or("");
-        format!(
-            "✓ {ref} → 새 세션 {short} · {}\n  claude attach {short}",
-            result.worktree_path,
-            ref = r#ref
-        )
+        return format!("✓ {ref} → 이미 도는 세션({target})에 넘겼다 · {path}{asleep}", ref = r#ref);
     }
+    if let Some(server) = &result.server {
+        return format!(
+            "✓ {ref} → rc 서버 \"{}\"(pid {}) 의 세션에 넘겼다 · {path}\n  폰 · 웹의 원격 제어 목록에서 이어 본다 — 끝나면 서버는 사람이 닫는다{asleep}",
+            server.name,
+            server.pid,
+            ref = r#ref
+        );
+    }
+    let short = result.session_short_id.as_deref().unwrap_or("");
+    let mut out = format!(
+        "✓ {ref} → 새 세션 {short} · {path}\n  claude attach {short}",
+        ref = r#ref
+    );
+    if let Some(warning) = &result.warning {
+        out.push_str(&format!("\n  ⚠ {warning}"));
+    }
+    out
 }
 
 /// `POST /api/todos/:ref/handoff` 응답 — 생성된 handoff + 대상 세션을 깨울 poke.

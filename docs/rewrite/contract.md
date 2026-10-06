@@ -150,7 +150,13 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 성공 후에만 `persistPathIfGiven` + `createSpawnedHandoff`.
 
 Rust 추가(TS 엔 없던 것): 예약은 `remember` 대신 확인과 잡기를 한 락 안에서 하는 `try_reserve`(진 쪽 409) — 요청이 끝날 때까지
-진행 중으로 잡고 끝난 뒤 TTL.
+진행 중으로 잡고 끝난 뒤 TTL. 재사용 분기는 받은편지함을 등록한 세션이면 깨운다(`woke`). **rc 가 켜진 기기**는 재사용 분기 뒤
+`spawnSession` 대신 — `try_reserve`(409) → 점검(현황 실패 · 로그아웃 · 그 워크트리에 rc 서버 있음 409, 예약 되돌림) → 워크트리
+보장(일반 폴더 · 만들기 실패 400, 반쯤 만든 것은 걷고 예약 되돌림) → 대기 중 핸드오프 재확인(409) → 단일 세션 서버 띄우기 · 등록
+판정(실패 400, 예약 되돌림) → 세션 등록 기다리기(60초 — 서버가 내려가면 400 · 예약 되돌림, 못 찾으면 400 · 서버와 예약 유지) →
+`persistPathIfGiven` + `createHandoff`(pending, 진짜 세션 id — 실패하면 409 + 서버 이름) + 깨우기. 응답 201 `{handoff, reused:false,
+worktreePath, server:{pid,name}, base, woke}`(`base` 는 새로 딴 워크트리의 기준, 있던 것을 쓰면 null). rc 가 꺼진 기기의 응답에는
+`warning` 이 더 붙는다.
 
 - 세션 조회는 이 라우트만 **캐시 없는** `listSessions` (spawn 이전 스냅샷 금지)
 - 세션 이름 `<boardKey>-<number>`, 워크트리 이름 `worktreeNameFor(number)` = `todo-<number>`

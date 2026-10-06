@@ -258,7 +258,9 @@ pub fn rc_handles(
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+mod handoff;
 mod nightly;
+pub use handoff::{HandoffWait, SESSION_WAIT as HANDOFF_SESSION_WAIT};
 pub use nightly::{spawn_rc_nightly, NIGHTLY_CHECK};
 
 use rocky_core::rc::{LaunchMode, RcAction, RcResult, Registration, Target};

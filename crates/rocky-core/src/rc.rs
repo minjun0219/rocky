@@ -1227,3 +1227,127 @@ pub struct AgyRecord {
 pub fn agy_old_binary(started: Option<i64>, binary_mtime: Option<i64>) -> bool {
     matches!((started, binary_mtime), (Some(s), Some(m)) if m > s)
 }
+
+// ── 핸드오프 서버(spawn 의 rc 갈래) ─────────────────────────────────────────────
+// 보드의 "새 세션 띄우기" 가 할 일의 워크트리에서 단일 세션 rc 서버를 띄우고, 그 세션에 핸드오프를 넣는다. `claude --bg`
+// 세션은 로그인 세션 밖이라 ssh · 자격이 끊긴다. 대상(`rc.targets`)이 아니라 감시 · 야간은 건드리지 않는다.
+
+/// 서버 이름의 요약 칸 — 할 일 제목을 이만큼 **글자**로 자른다(폰 · 웹 세션 목록 한 줄).
+pub const HANDOFF_SUMMARY_CHARS: usize = 24;
+
+/// `<보드>-<n>: <요약>` — claude.ai 세션 목록에 보이는 이름. 요약은 제목 앞부분(글자 단위). 넘치면 마지막 띄어쓰기까지
+/// 물러나 `…` 를 붙인다 — 띄어쓰기가 너무 앞(절반 전)이면 그냥 자른다. 제목이 비면 번호만.
+pub fn handoff_server_name(board_key: &str, number: i64, title: &str) -> String {
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = title.chars();
+    let head: String = chars.by_ref().take(HANDOFF_SUMMARY_CHARS).collect();
+    let summary = match chars.next() {
+        None => head,
+        // 단어가 끝난 자리에서 잘렸다.
+        Some(' ') => format!("{head}…"),
+        Some(_) => {
+            let cut = head
+                .rfind(' ')
+                .filter(|&i| head[..i].chars().count() >= HANDOFF_SUMMARY_CHARS / 2)
+                .map_or(head.as_str(), |i| &head[..i]);
+            format!("{}…", cut.trim_end())
+        }
+    };
+    if summary.is_empty() {
+        format!("{board_key}-{number}")
+    } else {
+        format!("{board_key}-{number}: {summary}")
+    }
+}
+
+/// 핸드오프 서버 argv — 단일 세션 모드(`--spawn session`: 세션 하나만, 다른 접속은 거절). 이름은 `--name=<이름>` 한 인자로 —
+/// 셸을 거치지 않으니 공백 · `:` 가 있어도 되고, 보드 key 가 `-` 로 시작해도 플래그로 읽히지 않는다. 서버 판정(`is_server_argv`)
+/// 에 걸린다 — 현황에는 대상 밖 서버로 보인다.
+pub fn handoff_server_argv(name: &str) -> Vec<String> {
+    vec![
+        "claude".to_string(),
+        "rc".to_string(),
+        "--spawn".to_string(),
+        "session".to_string(),
+        format!("--name={name}"),
+    ]
+}
+
+/// 라벨에 넣는 보드 key 의 최대 글자 수 — `<label>.out` 이 파일 이름 한도(255바이트) 안에 머물게.
+const HANDOFF_LABEL_KEY_MAX: usize = 48;
+
+/// 핸드오프 서버의 기동 로그 · 이벤트 라벨 — `handoff-<보드>-<n>`. 보드 key 는 원격에서도 바꿀 수 있고 길이 · `/` · `..` 를
+/// 막지 않으니, 파일 이름에 쓰기 전에 `[A-Za-z0-9_-]` 밖의 글자를 `_` 로 바꾸고 48글자로 자른다. 바꾸거나 잘랐으면 원래 key 의
+/// SHA-1 앞 8자를 붙인다 — 다른 key 가 같은 라벨(같은 로그 파일)로 겹치지 않게.
+pub fn handoff_log_label(board_key: &str, number: i64) -> String {
+    let safe: String = board_key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(HANDOFF_LABEL_KEY_MAX)
+        .collect();
+    if safe == board_key {
+        return format!("handoff-{safe}-{number}");
+    }
+    let digest = ring::digest::digest(
+        &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+        board_key.as_bytes(),
+    );
+    let hash: String = digest
+        .as_ref()
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("handoff-{safe}-{hash}-{number}")
+}
+
+/// 받은편지함 소켓 경로의 pid — `/tmp/cc-socks/<pid>.sock`. 모양이 아니면 None.
+pub fn socket_pid(socket: &str) -> Option<u32> {
+    if !crate::peer_inbox::is_inbox_socket_path(socket) {
+        return None;
+    }
+    socket
+        .rsplit('/')
+        .next()?
+        .strip_suffix(".sock")?
+        .parse()
+        .ok()
+}
+
+/// 핸드오프 서버가 만든 세션의 받은편지함 등록 — **소켓 pid 의 부모가 그 서버**이고 서버를 띄운 뒤(`since`, 유닉스 초)에
+/// 등록한 것. 소켓 이름은 pid 라 재사용되면 옛 세션의 등록이 같은 경로로 남아 있을 수 있다 — 새 세션이 SessionStart 에서
+/// 등록하기 전(3~7초)에 그것을 고르지 않게 시각으로 거른다. cwd 는 보지 않는다(부모 pid 로 충분하고, 경로 표기가 갈리면
+/// 놓친다). 여럿이면 마지막에 등록한 것.
+pub fn handoff_session<'a>(
+    registrations: &'a [crate::peer_inbox::InboxRegistration],
+    rows: &[PsRow],
+    server_pid: u32,
+    since: i64,
+) -> Option<&'a crate::peer_inbox::InboxRegistration> {
+    let parent: HashMap<u32, u32> = rows.iter().map(|r| (r.pid, r.ppid)).collect();
+    registrations
+        .iter()
+        .filter(|r| r.seen_at >= since)
+        .filter(|r| {
+            socket_pid(&r.socket).and_then(|pid| parent.get(&pid).copied()) == Some(server_pid)
+        })
+        .max_by_key(|r| r.seen_at)
+}
+
+/// `git symbolic-ref --short refs/remotes/origin/HEAD` 출력(`origin/main`) → 워크트리를 딸 기준. 비면 None — 그때 데몬은
+/// `origin/main` · `origin/master` 순으로 짐작하고, 그것도 없으면 메인 체크아웃의 HEAD 에서 딴다.
+pub fn worktree_base(origin_head: &str) -> Option<String> {
+    let base = origin_head.trim();
+    (base.len() > "origin/".len() && base.starts_with("origin/")).then(|| base.to_string())
+}
+
+/// 워크트리 브랜치 — Claude Code `--worktree <이름>` 과 같은 이름(`worktree-<이름>`)이라 예전 spawn 의 워크트리와 이어진다.
+pub fn worktree_branch(worktree_name: &str) -> String {
+    format!("worktree-{worktree_name}")
+}
