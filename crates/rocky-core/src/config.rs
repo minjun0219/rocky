@@ -596,36 +596,6 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
     })
 }
 
-/// `rocky.json` 의 `lab` 블록 — Claude Code function hooks 실험(`plugin/hooks/lab`). 실제로 읽는 쪽은 그 TS 모듈
-/// (`parseLabConfig`)이고, Rust 에서 부르는 곳은 없다 — 스키마와 함께 rocky.json 모양을 Rust 쪽에서도 고정해 두는
-/// 짝이다. 규칙을 바꾸면 둘과 두 테스트(`config_test.rs` · `lib.test.ts`)를 같이 고친다. 사용자 설정에서만 읽는다.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LabConfig {
-    /// 데몬이 받은편지함 소켓으로 보낸 rocky 메시지를 화면 toast 로도.
-    pub toast: bool,
-    /// 프롬프트 위 보드 요약 줄.
-    pub band: bool,
-    /// 엔진이 밀어 주는 한도·컨텍스트를 status 줄에.
-    pub limits: bool,
-}
-
-/// 파일 없음 / 파싱 실패 / 블록이 객체가 아님 / `enabled: false` 는 None(꺼짐). 칸은 `false` 일 때만 끈다 —
-/// 블록만 두면(`"lab": {}`) 전부 켜진다(`rc` 와 같은 모양).
-pub fn load_lab_block(config_path: &Path) -> Option<LabConfig> {
-    let raw = std::fs::read_to_string(config_path).ok()?;
-    let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
-    let block = parsed.get("lab")?.as_object()?;
-    let on = |key: &str| block.get(key).and_then(|v| v.as_bool()) != Some(false);
-    if !on("enabled") {
-        return None;
-    }
-    Some(LabConfig {
-        toast: on("toast"),
-        band: on("band"),
-        limits: on("limits"),
-    })
-}
-
 /// `rocky.json` 의 `usage` 블록 — 사용 로그(`rocky_core::usage`). 기본 켜짐, `~/.config/rocky/usage`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageConfig {

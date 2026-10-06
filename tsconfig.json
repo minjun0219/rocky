@@ -22,8 +22,6 @@
     "e2e/**/*.ts",
     "playwright.config.ts",
     "plugin/scripts/**/*.ts",
-    "plugin/hooks/lab/lib.ts",
-    "plugin/hooks/lab/lib.test.ts",
     "web/**/*.ts",
     "web/**/*.tsx"
   ]
