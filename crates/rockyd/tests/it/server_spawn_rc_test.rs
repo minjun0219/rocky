@@ -52,6 +52,10 @@ struct World {
     /// `worktree add` · 띄우기 때 그 할 일에 대기 중 핸드오프가 생긴다(다른 길로 넘겨졌다).
     pending_on_add: Option<(Arc<TodoStore>, String)>,
     pending_on_spawn: Option<(Arc<TodoStore>, String)>,
+    /// 서버는 살아 있는데 `ps` 스냅숏에 아직 없다(낡은 캐시).
+    hidden: bool,
+    /// 서버 pid 의 cwd 가 기록과 다르다(pid 가 재사용됐다).
+    moved: bool,
 }
 
 fn ok(stdout: String) -> CmdOutput {
@@ -142,7 +146,7 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                 if w.server_before {
                     ps.push_str("  400     1    10:00 claude rc --spawn session --name=옛 서버\n");
                 }
-                if w.alive.contains(&SERVER) {
+                if w.alive.contains(&SERVER) && !w.hidden {
                     ps.push_str(&format!(
                         "  {SERVER}     1    00:10 claude rc --spawn session --name={NAME}\n"
                     ));
@@ -159,8 +163,13 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                 if w.server_before {
                     out.push_str(&format!("p400\nfcwd\nn{}\n", w.worktree));
                 }
-                if w.alive.contains(&SERVER) {
-                    out.push_str(&format!("p{SERVER}\nfcwd\nn{}\n", w.worktree));
+                if w.alive.contains(&SERVER) && !w.hidden {
+                    let cwd = if w.moved {
+                        "/w/elsewhere"
+                    } else {
+                        w.worktree.as_str()
+                    };
+                    out.push_str(&format!("p{SERVER}\nfcwd\nn{cwd}\n"));
                 }
                 ok(out)
             }
@@ -225,6 +234,8 @@ fn ops(w: Arc<Mutex<World>>) -> RcOps {
 
 struct Rc {
     _dir: tempfile::TempDir,
+    /// `<todo dir>/rc` — 핸드오프 기록은 `handoff/<라벨>.json`.
+    rc_dir: std::path::PathBuf,
     world: Arc<Mutex<World>>,
     state: Arc<ServerState>,
     worktree: String,
@@ -283,22 +294,32 @@ fn rc_fixture(
         ps_fails: false,
         pending_on_add: None,
         pending_on_spawn: None,
+        hidden: false,
+        moved: false,
     };
     setup(&mut world, &todo);
     let world = Arc::new(Mutex::new(world));
+    let config = RcConfig {
+        root: Some("/w".into()),
+        pinned: vec![],
+        targets: vec!["repo-a".into()],
+        supervise: false,
+        nightly: None,
+    };
+    let home = dir.path().join("home").to_string_lossy().into_owned();
     let control = Arc::new(RcController::new(
-        Some(RcConfig {
-            root: Some("/w".into()),
-            pinned: vec![],
-            targets: vec!["repo-a".into()],
-            supervise: false,
-            nightly: None,
-        }),
-        dir.path().join("home").to_string_lossy().into_owned(),
+        Some(config.clone()),
+        home.clone(),
         dir.path().join("rc"),
         runner(world.clone()),
         ops(world.clone()),
     ));
+    // 현황 — 캐시 없이 같은 가짜 세계를 잰다(라우트가 핸드오프 서버를 가려 싣는다).
+    let status_runner = runner(world.clone());
+    let provider: rockyd::rc::RcProvider = Arc::new(move || {
+        let (runner, config, home) = (status_runner.clone(), config.clone(), home.clone());
+        Box::pin(async move { rockyd::rc::probe(&runner, Some(&config), &home).await })
+    });
     let bg_spawns = Arc::new(AtomicUsize::new(0));
     let counter = bg_spawns.clone();
     let bg: SpawnFn = Arc::new(move |_input| {
@@ -311,6 +332,7 @@ fn rc_fixture(
         o.path_exists = Some(Arc::new(|_| true));
         o.real_path = Some(Arc::new(|p| Ok(p.to_string())));
         o.rc_control = Some(control);
+        o.rc = Some(provider);
     });
     let socks = dir.path().join("cc-socks-test");
     std::fs::create_dir_all(&socks).unwrap();
@@ -326,6 +348,7 @@ fn rc_fixture(
         restored: false,
     });
     Rc {
+        rc_dir: dir.path().join("rc"),
         _dir: dir,
         world,
         state,
@@ -700,4 +723,147 @@ async fn rc_off_falls_back_to_bg_with_a_warning() {
         "PR 로 끝나는 일을 못 끝낼 수 있다고 알린다: {body}"
     );
     assert!(body.get("server").is_none());
+}
+
+async fn status(rc: &Rc) -> serde_json::Value {
+    let (code, body) = call(
+        &rc.state,
+        "GET",
+        "/api/rc/servers",
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    body
+}
+
+async fn close(rc: &Rc, key: &str, opts: ReqOptions<'_>) -> (u16, serde_json::Value) {
+    call(
+        &rc.state,
+        "POST",
+        &format!("/api/rc/handoffs/{key}/stop"),
+        None,
+        opts,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_launched_server_shows_as_a_handoff_and_closes_by_pid() {
+    let f = fx();
+    let rc = rc_fixture(&f, none, plain);
+    let (code, body) = spawn(&rc).await;
+    assert_eq!(code, 201, "{body}");
+    let s = status(&rc).await;
+    assert_eq!(s["handoffs"][0]["name"], NAME, "{s}");
+    assert_eq!(s["handoffs"][0]["todoRef"], "rocky-todo-1");
+    assert_eq!(s["handoffs"][0]["sessions"], 1);
+    assert!(
+        s.get("strays")
+            .and_then(|v| v.as_array())
+            .is_none_or(|v| v.is_empty()),
+        "대상 밖에서 뺀다: {s}"
+    );
+
+    let (code, body) = close(&rc, "rocky-todo-1", ReqOptions::default()).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["down"], true);
+    assert_eq!(body["dir"], rc.worktree);
+    assert!(
+        !rc.world.lock().unwrap().alive.contains(&SERVER),
+        "pid 로 내렸다"
+    );
+    assert!(
+        Path::new(&rc.worktree).exists(),
+        "워크트리는 남긴다 — 커밋 안 된 작업이 있을 수 있다"
+    );
+    assert!(!record(&rc).exists(), "닫았으면 기록도 지운다");
+    let s = status(&rc).await;
+    assert!(s.get("handoffs").is_none(), "{s}");
+    let (code, body) = close(&rc, "rocky-todo-1", ReqOptions::default()).await;
+    assert_eq!(code, 404);
+    assert!(error(&body).contains("핸드오프 서버가 없다"), "{body}");
+}
+
+#[tokio::test]
+async fn closing_is_local_only_and_never_acts_on_a_failed_probe() {
+    let f = fx();
+    let rc = rc_fixture(&f, none, plain);
+    assert_eq!(spawn(&rc).await.0, 201);
+    let remote = ReqOptions {
+        peer: Some("100.64.0.1"),
+        ..Default::default()
+    };
+    assert_eq!(close(&rc, "rocky-todo-1", remote).await.0, 403);
+    assert_eq!(close(&rc, "rocky-9", ReqOptions::default()).await.0, 404);
+    rc.world.lock().unwrap().ps_fails = true;
+    let (code, body) = close(&rc, "rocky-todo-1", ReqOptions::default()).await;
+    assert_eq!(code, 409, "{body}");
+    assert!(
+        rc.world.lock().unwrap().alive.contains(&SERVER),
+        "현황을 못 읽으면 손대지 않는다"
+    );
+}
+
+#[tokio::test]
+async fn a_server_that_went_away_drops_its_record() {
+    let f = fx();
+    let rc = rc_fixture(&f, none, plain);
+    assert_eq!(spawn(&rc).await.0, 201);
+    rc.world.lock().unwrap().alive.clear();
+    let (code, body) = close(&rc, "rocky-todo-1", ReqOptions::default()).await;
+    assert_eq!(code, 404, "{body}");
+    assert!(error(&body).contains("이미 내려가 있다"), "{body}");
+    assert!(!record(&rc).exists());
+}
+
+fn record(rc: &Rc) -> std::path::PathBuf {
+    rc.rc_dir.join("handoff/handoff-rocky-todo-1.json")
+}
+
+#[tokio::test]
+async fn the_status_keeps_a_record_unless_the_server_is_really_gone() {
+    let f = fx();
+    let rc = rc_fixture(&f, none, plain);
+    assert_eq!(spawn(&rc).await.0, 201);
+    assert!(record(&rc).exists());
+
+    // 낡은 스냅숏 — 서버는 살아 있는데 현황에 아직 없다. 기록을 지우면 닫을 길이 없어진다.
+    rc.world.lock().unwrap().hidden = true;
+    status(&rc).await;
+    assert!(record(&rc).exists(), "살아 있는 pid 의 기록은 지킨다");
+    rc.world.lock().unwrap().hidden = false;
+    assert_eq!(status(&rc).await["handoffs"][0]["name"], NAME);
+
+    // 프로브가 실패하면 서버가 죽었어도 지우지 않는다.
+    {
+        let mut w = rc.world.lock().unwrap();
+        w.alive.clear();
+        w.ps_fails = true;
+    }
+    status(&rc).await;
+    assert!(record(&rc).exists(), "모르는 것으로는 지우지 않는다");
+
+    // 프로브가 되고 정말 없으면 지운다.
+    rc.world.lock().unwrap().ps_fails = false;
+    status(&rc).await;
+    assert!(!record(&rc).exists());
+}
+
+#[tokio::test]
+async fn a_reused_pid_is_never_signalled() {
+    let f = fx();
+    let rc = rc_fixture(&f, none, plain);
+    assert_eq!(spawn(&rc).await.0, 201);
+    // 그 pid 가 이제 다른 폴더의 rc 서버다.
+    rc.world.lock().unwrap().moved = true;
+    let (code, body) = close(&rc, "rocky-todo-1", ReqOptions::default()).await;
+    assert_eq!(code, 404, "{body}");
+    assert!(error(&body).contains("손대지 않고"), "{body}");
+    assert!(
+        rc.world.lock().unwrap().alive.contains(&SERVER),
+        "신호를 보내지 않았다"
+    );
+    assert!(!record(&rc).exists(), "틀린 기록은 지운다");
 }

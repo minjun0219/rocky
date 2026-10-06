@@ -8,7 +8,7 @@
   `git worktree add -b worktree-todo-<n> … origin/<기본 브랜치>`) 안에서 `claude rc --spawn session --name "<보드>-<n>: <요약>"`
   (`rc::handoff_server_name` · `handoff_server_argv`)을 띄우고, 그 서버의 자식 세션이 받은편지함을 등록하면(`rc::handoff_session` —
   소켓 pid 의 부모가 그 서버이고 서버를 띄운 뒤의 등록) 그 세션 앞으로 핸드오프를 만들고 깨운다. 할 일당 서버 하나(그 워크트리에
-  rc 서버가 있으면 409), 내리기는 사람. 띄우기 전에 현황 · 자격(로그아웃이면 409) · 대기 중 핸드오프를 다시 본다. 있는 폴더는
+  rc 서버가 있으면 409), 내리기는 사람(`rocky rc stop <할 일>` — [rc-servers](rc-servers.md) 의 핸드오프 서버). 띄우기 전에 현황 · 자격(로그아웃이면 409) · 대기 중 핸드오프를 다시 본다. 있는 폴더는
   `rev-parse --show-toplevel` 이 그 폴더일 때만 쓴다(일반 폴더면 세션의 git 이 메인 레포를 잡는다). 서버가 뜬 뒤의 실패(세션을 60초
   안에 못 찾음 · 핸드오프 기록 실패)는 **서버를 남기고 그 이름 · pid 를 알린다**. 서버 · 로그 라벨은 `rc::handoff_log_label`(보드 key
   의 `/` · `.` 를 `_` 로 — key 는 원격에서 바꿀 수 있다). **rc 서버에는 `kill_on_drop` 을 걸지 않는다** — 새 프로세스 그룹으로 띄우고

@@ -272,3 +272,21 @@ fn agy_line_reads_like_the_old_nightly_report() {
     let report = json!({"update": "u", "items": [], "agy": {"version": "1.2.14"}});
     assert!(render_nightly(&report).contains("\nagy: 1.2.14 · 데몬 꺼짐"));
 }
+
+#[test]
+fn handoff_servers_get_their_own_section() {
+    let raw = json!({
+        "configured": true,
+        "servers": [],
+        "handoffs": [{"label": "handoff-rocky-41", "name": "rocky-41: 핸드오프 작업", "todoRef": "rocky-41",
+                      "dir": "/w/rocky/.claude/worktrees/todo-41", "pid": 500, "uptimeSecs": 7200, "sessions": 1}],
+        "strays": [],
+        "auth": "in"
+    });
+    let out = render_status(&raw);
+    assert!(
+        out.contains("핸드오프:\n  ● rocky-41: 핸드오프 작업  세션 1  2시간  /w/rocky/.claude/worktrees/todo-41\n"),
+        "{out}"
+    );
+    assert!(!out.contains("대상 밖"), "{out}");
+}

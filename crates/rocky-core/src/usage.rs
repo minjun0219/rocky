@@ -137,7 +137,7 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     if segs.len() >= 4
         && matches!(
             (segs[1], segs[2]),
-            ("inbox", "sources") | ("tokens", "sessions") | ("rc", "servers")
+            ("inbox", "sources") | ("tokens", "sessions") | ("rc", "servers") | ("rc", "handoffs")
         )
     {
         segs[3] = ":ref";
@@ -310,6 +310,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "POST /api/rc/servers/:ref/restart"),
     (UsageSource::Rest, "GET /api/rc/nightly/preview"),
     (UsageSource::Rest, "POST /api/rc/nightly"),
+    (UsageSource::Rest, "POST /api/rc/handoffs/:ref/stop"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
@@ -372,6 +373,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky rc restart"),
     (UsageSource::Cli, "rocky rc nightly"),
     (UsageSource::Cli, "rocky rc report"),
+    (UsageSource::Cli, "rocky rc stop"),
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),

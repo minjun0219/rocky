@@ -1253,3 +1253,53 @@ fn handoff_session_is_the_child_of_that_server_in_that_dir() {
     assert_eq!(worktree_base("origin/"), None);
     assert_eq!(worktree_branch("todo-41"), "worktree-todo-41");
 }
+
+#[test]
+fn handoff_servers_are_strays_with_a_matching_record() {
+    let stray = |pid: u32, dir: &str| StrayRow {
+        label: "x".into(),
+        dir: dir.into(),
+        pid,
+        uptime_secs: Some(60),
+        sessions: 1,
+    };
+    let record = |label: &str, pid: u32, dir: &str| HandoffServerRecord {
+        label: label.into(),
+        name: format!("rocky-41: {label}"),
+        pid,
+        dir: dir.into(),
+        todo_ref: "rocky-41".into(),
+        started_at: "2026-10-06T00:00:00Z".into(),
+    };
+    let records = vec![
+        record("handoff-rocky-41", 500, "/w/r/.claude/worktrees/todo-41/"),
+        record("handoff-rocky-7", 700, "/w/r/.claude/worktrees/todo-7"),
+        record("handoff-rocky-9", 900, "/w/r/.claude/worktrees/todo-9"),
+    ];
+    let strays = vec![
+        stray(500, "/w/r/.claude/worktrees/todo-41"),
+        stray(800, "/w/other"),
+        // pid 가 재사용됐다 — 폴더가 다르면 핸드오프가 아니다.
+        stray(700, "/w/elsewhere"),
+    ];
+    let (handoffs, rest, gone) = split_handoffs(strays, &records);
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].name, "rocky-41: handoff-rocky-41");
+    assert_eq!(handoffs[0].sessions, 1);
+    assert_eq!(
+        rest.iter().map(|s| s.pid).collect::<Vec<_>>(),
+        vec![800, 700]
+    );
+    assert_eq!(gone, vec!["handoff-rocky-7", "handoff-rocky-9"]);
+
+    assert_eq!(
+        find_handoff(&records, "ROCKY-41").map(|r| r.pid),
+        Some(500),
+        "할 일 참조로도 고른다"
+    );
+    assert_eq!(
+        find_handoff(&records, "handoff-rocky-7").map(|r| r.pid),
+        Some(700)
+    );
+    assert_eq!(find_handoff(&records, "rocky-1"), None);
+}

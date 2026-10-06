@@ -9,6 +9,7 @@
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 //! - `rocky rc nightly [--dry-run]` — 야간 재시작을 지금 한 번 돌린다(데몬이 백그라운드로, 결과는 `rocky rc`).
 //!   `--dry-run` 은 리허설: 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다).
+//! - `rocky rc stop <할 일>` — 보드의 새 세션 띄우기가 띄운 핸드오프 서버를 닫는다(pid 로만, 워크트리는 남긴다).
 //! - `rocky rc report` — 마지막 야간 보고(서버마다 결과 · rocky · agy). 읽기만 해서 `nightly` 와 이름을 갈랐다 —
 //!   `permissions.ask` 의 `rocky rc nightly:*` 확인에 걸리지 않게.
 
@@ -22,11 +23,13 @@ use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run] | rocky rc report";
+const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run] | rocky rc report | rocky rc stop <할 일>";
 /// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// `--activity` 응답 한도 — 데몬이 대상마다 git 을 띄워 기다렸다 답한다.
 const ACTIVITY_LIMIT: Duration = Duration::from_secs(60);
+/// 닫기 응답 한도 — 데몬이 SIGTERM 뒤 20초 유예까지 기다렸다 답한다.
+const STOP_LIMIT: Duration = Duration::from_secs(60);
 /// 리허설 응답 한도 — 데몬의 `claude --version` 한도(40초)와 프로브를 덮는다.
 const PREVIEW_LIMIT: Duration = Duration::from_secs(90);
 
@@ -106,6 +109,30 @@ pub fn cmd_rc(
             }
             let row = wait_for_result(ctx, label)?;
             printer.emit(&row, || render_result(label, &row));
+            Ok(())
+        }
+        Some("stop") => {
+            // 핸드오프 서버 닫기 — 할 일 참조(`rocky-41`)나 라벨로. 설정 대상은 여기서 내리지 않는다(감시가 다시 띄운다).
+            let key = rest
+                .get(1)
+                .ok_or_else(|| format!("{USAGE} — 닫을 할 일(예: rocky-41)이 필요하다"))?;
+            refuse_own_handoff(ctx, key)?;
+            let path = format!("/api/rc/handoffs/{}/stop", encode_uri_component(key));
+            // SIGTERM 뒤 20초까지 기다렸다 답한다.
+            let res = request_value_within(ctx, "POST", &path, None, STOP_LIMIT)?;
+            let name = str_of(&res, "name");
+            let pid = res.get("pid").and_then(Value::as_u64).unwrap_or(0);
+            if res.get("down").and_then(Value::as_bool) != Some(true) {
+                return Err(format!(
+                    "\"{name}\"(pid {pid}) 가 내려가지 않았다 — rocky rc 로 본다"
+                ));
+            }
+            printer.emit(&res, || {
+                format!(
+                    "✓ \"{name}\"(pid {pid}) 를 닫았다 — 워크트리는 남는다: {}",
+                    str_of(&res, "dir")
+                )
+            });
             Ok(())
         }
         Some("report") => {
@@ -255,6 +282,20 @@ fn line(v: &Value, running: bool) -> String {
     parts.join("  ")
 }
 
+/// `  ● rocky-41: 핸드오프 작업  세션 1  2시간  /w/rocky/.claude/worktrees/todo-41`.
+pub fn handoff_line(h: &Value) -> String {
+    let mut parts = vec![format!("  ● {}", str_of(h, "name"))];
+    let sessions = h.get("sessions").and_then(Value::as_u64).unwrap_or(0);
+    if sessions > 0 {
+        parts.push(format!("세션 {sessions}"));
+    }
+    if let Some(up) = h.get("uptimeSecs").and_then(Value::as_u64) {
+        parts.push(human_uptime(up));
+    }
+    parts.push(str_of(h, "dir").to_string());
+    parts.join("  ")
+}
+
 /// `antigravity: running (mac-1)` — agy 가 없으면 None.
 pub fn agy_line(raw: &Value) -> Option<String> {
     let agy = raw.get("antigravity").filter(|v| !v.is_null())?;
@@ -287,6 +328,12 @@ pub fn render_status(raw: &Value) -> String {
         .collect();
     if let Some(err) = raw.get("probeError").and_then(Value::as_str) {
         out.insert(0, format!("⚠ {err} — ○ 는 꺼짐이 아니라 모름이다"));
+    }
+    let handoffs = list("handoffs");
+    if !handoffs.is_empty() {
+        // 보드의 새 세션 띄우기가 띄운 서버 — 감시 · 야간이 건드리지 않고 사람이 닫는다(`rocky rc stop <할 일>`).
+        out.push("핸드오프:".into());
+        out.extend(handoffs.iter().map(handoff_line));
     }
     let strays = list("strays");
     if !strays.is_empty() {
@@ -414,6 +461,40 @@ pub fn render_nightly(raw: &Value) -> String {
         out.push("떠 있는 대상이 없다".into());
     }
     out.join("\n")
+}
+
+/// 닫으려는 핸드오프 서버의 세션 안에서 이 CLI 가 돌고 있으면 거절한다 — 닫는 순간 이 턴이 끊긴다(재시작의
+/// `refuse_own_server` 와 같은 가드). 현황이나 `ps` 를 못 읽으면 막지 않는다(데몬이 pid · 폴더를 다시 본다).
+fn refuse_own_handoff(ctx: &CliContext, key: &str) -> Result<(), String> {
+    let Ok(raw) = request_value(ctx, "GET", "/api/rc/servers", None) else {
+        return Ok(());
+    };
+    let Some(pid) = raw
+        .get("handoffs")
+        .and_then(Value::as_array)
+        .and_then(|rows| {
+            rows.iter().find(|r| {
+                str_of(r, "label") == key || str_of(r, "todoRef").eq_ignore_ascii_case(key)
+            })
+        })
+        .and_then(|r| r.get("pid"))
+        .and_then(Value::as_u64)
+    else {
+        return Ok(());
+    };
+    let Ok(out) = std::process::Command::new("ps")
+        .args(["-axww", "-o", "pid=,ppid=,etime=,args="])
+        .output()
+    else {
+        return Ok(());
+    };
+    let rows = rocky_core::rc::parse_ps(&String::from_utf8_lossy(&out.stdout));
+    if rocky_core::rc::ancestors(&rows, std::process::id()).contains(&(pid as u32)) {
+        return Err(format!(
+            "{key} 는 이 세션이 붙은 핸드오프 서버다 — 닫으면 이 턴이 끊긴다. 웹 원격 제어 탭이나 다른 세션에서 닫는다"
+        ));
+    }
+    Ok(())
 }
 
 /// 이 CLI 가 그 서버의 세션 안에서 돌고 있으면 거절한다 — 재시작이 이 턴을 끊는다. 데몬의 턴 대기는 대화 기록이 2분
