@@ -99,18 +99,22 @@ rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으�
 rocky rc agy                     # Antigravity 원격 제어 상태 한 줄
 rocky rc agy stop                # agy remote-control stop(정지 + 등록 해제) — start 는 등록 + 기동
 rocky rc nightly --dry-run       # 야간 재시작 리허설 — 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다)
+rocky rc nightly                 # 야간 재시작을 지금 한 번(백그라운드) — 결과는 rocky rc 의 "야간:" 줄
 ```
 
 서버는 데몬과 다른 프로세스 그룹으로 띄워 데몬을 재시작·업데이트해도 살아 있다. 재시작은 SIGTERM 뒤 20초를 기다리고, `already served`(claude.ai 쪽 등록이 남음)면 45초·90초 뒤 다시 띄운다. 기동 로그와 이벤트는 todo 폴더의 `rc/`(`<라벨>.out` · `.err` · `events.jsonl`)에 남는다.
 
 **감시**(`"supervise": true`, 기본 꺼짐): 데몬이 2분마다 고정 서버를 보고 꺼져 있으면 스스로 띄운다(비고정은 띄우지 않는다 — 단 야간 재시작이 내리고 못 띄워 되살림 표식 `rc/<라벨>.revive` 가 남은 것은 서버만 띄우고 표식을 지운다). 연달아 못 뜨면 2분부터 30분까지 쉬었다 다시 해 본다. 데몬 맥락(launchd 면 키체인)의 claude 자격이 끊기면 macOS 배너를 한 번 띄우고 그동안은 띄우지 않으며, 돌아오면 다시 한 번 알리고 끊기기 전에 뜬 서버를 "자격 의심"으로 표시한다(다시 띄우기를 권한다). 자격 기록은 `rc/auth.json`.
 
+**야간 재시작**(`"nightly": {}` — 블록이 있으면 켜진다, 기본 꺼짐): 매일 `at`(기본 04:30, 이 기기 현지 시각)에 `claude update` 를 돌리고, 기동 때 남긴 버전(`rc/<라벨>.version`)이 설치 버전과 다르면서 쉬는 서버만 다시 띄운다. 쉬는 서버는 열린 세션이 없거나 그 폴더 대화 기록이 `quietMinutes`(기본 60분) 넘게 안 바뀐 것이다. 고정 하나를 먼저 내려 띄워 보고, 뜬 뒤에야 나머지를 내린다. 내리기 직전마다 네트워크를 확인한다. 바쁜 서버는 다음 날로 넘긴다. 내렸는데 못 띄운 것은 되살림 표식(`rc/<라벨>.revive`)을 남겨 감시가 서버 모드로 띄운다 — **감시와 함께 켠다**. 맥이 그 시각에 자고 있었으면 깬 뒤 한 번 돈다(`rc/nightly.json`). 처음 켠 날 낮에는 돌지 않는다. 못 띄운 서버가 있을 때만 배너를 띄운다.
+
 
 | API | 내용 |
 | --- | --- |
 | `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않는다 |
-| `GET /api/rc/servers` | 대상 행(`servers`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 5초 캐시 |
+| `GET /api/rc/servers` | 대상 행(`servers`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 감시가 켜졌으면 `supervise`(마지막 바퀴 · 데몬 자격 끊김), 야간 재시작이 켜졌거나 돈 적이 있으면 `nightly`(시각 · 도는 중 · 마지막 결과). 5초 캐시 |
 | `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 띄우므로 로컬 전용(403). rc 가 꺼진 기기면 404 |
+| `POST /api/rc/nightly` | 야간 재시작을 지금 한 번 — 로컬 전용(403, 서버를 내리고 띄운다). 바로 202, 결과는 현황의 `nightly.last`. 이미 도는 중이면 409, rc 가 꺼진 기기면 404. 배너를 띄우지 않고 일정의 날짜 기록도 건드리지 않는다 |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
@@ -156,7 +160,7 @@ claude plugin install rocky@rocky-marketplace
 | `worklog` | `dir`(env `ROCKY_WORKLOG_DIR` 우선) / `autoCapture`(기본 true) / `captureMaxChars`(기본 800) / `digestThreshold`(기본 40) |
 | `usage` | 사용 로그. `dir`(기본 `~/.config/rocky/usage`) / `enabled`(기본 true). 표면별 호출을 월별 JSONL로 남기고 `rocky usage`로 읽는다. 내용은 싣지 않는다 |
 | `pr` | PR 감시. `enabled`(기본 true) / `intervalMinutes`(기본 3) / `notify`(기본 true) / `sessionNotify`(기본 true) / `notifiers[]`(알림 브릿지, 예: `bridges/telegram/`). 데몬은 **구독한 PR만** 본다. 동작은 [`docs/board.md`](./docs/board.md) "PR 감시" |
-| `rc` | `claude rc` 서버 현황 — **사용자 설정(`~/.config/rocky/rocky.json`)에서만 읽는다**(프로젝트 `./rocky.json` 의 `rc` 는 무시 — 데몬은 전역 하나다). `enabled`(기본 true — rc 를 못 쓰는 기기에선 false) / `supervise`(기본 false — 꺼진 고정 서버를 데몬이 되살린다) / `root`(기본 `~/dev/workspaces`, 상대 경로면 홈 기준) / `pinned`(늘 떠 있어야 하는 폴더) / `targets`(부를 수 있는 폴더). 블록이 없거나 꺼 두면 프로브·화면 모두 없다 |
+| `rc` | `claude rc` 서버 현황 — **사용자 설정(`~/.config/rocky/rocky.json`)에서만 읽는다**(프로젝트 `./rocky.json` 의 `rc` 는 무시 — 데몬은 전역 하나다). `enabled`(기본 true — rc 를 못 쓰는 기기에선 false) / `supervise`(기본 false — 꺼진 고정 서버를 데몬이 되살린다) / `nightly`(블록이 있으면 켜짐 — `at` 기본 04:30 · `quietMinutes` 기본 60, 새벽에 구버전이면서 쉬는 서버만 다시 띄운다) / `root`(기본 `~/dev/workspaces`, 상대 경로면 홈 기준) / `pinned`(늘 떠 있어야 하는 폴더) / `targets`(부를 수 있는 폴더). 블록이 없거나 꺼 두면 프로브·화면 모두 없다 |
 | `statusline` | `rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄 — cc-usage 와 같은 출력)의 한도 설정. `source`(`auto` 기본 / `stdin` / `api` / `none`) / `alertPercent`(기본 90, `0` 이면 임박 경고 끔). `extraCommands[]`(다른 도구의 statusline 줄 — `command` argv, `timeoutMs` 기본 300). `configDir`(기본 `~/.claude`, 세션의 `CLAUDE_CONFIG_DIR` 가 이긴다) — 한도 캐시(`~/.cache/rocky/statusline/`)는 설정 폴더와 로그인된 계정별로 갈린다. usage API 는 statusline 이 갱신 프로세스를 detached 로 띄워 부르고(`pollSeconds` 기본 300 · `creditPollSeconds` 300, 토큰은 `tokenEnv` → keychain → `.credentials.json` 순으로 읽기만 한다. `keychainService` · `credentialsFile` 은 `configDir`(없으면 `~/.claude`)의 세션에만 쓰이고, 그 밖의 설정 폴더는 keychain 을 건너뛰고 `<그 폴더>/.credentials.json` 을 본다), `creditDivisor`(100) · `currency`(`$`) · `alwaysShowCredits` 로 크레딧 표시를 고른다. 보드 줄 템플릿(`todo.statusline`)과는 다른 자리다 |
 | `tokens` | Claude Code 토큰 색인. `enabled`(기본 true) / `dir`(트랜스크립트 루트, 기본 `$CLAUDE_CONFIG_DIR/projects` → `~/.claude/projects`) / `recommend`(`window` 15 · `minTurns` 5 · `lowOutputTokens` 3000 · `lowerEffort` · `holdAfterRaise` · `switchToSonnet` · `freshSession` · `heavyContextTokens` 200000 · `freshSessionOutputTokens` 10000) |
 | `verify` | 기본 브랜치 검증(opt-in). `targets[]` — `board`(그 보드 `path`가 레포) / `branch`(기본 `main`) / `steps[]`(`name` · `command` argv · `timeoutMs` 기본 30분) — 와 `intervalSeconds`(기본 60). 아래 "기본 브랜치 검증" |

@@ -2100,6 +2100,35 @@ async fn dispatch(
             });
         }
     }
+    // ── 야간 재시작 손 실행 — 서버를 내리고 띄우므로 로컬 전용. 일은 백그라운드, 바로 202. 배너는 띄우지 않는다(부른 사람이
+    // `rocky rc` 로 결과를 본다) ──
+    if *method == Method::POST && path == "/api/rc/nightly" {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_SPAWN_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let Some(control) = state.rc_control.clone() else {
+            return Ok(error_response(
+                "이 기기에서는 rc 가 꺼져 있다",
+                StatusCode::NOT_FOUND,
+            ));
+        };
+        return Ok(match control.begin_nightly() {
+            Ok(()) => {
+                tokio::spawn(async move {
+                    let quiet: crate::rc::RcNotifier = Arc::new(|_, _| {});
+                    control.run_nightly(&quiet).await;
+                });
+                json_response(&json!({ "accepted": true }), StatusCode::ACCEPTED)
+            }
+            Err(crate::rc::RcRefusal::NotFound(m)) => error_response(&m, StatusCode::NOT_FOUND),
+            Err(crate::rc::RcRefusal::Busy(m) | crate::rc::RcRefusal::Ambiguous(m)) => {
+                error_response(&m, StatusCode::CONFLICT)
+            }
+        });
+    }
     // ── rc 서버 띄우기 · 재시작 — 프로세스를 띄우므로 세션 띄우기와 같은 등급(로컬 전용). 일은 백그라운드, 바로 202 ──
     if *method == Method::POST {
         if let Some((label, verb)) = path

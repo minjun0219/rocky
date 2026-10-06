@@ -1,4 +1,4 @@
-use rocky_cli::rc_cmd::{human_uptime, render_nightly, render_result, render_status};
+use rocky_cli::rc_cmd::{human_uptime, nightly_line, render_nightly, render_result, render_status};
 use serde_json::json;
 
 #[test]
@@ -126,5 +126,36 @@ fn nightly_preview_lists_what_would_happen() {
     assert_eq!(
         render_nightly(&blocked),
         "야간 리허설 — update: x\n전부 건너뜀 — logged-out"
+    );
+}
+
+#[test]
+fn nightly_line_summarizes_the_last_run() {
+    assert_eq!(
+        nightly_line(&json!({"at": "04:30", "running": false})),
+        "야간: 04:30 · 아직 안 돌았다"
+    );
+    assert_eq!(
+        nightly_line(&json!({"at": "04:30", "running": true})),
+        "야간: 04:30 · 도는 중"
+    );
+    let last = json!({
+        "at": "04:30",
+        "running": false,
+        "last": {"startedAt": "x", "update": "u", "items": [
+            {"label": "a", "outcome": "restarted", "note": ""},
+            {"label": "b", "outcome": "skipped", "note": ""},
+            {"label": "c", "outcome": "down", "note": ""}
+        ]}
+    });
+    assert_eq!(
+        nightly_line(&last),
+        "야간: 04:30 · 마지막 ? — 재시작 1 · 건너뜀 1 · ⚠ 못 띄움 1"
+    );
+    // 손으로만 돌렸으면 시각이 없다.
+    let manual = json!({"running": false, "last": {"startedAt": "x", "update": "u", "blocked": "logged-out", "items": []}});
+    assert_eq!(
+        nightly_line(&manual),
+        "야간: 마지막 ? — 전부 건너뜀(logged-out)"
     );
 }
