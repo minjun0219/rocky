@@ -286,3 +286,25 @@ fn event_json_shape_is_compact() {
     assert_eq!(v["source"], "web");
     assert!(v.get("actor").is_none() && v.get("ms").is_none() && v.get("meta").is_none());
 }
+
+/// `KNOWN_SURFACES` 의 REST 이름은 실제 기록되는 이름이어야 한다 — `normalize_route` 가 다르게 접으면 그 표면은 쓰여도 영영 "안 쓴
+/// 표면" 으로 남는다(`POST /api/verify/rerun` 이 `POST /api/verify/:ref` 로 접혀 그랬다). id 자리는 아무 값이나 넣어 본다.
+#[test]
+fn every_known_rest_surface_is_recorded_under_its_own_name() {
+    let mut wrong = Vec::new();
+    for (source, name) in KNOWN_SURFACES {
+        if *source != UsageSource::Rest || name.starts_with("WS ") {
+            continue;
+        }
+        let (method, path) = name.split_once(' ').unwrap();
+        let recorded = normalize_route(method, &path.replace(":ref", "zzzz-nope"));
+        if recorded.as_deref() != Some(*name) {
+            wrong.push(format!("{name} → {recorded:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "이름이 어긋난 표면:\n{}",
+        wrong.join("\n")
+    );
+}
