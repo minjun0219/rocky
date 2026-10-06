@@ -276,7 +276,12 @@ pub struct RcOps {
     pub sleep: Arc<dyn Fn(Duration) -> BoxFut<()> + Send + Sync>,
     /// 이 기기의 현지 시각 — 야간의 마감(07:00)을 잰다. 테스트는 `sleep` 과 함께 흐르는 가짜 시계를 넣는다.
     pub now: Arc<dyn Fn() -> chrono::NaiveDateTime + Send + Sync>,
+    /// PATH 에서 찾은 실행 파일의 mtime(unix 초) — 야간 보고의 agy 기록. 없으면 None.
+    pub binary_mtime: BinaryMtime,
 }
+
+/// 실행 파일 이름 → PATH 에서 찾은 그 파일의 mtime(unix 초).
+pub type BinaryMtime = Arc<dyn Fn(&str) -> Option<i64> + Send + Sync>;
 
 pub fn default_ops() -> RcOps {
     RcOps {
@@ -311,6 +316,18 @@ pub fn default_ops() -> RcOps {
         }),
         sleep: Arc::new(|d| Box::pin(tokio::time::sleep(d))),
         now: Arc::new(|| chrono::Local::now().naive_local()),
+        binary_mtime: Arc::new(|name| {
+            let path = std::env::var_os("PATH")?;
+            let file = std::env::split_paths(&path)
+                .map(|dir| dir.join(name))
+                .find(|p| p.is_file())?;
+            let modified = std::fs::metadata(file).ok()?.modified().ok()?;
+            let secs = modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_secs();
+            i64::try_from(secs).ok()
+        }),
     }
 }
 

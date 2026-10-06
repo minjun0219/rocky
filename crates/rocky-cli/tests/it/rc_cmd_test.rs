@@ -1,6 +1,6 @@
 use rocky_cli::rc_cmd::{
-    activity_summary, human_uptime, nightly_line, render_nightly, render_result, render_status,
-    start_all_targets,
+    activity_summary, human_uptime, nightly_agy_line, nightly_line, render_nightly, render_result,
+    render_status, rocky_line, start_all_targets,
 };
 use serde_json::json;
 
@@ -238,4 +238,37 @@ fn start_all_picks_down_targets_and_keeps_pinned_sessions() {
         vec![("old".to_string(), true), ("pin".to_string(), false)],
         "꺼짐이 확실한 것만 — 비고정은 서버만, 고정은 세션과 함께"
     );
+}
+
+#[test]
+fn rocky_line_says_whether_any_layer_is_behind() {
+    let all =
+        |p: &str| json!({"plugin": p, "cli": "0.42.0", "daemon": "0.42.0", "latest": "0.42.0"});
+    assert_eq!(
+        rocky_line(&all("0.42.0")),
+        "rocky: 플러그인 0.42.0 · CLI 0.42.0 · 데몬 0.42.0 · 최신 0.42.0 — 최신"
+    );
+    assert!(rocky_line(&all("0.41.0")).ends_with("— 밀려 있다"));
+    assert!(rocky_line(&json!({"daemon": "0.42.0"})).ends_with("일부를 못 쟀다"));
+    let report = json!({"update": "u", "items": [], "rocky": all("0.42.0")});
+    assert!(render_nightly(&report).contains("\nrocky: 플러그인 0.42.0"));
+}
+
+#[test]
+fn agy_line_reads_like_the_old_nightly_report() {
+    assert_eq!(
+        nightly_agy_line(&json!({"version": "1.2.14"})),
+        "agy: 1.2.14 · 데몬 꺼짐"
+    );
+    let a = json!({"version": "1.2.14", "state": "running", "pid": 4242, "oldBinary": true});
+    assert_eq!(
+        nightly_agy_line(&a),
+        "agy: 1.2.14 · 데몬 running (pid 4242) — 업데이트 전 바이너리로 돈다"
+    );
+    let started = json!({"state": "running", "pid": 1, "started": 1_800_000_000});
+    let line = nightly_agy_line(&started);
+    assert!(line.starts_with("agy: ? · 데몬 running (pid 1, "), "{line}");
+    assert!(line.ends_with(" 기동)"), "{line}");
+    let report = json!({"update": "u", "items": [], "agy": {"version": "1.2.14"}});
+    assert!(render_nightly(&report).contains("\nagy: 1.2.14 · 데몬 꺼짐"));
 }

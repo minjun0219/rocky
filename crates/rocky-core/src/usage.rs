@@ -367,6 +367,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky rc start"),
     (UsageSource::Cli, "rocky rc restart"),
     (UsageSource::Cli, "rocky rc nightly"),
+    (UsageSource::Cli, "rocky rc report"),
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),

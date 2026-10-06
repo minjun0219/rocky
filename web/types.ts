@@ -301,6 +301,18 @@ export interface RcNightlyReport {
   version?: string;
   blocked?: string;
   canaryFailed?: boolean;
+  /** rocky 세 층의 버전과 최신 릴리스 태그 — 진짜 실행에만. */
+  rocky?: { plugin?: string; cli?: string; daemon: string; latest?: string };
+  /** agy 와 원격 제어 데몬 — 진짜 실행에만, agy 가 없으면 없다. 시각은 unix 초. */
+  agy?: {
+    version?: string;
+    state?: string;
+    pid?: number;
+    instance?: string;
+    started?: number;
+    binaryMtime?: number;
+    oldBinary: boolean;
+  };
   items: RcNightlyItem[];
 }
 

@@ -79,6 +79,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
                                           재시작은 붙은 원격 세션을 끊는다 — 막 대화하는 중이면 턴이 끝날
                                           때까지 기다리고, 이 세션이 붙은 서버는 거절한다
   rocky rc nightly [--dry-run]            야간 재시작을 지금 한 번(--dry-run 은 판정만)
+  rocky rc report [--json]                마지막 야간 보고 — 서버마다 결과, rocky · agy 버전
   rocky mcp setup                         호스트별 MCP 등록 안내
   rocky mcp worklog [--roots]             worklog_* 4 도구 stdio MCP 서버 (플러그인이 띄운다; --roots 는 프로젝트를 클라이언트 roots 로)
   rocky tailscale on|off|status           테일넷 한정 HTTPS 노출 (옵션, 기본 off)

@@ -1107,3 +1107,56 @@ fn activity_age_and_subject_read_like_the_old_status() {
     );
     assert_eq!(short_subject("짧다"), "짧다");
 }
+
+#[test]
+fn rocky_versions_are_read_like_the_old_nightly() {
+    let plugins = r#"[{"id":"other@m","version":"1.0.0"},{"id":"rocky@rocky-marketplace","version":"0.42.0","scope":"user"}]"#;
+    assert_eq!(
+        parse_plugin_version(plugins, "rocky@rocky-marketplace").as_deref(),
+        Some("0.42.0")
+    );
+    assert_eq!(
+        parse_plugin_version("not json", "rocky@rocky-marketplace"),
+        None
+    );
+    assert_eq!(
+        parse_tool_version("rocky 0.42.0\n").as_deref(),
+        Some("0.42.0")
+    );
+    assert_eq!(parse_tool_version("v1.2.3").as_deref(), Some("1.2.3"));
+    assert_eq!(parse_tool_version(""), None);
+    let tags = "a\trefs/tags/v0.9.0\nb\trefs/tags/v0.42.0\nc\trefs/tags/v0.41.10\nd\trefs/tags/v0.43.0-rc.1\ne\trefs/tags/vX\n";
+    assert_eq!(
+        latest_tag(tags).as_deref(),
+        Some("0.42.0"),
+        "숫자로 비교하고 사전 릴리스는 뺀다"
+    );
+    assert_eq!(latest_tag(""), None);
+
+    let v = |plugin: Option<&str>, latest: Option<&str>| RockyVersions {
+        plugin: plugin.map(str::to_string),
+        cli: Some("0.42.0".into()),
+        daemon: "0.42.0".into(),
+        latest: latest.map(str::to_string),
+    };
+    assert_eq!(v(Some("0.42.0"), Some("0.42.0")).status(), "current");
+    assert_eq!(v(Some("0.41.0"), Some("0.42.0")).status(), "behind");
+    assert_eq!(v(None, Some("0.42.0")).status(), "unknown");
+    assert_eq!(
+        v(Some("0.42.0"), None).status(),
+        "unknown",
+        "태그를 못 받았다"
+    );
+}
+
+#[test]
+fn agy_old_binary_only_when_the_file_changed_after_start() {
+    assert!(
+        agy_old_binary(Some(100), Some(200)),
+        "업데이트가 기동보다 나중"
+    );
+    assert!(!agy_old_binary(Some(200), Some(100)));
+    assert!(!agy_old_binary(Some(100), Some(100)));
+    assert!(!agy_old_binary(None, Some(200)), "모르면 아니다");
+    assert!(!agy_old_binary(Some(100), None));
+}

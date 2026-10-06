@@ -16,7 +16,8 @@
   켜기·끄기(`POST /api/rc/antigravity/{start,stop}`, `rocky rc agy start|stop`)는 로컬 전용이고, 동작 이름은
   `AgyAction` 둘뿐이다 — agy 에 임의 하위 명령·플래그를 넘기지 않는다. 손잡이는 조회와 **같은 캐시**를 잠그고 돌린 뒤 다시
   잰다(`rc_handles`) — 끈 직후의 `status` 는 launchd 중간값(`SIGTERMed`)이라 자리 잡을 때까지 0.5초 간격으로 최대 6번(`AgyAction::settled`). agy 데몬은 agy 가 올린 launchd 잡이라 rockyd 의 자식이 아니다. 에이전트가 부를 때의 확인은
-  `permissions.ask` 에 `Bash(rocky rc agy:*)` 로 받는다(설계 8절 3번과 같은 방식).
+  `permissions.ask` 에 `Bash(rocky rc agy start:*)` · `Bash(rocky rc agy stop:*)` 로 받는다(설계 8절 3번과 같은 방식 — 상태
+  보기 `rocky rc agy` 는 묻지 않는다).
 - **서버는 새 프로세스 그룹으로 띄우고 놓는다**(`process_group(0)`, `kill_on_drop` 금지, 핸들은 좀비를 거두는 스레드만). launchd 는
   데몬 잡을 bootout 할 때 잡의 프로세스 그룹만 정리한다 — 새 그룹의 자식은 산다(2026-10-05 임시 LaunchAgent 로 실측). 자식 env 에서
   `XPC_SERVICE_NAME` 을 뗀다. *EN: new process group, never kill_on_drop — servers must outlive daemon restarts.*
@@ -72,7 +73,12 @@
   **내리기 직전마다 `curl -4` 로 네트워크**를 보고(10초 간격 3분), 안 닿으면 내리지 않는다. **내리기 전에 표식을 찍고** 뜨면 지운다.
   못 뜬 대상의 잠금은 **회복이 끝날 때까지 쥔다** — 놓으면 감시가 표식을 보고 같은 대상을 띄워 회복과 겹친다. 마감까지 못 띄운 것은
   표식을 남긴 채 놓는다 — 감시가 서버 모드로 띄운다. `already served` 재시도는 1 · 2 · 4 · 6분(낮보다 길게). 대상은 **설정 대상 중 떠 있는 것**뿐이다(strays 는 기록이 없다). 프로브 실패 · 로그아웃이면
-  전체를 건너뛴다(`nightly_blocked`). 배너는 못 띄운 서버나 canary 실패가 있을 때만. 손 실행(`POST /api/rc/nightly`, `rocky rc nightly`)은 같은 길로 한 번 — 배너 없이, 날짜 기록(`lastRun`)도 건드리지 않는다.
+  전체를 건너뛴다(`nightly_blocked`). 배너는 못 띄운 서버나 canary 실패가 있을 때만. 보고(`NightlyReport.rocky`)에 rocky 세 층 버전
+  (`claude plugin list --json` · `ROCKY_USAGE=0 rocky --version` — 사용 로그를 오염시키지 않게 · 데몬 자기 버전)과 최신 릴리스 태그(`git ls-remote` — 30초 간격 4번)를 남긴다. 설치는
+  하지 않는다. agy 도 남긴다(`NightlyReport.agy` — `agy --version` · `remote-control status`(둘 다 실패해야 미설치 — 상태만 실패하면 상태 칸만 빈다), 데몬 pid 의 `ps etime` 으로 기동 시각,
+  PATH 의 실행 파일 mtime(`RcOps.binary_mtime`), 실행 파일이 기동보다 나중에 바뀌었으면 `oldBinary`) — 켜거나 끄지 않는다. 리허설은
+  둘 다 싣지 않는다. 마지막 보고는 `rocky rc report`(읽기만 — `nightly` 와 이름을 갈라 `rocky rc nightly:*` 확인 규칙에 걸리지 않게 했다).
+  마지막 보고는 처음 현황을 낼 때 `rc/nightly.json` 에서 읽는다 — 일정이 꺼진 기기에서 손으로 돌린 보고도 데몬을 다시 띄운 뒤에 보인다. 손 실행(`POST /api/rc/nightly`, `rocky rc nightly`)은 같은 길로 한 번 — 배너 없이, 날짜 기록(`lastRun`)도 건드리지 않는다.
 - **자격 관찰**: 끊김(`In → Out`)과 회복(`Out → In`)을 바뀐 바퀴에 한 번씩만 배너로 알린다 — 같은 상태가 이어지면 다시 울리지 않는다.
   기록은 `rc/auth.json`(데몬을 다시 띄워도 회복을 알아채게). 회복 뒤 로그아웃보다 먼저 뜬 서버는 `authSuspect` — 자동으로 재시작하지
   않는다(세션이 붙어 있을 수 있다). launchd 로 도는 데몬은 키체인을 읽어 셸과 자격이 갈릴 수 있다(2026-10-06 두 번째 재발).
