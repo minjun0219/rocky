@@ -17,6 +17,7 @@ export type WebUsageEvent =
   | 'web:theme'
   | 'web:archived-toggle'
   | 'web:quick-add'
+  | 'web:archive-done'
   | 'web:alert-open'
   | 'web:worklog-todo'
   | 'web:rc-start'
