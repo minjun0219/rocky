@@ -20,7 +20,12 @@ test('읽지 않은 댓글 요약 줄을 펼친다', async ({ page }) => {
 });
 
 test('피드 행으로 상세를 열고 ESC 로 닫는다', async ({ page }) => {
-  await page.locator('section[aria-label="내 차례"] li button').first().click();
+  // 답 기다리는 에이전트 행(가짜 claude 픽스처)은 상세가 아니라 에이전트 탭을 연다 — 할 일 행을 누른다.
+  await page
+    .locator('section[aria-label="내 차례"] li button')
+    .filter({ hasNotText: '답 기다림' })
+    .first()
+    .click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await audit(page, '피드에서 연 상세');
   await page.keyboard.press('Escape');
