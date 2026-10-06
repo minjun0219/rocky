@@ -133,7 +133,7 @@ fn dormant_blocked_background_is_idle_not_gone() {
         ..doing_todo()
     };
     let sessions = rocky_core::sessions::parse_sessions(
-        r#"[{"id":"0da6a98a","cwd":"/Users/x/dev/rocky-todo/.claude/worktrees/todo-1","kind":"background","startedAt":1,"sessionId":"0da6a98a-ed68-4ca3-a447-9ae91c1be8e9","name":"rocky-todo-1","state":"blocked"}]"#,
+        r#"[{"id":"0da6a98a","cwd":"/Users/x/dev/rocky-todo","kind":"background","startedAt":1,"sessionId":"0da6a98a-ed68-4ca3-a447-9ae91c1be8e9","name":"rocky-todo-1","state":"blocked"}]"#,
     );
     assert_eq!(
         resolve_doing_state(&todo, "rocky-todo", &sessions),

@@ -26,7 +26,7 @@ use rocky_core::local_request::{
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
 };
-use rocky_core::sessions::{match_board, AgentSession, SessionsResult};
+use rocky_core::sessions::{match_board, takes_handoff, AgentSession, SessionsResult};
 use rocky_core::statusline::{
     board_key_for_cwd, render_statusline, BoardLocation, StatuslineData, StatuslineMine,
     DEFAULT_STATUSLINE_TEMPLATE, STATUSLINE_TITLE_MAX,
@@ -2679,7 +2679,11 @@ async fn handoff_route(
             .find(|b| b.id == todo.board_id)
             .map(|b| b.key)
             .unwrap_or_default();
-        let candidates = match_board(&result.sessions, &board_key);
+        // 잠든(`blocked`)·끝난 background 세션은 자동 대상이 아니다 — 잠든 세션의 cwd 는 레포 루트라 보드와 맞는다.
+        let candidates: Vec<&AgentSession> = match_board(&result.sessions, &board_key)
+            .into_iter()
+            .filter(|s| takes_handoff(s))
+            .collect();
         if candidates.len() != 1 {
             let error = if candidates.is_empty() {
                 format!("\"{board_key}\" 에 해당하는 활성 세션이 없다 — 대상을 직접 고르라")

@@ -12,9 +12,10 @@ const SAMPLE_BACKGROUND: &str = r#"[
   {"pid":24075,"id":"5acaaaeb","cwd":"/repo/.claude/worktrees/todo-16","kind":"background","startedAt":1785151478042,"sessionId":"5acaaaeb-1275-48d1-8f4c-3970c33ff6dc","name":"rocky-todo-16","status":"idle","state":"done"}
 ]"#;
 
-/// Claude Code 2.1.289 — 잠든 background 행에는 `pid`·`status` 가 없고 `state` 에 `blocked` 가 온다.
+/// Claude Code 2.1.289 — 잠든 background 행에는 `pid`·`status` 가 없고 `state` 에 `blocked` 가 온다. cwd 는 워크트리가
+/// 아니라 레포 루트다(워크트리 경로는 `~/.claude/jobs/<id>/state.json` 의 `worktreePath` 에만 있다).
 const SAMPLE_DORMANT: &str = r#"[
-  {"id":"0da6a98a","cwd":"/repo/.claude/worktrees/todo-25","kind":"background","startedAt":1786318742359,"sessionId":"0da6a98a-ed68-4ca3-a447-9ae91c1be8e9","name":"repo-25","state":"blocked"},
+  {"id":"0da6a98a","cwd":"/repo","kind":"background","startedAt":1786318742359,"sessionId":"0da6a98a-ed68-4ca3-a447-9ae91c1be8e9","name":"repo-25","state":"blocked"},
   {"pid":82536,"cwd":"/repo","kind":"interactive","startedAt":1791192384395,"sessionId":"92a79b99-aebd-55bc-b4a0-335c04e5848e","name":"Rocky","status":"idle"}
 ]"#;
 

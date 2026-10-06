@@ -98,6 +98,12 @@ pub fn parse_sessions(stdout: &str) -> SessionsResult {
     }
 }
 
+/// 핸드오프를 받을 수 있는 세션인가 — 사람 답을 기다리며 잠든(`blocked`) 세션과 끝난(`done`) background 세션은
+/// 아니다. 목록에는 남아 doing 생존 판정에는 쓰이지만(잠든 것은 사라진 게 아니다), 일을 새로 넘길 곳은 아니다.
+pub fn takes_handoff(session: &AgentSession) -> bool {
+    !matches!(session.state.as_deref(), Some("blocked" | "done"))
+}
+
 /// 보드 key 로 후보 세션을 고른다 — **cwd 의 경로 세그먼트 중 하나가 key 와 정확히
 /// 일치**하면 후보다. basename 만 보면 워크트리를 놓친다.
 pub fn match_board<'a>(sessions: &'a [AgentSession], board_key: &str) -> Vec<&'a AgentSession> {
