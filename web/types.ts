@@ -154,6 +154,18 @@ export interface HandoffView extends Handoff {
   stale: boolean;
 }
 
+/** `POST /api/todos/:ref/spawn` 응답. rc 가 켜진 기기는 `server`(핸드오프 서버), 아니면 `sessionShortId`(`claude --bg`)와 `warning`. */
+export interface SpawnResult {
+  handoff: Handoff;
+  reused: boolean;
+  worktreePath: string;
+  sessionShortId?: string;
+  server?: { pid: number; name: string };
+  /** 받은 세션을 받은편지함으로 깨웠나 — false 면 그 세션의 다음 턴에 집는다. */
+  woke?: boolean;
+  warning?: string;
+}
+
 export interface AgentSession {
   /** 프로세스가 없는 background 세션(사람 답을 기다리며 잠든 `blocked` 등)에는 없다. */
   pid?: number;

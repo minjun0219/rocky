@@ -9,7 +9,7 @@ use rocky_core::refs::{NoteView, TodoView};
 use rocky_core::types::{Board, Comment, HistoryEntry, Section};
 use serde_json::{json, Value};
 
-use crate::client::{request, request_value, CliContext};
+use crate::client::{request, request_value, request_value_within, CliContext};
 use crate::flags::ParsedFlags;
 use crate::format::*;
 
@@ -522,7 +522,10 @@ fn format_prs(prs: &[rocky_core::prwatch::PrSnapshot]) -> String {
         .join("\n")
 }
 
-/// `spawn` — 그 todo 전용 워크트리에 새 세션.
+/// `spawn` 응답 한도 — 세션 목록 · 현황 · 워크트리(git 명령마다 60초까지) · 서버 등록(40초) · 세션 등록(60초)을 덮는다.
+const SPAWN_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// `spawn` — 그 todo 전용 워크트리에 새 세션. rc 가 켜진 기기면 rc 서버로, 아니면 `claude --bg` 로.
 pub fn cmd_spawn(
     ctx: &CliContext,
     rest: &[String],
@@ -537,11 +540,13 @@ pub fn cmd_spawn(
         Some(note) => json!({ "note": note }),
         None => json!({}),
     };
-    let raw = request_value(
+    // rc 가 켜진 기기는 데몬이 워크트리를 만들고 서버를 띄워 세션 등록까지 기다렸다 답한다 — 기본 30초로는 모자란다.
+    let raw = request_value_within(
         ctx,
         "POST",
         &todo_ref_path(id, "/spawn", board),
         Some(&body),
+        SPAWN_LIMIT,
     )?;
     let result: SpawnResult =
         serde_json::from_value(raw.clone()).map_err(|e| format!("응답을 읽지 못했다: {e}"))?;

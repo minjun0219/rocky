@@ -16,6 +16,7 @@ mod server_handoff_test;
 mod server_inbox_test;
 mod server_issue_test;
 mod server_rest_test;
+mod server_spawn_rc_test;
 mod server_spawn_test;
 mod server_statusline_test;
 mod sessions_swr_test;

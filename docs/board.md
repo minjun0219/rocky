@@ -563,9 +563,22 @@ MCP `todo_write { id, createIssue: true }`
 ## 보드 → 새 워크트리 세션 (spawn, 로컬 전용)
 
 실행 중인 세션이 없어도 보드에서 바로 새 작업을 시작시킬 수 있다 — `rocky spawn REF
-[--message "본문"]`(REST `POST /api/todos/:ref/spawn`). 데몬은 git을
-전혀 만지지 않는다 — `claude --bg --worktree todo-<번호>`를 실행해 **Claude Code 에게
-워크트리 생성을 맡긴다.**
+[--message "본문"]`(REST `POST /api/todos/:ref/spawn`). 기기에 따라 두 길이다:
+
+- **rc 가 켜진 기기(`rc` 블록)** — 데몬이 할 일의 워크트리를 만들고(없으면) 그 안에서 **단일 세션 rc 서버**
+  (`claude rc --spawn session --name "<보드>-<번호>: <요약>"`)를 띄운 뒤, 서버가 만든 세션에 핸드오프를 넣고 받은편지함으로
+  깨운다. 폰 · 웹의 원격 제어 목록에서 그 이름으로 이어 본다. 요약은 할 일 제목 앞 24글자(띄어쓰기에서 끊는다).
+  - 워크트리는 `git worktree add -b worktree-todo-<번호> <경로> origin/<기본 브랜치>`(fetch 10초, 실패해도 받아 둔 origin
+    기준) — Claude Code `--worktree` 와 같은 자리 · 같은 브랜치라 예전 spawn 의 워크트리를 그대로 쓴다. 이 길로 만든 워크트리는
+    Claude Code 의 정리 sweep 이 지우지 않고 `.worktreeinclude` 를 처리하지 않는다.
+  - **할 일당 서버 하나** — 그 워크트리에서 rc 서버가 이미 돌면 409. 서버는 rc 대상이 아니라 감시 · 야간이 건드리지 않고
+    (현황에는 대상 밖 서버로 보인다), **내리는 것은 사람이다** — 세션이 끝났다고 알리면 닫는다.
+  - 서버는 떴는데 60초 안에 세션이 받은편지함을 등록하지 않으면 400 — 서버는 남긴다(폰 · 웹에서 열 수 있다).
+  - 응답은 `server`(pid · 이름)와 `woke`(받은 세션을 깨웠나), 새로 딴 워크트리면 `base`(기준 — `origin/HEAD` → `origin/main` →
+    `origin/master`, 다 없으면 메인 체크아웃의 HEAD). 데몬이 서버 등록 · 세션 등록까지 기다렸다 답한다 — 보통 10~20초, CLI 한도
+    5분.
+- **rc 가 꺼진 기기** — `claude --bg --worktree todo-<번호>`를 실행해 **Claude Code 에게 워크트리 생성을 맡긴다.** 이
+  세션은 로그인 세션 밖에서 돌아 ssh · 자격이 끊길 수 있어(PR 로 끝나는 일을 못 끝낸다), 응답에 `warning` 이 붙는다.
 
 - **경로 설정**: 보드마다 메인 레포의 절대경로(`boards.path`)를 알아야 spawn이 동작한다.
   `rocky board path [절대경로]`(인자 없으면 지금 있는 cwd)로 설정한다 — GitHub 이슈의
@@ -578,12 +591,14 @@ MCP `todo_write { id, createIssue: true }`
   `worktree-todo-<번호>`. 같은 todo 번호로 다시 누르면 Claude Code가 기존 워크트리를
   재사용한다 — 워크트리 이름 자체가 "이 todo의 워크트리" 라는 기억이라 데몬은 따로
   저장하지 않는다.
-- **정리**: `claude rm <짧은 id>`가 워크트리와 job state를 함께 지운다. git 명령으로
-  직접 지우려면 Claude Code가 걸어둔 lock 때문에 `git worktree remove -f -f`가 필요하다.
+- **정리**: `--bg` 로 띄운 것은 `claude rm <짧은 id>`가 워크트리와 job state를 함께 지운다. git 명령으로
+  직접 지우려면 Claude Code가 걸어둔 lock 때문에 `git worktree remove -f -f`가 필요하다. rc 갈래로 만든 워크트리는 lock 이
+  없다 — 서버를 닫은 뒤 `git worktree remove <경로>`.
   **자동 삭제는 없다** — 커밋되지 않은 작업물이 조용히 사라지는 것이 이 기능에서 가장
   나쁜 실패라, 워크트리는 명시적으로 지울 때까지 남는다.
-- **동시 실행 가드**: 그 워크트리에서 이미 도는 세션(백그라운드든 사람이 연 interactive
-  세션이든)이 있으면 새로 띄우지 않고 기존 핸드오프 큐로 넘긴다(`reused: true`) — 두
+- **동시 실행 가드**: 그 워크트리에서 이미 도는 세션(백그라운드든 rc 든 사람이 연 interactive
+  세션이든)이 있으면 새로 띄우지 않고 기존 핸드오프 큐로 넘기고, 받은편지함을 등록한 세션이면 깨운다(`reused: true` ·
+  `woke`) — 두
   에이전트가 한 워크트리를 같이 고치는 사고를 막는다. 이 판정만은 **캐시 없는** 세션
   목록으로 한다(다른 조회는 TTL 3초 캐시를 쓴다). 새 세션이 `agents --json`에 등록되기
   전의 틈은 데몬이 "방금 띄운 워크트리" 를 60초 기억해 메운다 — 그 창 안의 재요청은
@@ -596,8 +611,8 @@ MCP `todo_write { id, createIssue: true }`
   `spawnAllowed`가 힌트, 강제는 서버가 한다). 원격에서 띄우려면 그 머신에서 CLI(`rocky spawn REF`)를 쓰거나
   에이전트에게 시킨다.
 - **승인 프롬프트에서 멈춘 세션은 보드가 모른다** — `state`가 그때도 `working`으로
-  보인다. 드로어와 `rocky sessions`가 보여주는 짧은 id로 `claude attach <id>` 하면
-  붙어서 승인을 처리할 수 있다.
+  보인다. `--bg` 세션은 드로어와 `rocky sessions`가 보여주는 짧은 id로 `claude attach <id>` 하면
+  붙어서 승인을 처리할 수 있다. rc 세션은 폰 · 웹의 원격 제어 목록에서 그 이름으로 연다.
 - **`--permission-mode`는 넘기지 않는다** — 사용자 settings의 `permissions.defaultMode`
   를 그대로 따른다.
 - MCP 도구는 늘지 않았다 — spawn은 사람이 보드에서 누르는 버튼으로만 남는다.

@@ -1160,3 +1160,84 @@ fn agy_old_binary_only_when_the_file_changed_after_start() {
     assert!(!agy_old_binary(None, Some(200)), "모르면 아니다");
     assert!(!agy_old_binary(Some(100), None));
 }
+
+#[test]
+fn handoff_server_name_is_ref_and_a_short_summary() {
+    assert_eq!(
+        handoff_server_name("rocky", 41, "핸드오프 작업"),
+        "rocky-41: 핸드오프 작업"
+    );
+    assert_eq!(
+        handoff_server_name(
+            "rocky",
+            41,
+            "핸드오프 세션을 rc 로 띄우고 데몬이 첫 메시지를 넣는다"
+        ),
+        "rocky-41: 핸드오프 세션을 rc 로 띄우고 데몬이 첫…",
+        "단어가 끝난 자리에서 24 글자가 찼다"
+    );
+    assert_eq!(
+        handoff_server_name(
+            "rocky",
+            41,
+            "핸드오프 세션을 rc 로 띄우고 데몬이 첫메시지를 넣는다"
+        ),
+        "rocky-41: 핸드오프 세션을 rc 로 띄우고 데몬이…",
+        "단어 중간이면 마지막 띄어쓰기까지 물러난다"
+    );
+    assert_eq!(
+        handoff_server_name("rocky", 7, "  줄\n바꿈  "),
+        "rocky-7: 줄 바꿈"
+    );
+    assert_eq!(handoff_server_name("rocky", 7, "   "), "rocky-7");
+    let argv = handoff_server_argv("rocky-41: 핸드오프 작업");
+    assert_eq!(argv[..4], ["claude", "rc", "--spawn", "session"]);
+    assert_eq!(argv[4], "--name=rocky-41: 핸드오프 작업", "이름은 한 인자");
+    assert!(is_server_argv(&argv.join(" ")));
+    assert_eq!(handoff_log_label("rocky", 41), "handoff-rocky-41");
+    assert_eq!(
+        handoff_log_label("../x/y", 2),
+        "handoff-___x_y-2",
+        "보드 key 의 / · . 은 파일 이름에 넣지 않는다"
+    );
+}
+
+#[test]
+fn handoff_session_is_the_child_of_that_server_in_that_dir() {
+    use rocky_core::peer_inbox::InboxRegistration;
+    let reg = |id: &str, pid: u32, cwd: &str, seen_at: i64| InboxRegistration {
+        session_id: id.into(),
+        socket: format!("/tmp/cc-socks/{pid}.sock"),
+        cwd: cwd.into(),
+        seen_at,
+        restored: false,
+    };
+    let regs = vec![
+        reg("old", 300, "/w/a", 30),       // 그 서버의 자식이 아니다
+        reg("reused-pid", 200, "/w/a", 5), // 같은 소켓(pid 재사용)인데 서버를 띄우기 전 등록
+        reg("new", 200, "/w/a/", 20),
+    ];
+    let rows = parse_ps(
+        "  100     1 01:00 claude rc --spawn session --name rocky-41: x\n  200   100 00:50 /x/claude --print --sdk-url https://a/v1/code/sessions/cse_1\n  300     1 05:00 /x/claude\n",
+    );
+    assert_eq!(
+        handoff_session(&regs, &rows, 100, 10).map(|r| r.session_id.as_str()),
+        Some("new"),
+        "서버를 띄운 뒤(10) 등록한 그 서버의 자식"
+    );
+    assert_eq!(handoff_session(&regs, &rows, 999, 10), None, "다른 서버");
+    assert_eq!(
+        handoff_session(&regs, &rows, 100, 25),
+        None,
+        "띄운 뒤의 등록이 아직 없다"
+    );
+    assert_eq!(socket_pid("/tmp/cc-socks/200.sock"), Some(200));
+    assert_eq!(socket_pid("/tmp/other/200.sock"), None);
+    assert_eq!(
+        worktree_base("origin/main\n").as_deref(),
+        Some("origin/main")
+    );
+    assert_eq!(worktree_base(""), None);
+    assert_eq!(worktree_base("origin/"), None);
+    assert_eq!(worktree_branch("todo-41"), "worktree-todo-41");
+}

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { CollectItem, HandoffView, PrSnapshot } from './types';
 import type { NoteView, TodoView } from './types';
 import type { BoardView, RcStatus, SessionRow } from './types';
-import type { Board, Comment, HistoryEntry, Section, StatusAction } from './types';
+import type { Board, Comment, HistoryEntry, Section, SpawnResult, StatusAction } from './types';
 import {
   advanceSeen,
   markSeen,
@@ -289,10 +289,7 @@ interface UiState {
    * 성공 여부와 무관하게 보드에 눌어붙어 다른 todo·다른 탭까지 같은 실패를 물려받았다).
    * @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다.
    */
-  spawnSession: (
-    todoId: string,
-    input: { note?: string; path?: string },
-  ) => Promise<{ reused: boolean; worktreePath: string; sessionShortId?: string }>;
+  spawnSession: (todoId: string, input: { note?: string; path?: string }) => Promise<SpawnResult>;
   /** 보드의 메인 레포 경로를 설정한다. @throws 서버 거절 사유 그대로. */
   setBoardPath: (boardKey: string, path: string) => Promise<void>;
   /**
@@ -1029,11 +1026,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   spawnSession: async (todoId, input) => {
     const { actor } = get();
-    const result = await api<{
-      reused: boolean;
-      worktreePath: string;
-      sessionShortId?: string;
-    }>(`/api/todos/${todoId}/spawn`, actor, {
+    const result = await api<SpawnResult>(`/api/todos/${todoId}/spawn`, actor, {
       method: 'POST',
       body: JSON.stringify({
         ...(input.note ? { note: input.note } : {}),
