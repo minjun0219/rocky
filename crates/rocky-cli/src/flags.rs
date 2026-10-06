@@ -15,9 +15,10 @@ const BOOLEAN_FLAGS: [&str; 19] = [
 ];
 
 /// 다음 argv 원소를 값으로 먹는 플래그.
-const VALUE_FLAGS: [&str; 20] = [
+const VALUE_FLAGS: [&str; 21] = [
     "board", "section", "parent", "desc", "due", "priority", "actor", "title", "content", "limit",
     "repo", "session", "message", "to", "before", "since", "cwd", "filter", "by", "branch",
+    "source",
 ];
 
 /// 여러 번 줄 수 있어 값이 쌓이는 플래그.

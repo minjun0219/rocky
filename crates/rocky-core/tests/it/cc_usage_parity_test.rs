@@ -5,7 +5,8 @@ use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Utc};
 use rocky_core::limits::{
-    alerts, credits, select, Input, LimitsConfig, Source, StateFile, UsageCache,
+    alerts, credits, local_limits, override_source, select, Input, LimitsConfig, Source, StateFile,
+    UsageCache,
 };
 use rocky_core::statusline::full::{abbrev_home, duration, lines, Badge, Style, View};
 use rocky_core::statusline::width::display_width;
@@ -14,13 +15,24 @@ use serde_json::Value;
 /// 픽스처의 `{{HOME}}` 자리 — 캡처 때는 임시 HOME 이었다.
 const HOME: &str = "/home/fixture";
 
+/// 케이스의 인자에서 `--source` 값.
+fn source_flag(case: &Value) -> Option<&str> {
+    let args = case["args"].as_array()?;
+    let at = args.iter().position(|a| a == "--source")?;
+    args.get(at + 1)?.as_str()
+}
+
 fn render(case: &Value) -> String {
     let stdin = case["stdin"].as_str().unwrap().replace("{{HOME}}", HOME);
+    let configured = case["config"]["source"]
+        .as_str()
+        .and_then(Source::parse)
+        .unwrap_or_default();
+    // 이번 실행의 source — 설정 < 환경 변수 < 플래그. 모르는 플래그 값은 CLI 가 한 줄로 알린다(CLI 테스트가 본다).
+    let source = override_source(configured, case["sourceEnv"].as_str(), source_flag(case))
+        .expect("모르는 --source 케이스는 CLI 테스트 몫");
     let cfg = LimitsConfig {
-        source: case["config"]["source"]
-            .as_str()
-            .and_then(Source::parse)
-            .unwrap_or_default(),
+        source,
         alert_percent: case["config"]["alert_percent"].as_f64(),
         // rocky 만의 크레딧 페이드는 끄고 대조한다(끄면 cc-usage 와 같은 색).
         credit_fade: Some(false),
@@ -42,21 +54,32 @@ fn render(case: &Value) -> String {
     let input = Input::parse(&stdin);
     // 캡처 때 cc-usage 캐시에 심은 state.json — 없으면 빈 상태.
     let mut state: StateFile = serde_json::from_value(case["state"].clone()).unwrap_or_default();
-    let selected = select(&cfg, &input, &state, &cache, now);
-    let limits = selected.unwrap_or_default();
-    // 경보 시각(state)으로 깜빡임 프레임을 고른다 — 한도를 다루지 않으면 경보도 없다.
-    let alert = selected.map_or_else(Default::default, |_| {
-        alerts(&cfg, &limits, &mut state, now).0
-    });
+    // none·agy 는 Claude 쪽 캐시·계정을 보지 않는다 — 심어 둔 캐시가 있어도 새면 안 된다.
+    let local = local_limits(&cfg, &input, now);
+    let selected = match local {
+        Some(_) => None,
+        None => select(&cfg, &input, &state, &cache, now),
+    };
+    let limits = local.map_or_else(|| selected.unwrap_or_default(), |(lim, _)| lim);
+    // 경보 시각(state)으로 깜빡임 프레임을 고른다 — 한도를 다루지 않으면 경보도 없다. agy 는 배지로 고정.
+    let alert = match local {
+        Some((_, alert)) => alert,
+        None => selected.map_or_else(Default::default, |_| {
+            alerts(&cfg, &limits, &mut state, now).0
+        }),
+    };
     // 로그인된 계정(캡처 때 ~/.claude.json 에 심은 이메일)의 배지.
-    let badge = case["account"].as_str().and_then(|email| {
-        let b = &case["config"]["badges"][email];
-        b.is_object().then(|| Badge {
-            emoji: b["emoji"].as_str().unwrap_or_default().to_string(),
-            glyph: b["glyph"].as_str().unwrap_or_default().to_string(),
-            color: b["color"].as_str().unwrap_or_default().to_string(),
-        })
-    });
+    let badge = case["account"]
+        .as_str()
+        .filter(|_| local.is_none())
+        .and_then(|email| {
+            let b = &case["config"]["badges"][email];
+            b.is_object().then(|| Badge {
+                emoji: b["emoji"].as_str().unwrap_or_default().to_string(),
+                glyph: b["glyph"].as_str().unwrap_or_default().to_string(),
+                color: b["color"].as_str().unwrap_or_default().to_string(),
+            })
+        });
     let view = View {
         dir: input.dir(),
         git: None,
@@ -115,6 +138,10 @@ fn renders_the_same_bytes_as_cc_usage() {
         }
         // extra_commands 도 프로세스를 돌려야 한다 — 같은 곳이 본다.
         if case["config"]["extra_commands"].is_array() {
+            continue;
+        }
+        // 모르는 --source 값의 한 줄 안내는 CLI 가 낸다 — 같은 곳이 본다.
+        if source_flag(&case).is_some_and(|f| Source::parse(f).is_none()) {
             continue;
         }
         let (got, want) = (render(&case), expected(dir, &case));

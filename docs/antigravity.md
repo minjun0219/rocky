@@ -54,6 +54,12 @@ agy의 HTTP MCP 클라이언트는 streamable HTTP를 말하고, 데몬의 state
   `agy plugin import`가 Claude Code 플러그인을 가져올 수 있지만 rocky 매니페스트는 `${CLAUDE_PLUGIN_ROOT}`와
   CC 전용 커맨드를 쓰므로 쓰지 않는다.
 
+## statusline
+
+agy의 statusLine도 Claude Code와 같은 꼴의 JSON을 stdin으로 주므로 `rocky statusline --full`을 그대로 건다
+(`/statusline rocky statusline --full`). 한도는 agy가 주는 `quota`로 그리고, Claude 쪽 토큰·캐시는 보지 않는다 —
+[`docs/board.md`](./board.md) "statusline에 얹기".
+
 ## 원격 제어(`agy remote-control`)
 
 rocky는 이 기기의 agy 원격 제어 데몬을 보고 켜고 끈다 — `rocky rc agy [start|stop]`, 웹 원격 제어 탭의 Antigravity 줄

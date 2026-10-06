@@ -52,6 +52,10 @@ export type Case = {
   account?: string;
   /** `{{HOME}}/project` 에 git repo 를 만드는 셸 줄들 — `sh -c` 로 차례로 돈다. Rust 테스트가 `GIT_ENV` 로 똑같이 다시 돈다. */
   repo?: string[];
+  /** `statusline` 뒤에 붙일 인자(`--source none`). rocky 는 `statusline --full` 뒤에 같은 인자를 붙인다. */
+  args?: string[];
+  /** 이번 실행의 source 환경 변수 — cc-usage 는 `CC_USAGE_SOURCE`, rocky 는 `ROCKY_STATUSLINE_SOURCE` 로 넣는다. */
+  sourceEnv?: string;
 };
 
 /** repo 를 만들 때의 git 환경 — 작성자·날짜를 고정해 커밋 해시까지 같게 하고, 사용자 git 설정을 읽지 않는다. */
@@ -115,6 +119,40 @@ const credits = (
     : { baseline: { window_key: '5h', credits: opts.baseline, at: NOW } }),
   ...(opts.rising ? { credits_rising_at: NOW } : {}),
 });
+
+/** Antigravity(agy) 의 stdin — 1.2.14 실측 꼴에서 식별 정보를 뺐다. 한도는 `rate_limits` 대신 `quota`(남은 비율). */
+const agy = (model: string | null, quota: Record<string, unknown>) => ({
+  cwd: `${HOME}/project`,
+  session_id: 'agy-s',
+  product: 'antigravity',
+  plan_tier: 'Google AI Pro',
+  ...(model === null ? {} : { model: { id: model, display_name: model, effort: 'high' } }),
+  workspace: { current_dir: `${HOME}/project`, project_dir: `${HOME}/project` },
+  context_window: { used_percentage: 12, context_window_size: 1048576 },
+  quota,
+});
+const bucket = (remaining: unknown, resetsIn: number) => ({
+  remaining_fraction: remaining,
+  reset_time: iso(resetsIn),
+});
+/** agy 기본 quota — gemini 5h 86% 남음(오늘 18:00 리셋), 주간 94%, 3p 5h 0%·주간 25%. */
+const AGY_QUOTA = {
+  'gemini-5h': bucket(0.86, 80),
+  'gemini-weekly': bucket(0.94, 3 * 24 * 60),
+  '3p-5h': bucket(0, 80),
+  '3p-weekly': bucket(0.25, 3 * 24 * 60),
+};
+/** 같은 머신의 Claude 세션이 남긴 캐시·계정 — agy·none 줄에 새면 안 된다. */
+const CLAUDE_LEFTOVERS = {
+  account: 'a@example.com',
+  config: { badges: { 'a@example.com': { emoji: '🏢' } } },
+  state: {
+    observed_at: NOW,
+    stdin_limits_seen: NOW,
+    five_hour: { percent: 30, resets_at: iso(80) },
+  },
+  usage: credits(1160, { limit: 5000 }),
+};
 
 export const CASES: Case[] = [
   { name: 'basic', why: '5h 만, 오늘 안의 리셋', stdin: withLimits({ five_hour: win(30) }) },
@@ -636,6 +674,112 @@ export const CASES: Case[] = [
       rate_limits: { five_hour: { used_percentage: '30' } },
     },
   },
+  {
+    name: 'agy-gemini',
+    why: 'agy — Gemini 모델은 gemini-* 버킷, Claude 쪽 캐시·배지는 보지 않는다',
+    stdin: agy('Gemini 3.8 Flash (High)', AGY_QUOTA),
+    ...CLAUDE_LEFTOVERS,
+  },
+  {
+    name: 'agy-3p',
+    why: 'agy — Gemini 가 아닌 모델은 3p-* 버킷(5h 소진은 배지로 고정)',
+    stdin: agy('Claude Opus 4.6 (Thinking)', AGY_QUOTA),
+    ...CLAUDE_LEFTOVERS,
+  },
+  {
+    name: 'agy-source-api',
+    why: 'agy 는 source 와 무관하게 quota 로 그린다',
+    stdin: agy('GPT-OSS 120B (Medium)', AGY_QUOTA),
+    config: { source: 'api' },
+  },
+  {
+    name: 'agy-near',
+    why: 'agy 의 임박 경보도 깜빡이지 않고 배지',
+    stdin: agy('Gemini 3.8 Flash (High)', {
+      'gemini-5h': bucket(0.05, 80),
+      'gemini-weekly': bucket(0.2, 3 * 24 * 60),
+    }),
+  },
+  {
+    name: 'agy-edge-noise',
+    why: '경계의 부동소수 오차는 잘라 쓴다(-1e-9 → 소진)',
+    stdin: agy('Gemini 3.8 Flash (High)', { 'gemini-5h': bucket(-1e-9, 80) }),
+  },
+  {
+    name: 'agy-out-of-range',
+    why: '단위를 모르는 비율은 창을 비운다',
+    stdin: agy('Gemini 3.8 Flash (High)', { 'gemini-5h': bucket(1.5, 80) }),
+  },
+  {
+    name: 'agy-missing-bucket',
+    why: '고른 버킷이 없으면 다른 버킷으로 대신하지 않는다',
+    stdin: agy('Gemini 3.8 Flash (High)', { '3p-5h': bucket(0.5, 80) }),
+  },
+  {
+    name: 'agy-no-model',
+    why: '모델을 모르면 어느 버킷인지 모른다',
+    stdin: agy(null, AGY_QUOTA),
+  },
+  {
+    name: 'agy-expired',
+    why: '리셋이 지난 창은 버린다',
+    stdin: agy('Gemini 3.8 Flash (High)', { 'gemini-5h': bucket(0.1, -10) }),
+  },
+  {
+    name: 'agy-source-none',
+    why: 'agy 에 --source none 이면 한도 없이',
+    stdin: agy('Gemini 3.8 Flash (High)', AGY_QUOTA),
+    args: ['--source', 'none'],
+  },
+  {
+    name: 'claude-with-quota',
+    why: 'product 가 antigravity 가 아니면 quota 가 와도 Claude 경로',
+    stdin: withLimits(
+      { five_hour: win(30) },
+      { product: 'claude-code', quota: { 'gemini-5h': bucket(0.1, 80) } },
+    ),
+  },
+  {
+    name: 'source-flag-none',
+    why: '--source none 은 설정을 이 실행에서만 덮는다',
+    stdin: withLimits({ five_hour: win(30) }),
+    args: ['--source', 'none'],
+    ...CLAUDE_LEFTOVERS,
+  },
+  {
+    name: 'source-env-none',
+    why: '환경 변수 none 도 같다',
+    stdin: withLimits({ five_hour: win(30) }),
+    sourceEnv: 'none',
+    ...CLAUDE_LEFTOVERS,
+  },
+  {
+    name: 'source-env-unknown',
+    why: '모르는 환경 변수 값은 무시하고 설정을 쓴다',
+    stdin: withLimits({ five_hour: win(30) }),
+    sourceEnv: 'bogus',
+  },
+  {
+    name: 'source-flag-beats-env',
+    why: '플래그가 환경 변수를 이긴다',
+    stdin: withLimits({ five_hour: win(30) }),
+    sourceEnv: 'none',
+    args: ['--source', 'stdin'],
+  },
+  {
+    name: 'source-flag-api',
+    why: '--source api 면 stdin 대신 usage 캐시',
+    stdin: withLimits({ five_hour: win(30) }),
+    args: ['--source', 'api'],
+    usage: fetched(1, { five_hour: cacheWin(55, 80) }),
+  },
+  {
+    name: 'source-flag-unknown',
+    why: '모르는 플래그 값은 무엇이 틀렸는지 한 줄',
+    stdin: withLimits({ five_hour: win(30) }),
+    args: ['--source', 'bogus'],
+    allow: EMPTY_ROW,
+  },
 ];
 
 function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: Buffer } {
@@ -678,7 +822,7 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: Bu
     writeFileSync(join(dir, 'cache', 'cc-usage', 'state.json'), JSON.stringify(c.state));
   }
   const stdin = typeof c.stdin === 'string' ? c.stdin : JSON.stringify(c.stdin);
-  const proc = Bun.spawnSync([bin, 'statusline'], {
+  const proc = Bun.spawnSync([bin, 'statusline', ...(c.args ?? [])], {
     stdin: new TextEncoder().encode(stdin.replaceAll(HOME, home)),
     env: {
       PATH: process.env.PATH ?? '/usr/bin:/bin',
@@ -687,6 +831,7 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: Bu
       CC_USAGE_CONFIG: config,
       CC_USAGE_NOW: NOW,
       TZ: c.tz ?? 'Asia/Seoul',
+      ...(c.sourceEnv === undefined ? {} : { CC_USAGE_SOURCE: c.sourceEnv }),
       ...c.env,
     },
   });
@@ -724,6 +869,8 @@ if (import.meta.main) {
           account: c.account ?? null,
           repo: c.repo ?? [],
           gitEnv: c.repo ? GIT_ENV : {},
+          args: c.args ?? [],
+          sourceEnv: c.sourceEnv ?? null,
         };
         writeFileSync(join(out, 'case.json'), `${JSON.stringify(meta, null, 2)}\n`);
         writeFileSync(join(out, 'expected.txt'), stdout);

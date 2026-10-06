@@ -205,7 +205,7 @@ pub fn observe(
     }
     // 갱신은 띄우고 기다리지 않는다 — 결과는 다음 렌더가 usage.json 에서 읽는다.
     if need_refresh(cfg, stdin_side, &lim, &state, &usage, now)
-        && crate::statusline_refresh::spawn_detached()
+        && crate::statusline_refresh::spawn_detached(cfg.source)
     {
         state.spawned_at = Some(now);
         dirty = true;

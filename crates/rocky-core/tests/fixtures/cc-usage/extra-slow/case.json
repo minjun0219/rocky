@@ -42,5 +42,7 @@
   "state": null,
   "account": null,
   "repo": [],
-  "gitEnv": {}
+  "gitEnv": {},
+  "args": [],
+  "sourceEnv": null
 }

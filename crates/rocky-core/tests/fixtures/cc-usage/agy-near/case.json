@@ -1,0 +1,18 @@
+{
+  "why": "agy 의 임박 경보도 깜빡이지 않고 배지",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin"
+  },
+  "stdin": "{\"cwd\":\"{{HOME}}/project\",\"session_id\":\"agy-s\",\"product\":\"antigravity\",\"plan_tier\":\"Google AI Pro\",\"model\":{\"id\":\"Gemini 3.8 Flash (High)\",\"display_name\":\"Gemini 3.8 Flash (High)\",\"effort\":\"high\"},\"workspace\":{\"current_dir\":\"{{HOME}}/project\",\"project_dir\":\"{{HOME}}/project\"},\"context_window\":{\"used_percentage\":12,\"context_window_size\":1048576},\"quota\":{\"gemini-5h\":{\"remaining_fraction\":0.05,\"reset_time\":\"2026-09-16T09:00:00.000Z\"},\"gemini-weekly\":{\"remaining_fraction\":0.2,\"reset_time\":\"2026-09-19T07:40:00.000Z\"}}}",
+  "allow": [],
+  "usage": null,
+  "state": null,
+  "account": null,
+  "repo": [],
+  "gitEnv": {},
+  "args": [],
+  "sourceEnv": null
+}

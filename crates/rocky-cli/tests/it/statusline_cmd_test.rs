@@ -254,8 +254,13 @@ fn full_replays_cc_usage_goldens() {
         for (k, v) in case["env"].as_object().unwrap() {
             cmd.env(k, v.as_str().unwrap());
         }
+        if let Some(source) = case["sourceEnv"].as_str() {
+            cmd.env("ROCKY_STATUSLINE_SOURCE", source);
+        }
+        let args = case["args"].as_array().unwrap();
         let mut child = cmd
             .args(["statusline", "--full"])
+            .args(args.iter().map(|a| a.as_str().unwrap()))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -603,4 +608,223 @@ fn full_fades_the_credit_amount_in_when_credits_start_burning() {
     assert_eq!(state["credits_spending_at"], "2026-09-16T07:40:00Z");
     // 3초 뒤 — 원래 색(82,170,23).
     assert!(render("2026-09-16T07:40:03Z").contains("\x1b[38;2;82;170;23m$38.40"));
+}
+
+/// 폴더 아래 파일 전부(상대 경로, 정렬) — 캐시를 건드렸는지 본다.
+fn tree(root: &std::path::Path) -> Vec<String> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                out.push(path.strip_prefix(root).unwrap().display().to_string());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+/// agy 의 stdin — 1.2.14 실측 꼴. gemini 5h 86% 남음.
+const AGY_STDIN: &str = r#"{"cwd":"/w","session_id":"agy-s","product":"antigravity","model":{"display_name":"Gemini 3.8 Flash (High)"},"context_window":{"used_percentage":12},"quota":{"gemini-5h":{"remaining_fraction":0.86,"reset_time":"2026-09-16T09:00:00Z"},"3p-5h":{"remaining_fraction":1}}}"#;
+
+/// 같은 머신의 Claude 세션이 남긴 것 — 계정 파일(배지)과 그 계정의 stdin 관측(5h 70% 남음).
+fn seed_claude_session(home: &std::path::Path) {
+    std::fs::write(
+        home.join(".claude.json"),
+        r#"{"oauthAccount":{"emailAddress":"a@example.com"}}"#,
+    )
+    .unwrap();
+    let bucket = rocky_core::claude_account::cache_bucket(
+        &slot(home, &home.join(".claude")),
+        Some("a@example.com"),
+    );
+    std::fs::create_dir_all(&bucket).unwrap();
+    let state = serde_json::json!({
+        "observed_at": NOW, "stdin_limits_seen": NOW,
+        "five_hour": {"percent": 30, "resets_at": "2026-09-16T09:00:00Z"}
+    });
+    std::fs::write(bucket.join("state.json"), state.to_string()).unwrap();
+}
+
+fn config_with(statusline: &str) -> String {
+    format!(
+        r#"{{"todo":{{"port":1,"dir":"/nonexistent","expose":"off"}},"statusline":{statusline}}}"#
+    )
+}
+
+/// agy 는 source 설정과 무관하게 Claude 쪽(갱신·캐시·계정 파일)을 건드리지 않고 quota 로만 그린다 — 같은 머신 Claude
+/// 세션의 5h(70% 남음)·배지가 새면 안 된다. 갱신을 띄웠다면 잠시 뒤 usage.json 이 생기므로 기다렸다 본다.
+#[test]
+fn full_agy_never_touches_the_claude_side() {
+    for source in ["auto", "stdin", "api"] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        seed_claude_session(home);
+        let before = tree(&home.join(".cache"));
+        let config = config_with(&format!(
+            r#"{{"source":"{source}","keychainService":"rocky-test-absent","badges":{{"a@example.com":{{"emoji":"🏢"}}}}}}"#
+        ));
+        let out = full_once(home, &[("ROCKY_STATUSLINE_NOW", NOW)], &config, AGY_STDIN);
+        assert_eq!(
+            out, "/w\nGemini 3.8 Flash (High) · ctx 12% · 5h 86% (↻09:00)\n",
+            "{source}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(
+            tree(&home.join(".cache")),
+            before,
+            "{source}: 캐시가 바뀌었다"
+        );
+    }
+}
+
+/// `--source none`·환경 변수 none 은 Claude 쪽을 하나도 건드리지 않는다. 모르는 플래그 값은 한 줄 안내만 내고 아무것도
+/// 건드리지 않는다.
+#[test]
+fn full_source_none_and_bad_flag_touch_nothing() {
+    let claude =
+        r#"{"model":{"display_name":"Opus 5"},"rate_limits":{"five_hour":{"used_percentage":30}}}"#;
+    let config = config_with(
+        r#"{"source":"auto","keychainService":"rocky-test-absent","badges":{"a@example.com":{"emoji":"🏢"}}}"#,
+    );
+    for (args, env, want) in [
+        (&["--source", "none"][..], None, "Opus 5\n"),
+        (&[][..], Some("none"), "Opus 5\n"),
+        (
+            &["--source", "bogus"][..],
+            None,
+            "[rocky] --source \"bogus\": auto|stdin|api|none 중 하나\n",
+        ),
+        // 명령줄이 틀려도 statusline 은 비지 않는다.
+        (
+            &["--source"][..],
+            None,
+            "[rocky] flag --source requires a value\n",
+        ),
+        (
+            &["--source=none"][..],
+            None,
+            "[rocky] unknown flag: --source=none\n",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        seed_claude_session(home);
+        let before = tree(&home.join(".cache"));
+        let rocky_json = home.join("rocky.json");
+        std::fs::write(&rocky_json, &config).unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+        cmd.env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", home)
+            .env("ROCKY_USAGE_DIR", home.join("usage"))
+            .env("ROCKY_CONFIG", &rocky_json)
+            .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
+            .env("NO_COLOR", "1");
+        if let Some(env) = env {
+            cmd.env("ROCKY_STATUSLINE_SOURCE", env);
+        }
+        let mut child = cmd
+            .args(["statusline", "--full"])
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(claude.as_bytes())
+            .unwrap();
+        let out = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
+        assert_eq!(out, want, "{args:?} {env:?}");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(tree(&home.join(".cache")), before, "{args:?} {env:?}");
+    }
+}
+
+/// 갱신 자식은 부모가 정한 source 로 돈다 — 설정이 `none` 이어도 `--source api` 로 띄운 갱신은 실제로 조회를 시도해
+/// (토큰이 없어 실패) 그 계정의 usage.json 에 이유를 남긴다. 넘기지 않으면 자식은 설정의 `none` 을 보고 아무것도 안 한다.
+#[test]
+fn full_passes_its_source_to_the_refresh_it_spawns() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    std::fs::write(
+        home.join(".claude.json"),
+        r#"{"oauthAccount":{"emailAddress":"a@example.com"}}"#,
+    )
+    .unwrap();
+    let config = config_with(&format!(
+        r#"{{"source":"none","keychainService":"rocky-test-absent","credentialsFile":"{}"}}"#,
+        home.join("absent.json").display()
+    ));
+    let rocky_json = home.join("rocky.json");
+    std::fs::write(&rocky_json, &config).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rocky"))
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", home)
+        .env("ROCKY_USAGE_DIR", home.join("usage"))
+        .env("ROCKY_CONFIG", &rocky_json)
+        .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
+        .env("ROCKY_STATUSLINE_SOURCE", "none")
+        .args(["statusline", "--full", "--source", "api"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"{}").unwrap();
+    child.wait().unwrap();
+    let usage = rocky_core::claude_account::cache_bucket(
+        &slot(home, &home.join(".claude")),
+        Some("a@example.com"),
+    )
+    .join("usage.json");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !usage.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let written = std::fs::read_to_string(&usage).expect("갱신이 usage.json 을 남기지 않았다");
+    assert!(written.contains("token not found"), "{written}");
+}
+
+/// `statusline refresh` 를 직접 불러도 환경 변수 `none` 이면 아무것도 하지 않는다(토큰이 있어도 조회하지 않는다).
+#[test]
+fn refresh_with_source_none_from_the_parent_is_a_noop() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    std::fs::write(
+        home.join(".claude.json"),
+        r#"{"oauthAccount":{"emailAddress":"a@example.com"}}"#,
+    )
+    .unwrap();
+    let rocky_json = home.join("rocky.json");
+    std::fs::write(
+        &rocky_json,
+        config_with(r#"{"source":"api","tokenEnv":"ROCKY_TEST_TOKEN"}"#),
+    )
+    .unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_rocky"))
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", home)
+        .env("ROCKY_USAGE_DIR", home.join("usage"))
+        .env("ROCKY_CONFIG", &rocky_json)
+        .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
+        .env("ROCKY_TEST_TOKEN", "t")
+        .env("ROCKY_STATUSLINE_SOURCE", "none")
+        .args(["statusline", "refresh"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(
+        tree(&home.join(".cache")).is_empty(),
+        "{:?}",
+        tree(&home.join(".cache"))
+    );
 }

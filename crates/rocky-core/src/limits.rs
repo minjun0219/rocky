@@ -6,9 +6,14 @@
 //! 캐시(`usage.json` = usage API 응답·크레딧 기준선·backoff, `state.json` = stdin 관측·갱신 기동 시각)는 cc-usage 와 **같은
 //! JSON 모양**이다. 파일을 읽고 쓰는 일은 CLI 몫이고, 여기는 그 값으로 판정만 한다.
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, TimeDelta, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+mod agy;
+pub use agy::{agy_limits, local_limits, AgyQuota, PRODUCT_ANTIGRAVITY};
 
 /// 한도를 어디서 읽나 — cc-usage 설정의 `source` 와 같은 값.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -33,6 +38,37 @@ impl Source {
             _ => None,
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Source::Auto => "auto",
+            Source::Stdin => "stdin",
+            Source::Api => "api",
+            Source::None => "none",
+        }
+    }
+}
+
+/// statusline 이 이번 실행에서만 쓸 `source` — 설정값을 환경 변수가, 그것을 `--source` 플래그가 이긴다. 갱신 자식에게도
+/// 같은 환경 변수로 넘긴다(`rocky statusline refresh`). cc-usage 의 `$CC_USAGE_SOURCE` 자리다.
+///
+/// **guard 는 이것을 보지 않는다** — 환경 변수는 프로세스 트리로 물려 내려가서, 다른 호스트 때문에 셸에 export 해 둔
+/// `none` 이 같은 셸에서 띄운 Claude Code 의 guard 를 아무 표시 없이 끈다. guard 는 설정 파일만 본다.
+pub const SOURCE_ENV: &str = "ROCKY_STATUSLINE_SOURCE";
+
+/// 설정값 → 환경 변수 → 플래그 순으로 덮는다. 모르는 환경 변수 값은 무시하고(오타 하나로 설정값까지 잃지 않게), 모르는
+/// 플래그 값은 에러다 — 명령줄은 고친 사람이 바로 결과를 본다. 빈 값은 덮지 않는다.
+pub fn override_source(
+    configured: Source,
+    env: Option<&str>,
+    flag: Option<&str>,
+) -> Result<Source, String> {
+    let mut source = env.and_then(Source::parse).unwrap_or(configured);
+    if let Some(flag) = flag.filter(|f| !f.is_empty()) {
+        source = Source::parse(flag)
+            .ok_or_else(|| format!("--source {flag:?}: auto|stdin|api|none 중 하나"))?;
+    }
+    Ok(source)
 }
 
 /// 판정에 쓰는 설정 — cc-usage `config.json` 중 이 모듈이 읽는 필드.
@@ -132,6 +168,10 @@ pub struct Input {
     pub context_pct: Option<f64>,
     pub five_hour: Option<Window>,
     pub seven_day: Option<Window>,
+    /// 호스트 — Antigravity(`agy`)는 `"antigravity"` 를 준다. Claude Code 에는 없다.
+    pub product: String,
+    /// agy 의 한도(`rate_limits` 대신) — 버킷 이름(`gemini-5h` · `3p-weekly` …) → 남은 비율.
+    pub quota: BTreeMap<String, AgyQuota>,
 }
 
 impl Input {
@@ -157,6 +197,17 @@ impl Input {
                 .and_then(go_number),
             five_hour: v.pointer("/rate_limits/five_hour").and_then(window),
             seven_day: v.pointer("/rate_limits/seven_day").and_then(window),
+            product: text("/product"),
+            quota: v
+                .get("quota")
+                .and_then(Value::as_object)
+                .map(|buckets| {
+                    buckets
+                        .iter()
+                        .map(|(name, q)| (name.clone(), AgyQuota::parse(q)))
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 

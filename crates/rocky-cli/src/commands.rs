@@ -1589,9 +1589,15 @@ fn this_session() -> Result<(String, String), String> {
 ///
 /// `--full` 이면 cc-usage 와 같은 경로·git·모델·한도 줄을 CLI 가 직접 그리고 그 아래에 보드 줄을 붙인다
 /// (`statusline_full`).
-pub fn cmd_statusline(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>, full: bool) {
+pub fn cmd_statusline(
+    ctx: &CliContext,
+    cwd: Option<&str>,
+    session: Option<&str>,
+    full: bool,
+    source: Option<&str>,
+) {
     if full {
-        statusline_full(ctx);
+        statusline_full(ctx, source);
         return;
     }
     let (cwd, session) = if cwd.is_none() && session.is_none() {
@@ -1630,13 +1636,26 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 /// 렌더는 CLI 가 하므로 데몬이 없어도 경로·모델·한도 줄은 남는다. 그 아래로 `extraCommands` 의 줄(설정 순서), 맨 아래
 /// 보드 줄 — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
 /// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
-fn statusline_full(ctx: &CliContext) {
-    use rocky_core::limits::Input;
+///
+/// `source` 는 이번 실행에서만 설정의 `source` 를 바꾼다(`--source`, 환경 변수 `ROCKY_STATUSLINE_SOURCE` 보다 이긴다).
+/// 모르는 값이면 무엇이 틀렸는지 한 줄만 낸다 — statusline 은 비지 않는다. `none` 이거나 Antigravity(`agy`)가 부른
+/// 것이면 Claude 쪽(토큰·API·캐시·계정 파일)을 건드리지 않는다(`limits::local_limits`).
+fn statusline_full(ctx: &CliContext, source: Option<&str>) {
+    use rocky_core::limits::{local_limits, override_source, Input, SOURCE_ENV};
     use rocky_core::statusline::extra::{expand, output_lines, Vars};
     use rocky_core::statusline::full::{lines, Style, View};
 
     let input = Input::parse(&statusline_stdin().unwrap_or_default());
-    let cfg = rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+    let mut cfg =
+        rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+    let env_source = std::env::var(SOURCE_ENV).ok();
+    match override_source(cfg.limits.source, env_source.as_deref(), source) {
+        Ok(source) => cfg.limits.source = source,
+        Err(e) => {
+            println!("[rocky] {e}");
+            return;
+        }
+    }
     let now = statusline_now();
     let vars = Vars {
         session_id: &input.session_id,
@@ -1658,9 +1677,17 @@ fn statusline_full(ctx: &CliContext) {
             .collect();
 
         let limits_cfg = &cfg.limits;
-        let observed =
-            crate::statusline_cache::observe(limits_cfg, cfg.config_dir.as_deref(), &input, now);
-        let limits = observed.as_ref().map(|o| o.limits).unwrap_or_default();
+        let local = local_limits(limits_cfg, &input, now);
+        let observed = match local {
+            Some(_) => None,
+            None => {
+                crate::statusline_cache::observe(limits_cfg, cfg.config_dir.as_deref(), &input, now)
+            }
+        };
+        let limits = local.map_or_else(
+            || observed.as_ref().map(|o| o.limits).unwrap_or_default(),
+            |(lim, _)| lim,
+        );
         let cache = observed.as_ref().map(|o| &o.usage);
         let badge = observed
             .as_ref()
@@ -1676,7 +1703,10 @@ fn statusline_full(ctx: &CliContext) {
             context_pct: input.context_pct,
             limits,
             usage: cache,
-            alert: observed.as_ref().map(|o| o.alert).unwrap_or_default(),
+            alert: local.map_or_else(
+                || observed.as_ref().map(|o| o.alert).unwrap_or_default(),
+                |(_, alert)| alert,
+            ),
             credits: observed.as_ref().map(|o| o.credits).unwrap_or_default(),
             currency: limits_cfg.currency(),
             badge,

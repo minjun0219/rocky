@@ -1,0 +1,1 @@
+[cc-usage] --source "bogus": auto|stdin|api|none 중 하나

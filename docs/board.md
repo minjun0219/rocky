@@ -968,8 +968,19 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 한도가
   임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
   표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
-  페이드한다 — rocky 만의 표시라 `creditFade: false` 로 끄면 cc-usage 와 같은 색이다. 아직 없는 것: guard·probe·doctor·agy — 설계
+  페이드한다 — rocky 만의 표시라 `creditFade: false` 로 끄면 cc-usage 와 같은 색이다. 설계
   `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+
+  `--source auto|stdin|api|none` 은 설정의 `source` 를 이 실행에서만 바꾼다(환경 변수 `ROCKY_STATUSLINE_SOURCE` 도 같고
+  플래그가 이긴다). `none` 은 토큰·API·캐시를 일절 보지 않고 경로 줄과 모델 · ctx 만 그린다(`extraCommands` 와 보드 줄은
+  그대로 붙는다).
+
+  **Antigravity(`agy`)에서도 같은 명령을 건다** — stdin 의 `product: "antigravity"` 로 알아본다. 이때는 `source` 와 무관하게
+  Claude 쪽 토큰·API·캐시·계정 배지를 보지 않고(같은 머신 Claude 세션의 5h/7d 가 섞이지 않게), 한도는 agy 가 주는 `quota`
+  로 그린다 — 모델이 Gemini 면 `gemini-5h`/`gemini-weekly`, 그 밖이면 `3p-5h`/`3p-weekly`. 경보는 깜빡이지 않고 배지로
+  고정된다(경보 시각을 적을 캐시를 쓰지 않는다). agy 안에서 `/statusline rocky statusline --full`, 또는
+  `~/.gemini/antigravity-cli/settings.json` 에 `"statusLine": { "type": "command", "command": "rocky statusline --full" }`.
+  `{{session_id}}` 에는 agy 의 세션 id 가 들어간다.
 
   계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
   로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. 기본이 아닌 설정 폴더는 keychain
