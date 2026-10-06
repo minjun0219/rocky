@@ -19,7 +19,7 @@ serde = { version = "1", features = ["derive"] }
 # 이 서버가 낸 필드 순서를 그대로 내보내야 TS 판과 출력이 같다(정렬하면 달라진다).
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 rand = "0.9"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "time", "net"] }

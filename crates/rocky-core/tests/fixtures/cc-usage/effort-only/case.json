@@ -9,6 +9,7 @@
   "stdin": "{\"effort\":{\"level\":\"max\"}}",
   "allow": [],
   "usage": null,
+  "state": null,
   "repo": [],
   "gitEnv": {}
 }

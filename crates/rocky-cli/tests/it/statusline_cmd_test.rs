@@ -146,8 +146,7 @@ fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
 }
 
 /// `statusline --full` 을 프로세스째 돌려 cc-usage 골든(`rocky-core/tests/fixtures/cc-usage`)과 바이트 단위로 비교한다 —
-/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 과 `extraCommands` 실행까지 실제 경로를 탄다. 크레딧 캐시를 심은 케이스는 CLI 가 아직
-/// usage 캐시를 읽지 않아 건너뛴다(렌더는 `rocky-core` 의 대조 테스트가 본다).
+/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 과 `extraCommands` 실행까지 실제 경로를 탄다.
 #[test]
 fn full_replays_cc_usage_goldens() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -163,7 +162,8 @@ fn full_replays_cc_usage_goldens() {
         let case: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(case_dir.join("case.json")).unwrap())
                 .unwrap();
-        if !case["usage"].is_null() {
+        // 캐시(usage·state)를 심은 케이스는 CLI 가 캐시를 읽게 된 뒤에 돈다 — 렌더는 rocky-core 대조 테스트가 본다.
+        if !case["usage"].is_null() || !case["state"].is_null() {
             continue;
         }
         ran += 1;
