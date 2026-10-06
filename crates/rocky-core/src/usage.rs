@@ -387,6 +387,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:note-open"),
     (UsageSource::Web, "web:rc-start"),
     (UsageSource::Web, "web:rc-restart"),
+    (UsageSource::Web, "web:handoff-close"),
     (UsageSource::Web, "web:agent-row"),
     (UsageSource::Web, "web:access-logout"),
     (UsageSource::Web, "web:note-pin"),

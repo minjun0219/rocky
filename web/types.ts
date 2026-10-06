@@ -337,11 +337,25 @@ export interface RcStrayRow {
   sessions: number;
 }
 
+/** 보드의 새 세션 띄우기가 띄운 rc 서버 — Rust `rocky_core::rc::HandoffServerRow`. 사람이 닫는다. */
+export interface RcHandoffRow {
+  label: string;
+  /** claude.ai 에 보이는 이름(`<보드>-<n>: <요약>`). */
+  name: string;
+  todoRef: string;
+  dir: string;
+  pid: number;
+  uptimeSecs?: number;
+  sessions: number;
+}
+
 /** `GET /api/rc/servers` — Rust `rocky_core::rc::RcStatus`. `configured` 가 false 면 이 기기에선 rc 가 꺼져 있다. */
 export interface RcStatus {
   configured: boolean;
   servers: RcServerRow[];
   strays: RcStrayRow[];
+  /** 대상 밖 서버 중 데몬이 띄운 핸드오프 서버 — 없으면 오지 않는다. */
+  handoffs?: RcHandoffRow[];
   auth: 'in' | 'out' | 'unknown';
   antigravity: { state?: string; pid?: number; instance?: string } | null;
   probeError?: string;

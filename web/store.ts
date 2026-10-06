@@ -210,6 +210,8 @@ interface UiState {
   controlAgy: (action: 'start' | 'stop') => Promise<void>;
   /** 데몬에 띄우기 · 재시작을 맡긴다(로컬 화면만). 바로 돌아오고, 진행은 현황의 `action` 으로 본다. */
   rcCommand: (label: string, verb: 'start' | 'restart', fresh?: boolean) => Promise<void>;
+  /** 핸드오프 서버를 닫는다(pid 로만, 워크트리는 남는다). @throws 서버 거절 사유 그대로. */
+  closeHandoff: (label: string) => Promise<void>;
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
@@ -510,6 +512,24 @@ export const useUiStore = create<UiState>((set, get) => ({
       body: JSON.stringify(verb === 'restart' ? { fresh: Boolean(fresh) } : {}),
     });
     await get().loadRc();
+  },
+  closeHandoff: async (label) => {
+    logUsage('web:handoff-close');
+    try {
+      const res = await api<{ down: boolean; name: string; pid: number }>(
+        `/api/rc/handoffs/${encodeURIComponent(label)}/stop`,
+        get().actor,
+        { method: 'POST' },
+      );
+      if (!res.down) {
+        throw new Error(
+          `“${res.name}”(pid ${res.pid})이 내려가지 않았어요 — 원격 제어 탭을 다시 확인하세요`,
+        );
+      }
+    } finally {
+      // 이미 내려가 있다(404)·닫음 어느 쪽이든 줄을 새로 그린다.
+      await get().loadRc();
+    }
   },
   setShowArchived: (showArchived) => {
     logUsage('web:archived-toggle');

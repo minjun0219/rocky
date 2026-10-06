@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { cleanup, screen } from '@testing-library/react';
+import { act, cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { HandoffView } from '../types';
-import { renderWithStore, todoFixture } from '../test-support';
+import { boardFixture, renderWithStore, todoFixture } from '../test-support';
+import { useUiStore } from '../store';
 import { DetailDrawer } from './DetailDrawer';
 
 afterEach(cleanup);
@@ -225,5 +226,139 @@ describe('DetailDrawer 링크 칩의 PR 상태', () => {
     expect(chips[0]?.querySelector('.chip-link-status')?.textContent).toBe('충돌');
     expect(chips[0]?.getAttribute('title')).toBe('충돌 — 충돌');
     expect(chips[1]?.querySelector('.chip-link-status')).toBeNull();
+  });
+});
+
+describe('DetailDrawer 보내기 — 새 세션과 기존 세션을 한 패널에서', () => {
+  function mountSend(
+    over: { spawnAllowed?: boolean; path?: string | null; rcConfigured?: boolean } = {},
+  ) {
+    const spawnSession = mock(async () => ({
+      handoff: {} as never,
+      reused: false,
+      worktreePath: '/w/rocky/.claude/worktrees/todo-1',
+      server: { pid: 500, name: 'rocky-todo-1: 원래 제목' },
+      woke: true,
+    }));
+    const sendHandoff = mock(async () => true);
+    renderWithStore(<DetailDrawer />, {
+      detail: { kind: 'todo', todo: todoFixture(), history: [], comments: [] },
+      sections: [],
+      handoffs: [],
+      boards: [
+        boardFixture({ path: over.path === undefined ? '/w/rocky' : (over.path ?? undefined) }),
+      ],
+      sessions: { available: true, list: [] },
+      fetchSessions: mock(async () => {}),
+      spawnAllowed: over.spawnAllowed ?? true,
+      rc:
+        over.rcConfigured === undefined
+          ? null
+          : {
+              configured: over.rcConfigured,
+              servers: [],
+              strays: [],
+              auth: 'in',
+              antigravity: null,
+            },
+      loadRc: mock(async () => {}),
+      spawnSession,
+      sendHandoff,
+    });
+    return { spawnSession, sendHandoff };
+  }
+  const open = () => userEvent.click(screen.getByRole('button', { name: '에이전트에게 보내기' }));
+  const send = () => userEvent.click(screen.getByRole('button', { name: '보내기' }));
+
+  test('새 세션을 먼저 고르고 spawn 으로 보낸다', async () => {
+    const { spawnSession, sendHandoff } = mountSend();
+    await open();
+    expect((screen.getByRole('combobox', { name: '보낼 대상' }) as HTMLSelectElement).value).toBe(
+      '__new__',
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: '세션에 함께 보낼 메모' }),
+      '먼저 테스트',
+    );
+    await send();
+    expect(spawnSession).toHaveBeenCalledTimes(1);
+    expect(spawnSession.mock.calls[0]).toEqual([
+      'todo1',
+      { note: '먼저 테스트', path: undefined },
+    ] as never);
+    expect(sendHandoff).not.toHaveBeenCalled();
+    expect(screen.getByText(/rocky-todo-1: 원래 제목/)).toBeDefined();
+  });
+
+  test('노출된 화면에서는 새 세션을 고를 수 없고 기존 세션으로 보낸다', async () => {
+    const { spawnSession, sendHandoff } = mountSend({ spawnAllowed: false });
+    await open();
+    expect(screen.queryByRole('option', { name: /새 세션/ })).toBeNull();
+    await send();
+    expect(sendHandoff).toHaveBeenCalledTimes(1);
+    expect(spawnSession).not.toHaveBeenCalled();
+  });
+
+  test('보드에 메인 레포 경로가 없으면 경로부터 묻는다', async () => {
+    const { spawnSession } = mountSend({ path: null });
+    await open();
+    await send();
+    expect(spawnSession).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByRole('textbox', { name: '메인 레포 절대경로' }), '/w/rocky');
+    await send();
+    expect(spawnSession.mock.calls[0]).toEqual([
+      'todo1',
+      { note: undefined, path: '/w/rocky' },
+    ] as never);
+  });
+
+  test('응답이 오기 전에 다른 할 일로 바뀌면 그 결과를 그리지 않는다', async () => {
+    let finish: (v: unknown) => void = () => {};
+    const spawnSession = mock(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderWithStore(<DetailDrawer />, {
+      detail: { kind: 'todo', todo: todoFixture(), history: [], comments: [] },
+      sections: [],
+      handoffs: [],
+      boards: [boardFixture({ path: '/w/rocky' })],
+      sessions: { available: true, list: [] },
+      fetchSessions: mock(async () => {}),
+      spawnAllowed: true,
+      spawnSession: spawnSession as never,
+    });
+    await open();
+    await send();
+    await act(async () => {
+      useUiStore.setState({
+        detail: {
+          kind: 'todo',
+          todo: todoFixture({ id: 'todo2', number: 2, ref: 'rocky-todo-2', title: '다른 일' }),
+          history: [],
+          comments: [],
+        },
+      });
+    });
+    await act(async () => {
+      finish({
+        handoff: {},
+        reused: false,
+        worktreePath: '/w',
+        server: { pid: 1, name: 'rocky-todo-1: 원래 제목' },
+        woke: true,
+      });
+    });
+    // 요소를 통째로 찍지 않게 불리언으로 — 실패하면 DOM 트리 덤프가 수백 MB 다.
+    expect(screen.queryByText(/의 세션에 넘겼어요/) === null).toBe(true);
+  });
+
+  test('원격 제어가 꺼진 기기는 백그라운드라고 밝히고 경고한다', async () => {
+    mountSend({ rcConfigured: false });
+    await open();
+    expect(screen.getByRole('option', { name: '새 세션 — 백그라운드(--bg) ⚠' })).toBeDefined();
+    expect(screen.getByText(/ssh · 로그인이 끊겨/)).toBeDefined();
   });
 });
