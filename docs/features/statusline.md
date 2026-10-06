@@ -61,6 +61,10 @@
   계정은 statusline 과 같은 규칙(계정 파일을 prompt 마다 직접 읽고, 못 읽으면 계정 캐시). `allow.json` 은 계정마다가 아니라
   `<cache>/rocky/statusline/` 에 하나다.
 
+- **doctor 는 실제 동작과 같은 함수로 계산한다**(`crates/rocky-cli/src/statusline_doctor.rs`) — 계정·토큰 자리(`Slot`·
+  `statusline_refresh::find_token`), extra 실행(`bounded::run_extra` — statusline 도 이걸 탄다), 크레딧 판단(`limits::credits_enabled`).
+  따로 계산하면 둘이 어긋났을 때 진단이 거짓말을 한다. keychain 후보는 `security dump-keychain`(`-d` 없이 — 비밀을 찍지 않는다).
+
 ## 코드
 
 | 무엇 | 어디 |
@@ -69,6 +73,7 @@
 | `--full` 렌더·폭·git·extra | `crates/rocky-core/src/statusline/{full,width,git,extra}.rs` |
 | 한도 판정 | `crates/rocky-core/src/limits.rs`, agy `limits/agy.rs`, guard `limits/guard.rs` |
 | guard·allow | `crates/rocky-cli/src/statusline_guard.rs` |
+| probe·doctor | `crates/rocky-cli/src/statusline_doctor.rs` |
 | CLI 입구 | `crates/rocky-cli/src/commands.rs`·`client.rs`(`rocky statusline`) |
 | 하위 프로세스(마감·그룹 kill) | `crates/rocky-cli/src/{bounded,git_status}.rs` |
 | 계정 판단·캐시·갱신 | `crates/rocky-core/src/claude_account.rs`, `crates/rocky-cli/src/{statusline_cache,statusline_refresh}.rs` |

@@ -363,6 +363,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky verify"),
     (UsageSource::Cli, "rocky statusline guard"),
     (UsageSource::Cli, "rocky statusline allow"),
+    (UsageSource::Cli, "rocky statusline probe"),
+    (UsageSource::Cli, "rocky statusline doctor"),
     (UsageSource::Cli, "rocky rc"),
     (UsageSource::Cli, "rocky rc status"),
     (UsageSource::Cli, "rocky rc agy"),

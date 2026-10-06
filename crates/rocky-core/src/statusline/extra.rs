@@ -36,8 +36,14 @@ pub struct Vars<'a> {
 /// 치환한 argv. command 가 비었거나, 쓰인 placeholder 의 값이 비었으면 `None`(건너뜀) — 빈 자리를 채워 부르면
 /// 무의미한 조회가 된다. 치환은 이름 순서(`{{cwd}}` → `{{session_id}}`)로 차례로 한다.
 pub fn expand(argv: &[String], vars: Vars) -> Option<Vec<String>> {
+    expand_checked(argv, vars).ok()
+}
+
+/// `expand` 와 같고, 건너뛸 때 이유를 준다 — `Err(None)` 은 command 가 비었다, `Err(Some(키))` 는 그 placeholder 가 비었다.
+/// doctor 가 "왜 안 붙는가" 를 말하는 데 쓴다.
+pub fn expand_checked(argv: &[String], vars: Vars) -> Result<Vec<String>, Option<&'static str>> {
     if argv.is_empty() {
-        return None;
+        return Err(None);
     }
     let pairs = [("{{cwd}}", vars.cwd), ("{{session_id}}", vars.session_id)];
     argv.iter()
@@ -48,13 +54,82 @@ pub fn expand(argv: &[String], vars: Vars) -> Option<Vec<String>> {
                     continue;
                 }
                 if value.is_empty() {
-                    return None;
+                    return Err(Some(key));
                 }
                 arg = arg.replace(key, value);
             }
-            Some(arg)
+            Ok(arg)
         })
         .collect()
+}
+
+/// 명령 하나를 statusline 과 같은 경로로 돌린 결과 — statusline 은 줄만 쓰고, 나머지는 doctor 가 "왜 안 붙는가" 를 말하는 데 쓴다.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Probe {
+    /// 붙을 줄(`output_lines`).
+    Ok {
+        lines: Vec<Vec<u8>>,
+        elapsed: Duration,
+    },
+    /// 0 으로 끝났지만 붙일 줄이 없다.
+    Empty {
+        elapsed: Duration,
+    },
+    /// 돌리지 않았다 — 비어 있던 placeholder(`None` 이면 command 자체가 비었다).
+    Skipped {
+        missing: Option<&'static str>,
+    },
+    NotFound(String),
+    Timeout,
+    /// 0 이 아닌 코드로 끝났거나, 끝난 뒤에도 자식이 파이프를 붙잡았다. `stderr` 는 첫 줄.
+    Failed {
+        error: String,
+        stderr: String,
+    },
+}
+
+impl Probe {
+    /// statusline 에 붙을 줄 — 성공이 아니면 없다.
+    pub fn into_lines(self) -> Vec<Vec<u8>> {
+        match self {
+            Probe::Ok { lines, .. } => lines,
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// doctor 가 찍는 한 줄 판정(cc-usage `extra.Describe`).
+pub fn describe(p: &Probe, timeout: Duration) -> String {
+    let ms = |d: &Duration| format!("{}ms", d.as_millis());
+    match p {
+        Probe::Ok { lines, elapsed } => {
+            let more = if lines.len() > 1 {
+                format!(" (외 {}줄)", lines.len() - 1)
+            } else {
+                String::new()
+            };
+            let first = lines
+                .first()
+                .map(|l| String::from_utf8_lossy(l))
+                .unwrap_or_default();
+            format!("ok {} → {first}{more}", ms(elapsed))
+        }
+        Probe::Empty { elapsed } => {
+            format!(
+                "출력 없음 — exit 0 이지만 stdout 이 비었다 ({})",
+                ms(elapsed)
+            )
+        }
+        Probe::Skipped { missing: None } => "건너뜀 — command 가 비어 있다".to_string(),
+        Probe::Skipped { missing: Some(key) } => format!("건너뜀 — {key} 가 비어 있다"),
+        Probe::NotFound(e) => format!("미설치 — {e}"),
+        Probe::Timeout => format!(
+            "타임아웃 — {} 를 넘겼다 (timeoutMs 로 늘릴 수 있다)",
+            ms(&timeout)
+        ),
+        Probe::Failed { error, stderr } if stderr.is_empty() => format!("비정상 종료 — {error}"),
+        Probe::Failed { error, stderr } => format!("비정상 종료 — {error}: {stderr}"),
+    }
 }
 
 /// 명령의 stdout → 붙일 줄. 끝의 줄바꿈을 떼고 공백뿐인 줄은 뺀다. 나머지는 **바이트 그대로**다 — ANSI 는 물론

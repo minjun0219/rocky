@@ -317,3 +317,78 @@ fn credit_amount_fades_from_pale_to_its_usage_color() {
     assert!(credit_row(Some(0.5), plain).contains("\x1b[90m$38.40"));
     assert!(credit_row(Some(1.0), plain).contains("\x1b[32m$38.40"));
 }
+
+/// cc-usage `extra.Describe` 의 문구 — doctor 가 한 줄로 찍는다.
+#[test]
+fn extra_describe_matches_cc_usage_wording() {
+    use rocky_core::statusline::extra::{describe, expand_checked, Probe, Vars};
+    use std::time::Duration;
+    let ms = Duration::from_millis;
+    let t = ms(300);
+    for (probe, want) in [
+        (
+            Probe::Ok {
+                lines: vec![b"a".to_vec()],
+                elapsed: ms(12),
+            },
+            "ok 12ms → a",
+        ),
+        (
+            Probe::Ok {
+                lines: vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+                elapsed: ms(5),
+            },
+            "ok 5ms → a (외 2줄)",
+        ),
+        (
+            Probe::Empty { elapsed: ms(7) },
+            "출력 없음 — exit 0 이지만 stdout 이 비었다 (7ms)",
+        ),
+        (
+            Probe::Skipped { missing: None },
+            "건너뜀 — command 가 비어 있다",
+        ),
+        (
+            Probe::Skipped {
+                missing: Some("{{cwd}}"),
+            },
+            "건너뜀 — {{cwd}} 가 비어 있다",
+        ),
+        (
+            Probe::NotFound("x: not found".into()),
+            "미설치 — x: not found",
+        ),
+        (
+            Probe::Timeout,
+            "타임아웃 — 300ms 를 넘겼다 (timeoutMs 로 늘릴 수 있다)",
+        ),
+        (
+            Probe::Failed {
+                error: "exit status 1".into(),
+                stderr: String::new(),
+            },
+            "비정상 종료 — exit status 1",
+        ),
+        (
+            Probe::Failed {
+                error: "exit status 1".into(),
+                stderr: "boom".into(),
+            },
+            "비정상 종료 — exit status 1: boom",
+        ),
+    ] {
+        assert_eq!(describe(&probe, t), want);
+    }
+    // 빈 placeholder 가 둘이면 이름 순서로 앞의 것을 댄다.
+    let argv = ["t", "{{cwd}}{{session_id}}"].map(String::from);
+    assert_eq!(
+        expand_checked(
+            &argv,
+            Vars {
+                session_id: "",
+                cwd: ""
+            }
+        ),
+        Err(Some("{{cwd}}"))
+    );
+}

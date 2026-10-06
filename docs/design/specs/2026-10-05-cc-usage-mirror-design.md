@@ -24,7 +24,11 @@
   `--source=none` 처럼 `=` 로 붙인 플래그는 받지 않는다(rocky CLI 파서의 계약 — `--source none`. cc-usage 처럼 무엇이 틀렸는지 `[rocky] …` 한 줄을 낸다) · source 환경 변수 이름은
   `ROCKY_STATUSLINE_SOURCE`(cc-usage `CC_USAGE_SOURCE`) · guard·allow 는 `rocky statusline guard` · `rocky statusline allow`
   (문구의 안내 명령도 그 이름) · `allow.json` 은 계정과 상관없이 하나다(cc-usage 는 캐시가 하나라 같았다 — rocky 는 캐시를
-  계정마다 나누지만 막힌 세션과 다른 환경의 터미널에서 불러도 풀리게 둔다) · guard 의 계정은 statusline 과 같은 규칙으로 정한다.
+  계정마다 나누지만 막힌 세션과 다른 환경의 터미널에서 불러도 풀리게 둔다) · guard 의 계정은 statusline 과 같은 규칙으로 정한다 ·
+  probe·doctor 는 `rocky statusline probe` · `rocky statusline doctor [--session ID]`(cc-usage `--session-id` — rocky 의 기존 플래그
+  이름을 쓴다). doctor 는 rocky 의 자리(설정 파일 `rocky.json`·계정별 캐시 폴더)를 찍고, 계정(이메일) 줄과 덤프의 `allow` 를 더
+  보인다. 타임아웃 안내의 설정 키는 `timeoutMs`. doctor 의 extra 실패 문구 속 OS 에러는 Rust 표준 꼴이다(미설치 `foo: No such
+  file or directory (os error 2)` — cc-usage `exec: "foo": executable file not found in $PATH`, 시그널 `signal: 9 (SIGKILL)` — `signal: killed`).
 - **미러 대상에서 뺀 것:** cc-usage 의 `update` · `config` · `version` — rocky 에 같은 일을 하는 명령(`rocky update` ·
   `rocky config`)이 있다. guard · agy 는 지금 쓰지 않아도 "기능 동일" 에 넣는다(조각 5).
 
@@ -58,7 +62,7 @@
 | 2 | `extra_commands` | argv 배열, placeholder(`{{cwd}}` · `{{session_id}}`), 타임아웃. rocky 보드 줄은 내부 세그먼트 |
 | 3 | usage API 갱신 + 계정 구분 | detached `refresh`, keychain(`/usr/bin/security`) 읽기 전용, 한도별 폴링 간격, backoff·`Retry-After`, `source: api` / `auto`, 캐시 판정·상태 문구. 크레딧 렌더·폭 판단은 조각 1 리뷰 반영 때 앞당겼다 |
 | 4 | 경보 깜빡임 · 계정 배지 | `state.json` 의 경보 시각(`alert_key`·`alert_at`, 6초·0.5초 프레임), `statusline.badges`(계정 판단은 조각 3) |
-| 5 | guard / allow · probe / doctor · agy | guard 는 fail-open |
+| 5 | guard / allow · probe / doctor · agy | guard 는 fail-open. 세 층 스택(agy·`--source` → guard·allow → probe·doctor) |
 
 ### 계정 (조각 3, 2026-10-06 결정)
 

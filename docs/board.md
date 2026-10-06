@@ -996,6 +996,14 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   `rocky statusline allow 30m`(기간은 `2h` · `1h30m` 꼴, `off` 면 다시 켬) — 허용은 계정과 상관없이 하나라 막힌 세션과 다른
   환경의 터미널에서 불러도 풀린다.
 
+  **줄이 안 나오면** — statusline 은 실패를 조용히 삼키므로 이유는 진단 명령에서 본다.
+  `rocky statusline doctor [--session ID]` 는 읽는 설정 파일·`source`·이 터미널의 설정 폴더와 로그인된 계정·keychain 항목
+  (macOS 면 `Claude Code` 로 시작하는 후보 전부)·credentials 파일·캐시 폴더·guard·크레딧 상태·토큰을 찍고, `extraCommands` 를
+  statusline 과 같은 경로로 돌려 항목마다 결과(ok · 출력 없음 · 건너뜀 · 미설치 · 타임아웃 · 비정상 종료)를 보인 뒤 캐시
+  (`state`·`usage`·`allow`)를 덤프한다. `{{session_id}}` 를 쓰는 명령은 `--session` 을 주지 않으면 건너뛴다고 나온다.
+  `rocky statusline probe` 는 usage API 원본 응답을 들여 써서 보인다(필드 확인용 — 캐시는 쓰지 않는다). keychain 후보에서
+  이름을 골라 `keychainService` 에 적을 때는 **사람이 고른다** — 틀린 항목이면 다른 계정의 숫자를 그린다.
+
   계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
   로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. 기본이 아닌 설정 폴더는 keychain
   을 건너뛰고 `<그 폴더>/.credentials.json` 을 본다(비기본 폴더에서 기본 keychain 이름을 읽으면 기본 계정의 토큰을 집는다).
