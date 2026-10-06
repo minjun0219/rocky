@@ -23,6 +23,8 @@ tower = "0.5"
 
 [dev-dependencies]
 tempfile.workspace = true
+# Access 토큰 테스트가 테스트 키로 서명한다 — 이미 의존 그래프에 있는 크레이트다(rocky-core 가 쓴다).
+ring.workspace = true
 rusqlite.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true

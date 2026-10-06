@@ -245,6 +245,7 @@ pub async fn run_daemon(
     tokens: TokensRuntime,
     verify: rocky_core::verify::VerifyConfig,
     rc: Option<rocky_core::config::RcConfig>,
+    access: Option<rocky_core::access::AccessConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
     let base_url = format!("http://127.0.0.1:{}", runtime.port);
@@ -331,6 +332,13 @@ pub async fn run_daemon(
         rc: Some(rc_status),
         agy_control: Some(agy_control),
         rc_control: rc_control.clone(),
+        // Cloudflare Access 로 들어온 사람의 원격 제어 — `access` 블록이 있을 때만 공개키를 받는다(첫 요청 때).
+        access: access.map(|config| {
+            Arc::new(crate::access::AccessGate::new(
+                config,
+                crate::access::default_certs_fetcher(),
+            ))
+        }),
         ..ServerOptions::new(store)
     });
     // 재시작이 이어받을 세션을 고를 때 받은편지함 등록(마지막 턴 시각)을 본다.
@@ -542,8 +550,9 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
     let verify = rocky_core::verify::load_verify_block(&config_path);
     // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다.
     let rc = rocky_core::config::load_rc_block(&config_path);
+    let access = rocky_core::config::load_access_block(&config_path);
     run_daemon(
-        runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc,
+        runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc, access,
     )
     .await
 }

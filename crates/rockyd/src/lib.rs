@@ -3,6 +3,7 @@
 //! lib 크레이트인 이유: Tauri 앱(app/)이 같은 프로세스에 마운트한다.
 //! 단독 실행(헤드리스/개발)은 src/main.rs.
 
+pub mod access;
 pub mod daemon;
 pub mod github;
 pub mod inbox_exec;

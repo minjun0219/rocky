@@ -22,11 +22,11 @@ use rocky_core::handoff::{
 use rocky_core::inbox::INBOX_CACHE_TTL_SECS;
 use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
-    access_user_email, is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE,
-    NON_LOCAL_AGY_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE,
-    NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SESSION_MESSAGE,
-    NON_LOCAL_SESSION_STOP_MESSAGE, NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
-    NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE,
+    access_user_email, is_cross_site_request, is_local_request, is_same_origin_request,
+    CROSS_SITE_MESSAGE, NON_LOCAL_AGY_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE,
+    NON_LOCAL_INBOX_SOURCE_MESSAGE, NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE,
+    NON_LOCAL_SESSION_MESSAGE, NON_LOCAL_SESSION_STOP_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
+    NON_LOCAL_VERIFY_RERUN_MESSAGE, NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -105,6 +105,8 @@ pub struct ServerOptions {
     pub agy_control: Option<crate::rc::AgyControl>,
     /// rc 서버 띄우기 · 재시작. 없으면 그 라우트는 404(rc 가 꺼진 기기와 같다).
     pub rc_control: Option<Arc<crate::rc::RcController>>,
+    /// Cloudflare Access 토큰 확인(`rocky.json` 의 `access` 블록). 없으면 Access 로 온 요청은 원격 제어를 못 한다.
+    pub access: Option<Arc<crate::access::AccessGate>>,
 }
 
 impl ServerOptions {
@@ -130,6 +132,7 @@ impl ServerOptions {
             rc: None,
             agy_control: None,
             rc_control: None,
+            access: None,
         }
     }
 }
@@ -170,6 +173,7 @@ pub struct ServerState {
     rc: crate::rc::RcProvider,
     agy_control: Option<crate::rc::AgyControl>,
     rc_control: Option<Arc<crate::rc::RcController>>,
+    access: Option<Arc<crate::access::AccessGate>>,
     /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
     /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
     pub token_events: broadcast::Sender<String>,
@@ -634,6 +638,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         claude_jobs_dir: options.claude_jobs_dir,
         token_recommend: options.token_recommend,
         rc_control: options.rc_control,
+        access: options.access,
         rc: options.rc.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { rocky_core::rc::RcStatus::unconfigured() }))
         }),
@@ -918,12 +923,32 @@ pub async fn handle_api(
         return error_response(CROSS_SITE_MESSAGE, StatusCode::FORBIDDEN);
     }
 
+    // 원격 제어 탭(rc 서버 띄우기·재시작·닫기·야간)은 로컬이거나 Access 로 들어온 허용 이메일이면 연다. 토큰 검증은
+    // 그 변경 라우트와 health 에서만 — 폴링마다 서명을 확인하지 않는다. Access 는 쿠키로 인증되므로 같은 등록 도메인의
+    // 다른 서브도메인 페이지(`same-site`)가 시킨 POST 도 토큰을 달고 온다 — 변경은 같은 출처일 때만 받는다.
+    let rc_change = is_mutating(&method) && path.starts_with("/api/rc/");
+    let remote_control = local
+        || ((rc_change || path == "/api/health")
+            && (!rc_change || is_same_origin_request(|name| header_of(&headers, name), &host))
+            && access_remote_control(state, peer_address.as_deref(), &headers).await);
+
     let started = std::time::Instant::now();
-    let response =
-        match dispatch(state, &method, &path, &query, &headers, body, &actor, local).await {
-            Ok(response) => response,
-            Err(error) => to_http_error(&error),
-        };
+    let response = match dispatch(
+        state,
+        &method,
+        &path,
+        &query,
+        &headers,
+        body,
+        &actor,
+        local,
+        remote_control,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => to_http_error(&error),
+    };
     // 사용 로그 — 이름은 모양만(`GET /api/todos/:ref`), 1초마다 도는 라우트는 빠진다.
     if let Some(name) = normalize_route(method.as_str(), &path) {
         let mut event = UsageEvent::new(UsageSource::Rest, name, response.status().as_u16() < 400);
@@ -990,6 +1015,7 @@ async fn dispatch(
     body: Body,
     actor: &str,
     local: bool,
+    remote_control: bool,
 ) -> StoreResult<Response> {
     let store = &state.store;
     let flag = |name: &str| query.get(name).map(String::as_str) == Some("true");
@@ -1024,6 +1050,8 @@ async fn dispatch(
             "pid": std::process::id(),
             "issueCreateAllowed": local,
             "spawnAllowed": local,
+            // 원격 제어 탭의 버튼 — 로컬이거나 Access 로 들어온 허용 이메일(`access.remoteControl`).
+            "rcControlAllowed": remote_control,
             // Cloudflare Access 로 들어온 화면이면 로그인한 이메일 — 웹이 ⋯ 메뉴에 로그아웃을 그린다.
             "accessUser": access_user_email(|name| header_of(headers, name)),
             "prWatch": state.pr_watch(),
@@ -2308,7 +2336,7 @@ async fn dispatch(
     // ── 야간 재시작 손 실행 — 서버를 내리고 띄우므로 로컬 전용. 일은 백그라운드, 바로 202. 배너는 띄우지 않는다(부른 사람이
     // `rocky rc` 로 결과를 본다) ──
     if *method == Method::POST && path == "/api/rc/nightly" {
-        if !local {
+        if !remote_control {
             return Ok(error_response(
                 NON_LOCAL_SPAWN_MESSAGE,
                 StatusCode::FORBIDDEN,
@@ -2340,7 +2368,7 @@ async fn dispatch(
             .strip_prefix("/api/rc/handoffs/")
             .and_then(|rest| rest.strip_suffix("/stop"))
         {
-            if !local {
+            if !remote_control {
                 return Ok(error_response(
                     "핸드오프 서버 닫기는 이 기기(루프백)에서 온 요청만 받는다 — 세션을 끝내는 일이다",
                     StatusCode::FORBIDDEN,
@@ -2375,7 +2403,7 @@ async fn dispatch(
             .strip_prefix("/api/rc/strays/")
             .and_then(|rest| rest.strip_suffix("/stop"))
         {
-            if !local {
+            if !remote_control {
                 return Ok(error_response(
                     "대상 밖 서버 닫기는 이 기기(루프백)에서 온 요청만 받는다 — 세션을 끝내는 일이다",
                     StatusCode::FORBIDDEN,
@@ -2410,7 +2438,7 @@ async fn dispatch(
         {
             if verb == "start" {
                 // `serverOnly` — 세션 없이 서버만, 떠 있으면 그대로(`rocky rc start --all`, 옛 CLI `-a`). 본문보다 로컬부터.
-                if !local {
+                if !remote_control {
                     return Ok(error_response(
                         NON_LOCAL_SPAWN_MESSAGE,
                         StatusCode::FORBIDDEN,
@@ -2427,10 +2455,10 @@ async fn dispatch(
                 } else {
                     crate::rc::RcCommand::Start
                 };
-                return Ok(rc_command_route(state, label, command, local));
+                return Ok(rc_command_route(state, label, command, remote_control));
             }
             if verb == "restart" {
-                if !local {
+                if !remote_control {
                     return Ok(error_response(
                         NON_LOCAL_SPAWN_MESSAGE,
                         StatusCode::FORBIDDEN,
@@ -2464,7 +2492,7 @@ async fn dispatch(
                     Some(id) => crate::rc::RcCommand::Pin(id.to_string()),
                     None => crate::rc::RcCommand::Restart { fresh },
                 };
-                return Ok(rc_command_route(state, label, command, local));
+                return Ok(rc_command_route(state, label, command, remote_control));
             }
         }
     }
@@ -3336,14 +3364,43 @@ async fn write_to_session(
 }
 
 /// POST /api/rc/servers/:label/{start,restart} — 받으면 202, 결과는 현황(`action` · `lastResult`)으로 본다.
+/// Access 로 들어온 사람이 원격 제어 탭을 써도 되는지 — `access.remoteControl` 이 켜져 있고, 요청이 루프백(cloudflared)으로
+/// 왔고, `Cf-Access-Jwt-Assertion` 이 팀 공개키로 검증되고 허용 이메일일 때만. 헤더 이름만으로는 믿지 않는다(위조로
+/// "있게" 만들 수 있다). 실패 이유는 데몬 로그에.
+async fn access_remote_control(
+    state: &Arc<ServerState>,
+    peer_address: Option<&str>,
+    headers: &HeaderMap,
+) -> bool {
+    let Some(gate) = state.access.as_ref().filter(|g| g.remote_control()) else {
+        return false;
+    };
+    if !rocky_core::local_request::is_loopback_address(peer_address) {
+        return false;
+    }
+    let Some(token) = header_of(headers, "cf-access-jwt-assertion") else {
+        return false;
+    };
+    match gate.identify(&token).await {
+        Ok(_) => true,
+        Err(reason) => {
+            // 탭을 열어 둔 채면 같은 이유가 계속 온다 — 이유가 바뀔 때만 남긴다.
+            if gate.note_failure(&reason) {
+                eprintln!("rocky: Access 토큰을 원격 제어로 받지 않음 — {reason}");
+            }
+            false
+        }
+    }
+}
+
 fn rc_command_route(
     state: &Arc<ServerState>,
     label: &str,
     command: crate::rc::RcCommand,
-    local: bool,
+    allowed: bool,
 ) -> Response {
     use crate::rc::RcRefusal;
-    if !local {
+    if !allowed {
         return error_response(NON_LOCAL_SPAWN_MESSAGE, StatusCode::FORBIDDEN);
     }
     let Some(control) = state.rc_control.clone() else {

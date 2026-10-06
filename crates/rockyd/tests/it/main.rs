@@ -12,6 +12,7 @@ mod rc_launch_test;
 mod rc_log_test;
 mod rc_nightly_test;
 mod rc_test;
+mod server_access_test;
 mod server_board_inbox_test;
 mod server_handoff_test;
 mod server_inbox_test;
