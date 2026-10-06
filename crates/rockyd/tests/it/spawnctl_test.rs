@@ -128,13 +128,13 @@ async fn descendant_holding_stdout_does_not_hang() {
     // 자손이 stdout 파이프를 물고 있어도 마감 안에 결과를 준다 — detach 손자 재현.
     let dir = tempfile::tempdir().unwrap();
     let pidfile = dir.path().join("grandchild.pid");
+    // 경로는 셸 문자열에 넣지 않고 `$1` 로 넘긴다 — TMPDIR 에 공백·메타문자가 있어도 깨지지 않는다.
     let cmd: Vec<String> = vec![
         "sh".into(),
         "-c".into(),
-        format!(
-            "echo backgrounded; sleep 30 & echo $! > {}; exit 0",
-            pidfile.display()
-        ),
+        "echo backgrounded; sleep 30 & echo $! > \"$1\"; exit 0".into(),
+        "sh".into(),
+        pidfile.to_string_lossy().into_owned(),
     ];
     let started = std::time::Instant::now();
     let result = run_in_dir(&cmd, "/tmp", Duration::from_secs(5)).await;
