@@ -16,7 +16,9 @@
 - **의도된 차이**: 모든 세그먼트가 빈 줄의 `[rocky]`(픽스처 `allow`) · 계정별 캐시 자동 분리(아래 "계정") · 에러 문구를
   자를 때 글자 경계를 지킨다(cc-usage 는 40/120 **바이트**에서 잘라 한글이 깨진 바이트를 낸다 — 예: 비기본 폴더의
   `token not found (keychain: 건너뜀 …` 는 40바이트가 '비' 한가운데다) · `keychainService`·`credentialsFile` 은 `configDir`
-  세션에만(cc-usage 는 계정마다 설정 파일이 따로라 문제가 없었다).
+  세션에만(cc-usage 는 계정마다 설정 파일이 따로라 문제가 없었다) · `HOME` 이 없으면 캐시·계정을 쓰지 않는다(경보는 배지로
+  고정, 계정 배지 없음 — cc-usage 는 `CLAUDE_CONFIG_DIR`·`XDG_CACHE_HOME` 만으로도 쓴다) · 스키마가 막는 잘못된 `badges` 항목
+  (`null`, 대소문자가 다른 키, 타입이 틀린 값)은 그 항목만 버린다(cc-usage 는 0값 배지로 받거나 설정 전체가 에러).
 - **미러 대상에서 뺀 것:** cc-usage 의 `update` · `config` · `version` — rocky 에 같은 일을 하는 명령(`rocky update` ·
   `rocky config`)이 있다. guard · agy 는 지금 쓰지 않아도 "기능 동일" 에 넣는다(조각 5).
 
@@ -49,7 +51,7 @@
 | 1 | 대조 하네스 + 1~2줄 렌더 | `source: stdin` / `none`. 입력 파싱, git 세그먼트, 남은 비율·리셋 표기, 7d 70% 임계, `alert_percent` 고정 배지, 3단 색, 폭 판단(`COLUMNS - 40`) |
 | 2 | `extra_commands` | argv 배열, placeholder(`{{cwd}}` · `{{session_id}}`), 타임아웃. rocky 보드 줄은 내부 세그먼트 |
 | 3 | usage API 갱신 + 계정 구분 | detached `refresh`, keychain(`/usr/bin/security`) 읽기 전용, 한도별 폴링 간격, backoff·`Retry-After`, `source: api` / `auto`, 캐시 판정·상태 문구. 크레딧 렌더·폭 판단은 조각 1 리뷰 반영 때 앞당겼다 |
-| 4 | 경보 깜빡임 · 계정 배지 | `state.json` 의 경보 시각, 배지(계정 판단은 조각 3) |
+| 4 | 경보 깜빡임 · 계정 배지 | `state.json` 의 경보 시각(`alert_key`·`alert_at`, 6초·0.5초 프레임), `statusline.badges`(계정 판단은 조각 3) |
 | 5 | guard / allow · probe / doctor · agy | guard 는 fail-open |
 
 ### 계정 (조각 3, 2026-10-06 결정)

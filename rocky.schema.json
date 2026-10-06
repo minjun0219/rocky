@@ -277,6 +277,22 @@
           "minLength": 1,
           "description": "이 환경 변수에 토큰이 있으면 먼저 쓴다."
         },
+        "badges": {
+          "type": "object",
+          "description": "로그인된 계정(이메일)별 표시 — 상태 줄 앞에 붙는다. 목록에 없는 계정은 아무것도 붙지 않는다(평소 계정을 안 적으면 표시가 뜨는 것 자체가 '여기는 평소 자리가 아니다' 신호).",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "emoji": { "type": "string", "description": "있으면 이것만 쓴다(제 색이 있다)." },
+              "glyph": { "type": "string", "description": "emoji 가 없을 때의 글자. 기본 ●." },
+              "color": {
+                "type": "string",
+                "description": "glyph 색 — blue · brightblue · cyan · green · yellow · magenta · red · gray · white, 또는 256 인덱스(\"33\"). 빨강은 경보 축이라 피하는 게 좋다."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
         "configDir": {
           "type": "string",
           "minLength": 1,

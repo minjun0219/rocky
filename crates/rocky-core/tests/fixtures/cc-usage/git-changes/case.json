@@ -10,6 +10,7 @@
   "allow": [],
   "usage": null,
   "state": null,
+  "account": null,
   "repo": [
     "git init -q -b main",
     "printf a > a && printf b > b && printf c > c",

@@ -21,6 +21,7 @@
     }
   },
   "state": null,
+  "account": null,
   "repo": [],
   "gitEnv": {}
 }

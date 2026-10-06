@@ -5,9 +5,9 @@ use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Utc};
 use rocky_core::limits::{
-    alert, credits, select, Input, LimitsConfig, Source, StateFile, UsageCache,
+    alerts, credits, select, Input, LimitsConfig, Source, StateFile, UsageCache,
 };
-use rocky_core::statusline::full::{abbrev_home, duration, lines, Style, View};
+use rocky_core::statusline::full::{abbrev_home, duration, lines, Badge, Style, View};
 use rocky_core::statusline::width::display_width;
 use serde_json::Value;
 
@@ -39,9 +39,22 @@ fn render(case: &Value) -> String {
 
     let input = Input::parse(&stdin);
     // 캡처 때 cc-usage 캐시에 심은 state.json — 없으면 빈 상태.
-    let state: StateFile = serde_json::from_value(case["state"].clone()).unwrap_or_default();
+    let mut state: StateFile = serde_json::from_value(case["state"].clone()).unwrap_or_default();
     let selected = select(&cfg, &input, &state, &cache, now);
     let limits = selected.unwrap_or_default();
+    // 경보 시각(state)으로 깜빡임 프레임을 고른다 — 한도를 다루지 않으면 경보도 없다.
+    let alert = selected.map_or_else(Default::default, |_| {
+        alerts(&cfg, &limits, &mut state, now).0
+    });
+    // 로그인된 계정(캡처 때 ~/.claude.json 에 심은 이메일)의 배지.
+    let badge = case["account"].as_str().and_then(|email| {
+        let b = &case["config"]["badges"][email];
+        b.is_object().then(|| Badge {
+            emoji: b["emoji"].as_str().unwrap_or_default().to_string(),
+            glyph: b["glyph"].as_str().unwrap_or_default().to_string(),
+            color: b["color"].as_str().unwrap_or_default().to_string(),
+        })
+    });
     let view = View {
         dir: input.dir(),
         git: None,
@@ -50,9 +63,10 @@ fn render(case: &Value) -> String {
         context_pct: input.context_pct,
         limits,
         usage: selected.map(|_| &cache),
-        alert: alert(&cfg, &limits),
+        alert,
         credits: selected.map_or_else(Default::default, |_| credits(&cfg, &limits, &cache, now)),
         currency: cfg.currency(),
+        badge: badge.as_ref(),
         home: Some(HOME),
         now,
     };

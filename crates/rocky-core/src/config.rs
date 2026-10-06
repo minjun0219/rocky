@@ -690,6 +690,8 @@ pub struct StatuslineConfig {
     pub credentials_file: Option<String>,
     /// 이 환경 변수에 토큰이 있으면 그것을 먼저 쓴다(`tokenEnv`).
     pub token_env: Option<String>,
+    /// 로그인된 계정(이메일)별 표시(`badges`) — 목록에 없는 계정은 아무것도 붙지 않는다.
+    pub badges: std::collections::HashMap<String, crate::statusline::full::Badge>,
 }
 
 /// 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open). `extraCommands` 에서 모양이 틀린 항목(`command` 가
@@ -728,6 +730,29 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
     cfg.limits.credit_divisor = block.get("creditDivisor").and_then(|v| v.as_f64());
     cfg.limits.poll_seconds = block.get("pollSeconds").and_then(|v| v.as_u64());
     cfg.limits.credit_poll_seconds = block.get("creditPollSeconds").and_then(|v| v.as_u64());
+    // 모양이 틀린 항목(객체가 아님, 필드가 문자열이 아님)은 건너뛴다.
+    cfg.badges = block
+        .get("badges")
+        .and_then(|v| v.as_object())
+        .into_iter()
+        .flatten()
+        .filter_map(|(email, v)| {
+            let obj = v.as_object()?;
+            let field = |k: &str| match obj.get(k) {
+                None | Some(serde_json::Value::Null) => Some(String::new()),
+                Some(serde_json::Value::String(s)) => Some(s.clone()),
+                Some(_) => None,
+            };
+            Some((
+                email.clone(),
+                crate::statusline::full::Badge {
+                    emoji: field("emoji")?,
+                    glyph: field("glyph")?,
+                    color: field("color")?,
+                },
+            ))
+        })
+        .collect();
     cfg.limits.always_show_credits = block
         .get("alwaysShowCredits")
         .and_then(|v| v.as_bool())

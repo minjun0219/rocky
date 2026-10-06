@@ -152,6 +152,8 @@ pub struct View<'a> {
     pub credits: CreditView,
     /// 통화 기호.
     pub currency: &'a str,
+    /// 로그인된 계정의 표시 — `None` 이면 없음(목록에 없는 계정).
+    pub badge: Option<&'a Badge>,
     /// `~` 로 줄일 홈 디렉터리.
     pub home: Option<&'a str>,
     pub now: DateTime<Utc>,
@@ -189,13 +191,24 @@ pub fn lines<Tz: TimeZone>(v: &View, s: &Style, tz: &Tz) -> Vec<String> {
     let sep = s.c(DIM, " · ");
     let mut row = parts.join(&sep);
     let credit = credit_line(v, s);
-    let standalone = !credit.is_empty() && credit_standalone(v, s, &row, &credit, &sep);
+    // 배지는 세그먼트가 아니라 머리표다 — 구분자 없이 크레딧까지 다 이은 **뒤에** 앞에 붙인다. 폭 판단에는 따로 넘긴다.
+    let badge = badge_text(v.badge, s);
+    let standalone =
+        !credit.is_empty() && credit_standalone(v, s, &row, &credit, &sep, display_width(&badge));
     if !credit.is_empty() && !standalone {
         if row.is_empty() {
             row = credit.clone();
         } else {
             row = format!("{row}{sep}{credit}");
         }
+    }
+    // 나머지가 다 비어도 배지는 낸다 — 정보가 가장 적은 순간에 "여기는 평소 자리가 아니다" 신호가 사라지면 안 된다.
+    if !badge.is_empty() {
+        row = if row.is_empty() {
+            badge
+        } else {
+            format!("{badge} {row}")
+        };
     }
     if !row.is_empty() {
         out.push(row);
@@ -212,7 +225,14 @@ pub fn lines<Tz: TimeZone>(v: &View, s: &Style, tz: &Tz) -> Vec<String> {
 
 /// 크레딧을 제 줄로 내리나. 강조가 붙는 상태(소진 중 · 한도 소진 · 조회 중 · 비활성)는 늘 내리고 — 줄이 하나
 /// 느는 것 자체가 신호다 —, 폭을 알면 붙였을 때 오른쪽 여백(`RIGHT_MARGIN`)을 침범하는지 본다.
-fn credit_standalone(v: &View, s: &Style, row: &str, credit: &str, sep: &str) -> bool {
+fn credit_standalone(
+    v: &View,
+    s: &Style,
+    row: &str,
+    credit: &str,
+    sep: &str,
+    badge_width: usize,
+) -> bool {
     let cv = &v.credits;
     if !cv.enabled || cv.spending || v.limits.exhausted() {
         return true;
@@ -220,7 +240,10 @@ fn credit_standalone(v: &View, s: &Style, row: &str, credit: &str, sep: &str) ->
     if s.width == 0 {
         return false;
     }
-    let mut w = display_width(row) + display_width(credit);
+    let mut w = display_width(row) + display_width(credit) + badge_width;
+    if badge_width > 0 {
+        w += 1; // 배지 뒤의 공백
+    }
     if !row.is_empty() {
         w += display_width(sep);
     }
@@ -314,6 +337,49 @@ fn short_err(e: &str) -> String {
     format!("{}…", &e[..e.floor_char_boundary(40)])
 }
 
+/// 로그인된 계정을 알아보는 표시 — `rocky.json` 의 `statusline.badges` 에 이메일을 키로 적는다.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Badge {
+    /// 있으면 이것만 쓴다(이모지는 제 색이 있다).
+    pub emoji: String,
+    /// 없으면 `●`.
+    pub glyph: String,
+    /// 이름(`blue` · `brightblue` · `cyan` · `green` · `yellow` · `magenta` · `red` · `gray` · `white`) 또는 256 인덱스.
+    pub color: String,
+}
+
+fn badge_text(badge: Option<&Badge>, s: &Style) -> String {
+    let Some(b) = badge else {
+        return String::new();
+    };
+    if !b.emoji.is_empty() {
+        return b.emoji.clone();
+    }
+    let glyph = if b.glyph.is_empty() { "●" } else { &b.glyph };
+    s.c(&badge_color(&b.color), glyph)
+}
+
+/// 이름 또는 256 인덱스 — 모르는 값이면 색 없이(설정 오타로 글리프가 사라지는 것보다 낫다).
+fn badge_color(v: &str) -> String {
+    // Go 의 Atoi 처럼 정수로 읽고 0~255 만 받는다("-0"·"+33"·"033" 도 같게).
+    if let Some(n) = v.parse::<i64>().ok().filter(|n| (0..=255).contains(n)) {
+        return format!("\x1b[38;5;{n}m");
+    }
+    match v.to_lowercase().as_str() {
+        "blue" => "\x1b[34m",
+        "brightblue" => "\x1b[94m",
+        "cyan" => "\x1b[36m",
+        "green" => "\x1b[32m",
+        "yellow" => "\x1b[33m",
+        "magenta" => "\x1b[35m",
+        "red" => "\x1b[31m",
+        "gray" | "grey" => DIM,
+        "white" => "\x1b[97m",
+        _ => "",
+    }
+    .to_string()
+}
+
 /// 모델 이름 뒤에 effort 를 흐리게 붙인다 — effort 는 모델의 속성이라 세그먼트로 떼지 않는다.
 fn model_text(v: &View, s: &Style) -> String {
     let m = s.c(MAGENTA, v.model);
@@ -395,6 +461,9 @@ fn window_text<Tz: TimeZone>(name: &str, w: &Window, v: &View, s: &Style, tz: &T
     let pct = format!("{:.0}%", 100.0 - w.percent);
     let pct = if v.alert.level == AlertLevel::None || v.alert.window != name {
         s.c(&s.pct_color(w.percent), &pct)
+    } else if v.alert.burst && !v.alert.on {
+        // 깜빡임의 꺼진 프레임 — 여백은 남긴다(프레임마다 폭이 바뀌면 줄 전체가 좌우로 출렁인다).
+        s.c(&format!("{BOLD}{RED}"), &format!(" {pct} "))
     } else {
         // 경보를 올린 창은 배지 — 양옆 한 칸은 이웃 글자에 붙어 답답해 보이는 것을 막는다.
         s.c(RED_BG, &format!(" {pct} "))

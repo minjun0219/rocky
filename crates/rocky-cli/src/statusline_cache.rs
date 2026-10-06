@@ -109,7 +109,17 @@ pub fn write<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     })
 }
 
-/// 이 렌더의 한도와 usage 캐시 — `None` 이면 한도를 다루지 않는다(`source: none`, 캐시를 읽지도 쓰지도 않는다).
+/// 이 렌더의 판정 결과.
+#[derive(Debug, Clone)]
+pub struct Observed {
+    pub limits: rocky_core::limits::Limits,
+    pub usage: rocky_core::limits::UsageCache,
+    pub alert: rocky_core::limits::Alert,
+    /// 로그인된 계정의 이메일(계정 캐시) — 배지를 고른다. 모르면 `None`.
+    pub email: Option<String>,
+}
+
+/// 이 렌더의 한도·usage 캐시·경보·계정 — `None` 이면 한도를 다루지 않는다(`source: none`, 캐시를 읽지도 쓰지도 않는다).
 ///
 /// 계정 캐시에서 이메일을 꺼내 그 계정의 캐시를 읽고 한도를 고른다. 계정 파일은 한도 숫자가 바뀌었거나 1분이 지났을
 /// 때만 다시 읽고, 이메일이 바뀌었으면(같은 폴더 안의 전환 — claude-swap · `/login`) 그 계정의 캐시로 갈아탄다.
@@ -120,20 +130,26 @@ pub fn observe(
     configured_dir: Option<&str>,
     input: &rocky_core::limits::Input,
     now: chrono::DateTime<chrono::Utc>,
-) -> Option<(rocky_core::limits::Limits, rocky_core::limits::UsageCache)> {
+) -> Option<Observed> {
     use rocky_core::limits::{
-        account_cached, need_account_check, need_refresh, select, use_stdin, AccountCache, Source,
-        StateFile, UsageCache,
+        account_cached, alert, alerts, need_account_check, need_refresh, select, use_stdin,
+        AccountCache, Source, StateFile, UsageCache,
     };
 
     if cfg.source == Source::None {
         return None;
     }
     let Some(slot) = Slot::from_env(configured_dir) else {
-        // 홈을 모르면 캐시 없이 — cc-usage 의 첫 렌더와 같다.
+        // 홈을 모르면 캐시도 계정도 없이 — 경보는 시각을 적을 데가 없어 배지로 고정하고, 계정 배지도 없다.
+        // (cc-usage 는 HOME 이 없어도 CLAUDE_CONFIG_DIR 의 계정 파일·XDG_CACHE_HOME 을 쓴다 — 의도된 차이, 스펙 참고.)
         let usage = UsageCache::default();
         let lim = select(cfg, input, &StateFile::default(), &usage, now)?;
-        return Some((lim, usage));
+        return Some(Observed {
+            alert: alert(cfg, &lim),
+            limits: lim,
+            usage,
+            email: None,
+        });
     };
     let load = |email: Option<&str>| {
         let bucket = slot.bucket(email);
@@ -144,7 +160,7 @@ pub fn observe(
 
     let source = slot.account_source();
     let account: AccountCache = read(&slot.account_file());
-    let email = account_cached(&source, &account).map(str::to_owned);
+    let mut email = account_cached(&source, &account).map(str::to_owned);
     let (mut bucket, mut state, mut usage) = load(email.as_deref());
     let mut lim = select(cfg, input, &state, &usage, now)?;
 
@@ -154,6 +170,7 @@ pub fn observe(
                 (bucket, state, usage) = load(Some(&current));
                 lim = select(cfg, input, &state, &usage, now)?;
             }
+            email = Some(current.clone());
             let updated = AccountCache {
                 source,
                 email: current,
@@ -181,8 +198,15 @@ pub fn observe(
         state.spawned_at = Some(now);
         dirty = true;
     }
-    if dirty {
+    // 단계가 오른 시각을 적어야 다음 렌더가 깜빡임 구간인지 안다.
+    let (alert, alert_dirty) = alerts(cfg, &lim, &mut state, now);
+    if dirty || alert_dirty {
         let _ = write(&state_file(&bucket), &state);
     }
-    Some((lim, usage))
+    Some(Observed {
+        limits: lim,
+        usage,
+        alert,
+        email,
+    })
 }

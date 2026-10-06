@@ -171,11 +171,20 @@ fn full_replays_cc_usage_goldens() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
-        // 캡처 때 cc-usage 캐시에 심은 것을 rocky 의 같은 자리에 심는다 — 임시 HOME 에는 계정 파일이 없어 이메일을
-        // 모르므로 `_` 계정 폴더다. 캐시 JSON 은 cc-usage 와 같은 모양이라 그대로 쓴다.
+        // 캡처 때 cc-usage 캐시에 심은 것을 rocky 의 같은 자리(그 계정의 캐시 폴더)에 심는다. 캐시 JSON 은 cc-usage 와
+        // 같은 모양이라 그대로 쓴다.
+        // 계정 파일이 있으면 그 계정의 캐시 폴더, 없으면 `_`.
+        let account = case["account"].as_str();
+        if let Some(email) = account {
+            std::fs::write(
+                home.join(".claude.json"),
+                serde_json::json!({"oauthAccount": {"emailAddress": email}}).to_string(),
+            )
+            .unwrap();
+        }
         let bucket = rocky_core::claude_account::cache_bucket(
             &rocky_core::claude_account::cache_slot(&home.join(".cache"), &home.join(".claude")),
-            None,
+            account,
         );
         for (key, file) in [("usage", "usage.json"), ("state", "state.json")] {
             if !case[key].is_null() {
@@ -219,6 +228,7 @@ fn full_replays_cc_usage_goldens() {
             "source": case["config"]["source"],
             "alertPercent": case["config"]["alert_percent"],
             "extraCommands": extra_commands,
+            "badges": case["config"]["badges"],
         });
         std::fs::write(
             &config,
@@ -522,4 +532,22 @@ fn full_records_stdin_limits_for_the_six_hour_fallback() {
             .mode();
         assert_eq!(mode & 0o777, 0o600, "캐시 파일은 본인만 읽는다");
     }
+}
+
+/// 단계가 오른 시각을 `state.json` 에 남겨야 다음 렌더가 깜빡임 구간인지 안다 — 0.7초 뒤 렌더는 꺼진 프레임이다.
+#[test]
+fn full_records_when_an_alert_rose_and_blinks_from_there() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let config = r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"stdin","keychainService":"rocky-test-absent"}}"#;
+    let hit =
+        r#"{"model":{"display_name":"M"},"rate_limits":{"five_hour":{"used_percentage":100}}}"#;
+    // 처음 — 켜진 프레임(배지)이고 시각을 적는다. NO_COLOR 라 배지·굵은 빨강 모두 " 0% ".
+    let first = full_once(home, &[("ROCKY_STATUSLINE_NOW", NOW)], config, hit);
+    assert!(first.starts_with("M · 5h  0% \n"), "{first:?}");
+    let bucket = rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(bucket.join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["alert_key"], "2@5h");
+    assert_eq!(state["alert_at"], NOW);
 }

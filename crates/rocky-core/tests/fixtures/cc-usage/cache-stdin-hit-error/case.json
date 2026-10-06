@@ -13,6 +13,7 @@
     "failures": 1
   },
   "state": null,
+  "account": null,
   "repo": [],
   "gitEnv": {}
 }
