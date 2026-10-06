@@ -63,8 +63,8 @@ Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install` �
 1. `todo_list { id: "<참조>" }` 로 항목·히스토리·댓글을 읽는다. `note-N` 이면
    `note_list { id: "<참조>" }` 를 쓴다. 보드 접두사가 붙은 참조(`rocky-12`)는 todo
    로 먼저 조회하고, 없으면 note 로 시도한다.
-   - todo 와 note 는 보드 안에서 번호를 독립적으로 매긴다(`nextNumber` in
-     `src/store.ts`) — 같은 보드에 todo `rocky-3` 과 note `rocky-3` 이 동시에
+   - todo 와 note 는 보드 안에서 번호를 독립적으로 매긴다(`next_number` in
+     `crates/rocky-core/src/store.rs`) — 같은 보드에 todo `rocky-3` 과 note `rocky-3` 이 동시에
      존재할 수 있고, 둘 다 1번부터 시작하니 보드 초기일수록 흔하다. todo 조회가
      맞으면 note 는 시도조차 안 되므로, 읽은 제목이 사용자가 말한 것과 다르면
      `note_list` 로도 확인한다.
