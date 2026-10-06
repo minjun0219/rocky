@@ -1283,9 +1283,20 @@ async fn dispatch(
                     .push(format!("{}#{}", sub.repo, sub.number));
             }
         }
-        let mut sessions: Vec<Value> = registrations
+        // 끝난 세션의 등록은 TTL(24시간)까지 남는다 — 카드에서는 빼고 몇 개 뺐는지만 알린다. 보이기만 하는 판단이라
+        // 캐시된 세션 목록으로 충분하고, 목록을 못 얻으면 아무것도 빼지 않는다.
+        let alive = (state.sessions)().await;
+        let fresh: Vec<_> = registrations
             .iter()
             .filter(|r| now - r.seen_at <= rocky_core::peer_inbox::REGISTRATION_TTL_SECS)
+            .collect();
+        let ended = fresh
+            .iter()
+            .filter(|r| !rocky_core::peer_inbox::registration_alive(r, &alive))
+            .count();
+        let mut sessions: Vec<Value> = fresh
+            .into_iter()
+            .filter(|r| rocky_core::peer_inbox::registration_alive(r, &alive))
             .map(|r| {
                 json!({
                     "sessionId": r.session_id,
@@ -1307,6 +1318,7 @@ async fn dispatch(
             .collect();
         return Ok(ok_json(&json!({
             "sessions": sessions,
+            "ended": ended,
             "subscriptions": subscriptions,
             "recent": state.deliveries(),
             "cleared": state.store.cleared_sessions()?,

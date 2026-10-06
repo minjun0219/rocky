@@ -1,10 +1,12 @@
 //! 세션 받은편지함으로 밀어 넣기 — 경로 검증·한 줄 형식·본문·보낼 세션 고르기(순수).
 
 use rocky_core::peer_inbox::{
-    inbox_line, is_inbox_socket_path, pick_session, pr_session_message, review_session_message,
-    session_candidates, superseded_sessions, InboxRegistration, REGISTRATION_TTL_SECS,
+    inbox_line, is_inbox_socket_path, pick_session, pr_session_message, registration_alive,
+    review_session_message, session_candidates, superseded_sessions, InboxRegistration,
+    REGISTRATION_TTL_SECS,
 };
 use rocky_core::prwatch::{PrEvent, PrEventKind};
+use rocky_core::sessions::{AgentSession, SessionsResult};
 use rocky_core::statusline::BoardLocation;
 
 #[test]
@@ -240,4 +242,44 @@ fn superseded_sessions_are_earlier_ids_of_the_same_process() {
         "시작과 같은 초도 같은 프로세스"
     );
     assert!(superseded_sessions(&regs, &new, None).is_empty());
+}
+
+#[test]
+fn a_registration_is_ended_only_when_the_session_list_says_so() {
+    let reg = InboxRegistration {
+        session_id: "s1".into(),
+        socket: "/tmp/cc-socks/1.sock".into(),
+        cwd: "/w/rocky".into(),
+        seen_at: 0,
+        restored: false,
+    };
+    let row = |id: &str, state: Option<&str>| AgentSession {
+        pid: None,
+        cwd: "/w/rocky".into(),
+        kind: "background".into(),
+        id: None,
+        session_id: id.into(),
+        name: "eel".into(),
+        status: "idle".into(),
+        state: state.map(Into::into),
+        started_at: 0,
+    };
+    let list = |rows: Vec<AgentSession>| SessionsResult {
+        available: true,
+        sessions: rows,
+        reason: None,
+    };
+    assert!(registration_alive(&reg, &list(vec![row("s1", None)])));
+    assert!(registration_alive(
+        &reg,
+        &list(vec![row("s1", Some("blocked"))])
+    ));
+    // 목록에 없거나 background 수명이 끝났으면 끝난 것
+    assert!(!registration_alive(&reg, &list(vec![row("s2", None)])));
+    assert!(!registration_alive(
+        &reg,
+        &list(vec![row("s1", Some("done"))])
+    ));
+    // 목록을 못 얻었으면 모른다 — 빼지 않는다
+    assert!(registration_alive(&reg, &SessionsResult::unavailable("x")));
 }

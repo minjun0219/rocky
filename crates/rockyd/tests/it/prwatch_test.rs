@@ -765,6 +765,55 @@ async fn review_events_reach_the_session_only_when_review_fix_is_on() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 세션 전달 현황은 끝난 세션의 등록을 빼고 몇 개 뺐는지만 싣는다 — 등록 자체는 남는다(TTL 로만 걷는다).
+#[tokio::test]
+async fn deliveries_hide_registrations_of_ended_sessions() {
+    let sessions = rocky_core::sessions::SessionsResult {
+        available: true,
+        sessions: vec![rocky_core::sessions::AgentSession {
+            pid: None,
+            cwd: "/w/rocky".into(),
+            kind: "interactive".into(),
+            id: None,
+            session_id: "alive".into(),
+            name: "eel".into(),
+            status: "idle".into(),
+            state: None,
+            started_at: 0,
+        }],
+        reason: None,
+    };
+    let f = fx_with(|o| o.sessions = Some(rockyd::sessions_exec::fixed_sessions(sessions)));
+    for (id, sock) in [
+        ("alive", "/tmp/cc-socks/101.sock"),
+        ("ended", "/tmp/cc-socks/102.sock"),
+    ] {
+        let (status, _) = post(
+            &f.state,
+            "/api/sessions/inbox",
+            json!({ "sessionId": id, "socket": sock, "cwd": "/w/rocky" }),
+        )
+        .await;
+        assert_eq!(status, 204);
+    }
+    let (_, body) = get(&f.state, "/api/deliveries").await;
+    let ids: Vec<&str> = body["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["sessionId"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["alive"]);
+    assert_eq!(body["ended"], 1);
+    assert_eq!(f.state.inboxes().len(), 2, "등록은 지우지 않는다");
+
+    // 세션 목록을 못 얻으면 아무것도 빼지 않는다.
+    let blind = rebuild(&f, |_| {});
+    let (_, body) = get(&blind, "/api/deliveries").await;
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(body["ended"], 0);
+}
+
 /// 전달 기록은 데몬이 다시 떠도 남는다 — 배포마다 재시작해도 "예전에 못 보냈나" 를 볼 수 있게.
 #[tokio::test]
 async fn delivery_log_survives_a_daemon_restart() {

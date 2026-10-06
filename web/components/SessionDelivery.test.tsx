@@ -107,6 +107,15 @@ describe('SessionDelivery', () => {
     });
   });
 
+  test('끝난 세션을 뺐으면 몇 개인지 한 줄로 알린다', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ sessions: [], ended: 3, subscriptions: [], recent: [] }),
+      )) as unknown as typeof fetch;
+    renderWithStore(<SessionDelivery />, { actor: 'me' });
+    expect(await screen.findByText(/끝난 세션 3개는 뺐어요/)).toBeTruthy();
+  });
+
   test('옛 데몬(cleared 없음)이면 그 칸을 그리지 않는다', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ sessions: [], subscriptions: [], recent: [] }), {
