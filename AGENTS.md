@@ -36,15 +36,13 @@ CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` �
 - **TypeScript 서버 코드는 없다.** `package.json` 에는 개발 도구(biome, changesets, `scripts/`·`plugin/scripts/`
   의 릴리스·부트스트랩·permalink 스크립트)와 `web/`의 **브라우저 번들 빌드**(React + zustand + Tailwind v4,
   `bun run build:ui` → `dist/`)만 있다. 머신에서 도는 것은 전부 Rust이고, UI는 데몬이 서빙하는 정적 번들이다.
-  예외 하나: `plugin/hooks/lab/`은 Claude Code 프로세스 안에서 도는 function hooks 모듈(실험, 기본 꺼짐)이다 — 데몬을
-  읽어 그리기만 하는 가장자리 클라이언트라 웹 UI 와 같은 자리다([lab](./docs/features/lab.md)).
 
 > **v0.23에서 제거**: `openapi_*`(7), `seo_validate`, `notion_*`(4), 독립 CLI `openapi-mcp`. 39개 레포 ·
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
 
 **Claude Code 전용 표면**(MCP 도구가 아니라 Codex/opencode 에는 안 보인다): `plugin/commands/`의 슬래시
-커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · PostToolUse · Stop)과 function hooks 모듈(`modules` →
-`plugin/hooks/lab/`, 실험), `plugin/skills/`의 번들 스킬, `plugin/agents/`의 서브에이전트. 호스트의 한계가 아니라 연결 방식의 선택이다 — `docs/architecture.md`.
+커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · PostToolUse · Stop), `plugin/skills/`의 번들
+스킬, `plugin/agents/`의 서브에이전트. 호스트의 한계가 아니라 연결 방식의 선택이다 — `docs/architecture.md`.
 
 > **범위 판단 전에 먼저 읽을 것.** rocky는 지금 가진 도구로 범위가 정해진 제품이 아니라 개인 플러그인이다.
 > 지금 표면은 오늘의 기준선이지 **천장이 아니다**. 오너가 어떤 영역이나 기능을 요청하면 **만든다**. 아래
@@ -60,7 +58,6 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │   ├── .claude-plugin/plugin.json  플러그인 메타데이터 + MCP 서버 두 개(rocky = 데몬 http, worklog = stdio)
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
 │   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
-│   ├── hooks/lab/ types/       function hooks 모듈(실험 — rocky.json `lab` 블록일 때만) + 그 `$.state` 계약. tsconfig.json 은 엔진 타입을 extends
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
 │   └── scripts/permalink.ts    /rocky:review-request 가 쓴다 — 설치 후에도 있으려면 플러그인 안에 있어야 한다
 ├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli
@@ -134,12 +131,10 @@ bun install         # 의존성 설치
 bun run check       # Biome 검증(쓰기 없음)
 bun run fix         # Biome 안전 수정 + 포맷
 bun run typecheck   # tsc --noEmit
-bun run test        # test:unit(scripts·plugin/scripts·plugin/hooks·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload).
+bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload).
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
-bun run test:lab    # plugin/hooks/lab — claude plugin validate + 엔진 테스트(*.test.tsx). claude CLI 가 있어야 해서 CI 밖.
-                    # 순수 판정(lib.test.ts)은 bun run test 가 돈다
 bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e/*.spec.ts) — globalSetup 이 빌드 후 임시 폴더의
                     # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱(Chromium)과 cmux-webkit(cmux 웹뷰 = Safari
                     # 엔진, `bunx playwright install webkit`) 네 프로젝트가 병렬로 돈다. 화면 점검 발견은
@@ -184,11 +179,10 @@ typecheck or tests — pre-push and CI already cover it.*
 
 - **언어 경계(2026-10-02 오너 확인)**: 가운데는 Rust — 데몬·CLI·훅·MCP·저장소(`crates/`, edition 2021,
   `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
-  JSON 규약), 로그 분석(`logs.db`를 읽기만), 개발·릴리스 스크립트(Bun), Claude Code function hooks 모듈(`plugin/hooks/lab/`,
-  TS — 데몬을 읽어 그리기만 한다. 판정·쓰기·rocky 의 훅 동작은 가운데에 둔다). 데몬을 다른 언어로 옮기지 않는다: core와 FFI
+  JSON 규약), 로그 분석(`logs.db`를 읽기만), 개발·릴리스 스크립트(Bun). 데몬을 다른 언어로 옮기지 않는다: core와 FFI
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
-  edges (web, bridges, scripts reading logs.db, the read-only function-hooks module).*
+  edges (web, bridges, scripts reading logs.db).*
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings`가 게이트다(clippy는
   테스트도 본다). 순수 판정 로직은 `rocky-core`에, 통합 테스트는 `crates/*/tests/it/` 에(크레이트당 실행 파일 하나 — 새 파일은 `tests/it/main.rs`에 `mod`로 단다); 데몬과 CLI는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result`를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
@@ -246,7 +240,6 @@ typecheck or tests — pre-push and CI already cover it.*
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬 자동 기동을 거치지 않고 300ms 안에 못 받으면 빈 출력 | [statusline](./docs/features/statusline.md) |
 | 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다. rc 가 켜진 기기는 rc 서버로(할 일당 하나, 내리기는 사람) | [spawn](./docs/features/spawn.md) |
-| lab(function hooks 실험) | 사용자 rocky.json 의 `lab` 블록이 있을 때만. 데몬을 읽어 그리기만 하고 주기 폴링·턴 열기를 하지 않는다. 데몬 요청은 `x-rocky-client: claude-code-lab` 을 달아 `hook lab` 으로 센다 — *every REST call lands in the usage log* | [lab](./docs/features/lab.md) |
 | 세션 목록(`claude agents`) | pid 없는 잠든 행을 버리지 않는다. 작업 요약은 `detail`·`needs`·`updatedAt` 만, 못 읽으면 그 행만 비운다 — *the session list is readable remotely* | [sessions](./docs/features/sessions.md) |
 
 ## 리뷰 기준

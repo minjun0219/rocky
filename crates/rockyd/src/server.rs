@@ -38,7 +38,7 @@ use rocky_core::statusline::{
 use rocky_core::store::{StoreError, StoreResult, TodoStore};
 use rocky_core::summary::{build_summary, count_unpromoted, due_bucket, Summary};
 use rocky_core::types::*;
-use rocky_core::usage::{client_of, normalize_route, rest_surface, UsageEvent, UsageSource};
+use rocky_core::usage::{client_of, normalize_route, UsageEvent, UsageSource};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
@@ -882,16 +882,14 @@ pub async fn handle_api(
             Ok(response) => response,
             Err(error) => to_http_error(&error),
         };
-    // 사용 로그 — 이름은 모양만(`GET /api/todos/:ref`), 1초마다 도는 라우트는 빠진다. lab 이 부른 것은 `hook lab` 으로.
-    if let Some(route) = normalize_route(method.as_str(), &path) {
-        let client = client_of(
+    // 사용 로그 — 이름은 모양만(`GET /api/todos/:ref`), 1초마다 도는 라우트는 빠진다.
+    if let Some(name) = normalize_route(method.as_str(), &path) {
+        let mut event = UsageEvent::new(UsageSource::Rest, name, response.status().as_u16() < 400);
+        event.actor = Some(actor.clone());
+        event.client = Some(client_of(
             header_of(&headers, "x-rocky-client").as_deref(),
             header_of(&headers, "user-agent").as_deref(),
-        );
-        let (source, name) = rest_surface(route, &client);
-        let mut event = UsageEvent::new(source, name, response.status().as_u16() < 400);
-        event.actor = Some(actor.clone());
-        event.client = Some(client);
+        ));
         event.ms = Some(started.elapsed().as_millis() as u64);
         state.record_usage(event);
     }

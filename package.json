@@ -75,9 +75,8 @@
     "check:changesets": "bun scripts/check-changesets.ts",
     "build:ui": "bun scripts/build-ui.ts",
     "e2e": "playwright test",
-    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./plugin/hooks ./bridges ./web",
-    "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web",
-    "test:lab": "bun scripts/lab-check.ts"
+    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./bridges ./web",
+    "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web"
   },
   "type": "module"
 }

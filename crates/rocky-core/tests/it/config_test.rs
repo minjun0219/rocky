@@ -567,29 +567,3 @@ fn statusline_block_reads_guard_defaulting_off() {
     let (_dir, path) = write_config(r#"{ "statusline": {} }"#);
     assert!(!load_statusline_block(&path).limits.guard);
 }
-
-#[test]
-fn lab_block_turns_on_only_when_present() {
-    // plugin/hooks/lab/register.test.ts 의 parseLabConfig 케이스와 같은 규칙.
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("rocky.json");
-    let lab = |raw: &str| {
-        std::fs::write(&path, raw).unwrap();
-        load_lab_block(&path)
-    };
-    assert_eq!(load_lab_block(&path), None);
-    assert_eq!(lab("{ not json"), None);
-    assert_eq!(lab(r#"{"rc":{}}"#), None);
-    assert_eq!(lab(r#"{"lab":true}"#), None);
-    assert_eq!(lab(r#"{"lab":{"enabled":false}}"#), None);
-    let all = LabConfig {
-        toast: true,
-        band: true,
-        limits: true,
-    };
-    assert_eq!(lab(r#"{"lab":{}}"#), Some(all.clone()));
-    assert_eq!(
-        lab(r#"{"lab":{"band":false}}"#),
-        Some(LabConfig { band: false, ..all })
-    );
-}
