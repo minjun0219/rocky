@@ -291,6 +291,8 @@ interface UiState {
   loadCapabilities: () => Promise<void>;
 
   fetchSessions: () => Promise<void>;
+  /** 에이전트 탭 — 그 세션의 받은편지함에 한 줄(로컬 화면만). 못 보내면 데몬이 준 이유로 던진다. */
+  sendSessionMessage: (sessionId: string, text: string) => Promise<void>;
   /** @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다. */
   /** 세션의 받은편지함에 바로 꽂아 깨웠으면 true — 아니면 그 세션이 다음 턴에 큐에서 집는다. */
   sendHandoff: (todoId: string, input: { sessionId?: string; note?: string }) => Promise<boolean>;
@@ -1064,6 +1066,15 @@ export const useUiStore = create<UiState>((set, get) => ({
         },
       });
     }
+  },
+
+  sendSessionMessage: async (sessionId, text) => {
+    logUsage('web:session-message');
+    const { actor } = get();
+    await api('/api/sessions/message', actor, {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, text }),
+    });
   },
 
   sendHandoff: async (todoId, input) => {

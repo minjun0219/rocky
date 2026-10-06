@@ -75,6 +75,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/notes` | `?board=&global=&includeArchived=` | `NoteView[]` | |
 | POST `/api/notes` | `{title!, board?, content?}` | 201 `NoteView` | |
 | GET `/api/sessions` | `?board=` | `{available, reason?, sessions: (AgentSession & {matched, job?})[]}` | matched는 board 없으면 전부 false. `job`은 background 행의 작업 요약(`~/.claude/jobs/<id>/state.json`, 못 읽으면 없음) |
+| POST `/api/sessions/message` | `{sessionId, text}` | `{sent: true}` | **포팅 후 추가** — 웹 에이전트 탭이 그 세션의 받은편지함에 한 줄(2000자까지). 로컬 요청만(아니면 403), 등록 없는 세션은 409(`error` 에 이유) |
 | POST `/api/handoffs/claim` | `{sessionId!, via?}` | `ClaimedHandoff` 또는 **204** | 로컬 전용(404 위장). via는 'prompt' 외엔 'stop' |
 | GET `/api/handoffs` | `?board=&status=&open=true&todo=` | `HandoffView[]` | 없는 board 명시 → `[]`, `todo`(참조 · id)도 못 풀면 `[]`. `open` = pending + 미완료 delivered, **보관된 todo의 것은 제외**. stale/unstarted 판정은 아래 |
 | GET `/api/changes` | `?sinceId=&limit=` | `ChangeFeedEntry[]` | sinceId 음수/비정수 400 |

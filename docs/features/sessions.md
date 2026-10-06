@@ -31,6 +31,14 @@
 - **보드를 고르면 그 보드의 세션만** 보인다 — 다른 보드의 세션은 "전체" 에서.
 - **든 할 일은 `doingSessionId` 로 잇는다** — 전체 `sessionId` 와 짧은 `id` 둘 다(핸드오프로 띄운 세션은 짧은 id 로 귀속된다).
 - **셋째 줄은 Claude 가 남긴 요약 한 줄**: 내 차례면 `needs`(없으면 `detail`), 아니면 `detail`. 출력·로그는 두지 않는다.
+- **메시지는 받은편지함으로만 보낸다**(`POST /api/sessions/message`) — 큐에 넣는 대안은 없다. 받은편지함을 등록하지 않은
+  세션이면 409 와 이유(`받을 세션 등록 없음` 등)를 그대로 보인다. 세션을 움직이는 일이라 **로컬 요청만**(아니면 403, 화면은
+  `spawnAllowed` 일 때만 버튼). 끝난 행과 **pid 없이 잠든 background 행**(소켓을 들을 프로세스가 없다)에는 버튼을 그리지 않는다.
+  사람이 골라 누른 것이라 "보내지 않기"(mute)는 보지 않는다. 2000자까지, 전달 기록 kind 는 `message` — 기록의 제목에는 본문 대신
+  길이만 남긴다(`웹 메시지 (N자)`). 전달 기록은 DB 에도 남고 화면에 보여 비밀이 섞이면 그대로 남는다.
+- **본문은 데몬이 아는 사실만 밝힌다**(`web_session_message`) — "이 기기의 로컬 요청(웹 에이전트 탭 경로)". 사람이 쳤다거나
+  승인이라고 주장하지 않는다. 받는 쪽에는 다른 세션의 메시지로 보여 권한 허락·결정 답으로 쓰이지 않고, 화면이 그 사실을 밝힌다.
+- **쓰던 메시지는 세션 id 로 탭에 둔다** — 행이 다른 묶음으로 옮겨 가면(실행 중 → 쉬는 중) 다시 마운트돼 입력칸이 사라진다.
 - **세션 목록 폴링은 앱 한 곳**(`useAgentsPolling`, `main.tsx`) — 탭을 보는 동안 15초, 아니면 60초(피드 숫자는 어느 탭에서나
   보인다). ⋯ 메뉴에서 탭을 끄면 폴링도 멈추고 `?view=agents` 도 피드로 돌아간다.
 
@@ -52,11 +60,13 @@
 | `GET /api/sessions`(`job` 붙이기)·핸드오프 자동 매칭 | `crates/rockyd/src/server.rs`(`read_job_summary`, 핸드오프 라우트) |
 | 에이전트 탭의 판정(상태·보드·묶음) | `web/agents.ts` |
 | 에이전트 탭 화면·폴링 | `web/components/AgentsPane.tsx`(`useAgentsPolling`), 탭 전환 `web/components/ViewSwitch.tsx` |
+| 세션에 메시지 | `POST /api/sessions/message` `crates/rockyd/src/server.rs`(`wake_session` — 핸드오프와 같은 길), 본문 `crates/rocky-core/src/peer_inbox.rs`(`web_session_message`), 화면 `AgentsPane.tsx`(`MessageToggle`) |
 | 피드 행 | `web/lib.ts`(`nowRows`), 누르면 탭으로 `web/components/NowTable.tsx` |
 
 테스트: `crates/rocky-core/tests/it/sessions_test.rs`(`background_rows_without_pid_are_kept`, `job_state_*`),
 `crates/rocky-core/tests/it/doing_test.rs`(`dormant_blocked_background_is_idle_not_gone`),
 `crates/rockyd/tests/it/server_handoff_test.rs`(`background_sessions_carry_job_summary`, `auto_match_skips_dormant_background_sessions`),
+`crates/rockyd/tests/it/prwatch_test.rs`(`web_message_goes_to_a_registered_session_only_from_a_local_request`),
 `web/agents.test.ts`, `web/components/AgentsPane.test.tsx`, `web/lib.test.ts`("nowRows — 답을 기다리는 에이전트").
 
 ## 함정

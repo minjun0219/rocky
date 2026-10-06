@@ -24,8 +24,8 @@ use rocky_core::inbox::{mark_promoted, InboxResponse};
 use rocky_core::local_request::{
     access_user_email, is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE,
     NON_LOCAL_AGY_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE,
-    NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SPAWN_MESSAGE,
-    NON_LOCAL_VERIFY_RERUN_MESSAGE,
+    NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SESSION_MESSAGE,
+    NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -1253,6 +1253,44 @@ async fn dispatch(
             .store
             .unsubscribe_inbox(query.get("source").map(String::as_str), session_id)?;
         return Ok(ok_json(&json!({ "removed": removed })));
+    }
+
+    // 웹 에이전트 탭에서 사람이 쓴 한 줄을 그 세션의 받은편지함에 넣는다 — 쉬는 세션이면 턴이 열린다. 세션을 움직이는
+    // 일이라 로컬 요청만(세션 띄우기와 같은 경계). 받은편지함을 등록하지 않은 세션(끝났거나 훅 전)은 이유와 함께 거절.
+    if path == "/api/sessions/message" && *method == Method::POST {
+        if !local {
+            return Ok(error_response(
+                NON_LOCAL_SESSION_MESSAGE,
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let body = read_body(headers, body).await?;
+        let session_id = str_field(&body, "sessionId").unwrap_or("").trim();
+        let text = str_field(&body, "text").unwrap_or("").trim();
+        if session_id.is_empty() || text.is_empty() {
+            return Ok(error_response(
+                "sessionId 와 text 가 필요하다",
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let max = rocky_core::peer_inbox::WEB_MESSAGE_MAX_CHARS;
+        if text.chars().count() > max {
+            return Ok(error_response(
+                &format!("메시지가 너무 길다 — {max}자까지"),
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+        let message = rocky_core::peer_inbox::web_session_message(text);
+        // 본문은 전달 기록(SQLite·최근 알림 화면)에 남기지 않는다 — 비밀이 섞일 수 있어 길이만 적는다.
+        let subject = format!("웹 메시지 ({}자)", text.chars().count());
+        return Ok(
+            match wake_session(state, session_id, &message, subject, "message").await {
+                Ok(()) => ok_json(&json!({ "sent": true })),
+                Err(reason) => {
+                    error_response(&format!("보내지 못했다 — {reason}"), StatusCode::CONFLICT)
+                }
+            },
+        );
     }
 
     // ── 세션 전달 현황 — 어느 세션이 PR·수집함 알림을 받나, 최근 보낸 기록, 보내지 않기(로컬 전용) ──
@@ -2992,25 +3030,27 @@ async fn handoff_route(
             &target.session_id,
             &poke.message,
             format!("{todo_ref} {}", todo.title),
+            "handoff",
         )
-        .await;
+        .await
+        .is_ok();
     let mut out = serde_json::to_value(&handoff).map_err(|e| StoreError::new(e.to_string()))?;
     out["poke"] = serde_json::to_value(&poke).map_err(|e| StoreError::new(e.to_string()))?;
     out["woke"] = json!(woke);
     Ok(json_response(&out, StatusCode::CREATED))
 }
 
-/// 핸드오프 대상 세션의 받은편지함에 한 줄 — 썼으면 true. "보내지 않기" 는 보지 않는다: 그건 자동 알림을 끄는
-/// 스위치이고, 핸드오프는 사람이 그 세션을 골라 누른 것이다. 전달 기록(`/api/deliveries`)에 `handoff` 로 남긴다.
+/// 사람이 고른 세션의 받은편지함에 한 줄 — 못 썼으면 그 이유. "보내지 않기" 는 보지 않는다: 그건 자동 알림을 끄는
+/// 스위치이고, 핸드오프·웹 메시지는 사람이 그 세션을 골라 누른 것이다. 전달 기록(`/api/deliveries`)에 `kind`
+/// (`handoff` · `message`)로 남긴다.
 async fn wake_session(
     state: &Arc<ServerState>,
     session_id: &str,
     text: &str,
     subject: String,
-) -> bool {
-    let Ok(target) = state.live_inbox(session_id).await else {
-        return false;
-    };
+    kind: &str,
+) -> Result<(), String> {
+    let target = state.live_inbox(session_id).await?;
     let line = rocky_core::peer_inbox::inbox_line(text);
     let socket = target.socket.clone();
     let reason = match tokio::task::spawn_blocking(move || {
@@ -3022,20 +3062,22 @@ async fn wake_session(
         Ok(Err(e)) => Some(e.to_string()),
         Err(e) => Some(e.to_string()),
     };
-    let ok = reason.is_none();
     state.record_delivery(rocky_core::peer_inbox::Delivery {
         at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        kind: "handoff".to_string(),
+        kind: kind.to_string(),
         subject,
         url: None,
         session_id: session_id.to_string(),
-        ok,
-        reason,
+        ok: reason.is_none(),
+        reason: reason.clone(),
     });
-    if !ok {
-        state.forget_inbox(session_id);
+    match reason {
+        None => Ok(()),
+        Some(reason) => {
+            state.forget_inbox(session_id);
+            Err(reason)
+        }
     }
-    ok
 }
 
 /// POST /api/rc/servers/:label/{start,restart} — 받으면 202, 결과는 현황(`action` · `lastResult`)으로 본다.
@@ -3468,8 +3510,10 @@ async fn wake_for_handoff(
         session_id,
         &poke.message,
         format!("{todo_ref} {todo_title}"),
+        "handoff",
     )
     .await
+    .is_ok()
 }
 
 /// 에이전트의 `start` 직전 — 이 할 일 앞으로 배달됐지만 착수 안 된 핸드오프 중 **버려진 것**(받은 세션이 사라졌거나, 다시

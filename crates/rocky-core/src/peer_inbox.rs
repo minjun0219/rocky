@@ -130,7 +130,7 @@ pub fn registration_alive(
 pub struct Delivery {
     /// RFC 3339.
     pub at: String,
-    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox` · `handoff`.
+    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox` · `handoff` · `message`(웹 에이전트 탭).
     pub kind: String,
     /// 무엇을 — `owner/repo#12 제목` 또는 `gh-bugs 새 항목 2건`.
     pub subject: String,
@@ -167,6 +167,17 @@ pub fn inbox_line(text: &str) -> String {
     format!(
         "{}\n",
         json!({ "type": "user", "message": { "role": "user", "content": text } })
+    )
+}
+
+/// 웹 에이전트 탭에서 세션에 보내는 한 줄의 본문 길이 한도(글자).
+pub const WEB_MESSAGE_MAX_CHARS: usize = 2000;
+
+/// 웹 에이전트 탭에서 사람이 쓴 메시지를 세션에 넣는 본문. 받는 쪽에는 받은편지함이라 "다른 세션의 메시지" 로 보인다 —
+/// 데몬이 아는 사실만 적고(루프백 요청 — 사람이 쳤는지는 모른다), 승인이라고 주장하지 않는다. 판단은 받는 세션의 규칙대로다.
+pub fn web_session_message(text: &str) -> String {
+    format!(
+        "이 기기의 로컬 요청으로 온 메시지(rocky 웹 에이전트 탭 경로):\n\n{text}\n\n(rocky 데몬이 받은편지함으로 전했다.)"
     )
 }
 

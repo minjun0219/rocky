@@ -37,6 +37,11 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         normalize_route("GET", "/api/rc/servers").as_deref(),
         Some("GET /api/rc/servers")
     );
+    // 동작 이름인 셋째 세그먼트는 접지 않는다 — 접으면 KNOWN_SURFACES 의 이름과 영영 안 맞아 "안 쓴 표면" 으로 남는다.
+    assert_eq!(
+        normalize_route("POST", "/api/sessions/message").as_deref(),
+        Some("POST /api/sessions/message")
+    );
     assert_eq!(
         normalize_route("POST", "/api/rc/servers/repo-a/restart").as_deref(),
         Some("POST /api/rc/servers/:ref/restart")
