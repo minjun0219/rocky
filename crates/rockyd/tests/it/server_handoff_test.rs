@@ -1037,3 +1037,29 @@ async fn cancel_route_takes_unstarted_delivery_but_not_accepted() {
     .await;
     assert_eq!(status, 400);
 }
+
+/// `?todo=` 는 그 할 일의 핸드오프만 준다(참조 · id 둘 다) — `rocky handoff --cancel` 이 완료된 이력까지 전부 받지 않게.
+/// 못 풀면 빈 목록.
+#[tokio::test]
+async fn get_handoffs_filters_by_todo() {
+    let f = fx();
+    let mine = create(&f, "rocky-todo", "x");
+    let other = create(&f, "rocky-todo", "y");
+    let wanted = delivered_ago(&f, &mine, "sess-1", 0);
+    delivered_ago(&f, &other, "sess-2", 0);
+
+    for todo in [mine.id.as_str(), "rocky-todo-1"] {
+        let (status, body) = get(&f.state, &format!("/api/handoffs?todo={todo}")).await;
+        assert_eq!(status, 200, "{body}");
+        let ids: Vec<&str> = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec![wanted.id.as_str()], "{todo}");
+    }
+    let (status, body) = get(&f.state, "/api/handoffs?todo=rocky-todo-99").await;
+    assert_eq!(status, 200);
+    assert_eq!(body, json!([]));
+}

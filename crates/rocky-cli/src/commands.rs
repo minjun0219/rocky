@@ -645,17 +645,19 @@ pub fn cmd_handoff(
         // board 로 거르지 않는다 — 해석된 **실제 todo id** 로 찾으므로 필터가 불필요하고
         // 오히려 해롭다: `board` 는 cwd 유추값인데 REF 는 다른 보드를 가리킬 수 있어
         // (`other-12`), 거르면 실재하는 요청을 못 찾는다.
-        let mut handoffs: Vec<rocky_core::types::Handoff> =
-            request(ctx, "GET", "/api/handoffs?status=pending", None)?;
-        let delivered: Vec<rocky_core::types::Handoff> =
-            request(ctx, "GET", "/api/handoffs?status=delivered", None)?;
-        handoffs.extend(delivered);
         let detail = request_value(ctx, "GET", &todo_ref_path(id, "", board), None)?;
         let todo_id = detail
             .get("todo")
             .and_then(|t| t.get("id"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| format!("{id} 를 찾지 못했다"))?;
+        // 그 할 일의 것만 받는다 — 완료된 배달도 `delivered` 로 남아 전체 이력을 받으면 이력에 비례해 커진다.
+        let handoffs: Vec<rocky_core::types::Handoff> = request(
+            ctx,
+            "GET",
+            &format!("/api/handoffs?todo={}", encode_uri_component(todo_id)),
+            None,
+        )?;
         let Some(target) = rocky_core::doing::cancel_target(&handoffs, todo_id) else {
             return Err(format!(
                 "{id} 앞으로 취소할 요청이 없다 — 대기 중이거나 받고 착수하지 않은 것만 취소한다"

@@ -3501,11 +3501,19 @@ async fn handoffs_list_route(
     if board_key.is_some() && board_id.is_none() {
         return Ok(ok_json(&Vec::<HandoffViewOut>::new()));
     }
+    // todo 도 같다 — 참조(`rocky-12`)나 id 로 한 할 일만. 못 풀면 빈 목록(`rocky handoff --cancel` 이 전체 이력을 받지 않게).
+    let todo_id = match query.get("todo") {
+        Some(r) => match store.get_todo(r, board_id.as_deref())? {
+            Some(todo) => Some(todo.id),
+            None => return Ok(ok_json(&Vec::<HandoffViewOut>::new())),
+        },
+        None => None,
+    };
     let handoffs = store.list_handoffs(&ListHandoffsFilter {
         board_id,
         status: query.get("status").and_then(|s| HandoffStatus::parse(s)),
         open: query.get("open").map(String::as_str) == Some("true"),
-        todo_id: None,
+        todo_id,
     })?;
     // 세션 조회는 pending 또는 미수락 delivered 가 있을 때만. available:false 면 stale
     // 을 판정하지 않는다(모름 ≠ 없음).
