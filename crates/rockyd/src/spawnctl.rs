@@ -307,8 +307,17 @@ pub fn default_spawn_fn() -> SpawnFn {
 /// 게이트를 나란히 통과하지 못한다. async 락으로 바꾸면 그 자리가 await 지점이 되어
 /// 막으려던 경쟁이 되살아난다.
 pub struct RecentSpawns {
-    spawned_at: Mutex<HashMap<String, Instant>>,
+    spawned_at: Mutex<HashMap<String, Reserved>>,
     ttl: Duration,
+    next_token: std::sync::atomic::AtomicU64,
+}
+
+/// 예약 하나 — `in_flight` 면 요청이 아직 끝나지 않았다(TTL 과 무관하게 막는다). 끝나면 그때부터 TTL 을 센다.
+/// `token` 으로 자기 예약만 고친다 — 경로가 키라 남의 예약을 지우지 않게.
+struct Reserved {
+    at: Instant,
+    in_flight: bool,
+    token: u64,
 }
 
 impl RecentSpawns {
@@ -316,6 +325,7 @@ impl RecentSpawns {
         RecentSpawns {
             spawned_at: Mutex::new(HashMap::new()),
             ttl,
+            next_token: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -323,7 +333,7 @@ impl RecentSpawns {
         let mut map = self.spawned_at.lock().expect("recent spawns poisoned");
         match map.get(worktree_path) {
             None => false,
-            Some(at) if at.elapsed() >= self.ttl => {
+            Some(r) if !r.in_flight && r.at.elapsed() >= self.ttl => {
                 map.remove(worktree_path); // 만료된 항목은 조회하는 김에 버린다
                 false
             }
@@ -331,11 +341,50 @@ impl RecentSpawns {
         }
     }
 
+    /// 확인과 예약을 **한 락 안에서** — 진행 중이거나 창 안이면 None. 확인(`is_recent`)과 잡기 사이에 await 가 끼면 겹친
+    /// 두 요청이 나란히 통과한다. 돌려준 예약은 요청이 끝날 때(drop) 진행 중을 풀고 TTL 을 센다 — 오래 걸리는 요청(rc
+    /// 서버 · 세션 등록 기다리기)도 TTL 이 도중에 끝나지 않는다.
+    pub fn try_reserve(&self, worktree_path: &str) -> Option<Reservation<'_>> {
+        let mut map = self.spawned_at.lock().expect("recent spawns poisoned");
+        if let Some(r) = map.get(worktree_path) {
+            if r.in_flight || r.at.elapsed() < self.ttl {
+                return None;
+            }
+        }
+        let token = self
+            .next_token
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        map.insert(
+            worktree_path.to_string(),
+            Reserved {
+                at: Instant::now(),
+                in_flight: true,
+                token,
+            },
+        );
+        Some(Reservation {
+            spawns: self,
+            path: worktree_path.to_string(),
+            token,
+            keep: true,
+        })
+    }
+
     pub fn remember(&self, worktree_path: &str) {
+        let token = self
+            .next_token
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.spawned_at
             .lock()
             .expect("recent spawns poisoned")
-            .insert(worktree_path.to_string(), Instant::now());
+            .insert(
+                worktree_path.to_string(),
+                Reserved {
+                    at: Instant::now(),
+                    in_flight: false,
+                    token,
+                },
+            );
     }
 
     pub fn forget(&self, worktree_path: &str) {
@@ -343,5 +392,42 @@ impl RecentSpawns {
             .lock()
             .expect("recent spawns poisoned")
             .remove(worktree_path);
+    }
+
+    /// 예약이 끝났다 — 남기면 지금부터 TTL, 아니면 지운다. 다른 요청이 그 사이 새로 잡은 예약은 건드리지 않는다.
+    fn finish(&self, worktree_path: &str, token: u64, keep: bool) {
+        let mut map = self.spawned_at.lock().expect("recent spawns poisoned");
+        match map.get_mut(worktree_path) {
+            Some(r) if r.token == token && keep => {
+                r.in_flight = false;
+                r.at = Instant::now();
+            }
+            Some(r) if r.token == token => {
+                map.remove(worktree_path);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `try_reserve` 가 돌려준 예약 — drop 하면 진행 중을 풀고 TTL 을 센다. **확실히 띄우지 않았을 때만** `release` 로 지운다
+/// (모르면 남긴다 — 동시 실행 방지가 우선). 요청이 도중에 끊겨(클라이언트가 떠남) drop 돼도 남는다.
+pub struct Reservation<'a> {
+    spawns: &'a RecentSpawns,
+    path: String,
+    token: u64,
+    keep: bool,
+}
+
+impl Reservation<'_> {
+    /// 확실히 아무것도 띄우지 않았다 — 예약을 지워 곧바로 다시 누를 수 있게.
+    pub fn release(mut self) {
+        self.keep = false;
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        self.spawns.finish(&self.path, self.token, self.keep);
     }
 }

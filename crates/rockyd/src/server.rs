@@ -3083,8 +3083,14 @@ async fn spawn_route(
     }
 
     let session_name = format!("{}-{}", board_key.as_deref().unwrap_or("todo"), todo.number);
-    // 예약은 실행 **전** 동기 구간에서 — await 뒤로 미루면 겹친 요청이 나란히 통과한다.
-    state.recent_spawns.remember(&worktree_path);
+    // 예약은 실행 **전**, 확인과 함께 한 락 안에서 — 앞의 `is_recent` 와 여기 사이에 세션 목록 await 가 끼어 겹친 요청이 둘 다
+    // 여기까지 올 수 있다. 진 쪽은 409.
+    let Some(reservation) = state.recent_spawns.try_reserve(&worktree_path) else {
+        return Ok(error_response(
+            &format!("방금 이 워크트리에 세션을 띄웠다 — 잠시 후 다시 시도하라: {worktree_path}"),
+            StatusCode::CONFLICT,
+        ));
+    };
     let prompt = build_handoff_prompt_from(&HandoffPromptInput {
         actor,
         note: note.as_deref().unwrap_or("").trim(),
@@ -3104,7 +3110,7 @@ async fn spawn_route(
         Err(error) => {
             // 예약은 **확실히 안 떴을 때만** 되돌린다 — 모르면 유지(동시 실행 방지가 우선).
             if error.started == Some(false) {
-                state.recent_spawns.forget(&worktree_path);
+                reservation.release();
             }
             return Ok(error_response(&error.message, StatusCode::BAD_REQUEST));
         }

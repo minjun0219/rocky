@@ -149,6 +149,9 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 `SpawnFailedError.started === false` 일 때만 `forget`(모르면 예약 유지) →
 성공 후에만 `persistPathIfGiven` + `createSpawnedHandoff`.
 
+Rust 추가(TS 엔 없던 것): 예약은 `remember` 대신 확인과 잡기를 한 락 안에서 하는 `try_reserve`(진 쪽 409) — 요청이 끝날 때까지
+진행 중으로 잡고 끝난 뒤 TTL.
+
 - 세션 조회는 이 라우트만 **캐시 없는** `listSessions` (spawn 이전 스냅샷 금지)
 - 세션 이름 `<boardKey>-<number>`, 워크트리 이름 `worktreeNameFor(number)` = `todo-<number>`
 - `path` override는 성공 후에만 영구 저장, 저장 값은 정규화된 경로
