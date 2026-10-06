@@ -833,6 +833,94 @@ async fn delivery_log_survives_a_daemon_restart() {
     assert_eq!(body["recent"][0]["reason"], "받을 세션 등록 없음");
 }
 
+/// 웹 에이전트 탭의 메시지 — 로컬 요청만, 받은편지함을 등록한 세션에만 들어가고 전달 기록에 `message` 로 남는다.
+#[cfg(unix)]
+#[tokio::test]
+async fn web_message_goes_to_a_registered_session_only_from_a_local_request() {
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockymsg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("700.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s1", "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+    )
+    .await;
+
+    // 노출된 표면(테일넷 등)은 거절 — 세션을 움직이는 일이다.
+    let remote = call(
+        &f.state,
+        "POST",
+        "/api/sessions/message",
+        Some(json!({ "sessionId": "s1", "text": "안녕" })),
+        ReqOptions {
+            peer: Some("100.64.0.1"),
+            ..ReqOptions::default()
+        },
+    )
+    .await;
+    assert_eq!(remote.0, 403);
+    // 빈 글·너무 긴 글·등록 없는 세션
+    let empty = post(
+        &f.state,
+        "/api/sessions/message",
+        json!({ "sessionId": "s1", "text": "  " }),
+    )
+    .await;
+    assert_eq!(empty.0, 400);
+    let long = "가".repeat(rocky_core::peer_inbox::WEB_MESSAGE_MAX_CHARS + 1);
+    let too_long = post(
+        &f.state,
+        "/api/sessions/message",
+        json!({ "sessionId": "s1", "text": long }),
+    )
+    .await;
+    assert_eq!(too_long.0, 400);
+    let unknown = post(
+        &f.state,
+        "/api/sessions/message",
+        json!({ "sessionId": "nope", "text": "안녕" }),
+    )
+    .await;
+    assert_eq!(unknown.0, 409);
+    assert!(unknown.1["error"]
+        .as_str()
+        .unwrap()
+        .contains("받을 세션 등록 없음"));
+
+    let reader = tokio::task::spawn_blocking(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut text = String::new();
+        conn.read_to_string(&mut text).unwrap();
+        text
+    });
+    let sent = post(
+        &f.state,
+        "/api/sessions/message",
+        json!({ "sessionId": "s1", "text": "PR 은 내일 보자" }),
+    )
+    .await;
+    assert_eq!(sent.0, 200, "{:?}", sent.1);
+    assert_eq!(sent.1["sent"], true);
+    let line = reader.await.unwrap();
+    let parsed: Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(parsed["type"], "user");
+    let content = parsed["message"]["content"].as_str().unwrap();
+    assert!(content.contains("PR 은 내일 보자"));
+    assert!(content.contains("에이전트 탭"), "어디서 왔는지 밝힌다");
+
+    let (_, deliveries) = get(&f.state, "/api/deliveries").await;
+    assert_eq!(deliveries["recent"][0]["kind"], "message");
+    assert_eq!(deliveries["recent"][0]["ok"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 세션 전달 현황 — 세션마다 구독한 PR(`repo#N`)과 최근 보낸 기록이 보이고, "보내지 않기" 를 켠 세션에는
 /// 보내지 않는다(다른 세션으로 넘기지도 않는다). 다시 켜면 받는다. 현황·조작은 로컬 전용.
 #[cfg(unix)]

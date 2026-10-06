@@ -1,5 +1,5 @@
 import { Circle, CircleAlert, CircleCheck, CircleDot, type LucideIcon } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { type AgentPhase, type AgentRow, agentSections, agentSince } from '../agents';
 import { formatAge } from '../lib';
 import { useUiStore } from '../store';
@@ -49,6 +49,10 @@ export function AgentsPane() {
     ? agentSections({ sessions: agents.list, boards, selected, doing })
     : [];
   const now = useNow([], sections.length);
+  // 쓰던 메시지는 세션 id 로 여기 둔다 — 행이 다른 묶음으로 옮겨 가면(실행 중 → 쉬는 중) 다시 마운트돼 입력칸이 사라지므로.
+  const [drafts, setDrafts] = useState<Record<string, string | undefined>>({});
+  const setDraft = (sessionId: string, text: string | undefined) =>
+    setDrafts((prev) => ({ ...prev, [sessionId]: text }));
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-1" aria-label="에이전트">
       {agents === null ? null : !agents.available ? (
@@ -78,7 +82,13 @@ export function AgentsPane() {
             </h2>
             <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
               {section.rows.map((row) => (
-                <AgentItem key={row.session.sessionId} row={row} now={now} />
+                <AgentItem
+                  key={row.session.sessionId}
+                  row={row}
+                  now={now}
+                  draft={drafts[row.session.sessionId]}
+                  onDraft={(text) => setDraft(row.session.sessionId, text)}
+                />
               ))}
             </ul>
           </section>
@@ -92,9 +102,22 @@ export function AgentsPane() {
  * 한 행 — 첫 줄: 아이콘 + 세션 이름, 둘째 줄: 어디서 · 백그라운드 · 시각 · 든 할 일, 셋째 줄: 기다리는 것(내 차례)
  * 또는 지금 하는 일. 할 일을 든 세션이면 행을 눌러 그 할 일을 연다.
  */
-function AgentItem({ row, now }: { row: AgentRow; now: number }) {
+function AgentItem(props: {
+  row: AgentRow;
+  now: number;
+  /** 쓰던 메시지 — undefined 면 입력칸이 닫혀 있다. */
+  draft?: string;
+  onDraft: (text: string | undefined) => void;
+}) {
+  const { row, now } = props;
   const openTodoDetail = useUiStore((s) => s.openTodoDetail);
   const { session, todo } = row;
+  // 세션을 움직이는 일이라 로컬 화면에서만(세션 띄우기와 같은 경계 — 서버도 거절한다). 끝난 세션과 pid 없이 잠든
+  // background 세션은 받은편지함 소켓을 들을 프로세스가 없다.
+  const canMessage =
+    useUiStore((s) => s.spawnAllowed) &&
+    row.phase !== 'done' &&
+    !(session.kind === 'background' && session.pid === undefined);
   const job = session.job;
   const summary = row.phase === 'blocked' ? (job?.needs ?? job?.detail) : job?.detail;
   const meta = [
@@ -118,23 +141,128 @@ function AgentItem({ row, now }: { row: AgentRow; now: number }) {
       </span>
     </>
   );
-  const className = 'flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left';
+  const className = 'flex min-w-0 flex-1 items-start gap-2.5 px-3.5 py-2.5 text-left';
   return (
     <li className="border-t border-line/70 first:border-t-0" title={session.cwd}>
-      {todo ? (
+      <div className="flex items-start">
+        {todo ? (
+          <button
+            type="button"
+            className={`${className} transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2`}
+            onClick={() => {
+              logUsage('web:agent-row');
+              void openTodoDetail(todo.id);
+            }}
+          >
+            {body}
+          </button>
+        ) : (
+          <div className={className}>{body}</div>
+        )}
+        {canMessage ? (
+          <MessageToggle
+            sessionId={session.sessionId}
+            draft={props.draft}
+            onDraft={props.onDraft}
+          />
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * 세션에 한 줄 보내기 — 받은편지함으로 들어가 쉬는 세션이면 턴이 열린다. 받는 쪽에는 "다른 세션이 보낸 메시지" 로
+ * 보여 사용자 승인으로 쓰이지 않는다(그 사실을 입력칸 옆에 밝힌다). ⌘/Ctrl+Enter 로 보낸다.
+ */
+function MessageToggle({
+  sessionId,
+  draft,
+  onDraft,
+}: {
+  sessionId: string;
+  draft?: string;
+  onDraft: (text: string | undefined) => void;
+}) {
+  const send = useUiStore((s) => s.sendSessionMessage);
+  const open = draft !== undefined;
+  const text = draft ?? '';
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const submit = async () => {
+    const body = text.trim();
+    if (!body || sending) {
+      return;
+    }
+    setSending(true);
+    try {
+      await send(sessionId, body);
+      onDraft(undefined);
+      setResult({ ok: true, text: '보냈어요' });
+    } catch (error) {
+      setResult({ ok: false, text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setSending(false);
+    }
+  };
+  if (!open) {
+    return (
+      <div className="flex shrink-0 flex-col items-end gap-1 px-3 py-2.5">
         <button
           type="button"
-          className={`${className} transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2`}
+          className="drawer-btn"
           onClick={() => {
-            logUsage('web:agent-row');
-            void openTodoDetail(todo.id);
+            setResult(null);
+            onDraft('');
           }}
         >
-          {body}
+          메시지
         </button>
-      ) : (
-        <div className={className}>{body}</div>
-      )}
-    </li>
+        {result ? (
+          <span role="status" className={`text-meta ${result.ok ? 'text-muted' : 'text-p1'}`}>
+            {result.text}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <form
+      className="flex w-[min(320px,55%)] shrink-0 flex-col gap-1.5 px-3 py-2.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <textarea
+        aria-label="보낼 메시지"
+        rows={2}
+        className="w-full min-w-0 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-text"
+        value={text}
+        onChange={(e) => onDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button type="submit" className="drawer-btn" disabled={sending || text.trim() === ''}>
+          보내기
+        </button>
+        <button type="button" className="drawer-btn" onClick={() => onDraft(undefined)}>
+          취소
+        </button>
+      </div>
+      <span className="text-meta text-faint">
+        받는 세션에는 다른 세션의 메시지로 보여요 — 권한 허락·결정 답으로는 쓰이지 않아요
+      </span>
+      {result && !result.ok ? (
+        <span role="status" className="text-meta text-p1">
+          {result.text}
+        </span>
+      ) : null}
+    </form>
   );
 }

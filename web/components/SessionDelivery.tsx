@@ -28,6 +28,8 @@ const KIND: Record<string, string> = {
   'pr-ci-failed': 'CI 실패',
   'pr-review': '리뷰 도착',
   inbox: '수집함',
+  handoff: '핸드오프',
+  message: '웹 메시지',
 };
 
 /** 세션 이름 — 작업 폴더 이름 + id 앞 8자. 세션 id 만으로는 어느 세션인지 모른다. */

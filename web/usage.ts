@@ -25,6 +25,7 @@ export type WebUsageEvent =
   | 'web:handoff-close'
   | 'web:stray-close'
   | 'web:agent-row'
+  | 'web:session-message'
   | 'web:access-logout';
 
 let actorHeader = 'unknown';
