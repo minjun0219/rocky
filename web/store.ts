@@ -170,6 +170,11 @@ interface UiState {
   issueCreateAllowed: boolean;
   /** `/api/health` 가 알려주는 힌트 — 이 출처에서 세션을 띄울 수 있는가. */
   spawnAllowed: boolean;
+  /**
+   * Cloudflare Access 로 들어온 화면이면 로그인한 이메일(`/api/health` 의 `accessUser`) — ⋯ 메뉴에 로그아웃을 그린다.
+   * 로컬·테일넷 화면이거나 아직 모르면 null.
+   */
+  accessUser: string | null;
   /** 지금 도는 데몬의 버전(`/api/health`). 아직 모르거나 구버전 데몬이면 null. */
   daemonVersion: string | null;
   /**
@@ -398,6 +403,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   seenComments: readSeen(localStorage),
   issueCreateAllowed: true,
   spawnAllowed: true,
+  accessUser: null,
   daemonVersion: null,
   daemonVersionChanged: false,
   handoffs: [],
@@ -994,6 +1000,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       const health = await api<{
         issueCreateAllowed?: boolean;
         spawnAllowed?: boolean;
+        accessUser?: string | null;
         version?: string;
       }>('/api/health', get().actor);
       const previous = get().daemonVersion;
@@ -1002,6 +1009,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({
         issueCreateAllowed: health.issueCreateAllowed ?? true,
         spawnAllowed: health.spawnAllowed ?? true,
+        accessUser: health.accessUser ?? null,
         daemonVersion: version,
         // 한 번 바뀌었으면 새로고침 전까지 켜 둔다 — 되돌아가도 번들은 이미 첫 버전의 것이다.
         daemonVersionChanged:

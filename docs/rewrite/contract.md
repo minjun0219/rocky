@@ -63,7 +63,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 
 | 메서드 경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
-| GET `/api/health` | — | `{ok:true, name:'rocky-todo', version, pid, issueCreateAllowed, spawnAllowed, dbIntegrity?}` | version은 stale 데몬 판별 근거. `dbIntegrity` — 기동 때 `PRAGMA quick_check` 결과(`"ok"` 아니면 문제 요약) |
+| GET `/api/health` | — | `{ok:true, name:'rocky-todo', version, pid, issueCreateAllowed, spawnAllowed, accessUser, dbIntegrity?}` | version은 stale 데몬 판별 근거. `dbIntegrity` — 기동 때 `PRAGMA quick_check` 결과(`"ok"` 아니면 문제 요약). `accessUser` — Cloudflare Access 로 온 요청이면 로그인한 이메일, 아니면 null(화면 힌트) |
 | GET `/api/statusline` | `?cwd=&session=` | `text/plain` 완성 한 줄 | 실패·빈 상태 = 빈 문자열. 아래 절 |
 | GET `/api/events` | — | SSE | 아래 절 |
 | GET `/api/boards` | `?includeArchived=true` | `Board[]` | |

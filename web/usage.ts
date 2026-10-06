@@ -21,7 +21,8 @@ export type WebUsageEvent =
   | 'web:worklog-todo'
   | 'web:rc-start'
   | 'web:rc-restart'
-  | 'web:agent-row';
+  | 'web:agent-row'
+  | 'web:access-logout';
 
 let actorHeader = 'unknown';
 

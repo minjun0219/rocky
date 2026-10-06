@@ -15,6 +15,8 @@
   block reads.*
 - **tailscale serve 자동 확보는 남의 노출을 빼앗지 않는다.** `decide_serve_action`: `claim`(빈 자리), `keep`(내 것),
   `yield`(살아 있는 다른 rocky 데몬), `reclaim`(죽은 포트). 수동 `rocky tailscale on` 은 가드하지 않는다.
+- **Access 이메일은 화면 힌트다.** `access_user_email` 이 읽는 `cf-access-authenticated-user-email` 은 웹이 로그아웃 링크를
+  그릴지만 정한다(`/api/health` 의 `accessUser`). 헤더는 위조로 "있게" 만들 수 있으므로 권한 판정에 쓰지 않는다.
 - 새로 만드는 쓰기·실행 라우트는 위 둘 중 어디에 드는지 먼저 정한다 — 프로세스를 띄우거나 실행 인자를 받는 것은 로컬 전용.
 
 ## 코드

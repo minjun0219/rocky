@@ -763,6 +763,10 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
   닿을 길이 없으니 엣지 검증으로 충분하다고 본다. 터널 자격 파일은 홈에 남는 평문이라 "홈에 평문 토큰을 두지 않는다" 원칙과
   같은 취급(600, 백업 제외).
 - `todo.expose` 채널은 건드리지 않는다 — 터널은 데몬 밖 프로세스라 데몬 설정이 필요 없다.
+- **로그아웃** — Access 로 들어온 화면의 `⋯` 메뉴 맨 아래(로그인한 이메일 옆). `/cdn-cgi/access/logout` 으로 가며 Access
+  세션 **전체**가 끝난다(앱 하나만 나가는 방법은 없다). 데몬은 Access 가 붙이는 `cf-access-authenticated-user-email` 을
+  `/api/health` 의 `accessUser` 로 알려 줄 뿐 권한 판정에는 쓰지 않는다. 기기를 잃어버렸으면 대시보드 Applications →
+  이 앱 → Revoke existing tokens.
 
 ## 노출 범위 (`todo.expose` — 기본 이 머신만)
 

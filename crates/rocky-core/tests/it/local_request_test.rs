@@ -1,6 +1,8 @@
 //! TS 원본 `src/local-request.test.ts` 포팅 — Request 대신 헤더 클로저.
 
-use rocky_core::local_request::{is_cross_site_request, is_local_request, is_loopback_address};
+use rocky_core::local_request::{
+    access_user_email, is_cross_site_request, is_local_request, is_loopback_address,
+};
 use std::collections::HashMap;
 
 const BASE: &str = "http://localhost/api/todos/abc/issue";
@@ -173,4 +175,21 @@ fn cloudflare_tunnel_and_access_headers_mark_the_request_as_relayed() {
         &headers(&[("cf-access-jwt-assertion", "eyJ...")]),
         Some("127.0.0.1")
     ));
+}
+
+/// Access 를 거친 요청의 이메일은 로그아웃 링크용 힌트 — 없거나 비면 None.
+#[test]
+fn access_user_email_reads_the_access_header() {
+    let via_access = headers(&[("Cf-Access-Authenticated-User-Email", " me@example.com ")]);
+    assert_eq!(
+        access_user_email(|name| via_access.get(name).cloned()).as_deref(),
+        Some("me@example.com")
+    );
+    let blank = headers(&[("cf-access-authenticated-user-email", "  ")]);
+    assert_eq!(access_user_email(|name| blank.get(name).cloned()), None);
+    let tunnel_only = headers(&[("cf-ray", "abc"), ("cf-connecting-ip", "1.2.3.4")]);
+    assert_eq!(
+        access_user_email(|name| tunnel_only.get(name).cloned()),
+        None
+    );
 }
