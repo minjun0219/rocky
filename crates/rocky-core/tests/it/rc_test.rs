@@ -1195,11 +1195,23 @@ fn handoff_server_name_is_ref_and_a_short_summary() {
     assert_eq!(argv[4], "--name=rocky-41: 핸드오프 작업", "이름은 한 인자");
     assert!(is_server_argv(&argv.join(" ")));
     assert_eq!(handoff_log_label("rocky", 41), "handoff-rocky-41");
-    assert_eq!(
-        handoff_log_label("../x/y", 2),
-        "handoff-___x_y-2",
-        "보드 key 의 / · . 은 파일 이름에 넣지 않는다"
+    let odd = handoff_log_label("../x/y", 2);
+    assert!(
+        odd.starts_with("handoff-___x_y-") && odd.ends_with("-2") && !odd.contains('/'),
+        "보드 key 의 / · . 은 파일 이름에 넣지 않는다: {odd}"
     );
+    assert_ne!(
+        handoff_log_label("a/b", 2),
+        handoff_log_label("a_b", 2),
+        "바꾼 key 는 해시로 갈라 같은 로그 파일을 쓰지 않는다"
+    );
+    let long = handoff_log_label(&"k".repeat(1000), 2);
+    assert!(
+        long.len() < 100,
+        "파일 이름 한도 안으로 자른다: {}",
+        long.len()
+    );
+    assert_ne!(long, handoff_log_label(&"k".repeat(999), 2));
 }
 
 #[test]

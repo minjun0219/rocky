@@ -1273,10 +1273,14 @@ pub fn handoff_server_argv(name: &str) -> Vec<String> {
     ]
 }
 
-/// 핸드오프 서버의 기동 로그 · 이벤트 라벨 — `handoff-<보드>-<n>`. 보드 key 는 원격에서도 바꿀 수 있고 `/` · `..` 를 막지 않으니
-/// 파일 이름에 쓰기 전에 `[A-Za-z0-9_-]` 밖의 글자를 `_` 로 바꾼다.
+/// 라벨에 넣는 보드 key 의 최대 글자 수 — `<label>.out` 이 파일 이름 한도(255바이트) 안에 머물게.
+const HANDOFF_LABEL_KEY_MAX: usize = 48;
+
+/// 핸드오프 서버의 기동 로그 · 이벤트 라벨 — `handoff-<보드>-<n>`. 보드 key 는 원격에서도 바꿀 수 있고 길이 · `/` · `..` 를
+/// 막지 않으니, 파일 이름에 쓰기 전에 `[A-Za-z0-9_-]` 밖의 글자를 `_` 로 바꾸고 48글자로 자른다. 바꾸거나 잘랐으면 원래 key 의
+/// SHA-1 앞 8자를 붙인다 — 다른 key 가 같은 라벨(같은 로그 파일)로 겹치지 않게.
 pub fn handoff_log_label(board_key: &str, number: i64) -> String {
-    let key: String = board_key
+    let safe: String = board_key
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -1285,8 +1289,22 @@ pub fn handoff_log_label(board_key: &str, number: i64) -> String {
                 '_'
             }
         })
+        .take(HANDOFF_LABEL_KEY_MAX)
         .collect();
-    format!("handoff-{key}-{number}")
+    if safe == board_key {
+        return format!("handoff-{safe}-{number}");
+    }
+    let digest = ring::digest::digest(
+        &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+        board_key.as_bytes(),
+    );
+    let hash: String = digest
+        .as_ref()
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("handoff-{safe}-{hash}-{number}")
 }
 
 /// 받은편지함 소켓 경로의 pid — `/tmp/cc-socks/<pid>.sock`. 모양이 아니면 None.
