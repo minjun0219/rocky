@@ -4,20 +4,23 @@
 //! - `rocky rc start <라벨> [--wait]` · `rocky rc restart <라벨> [--fresh] [--wait]` — 데몬이 띄우거나 다시 띄운다.
 //!   재시작은 그 서버에 붙은 원격 세션을 끊는다. `--wait` 면 결과가 날 때까지 기다려 찍는다.
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
+//! - `rocky rc nightly --dry-run` — 야간 재시작 리허설: 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다).
 
 use std::time::{Duration, Instant};
 
 use rocky_core::rc::AgyAction;
 use serde_json::{json, Value};
 
-use crate::client::{request_value, CliContext};
+use crate::client::{request_value, request_value_within, CliContext};
 use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh] [--wait] | rocky rc agy [start|stop]";
+const USAGE: &str = "usage: rocky rc [status] | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh] [--wait] | rocky rc agy [start|stop] | rocky rc nightly --dry-run";
 /// `--wait` 상한 — 등록 판정 40초 + `already served` 재시도 45·90초 + 정지 유예를 넉넉히 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(300);
+/// 리허설 응답 한도 — 데몬의 `claude --version` 한도(40초)와 프로브를 덮는다.
+const PREVIEW_LIMIT: Duration = Duration::from_secs(90);
 
 pub fn cmd_rc(
     ctx: &CliContext,
@@ -63,6 +66,19 @@ pub fn cmd_rc(
             }
             let row = wait_for_result(ctx, label)?;
             printer.emit(&row, || render_result(label, &row));
+            Ok(())
+        }
+        Some("nightly") => {
+            if !flags.bool_flag("dry-run") {
+                return Err("usage: rocky rc nightly --dry-run — 지금은 리허설만 된다".into());
+            }
+            // 데몬은 `claude --version`(새 바이너리의 첫 실행은 수십 초 멎는다)과 프로브를 기다렸다 답한다.
+            let raw =
+                request_value_within(ctx, "GET", "/api/rc/nightly/preview", None, PREVIEW_LIMIT)?;
+            if let Some(err) = raw.get("error").and_then(Value::as_str) {
+                return Err(err.to_string());
+            }
+            printer.emit(&raw, || render_nightly(&raw));
             Ok(())
         }
         Some(sub) => Err(format!("{USAGE} — 모르는 하위 명령: {sub}")),
@@ -219,5 +235,47 @@ pub fn render_status(raw: &Value) -> String {
         });
     }
     out.extend(agy_line(raw));
+    out.join("\n")
+}
+
+/// 야간 결과(또는 리허설) — 머리 한 줄(update · 설치 버전) 뒤 서버마다 `기호 라벨  메모`.
+pub fn render_nightly(raw: &Value) -> String {
+    let title = if raw.get("dryRun").and_then(Value::as_bool) == Some(true) {
+        "야간 리허설"
+    } else {
+        "야간 재시작"
+    };
+    let mut out = vec![format!("{title} — update: {}", str_of(raw, "update"))];
+    if let Some(reason) = raw.get("blocked").and_then(Value::as_str) {
+        out.push(format!("전부 건너뜀 — {reason}"));
+    }
+    let items = raw
+        .get("items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let width = items
+        .iter()
+        .map(|i| str_of(i, "label").chars().count())
+        .max()
+        .unwrap_or(0);
+    out.extend(items.iter().map(|i| {
+        let mark = match str_of(i, "outcome") {
+            "restarted" => "✓",
+            "would-restart" => "↻",
+            "would-wait" => "…",
+            "current" => "=",
+            "down" => "✗",
+            _ => "–",
+        };
+        format!(
+            "{mark} {:width$}  {}",
+            str_of(i, "label"),
+            str_of(i, "note")
+        )
+    }));
+    if items.is_empty() && raw.get("blocked").is_none() {
+        out.push("떠 있는 대상이 없다".into());
+    }
     out.join("\n")
 }

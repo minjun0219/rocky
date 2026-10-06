@@ -880,3 +880,58 @@ pub fn nightly_blocked(status: &RcStatus) -> Option<&'static str> {
         None
     }
 }
+
+/// 야간 한 대상의 결과.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NightlyOutcome {
+    /// 다시 띄웠다(기다린 끝에 · 회복 재시도 포함).
+    Restarted,
+    /// 이미 설치 버전이다.
+    Current,
+    /// 손대지 않았다 — 사유는 `note`(기록 없음 · 네트워크 없음 · canary 실패 · 마감까지 바쁨 …).
+    Skipped,
+    /// 내렸지만 마감까지 못 띄웠다 — 되살림 표식이 남아 감시가 띄운다.
+    Down,
+    /// 리허설 — 다시 띄울 것.
+    WouldRestart,
+    /// 리허설 — 바빠서 마감까지 기다릴 것.
+    WouldWait,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NightlyItem {
+    pub label: String,
+    pub outcome: NightlyOutcome,
+    /// 사람이 읽을 한 줄 — 버전(`2.1.283 → 2.1.288`)과 사유.
+    pub note: String,
+}
+
+/// 야간 한 번의 결과 — 현황과 `rc/nightly.json` 에 싣는다.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NightlyReport {
+    /// RFC 3339.
+    pub started_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dry_run: bool,
+    /// `claude update` 한 줄 요약.
+    pub update: String,
+    /// 판정에 쓴 설치 버전.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// 전체를 건너뛴 이유(`nightly_blocked`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
+    #[serde(default)]
+    pub items: Vec<NightlyItem>,
+}
+
+impl NightlyReport {
+    pub fn count(&self, outcome: NightlyOutcome) -> usize {
+        self.items.iter().filter(|i| i.outcome == outcome).count()
+    }
+}

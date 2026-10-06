@@ -239,13 +239,28 @@ pub fn request_value(
     path: &str,
     body: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
+    request_value_within(ctx, method, path, body, REQUEST_TIMEOUT)
+}
+
+/// `request_value` 를 다른 한도로 — 데몬이 느린 명령을 기다렸다 답하는 요청(야간 리허설은 새 claude 의 첫 실행이 멎을 수
+/// 있다)에 쓴다.
+///
+/// # Errors
+/// `request` 와 같다.
+pub fn request_value_within(
+    ctx: &CliContext,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
     ensure_daemon(ctx)?;
     let url = format!("{}{path}", ctx.base_url);
     // `http_status_as_error(false)` 가 핵심이다 — 켜 두면 4xx/5xx 가 상태 코드만 담은
     // 에러로 올라와 본문을 못 읽는다. 데몬은 실패 이유를 `{ "error": ... }` 로 주고
     // 그게 사용자에게 보여줄 메시지라, 상태와 무관하게 본문을 끝까지 읽어야 한다.
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(REQUEST_TIMEOUT))
+        .timeout_global(Some(timeout))
         .http_status_as_error(false)
         .build()
         .into();

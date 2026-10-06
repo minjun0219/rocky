@@ -2056,6 +2056,19 @@ async fn dispatch(
         }
         return Ok(json_response(&status, StatusCode::OK));
     }
+    // ── 야간 재시작 리허설 — 지금 설치 버전으로 판정만(손대지 않는다). `claude --version` 과 프로브를 캐시 없이 돈다 ──
+    if *method == Method::GET && path == "/api/rc/nightly/preview" {
+        let Some(control) = state.rc_control.clone() else {
+            return Ok(error_response(
+                "이 기기에서는 rc 가 꺼져 있다",
+                StatusCode::NOT_FOUND,
+            ));
+        };
+        return Ok(json_response(
+            &control.nightly_preview().await,
+            StatusCode::OK,
+        ));
+    }
     // ── agy remote-control 켜기·끄기 — 이 기계의 원격 접속 데몬을 바꾸므로 로컬 전용. 답은 새로 잰 현황 ──
     if *method == Method::POST {
         if let Some(name) = path.strip_prefix("/api/rc/antigravity/") {

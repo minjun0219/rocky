@@ -38,6 +38,10 @@
   지운다** — 옛 값을 남기면 새 바이너리로 뜬 서버를 야간이 구버전으로 보고, 기록이 없으면 야간은 "모름" 으로 건드리지 않는다.
   새 바이너리의 첫 실행은 Gatekeeper 검사로 수십 초 멎어 한도가 40초다. 쓰기 · 지우기가 실패하면 기동은 그대로
   두고 `version-record` 이벤트(경로 · 원인)를 남긴다.
+- **야간 리허설**(`GET /api/rc/nightly/preview`, `rocky rc nightly --dry-run`): 지금 설치 버전(`claude --version`, 못 재면
+  `~/.local/bin/claude` 링크 대상 → `versions/` 중 가장 높은 것)으로 떠 있는 **설정 대상**마다 `decide_nightly` 를 돌려 보인다.
+  update · 내리기 · 띄우기 · 기다리기 없이, `rc/` 에 아무것도 쓰지 않는다. 쉬는지는 `~/.claude/projects/<project_dir_name>/*.jsonl` 의
+  최신 mtime 으로 잰다. 프로브 실패 · 로그아웃이면 `blocked`.
 - **자격 관찰**: 끊김(`In → Out`)과 회복(`Out → In`)을 바뀐 바퀴에 한 번씩만 배너로 알린다 — 같은 상태가 이어지면 다시 울리지 않는다.
   기록은 `rc/auth.json`(데몬을 다시 띄워도 회복을 알아채게). 회복 뒤 로그아웃보다 먼저 뜬 서버는 `authSuspect` — 자동으로 재시작하지
   않는다(세션이 붙어 있을 수 있다). launchd 로 도는 데몬은 키체인을 읽어 셸과 자격이 갈릴 수 있다(2026-10-06 두 번째 재발).
@@ -48,8 +52,10 @@
 | --- | --- |
 | 판정(순수) | `crates/rocky-core/src/rc.rs` |
 | 프로브·기동기(`RcController`)·감시(`supervise_tick`)·라우트·agy 손잡이 | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
+| 야간 재시작(리허설 `nightly_preview`) | `crates/rockyd/src/rc/nightly.rs` |
 | CLI | `crates/rocky-cli/src/rc_cmd.rs` |
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
 테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인),
+`crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계),
 `crates/rocky-cli/tests/it/rc_cmd_test.rs`.
