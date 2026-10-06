@@ -64,6 +64,66 @@ async fn get_sessions_lists_with_board_matching() {
     assert_eq!(by_name("forses-90")["matched"], false);
 }
 
+/// background 행에는 `~/.claude/jobs/<id>/state.json` 의 요약이 `job` 으로 붙는다. 파일이 없거나 형식이 다르면
+/// 그 행만 `job` 이 없다(목록은 그대로).
+#[tokio::test]
+async fn background_sessions_carry_job_summary() {
+    let jobs = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(jobs.path().join("0da6a98a")).unwrap();
+    std::fs::write(
+        jobs.path().join("0da6a98a/state.json"),
+        r#"{"state":"blocked","detail":"3 PR 머지, 결정 대기","needs":"룰셋을 끌지 정해 주세요","tokens":129916,"updatedAt":"2026-08-10T08:28:00Z"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(jobs.path().join("bad00000")).unwrap();
+    std::fs::write(jobs.path().join("bad00000/state.json"), "not json").unwrap();
+    let mut blocked = sess(0, "/w/rocky-todo", "0da6a98a-full", "rocky-todo-25", "idle");
+    blocked.pid = None;
+    blocked.kind = "background".into();
+    blocked.id = Some("0da6a98a".into());
+    blocked.state = Some("blocked".into());
+    let mut broken = blocked.clone();
+    broken.session_id = "bad00000-full".into();
+    broken.id = Some("bad00000".into());
+    let mut escape = blocked.clone();
+    escape.session_id = "escape-full".into();
+    escape.id = Some("../0da6a98a".into());
+    let dir = jobs.path().to_path_buf();
+    let f = fx();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![
+            blocked,
+            broken,
+            escape,
+            sess(1, "/w/rocky-todo", "sess-1", "rocky-todo-1e", "idle"),
+        ])));
+        o.claude_jobs_dir = Some(dir);
+    });
+    let (status, body) = get(&state, "/api/sessions").await;
+    assert_eq!(status, 200);
+    let sessions = body["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 4);
+    let by_id = |id: &str| sessions.iter().find(|s| s["sessionId"] == id).unwrap();
+    let job = &by_id("0da6a98a-full")["job"];
+    assert_eq!(job["needs"], "룰셋을 끌지 정해 주세요");
+    assert!(
+        by_id("0da6a98a-full").get("pid").is_none(),
+        "pid 없는 행은 pid 를 싣지 않는다"
+    );
+    assert!(
+        by_id("bad00000-full").get("job").is_none(),
+        "형식이 다르면 job 이 없다"
+    );
+    assert!(
+        by_id("escape-full").get("job").is_none(),
+        "경로를 벗어나는 id 는 읽지 않는다"
+    );
+    assert!(
+        by_id("sess-1").get("job").is_none(),
+        "interactive 행에는 job 이 없다"
+    );
+}
+
 #[tokio::test]
 async fn sessions_unavailable_is_reported() {
     let f = fx();

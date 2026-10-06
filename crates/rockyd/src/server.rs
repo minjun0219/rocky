@@ -26,7 +26,10 @@ use rocky_core::local_request::{
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
 };
-use rocky_core::sessions::{match_board, takes_handoff, AgentSession, SessionsResult};
+use rocky_core::sessions::{
+    job_state_path, match_board, parse_job_state, takes_handoff, AgentSession, JobSummary,
+    SessionsResult,
+};
 use rocky_core::statusline::{
     board_key_for_cwd, render_statusline, BoardLocation, StatuslineData, StatuslineMine,
     DEFAULT_STATUSLINE_TEMPLATE, STATUSLINE_TITLE_MAX,
@@ -85,6 +88,8 @@ pub struct ServerOptions {
     pub usage: Option<UsageSink>,
     /// 로그 색인 DB(`logs.db`) — 색인 스레드가 쓰고 `/api/logs/*` 가 읽는다. 없으면 그 라우트는 빈 목록.
     pub logs_db: Option<std::path::PathBuf>,
+    /// background 세션 작업 요약 폴더(`~/.claude/jobs`) — `/api/sessions` 가 행마다 `job` 을 붙인다. 없으면 붙이지 않는다.
+    pub claude_jobs_dir: Option<std::path::PathBuf>,
     /// 토큰 추천 규칙(`rocky.json` 의 `tokens.recommend`).
     pub token_recommend: rocky_core::tokens::RecommendConfig,
     /// rc 서버 현황 조회기(`rocky.json` 의 `rc` 블록). 없으면 "설정 없음" 만 낸다.
@@ -113,6 +118,7 @@ impl ServerOptions {
             inbox: None,
             usage: None,
             logs_db: None,
+            claude_jobs_dir: None,
             token_recommend: Default::default(),
             rc: None,
             agy_control: None,
@@ -150,6 +156,7 @@ pub struct ServerState {
     inbox_config_names: Vec<String>,
     usage: UsageSink,
     logs_db: Option<std::path::PathBuf>,
+    claude_jobs_dir: Option<std::path::PathBuf>,
     pub token_recommend: rocky_core::tokens::RecommendConfig,
     rc: crate::rc::RcProvider,
     agy_control: Option<crate::rc::AgyControl>,
@@ -576,6 +583,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
             .collect(),
         usage: options.usage.unwrap_or_else(noop_sink),
         logs_db: options.logs_db,
+        claude_jobs_dir: options.claude_jobs_dir,
         token_recommend: options.token_recommend,
         rc_control: options.rc_control,
         rc: options.rc.unwrap_or_else(|| {
@@ -819,6 +827,18 @@ struct SessionOut {
     #[serde(flatten)]
     session: AgentSession,
     matched: bool,
+    /// background 세션의 작업 요약 — 못 읽으면 없다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    job: Option<JobSummary>,
+}
+
+/// background 세션의 작업 요약 — 짧은 id 가 있는 행만, 읽기 실패는 조용히 `None`(Claude Code 내부 파일이다).
+fn read_job_summary(
+    jobs_dir: Option<&std::path::Path>,
+    session: &AgentSession,
+) -> Option<JobSummary> {
+    let path = job_state_path(jobs_dir?, session.id.as_deref()?)?;
+    parse_job_state(&std::fs::read_to_string(path).ok()?)
 }
 
 // ── 메인 핸들러 ─────────────────────────────────────────────────────────────
@@ -1871,6 +1891,7 @@ async fn dispatch(
                 matched: matched
                     .as_ref()
                     .is_some_and(|m| m.contains(&session.session_id)),
+                job: read_job_summary(state.claude_jobs_dir.as_deref(), session),
             })
             .collect();
         return Ok(ok_json(&json!({

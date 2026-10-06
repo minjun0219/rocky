@@ -115,3 +115,56 @@ pub fn match_board<'a>(sessions: &'a [AgentSession], board_key: &str) -> Vec<&'a
         .filter(|s| s.cwd.split('/').any(|seg| seg == board_key))
         .collect()
 }
+
+/// background 세션의 작업 요약 — Claude Code 가 `<설정 폴더>/jobs/<짧은 id>/state.json` 에 남기는 것 중
+/// 화면에 쓸 것만 고른다 — 제안 답장(`suggestedReply`)·토큰 같은 나머지는 원격에서도 읽히는 응답에 싣지 않는다. 문서화되지 않은 내부 파일이라 형식이
+/// 바뀌면 [`parse_job_state`] 가 `None` 을 내고, 화면은 그 줄만 비운다.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobSummary {
+    /// 지금 하는 일 또는 멈춘 자리 한 줄.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// 사람에게 필요한 것 — `blocked` 일 때 무엇을 기다리는지.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs: Option<String>,
+    /// 요약을 마지막으로 고친 시각(ISO).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// `state.json` 을 [`JobSummary`] 로 읽는다. 못 읽거나 쓸 필드가 하나도 없으면 `None`.
+pub fn parse_job_state(raw: &str) -> Option<JobSummary> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let row = value.as_object()?;
+    let text = |key: &str| {
+        row.get(key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let summary = JobSummary {
+        detail: text("detail"),
+        needs: text("needs"),
+        updated_at: text("updatedAt"),
+    };
+    (summary != JobSummary::default()).then_some(summary)
+}
+
+/// 짧은 id 의 `state.json` 경로. id 는 CLI 출력에서 온 값이라 경로 조각으로 쓰기 전에 영숫자만 받는다 —
+/// `..` 나 `/` 가 섞이면 `None`.
+pub fn job_state_path(jobs_dir: &std::path::Path, id: &str) -> Option<std::path::PathBuf> {
+    let safe = !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric());
+    safe.then(|| jobs_dir.join(id).join("state.json"))
+}
+
+/// background 작업 폴더 — `$CLAUDE_CONFIG_DIR/jobs`, 없으면 `~/.claude/jobs`.
+pub fn claude_jobs_dir(env: &crate::config::EnvMap) -> std::path::PathBuf {
+    env.get("CLAUDE_CONFIG_DIR")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(crate::config::expand_tilde)
+        .unwrap_or_else(|| crate::config::expand_tilde("~/.claude"))
+        .join("jobs")
+}

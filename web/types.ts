@@ -178,6 +178,26 @@ export interface AgentSession {
   startedAt: number;
 }
 
+/**
+ * background 세션의 작업 요약 — Claude Code 의 `~/.claude/jobs/<id>/state.json` 에서 데몬이 고른 것
+ * (`rocky_core::sessions::JobSummary`). 내부 파일이라 못 읽으면 통째로 없다.
+ */
+export interface JobSummary {
+  /** 지금 하는 일 또는 멈춘 자리 한 줄. */
+  detail?: string;
+  /** 사람에게 필요한 것 — `blocked` 일 때 무엇을 기다리는지. */
+  needs?: string;
+  /** 요약을 마지막으로 고친 시각(ISO). */
+  updatedAt?: string;
+}
+
+/** `GET /api/sessions` 의 한 행. */
+export interface SessionRow extends AgentSession {
+  /** `?board=` 와 cwd 가 맞는가. board 없이 물으면 늘 false. */
+  matched: boolean;
+  job?: JobSummary;
+}
+
 export interface SessionsResult {
   /** 세션 목록을 얻을 수 있었는가. false 면 이 기능 전체가 비활성이다. */
   available: boolean;
