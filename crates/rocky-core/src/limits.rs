@@ -340,7 +340,7 @@ pub struct CreditBaseline {
     pub at: Option<DateTime<Utc>>,
 }
 
-/// `state.json` — stdin 에서 본 한도와 갱신을 띄운 시각. writer 는 statusline 하나다(경보 시각은 조각 4).
+/// `state.json` — stdin 에서 본 한도, 갱신을 띄운 시각, 경보가 오른 시각. writer 는 statusline 하나다.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StateFile {
@@ -356,6 +356,11 @@ pub struct StateFile {
     pub seven_day: Option<Window>,
     #[serde(with = "go_time", skip_serializing_if = "Option::is_none")]
     pub spawned_at: Option<DateTime<Utc>>,
+    /// 지금 무장한 경보(`<단계>@<창 키>`)와 그 단계가 오른 시각 — 거기서부터 6초를 깜빡인다.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub alert_key: String,
+    #[serde(with = "go_time", skip_serializing_if = "Option::is_none")]
+    pub alert_at: Option<DateTime<Utc>>,
 }
 
 /// 로그인된 계정 캐시 — 계정 파일(`.claude.json`)을 매 렌더 읽지 않으려고 둔다. rocky 는 `config_dir` 마다 하나다.
@@ -613,17 +618,74 @@ pub enum AlertLevel {
     Over,
 }
 
-/// 강조할 창. 깜빡임(단계가 오른 직후 6초)은 그 시각을 저장해야 셀 수 있어서 아직 없다 — 배지로 고정한다.
+/// 단계가 오른 직후 깜빡이는 시간 — 계속 움직이는 표시는 결국 눈에 안 들어오므로 그 뒤에는 배지로 남는다.
+pub const ALERT_BURST: TimeDelta = TimeDelta::seconds(6);
+/// 깜빡임 한 프레임 — 벽시계에서 프레임을 고르므로 프레임 카운터를 저장하지 않는다.
+const ALERT_FRAME: TimeDelta = TimeDelta::milliseconds(500);
+
+/// 강조할 창.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Alert {
     pub level: AlertLevel,
     /// `"5h"` / `"7d"` — 단계가 `None` 이면 빈 문자열.
     pub window: &'static str,
+    /// 지금이 깜빡이는 구간인가.
+    pub burst: bool,
+    /// 깜빡이는 중 지금 프레임이 "켜짐" 인가 — 꺼진 프레임은 배지 대신 굵은 빨강이다.
+    pub on: bool,
 }
 
-/// 가장 급한 창 — 소진이 임박을 이기고, 같은 단계면 7d 가 5h 를 이긴다.
+/// 가장 급한 창(깜빡임 없이) — 소진이 임박을 이기고, 같은 단계면 7d 가 5h 를 이긴다. 경보 시각을 저장할 수 없는
+/// 경로(캐시 자리가 없을 때)는 이것으로 배지를 고정한다.
 pub fn alert(cfg: &LimitsConfig, lim: &Limits) -> Alert {
-    let mut best = Alert::default();
+    worst_window(cfg, lim).map_or_else(Alert::default, |(level, window, _)| Alert {
+        level,
+        window,
+        ..Alert::default()
+    })
+}
+
+/// 경보와 깜빡임 — 단계가 오르면(또는 창이 리셋돼 키가 바뀌면) 그 시각을 `state` 에 적고, 거기서부터 6초를 깜빡인다.
+/// 돌려주는 `bool` 이 true 면 `state` 가 바뀌었다(써야 한다). 경보가 풀리면 무장을 해제한다.
+pub fn alerts(
+    cfg: &LimitsConfig,
+    lim: &Limits,
+    state: &mut StateFile,
+    now: DateTime<Utc>,
+) -> (Alert, bool) {
+    let Some((level, window, wkey)) = worst_window(cfg, lim) else {
+        if state.alert_key.is_empty() {
+            return (Alert::default(), false);
+        }
+        state.alert_key.clear();
+        state.alert_at = None;
+        return (Alert::default(), true);
+    };
+    let key = format!("{}@{wkey}", level as u8);
+    let mut dirty = false;
+    if state.alert_key != key {
+        state.alert_key = key;
+        state.alert_at = Some(now);
+        dirty = true;
+    }
+    let mut alert = Alert {
+        level,
+        window,
+        ..Alert::default()
+    };
+    if let Some(at) = state.alert_at {
+        let d = now - at;
+        if d >= TimeDelta::zero() && d < ALERT_BURST {
+            alert.burst = true;
+            alert.on = (d.num_milliseconds() / ALERT_FRAME.num_milliseconds()) % 2 == 0;
+        }
+    }
+    (alert, dirty)
+}
+
+/// 가장 급한 창과 그 창의 키. 경보가 없으면 `None`.
+fn worst_window(cfg: &LimitsConfig, lim: &Limits) -> Option<(AlertLevel, &'static str, String)> {
+    let mut best: Option<(AlertLevel, &'static str, String)> = None;
     for (name, w) in [("7d", lim.seven_day), ("5h", lim.five_hour)] {
         let Some(w) = w else { continue };
         let level = if w.percent >= 100.0 {
@@ -631,13 +693,10 @@ pub fn alert(cfg: &LimitsConfig, lim: &Limits) -> Alert {
         } else if cfg.alert() > 0.0 && w.percent >= cfg.alert() {
             AlertLevel::Near
         } else {
-            AlertLevel::None
+            continue;
         };
-        if level > best.level {
-            best = Alert {
-                level,
-                window: name,
-            };
+        if best.as_ref().is_none_or(|(b, _, _)| level > *b) {
+            best = Some((level, name, window_key(name, &w)));
         }
     }
     best

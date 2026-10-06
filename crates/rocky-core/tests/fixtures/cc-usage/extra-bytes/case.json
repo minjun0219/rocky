@@ -18,6 +18,7 @@
   "allow": [],
   "usage": null,
   "state": null,
+  "account": null,
   "repo": [],
   "gitEnv": {}
 }

@@ -1,0 +1,21 @@
+{
+  "why": "나머지가 다 비어도 배지는 낸다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {},
+  "config": {
+    "source": "stdin",
+    "badges": {
+      "me@example.com": {
+        "emoji": "🏢"
+      }
+    }
+  },
+  "stdin": "{}",
+  "allow": [],
+  "usage": null,
+  "state": null,
+  "account": "me@example.com",
+  "repo": [],
+  "gitEnv": {}
+}

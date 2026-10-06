@@ -37,6 +37,7 @@ export type Case = {
   config?: {
     source?: string;
     alert_percent?: number;
+    badges?: Record<string, { emoji?: string; glyph?: string; color?: string }>;
     extra_commands?: { command: string[]; timeout_ms?: number }[];
   };
   env?: Record<string, string>;
@@ -47,6 +48,8 @@ export type Case = {
   usage?: Record<string, unknown>;
   /** cc-usage 캐시 `state.json` 에 심을 내용 — stdin 관측값. Rust 테스트도 같은 값을 읽는다. */
   state?: Record<string, unknown>;
+  /** 로그인된 계정 이메일 — `~/.claude.json` 에 심는다(배지는 이걸로 고른다). */
+  account?: string;
   /** `{{HOME}}/project` 에 git repo 를 만드는 셸 줄들 — `sh -c` 로 차례로 돈다. Rust 테스트가 `GIT_ENV` 로 똑같이 다시 돈다. */
   repo?: string[];
 };
@@ -92,6 +95,11 @@ const fetched = (
   usage: { fetched_at: iso(-fetchedAgo), ...windows, ...(extra ? { extra } : {}) },
 });
 const cacheWin = (percent: number, resetsIn: number) => ({ percent, resets_at: iso(resetsIn) });
+/** 경보 키(`<단계>@<창>@<리셋 시각, 분 단위 UTC>`) — 1 = 임박, 2 = 소진. */
+const alertKey = (level: 1 | 2, name: string, resetsAtSec: number) =>
+  `${level}@${name}@${new Date(Math.floor(resetsAtSec / 60) * 60_000).toISOString().replace('.000Z', 'Z')}`;
+/** 기준 시각에서 `ms` 밀리초 전 — 경보가 오른 시각. */
+const msAgo = (ms: number) => new Date(NOW_MS - ms).toISOString();
 
 /** 크레딧 캐시 — 금액은 cent(cc-usage 기본 `credit_divisor: 100`). 방금 받은 응답이라 stale 이 아니다. */
 const credits = (
@@ -388,6 +396,83 @@ export const CASES: Case[] = [
     stdin: withLimits({ five_hour: win(100) }),
     usage: fetched(50, {}, { enabled: true, used_credits: 1160, monthly_limit: 5000 }),
   },
+  // 경보 깜빡임 — 단계가 오른 시각(state.json)부터 6초, 0.5초마다 배지 ↔ 굵은 빨강.
+  {
+    name: 'alert-burst-off-frame',
+    why: '오른 지 0.7초 — 꺼진 프레임(굵은 빨강, 여백 유지)',
+    stdin: withLimits({ five_hour: win(100) }),
+    state: { alert_key: alertKey(2, '5h', TODAY_1800), alert_at: msAgo(700) },
+  },
+  {
+    name: 'alert-burst-on-frame',
+    why: '오른 지 1.2초 — 다시 켜진 프레임',
+    stdin: withLimits({ five_hour: win(100) }),
+    state: { alert_key: alertKey(2, '5h', TODAY_1800), alert_at: msAgo(1200) },
+  },
+  {
+    name: 'alert-after-burst',
+    why: '6초가 지나면 배지로 남는다',
+    stdin: withLimits({ five_hour: win(100) }),
+    state: { alert_key: alertKey(2, '5h', TODAY_1800), alert_at: msAgo(10_000) },
+  },
+  {
+    name: 'alert-near-7d-off-frame',
+    why: '7d 임박의 꺼진 프레임',
+    stdin: withLimits({ five_hour: win(30), seven_day: win(95, at(3000)) }),
+    state: { alert_key: alertKey(1, '7d', at(3000)), alert_at: msAgo(600) },
+  },
+  // 계정 배지 — 로그인된 계정(이메일)으로 고른다.
+  {
+    name: 'badge-emoji',
+    why: '이모지 배지',
+    account: 'work@example.com',
+    config: { badges: { 'work@example.com': { emoji: '🏢' } } },
+    stdin: withLimits({ five_hour: win(30) }),
+  },
+  {
+    name: 'badge-glyph-color',
+    why: '글리프 + 이름 색',
+    account: 'me@example.com',
+    config: { badges: { 'me@example.com': { glyph: '◆', color: 'blue' } } },
+    stdin: withLimits({ five_hour: win(30) }),
+  },
+  {
+    name: 'badge-256',
+    why: '기본 글리프 + 256 색',
+    account: 'me@example.com',
+    config: { badges: { 'me@example.com': { color: '33' } } },
+    stdin: withLimits({ five_hour: win(30) }),
+  },
+  {
+    name: 'badge-unknown-color',
+    why: '모르는 색이면 색 없이',
+    account: 'me@example.com',
+    config: { badges: { 'me@example.com': { color: 'teal' } } },
+    stdin: withLimits({ five_hour: win(30) }),
+  },
+  {
+    name: 'badge-other-account',
+    why: '목록에 없는 계정은 아무것도 없다',
+    account: 'someone@example.com',
+    config: { badges: { 'me@example.com': { emoji: '🏢' } } },
+    stdin: withLimits({ five_hour: win(30) }),
+  },
+  {
+    name: 'badge-empty-row',
+    why: '나머지가 다 비어도 배지는 낸다',
+    account: 'me@example.com',
+    config: { badges: { 'me@example.com': { emoji: '🏢' } } },
+    stdin: '{}',
+  },
+  {
+    name: 'badge-pushes-credit-down',
+    why: '배지 폭(2+1)도 폭 판단에 든다 — 배지 없이 딱 맞던 94칸에서 크레딧이 내려간다',
+    account: 'me@example.com',
+    config: { badges: { 'me@example.com': { emoji: '🏢' } } },
+    env: { COLUMNS: '94' },
+    stdin: withLimits({ five_hour: win(30) }),
+    usage: credits(1160, { limit: 5000 }),
+  },
   // extra_commands — 다른 도구의 줄을 아래에 그대로 붙인다.
   {
     name: 'extra-order',
@@ -579,6 +664,12 @@ function capture(bin: string, c: Case, dir: string): { stdin: string; stdout: Bu
       }
     }
   }
+  if (c.account) {
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: c.account } }),
+    );
+  }
   mkdirSync(join(dir, 'cache', 'cc-usage'), { recursive: true });
   if (c.usage) {
     writeFileSync(join(dir, 'cache', 'cc-usage', 'usage.json'), JSON.stringify(c.usage));
@@ -630,6 +721,7 @@ if (import.meta.main) {
           allow: c.allow ?? [],
           usage: c.usage ?? null,
           state: c.state ?? null,
+          account: c.account ?? null,
           repo: c.repo ?? [],
           gitEnv: c.repo ? GIT_ENV : {},
         };

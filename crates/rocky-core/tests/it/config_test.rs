@@ -529,3 +529,25 @@ fn statusline_block_reads_refresh_and_credit_settings() {
     assert_eq!(c.limits.poll(), chrono::TimeDelta::seconds(300));
     assert_eq!(c.limits.currency(), "$");
 }
+
+#[test]
+fn statusline_block_reads_badges_and_skips_malformed_ones() {
+    let (_dir, path) = write_config(
+        r#"{ "statusline": { "badges": {
+            "work@example.com": { "emoji": "🏢" },
+            "me@example.com": { "glyph": "◆", "color": "33" },
+            "bad@example.com": { "emoji": 3 },
+            "worse@example.com": "x"
+        } } }"#,
+    );
+    let badges = load_statusline_block(&path).badges;
+    assert_eq!(badges.len(), 2);
+    assert_eq!(badges["work@example.com"].emoji, "🏢");
+    assert_eq!(
+        (
+            badges["me@example.com"].glyph.as_str(),
+            badges["me@example.com"].color.as_str()
+        ),
+        ("◆", "33")
+    );
+}

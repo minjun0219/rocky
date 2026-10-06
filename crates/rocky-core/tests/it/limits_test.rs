@@ -578,3 +578,59 @@ fn usage_response_parse_keeps_optional_fields_optional() {
     let err = parse_usage_response(br#"{"five_hour":{"utilization":"1"}}"#, now()).unwrap_err();
     assert!(err.starts_with("parse usage: "), "{err}");
 }
+
+#[test]
+fn alerts_arm_on_a_new_level_blink_for_six_seconds_then_settle() {
+    use rocky_core::limits::{alerts, ALERT_BURST};
+    let c = cfg(Source::Stdin, None);
+    let reset = now() + TimeDelta::minutes(80);
+    let hit = Limits {
+        five_hour: Some(Window {
+            percent: 100.0,
+            resets_at: Some(reset),
+        }),
+        from_stdin: true,
+        ..Default::default()
+    };
+    let mut state = StateFile::default();
+    // 처음 본 단계 — 지금을 기록하고 켜진 프레임.
+    let (a, dirty) = alerts(&c, &hit, &mut state, now());
+    assert!(dirty && a.burst && a.on);
+    assert_eq!(state.alert_key, "2@5h@2026-09-16T09:00:00Z");
+    assert_eq!(state.alert_at, Some(now()));
+    // 0.5초마다 켜짐/꺼짐, 같은 키면 다시 쓰지 않는다.
+    for (ms, on) in [
+        (499, true),
+        (500, false),
+        (999, false),
+        (1000, true),
+        (5999, false),
+    ] {
+        let (a, dirty) = alerts(&c, &hit, &mut state, now() + TimeDelta::milliseconds(ms));
+        assert!(!dirty && a.burst, "{ms}");
+        assert_eq!(a.on, on, "{ms}ms");
+    }
+    let (a, _) = alerts(&c, &hit, &mut state, now() + ALERT_BURST);
+    assert!(!a.burst, "6초가 지나면 배지로 남는다");
+    // 임박으로 내려가면(다른 단계) 다시 무장, 풀리면 해제.
+    let near = Limits {
+        five_hour: Some(Window {
+            percent: 95.0,
+            resets_at: Some(reset),
+        }),
+        ..hit
+    };
+    let later = now() + TimeDelta::minutes(1);
+    let (a, dirty) = alerts(&c, &near, &mut state, later);
+    assert!(dirty && a.burst && a.on);
+    assert_eq!(state.alert_key, "1@5h@2026-09-16T09:00:00Z");
+    let calm = Limits {
+        five_hour: win(10.0),
+        ..Default::default()
+    };
+    let (a, dirty) = alerts(&c, &calm, &mut state, later);
+    assert!(dirty && a == Default::default());
+    assert!(state.alert_key.is_empty() && state.alert_at.is_none());
+    let (_, dirty) = alerts(&c, &calm, &mut state, later);
+    assert!(!dirty, "이미 풀린 경보는 다시 쓰지 않는다");
+}

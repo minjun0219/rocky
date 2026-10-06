@@ -1,0 +1,32 @@
+{
+  "why": "배지 폭(2+1)도 폭 판단에 든다 — 배지 없이 딱 맞던 94칸에서 크레딧이 내려간다",
+  "now": "2026-09-16T16:40:00+09:00",
+  "tz": "Asia/Seoul",
+  "env": {
+    "COLUMNS": "94"
+  },
+  "config": {
+    "source": "stdin",
+    "badges": {
+      "me@example.com": {
+        "emoji": "🏢"
+      }
+    }
+  },
+  "stdin": "{\"session_id\":\"s\",\"model\":{\"display_name\":\"Opus 5\"},\"effort\":{\"level\":\"high\"},\"context_window\":{\"used_percentage\":41},\"workspace\":{\"current_dir\":\"{{HOME}}/project\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":1789549200}}}",
+  "allow": [],
+  "usage": {
+    "usage": {
+      "fetched_at": "2026-09-16T16:40:00+09:00",
+      "extra": {
+        "enabled": true,
+        "used_credits": 1160,
+        "monthly_limit": 5000
+      }
+    }
+  },
+  "state": null,
+  "account": "me@example.com",
+  "repo": [],
+  "gitEnv": {}
+}
