@@ -18,7 +18,10 @@
 - **의도된 차이**: 모든 세그먼트가 빈 줄의 `[rocky]`(픽스처 `allow`) · 계정별 캐시 자동 분리(아래 "계정") · 에러 문구를
   자를 때 글자 경계를 지킨다(cc-usage 는 40/120 **바이트**에서 잘라 한글이 깨진 바이트를 낸다 — 예: 비기본 폴더의
   `token not found (keychain: 건너뜀 …` 는 40바이트가 '비' 한가운데다) · `keychainService`·`credentialsFile` 은 `configDir`
-  세션에만(cc-usage 는 계정마다 설정 파일이 따로라 문제가 없었다) · `HOME` 이 없으면 캐시·계정을 쓰지 않는다(경보는 배지로
+  세션에만(cc-usage 는 계정마다 설정 파일이 따로라 문제가 없었다) · 비기본 설정 폴더도 keychain 을 건너뛰지 않고 Claude Code 의
+  이름 규칙(`Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`, 2026-10-06 실측)으로 찾고, keychain 토큰이 만료됐으면 유효한
+  파일 토큰이 이긴다(cc-usage 는 비기본이면 건너뛰고, keychain 결과로 끝낸다) · probe 출력의 키 순서는 응답 순서다(cc-usage 는
+  정렬 — 교차검증에서 확인) · `HOME` 이 없으면 캐시·계정을 쓰지 않는다(경보는 배지로
   고정, 계정 배지 없음 — cc-usage 는 `CLAUDE_CONFIG_DIR`·`XDG_CACHE_HOME` 만으로도 쓴다) · 스키마가 막는 잘못된 `badges` 항목
   (`null`, 대소문자가 다른 키, 타입이 틀린 값)은 그 항목만 버린다(cc-usage 는 0값 배지로 받거나 설정 전체가 에러) ·
   `--source=none` 처럼 `=` 로 붙인 플래그는 받지 않는다(rocky CLI 파서의 계약 — `--source none`. cc-usage 처럼 무엇이 틀렸는지 `[rocky] …` 한 줄을 낸다) · source 환경 변수 이름은
