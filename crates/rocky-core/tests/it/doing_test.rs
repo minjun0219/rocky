@@ -529,3 +529,36 @@ fn doing_unchanged_requires_same_state_actor_start_and_session() {
     attributed.doing_session_id = Some("sess".into());
     assert!(!doing_unchanged(&snap, &attributed));
 }
+
+/// 세션이 스스로 든 것의 귀속(훅)은 상태 판정에 쓰지 않는다 — 턴이 끝날 때마다 Idle(방치·멈춤), `/clear` 로 id 가 바뀌면
+/// Gone(자동 해제)이 되지 않게. 보드 근사(그 보드에 세션이 있으면 Unknown, 없으면 Gone)로 간다(오너 결정 2026-10-06).
+#[test]
+fn claimed_attribution_does_not_drive_the_doing_state() {
+    let todo = Todo {
+        doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: true,
+        ..doing_todo()
+    };
+    let idle = AgentSession {
+        status: "idle".into(),
+        ..session()
+    };
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &available(vec![idle])),
+        DoingState::Unknown
+    );
+    // 귀속된 세션이 목록에 없어도(/clear 로 id 가 바뀜) 보드에 세션이 있으면 Gone 이 아니다.
+    let other = AgentSession {
+        session_id: "after-clear".into(),
+        id: None,
+        ..session()
+    };
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &available(vec![other])),
+        DoingState::Unknown
+    );
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &available(vec![])),
+        DoingState::Gone
+    );
+}

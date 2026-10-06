@@ -2001,11 +2001,13 @@ impl TodoStore {
 
     /// 세션이 스스로 `start` 한 doing 에 그 세션을 귀속시킨다 — `todo_status` 직후 PostToolUse 훅이 부른다. 귀속이
     /// 이미 있거나(핸드오프), doing 이 아니거나, 에이전트가 든 게 아니거나, 방금(`CLAIM_WINDOW`) 시작한 게 아니면 손대지
-    /// 않는다 — 실패한 start 의 응답으로 남이 든 doing 을 가로채지 않게. 붙였으면 `Some`.
+    /// 않는다 — 실패한 start 의 응답으로 남이 든 doing 을 가로채지 않게. `doing_since` 를 주면(훅은 start 응답의 값을 준다)
+    /// 지금 doing 의 시작 시각과 같아야 한다 — 훅이 늦게 도는 사이 다른 세션이 다시 start 했으면 그쪽 것이다. 붙였으면 `Some`.
     pub fn claim_doing_session(
         &self,
         todo_id: &str,
         session_id: &str,
+        doing_since: Option<&str>,
     ) -> StoreResult<Option<Todo>> {
         let conn = self.lock();
         let current = must_get_todo_conn(&conn, todo_id, None)?;
@@ -2014,8 +2016,11 @@ impl TodoStore {
             .as_deref()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .is_some_and(|at| chrono::Utc::now().signed_duration_since(at) <= CLAIM_WINDOW);
+        let same_start =
+            doing_since.is_none_or(|since| current.doing_since.as_deref() == Some(since));
         let claimable = current.status == TodoStatus::Doing
             && current.doing_session_id.is_none()
+            && same_start
             && current
                 .doing_by
                 .as_deref()
@@ -2029,7 +2034,16 @@ impl TodoStore {
             "UPDATE todos SET doing_session_id = ?1, doing_session_claimed = 1 WHERE id = ?2 AND doing_session_id IS NULL",
             params![session_id, current.id],
         )?;
-        get_todo_conn(&conn, &current.id, None)
+        let todo = get_todo_conn(&conn, &current.id, None)?;
+        drop(conn);
+        // 히스토리는 남기지 않는다(같은 착수의 덧붙임이다) — 화면이 다시 받아 오게 변경 신호만.
+        self.emit_all(vec![ChangeEvent {
+            entity: HistoryEntity::Todo,
+            entity_id: current.id.clone(),
+            action: "claim-session".into(),
+            board_id: Some(current.board_id.clone()),
+        }]);
+        Ok(todo)
     }
 
     pub fn set_todo_status(

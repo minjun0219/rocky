@@ -175,9 +175,9 @@ pub fn held_todo_reminder(held: &[HeldTodo], stop_hook_active: bool) -> Option<S
     Some(lines.join("\n"))
 }
 
-/// PostToolUse 훅 입력 → 세션이 방금 `start` 한 할 일의 id 들. `tool_input.action` 이 start 가 아니면 비고, 시작이 실패했으면
+/// PostToolUse 훅 입력 → 세션이 방금 `start` 한 할 일의 (id, `doingSince`) 들. `tool_input.action` 이 start 가 아니면 비고, 시작이 실패했으면
 /// (응답에 doing 상태의 할 일이 없으면) 빈다. MCP 도구의 응답은 문자열 JSON 을 품은 content 블록이라 모양을 가리지 않고 훑는다.
-pub fn started_todo_ids(input: &serde_json::Value) -> Vec<String> {
+pub fn started_todo_ids(input: &serde_json::Value) -> Vec<(String, Option<String>)> {
     let is_start = input.pointer("/tool_input/action").and_then(|v| v.as_str()) == Some("start");
     if !is_start {
         return Vec::new();
@@ -191,7 +191,7 @@ pub fn started_todo_ids(input: &serde_json::Value) -> Vec<String> {
     ids
 }
 
-fn collect_doing_ids(v: &serde_json::Value, out: &mut Vec<String>) {
+fn collect_doing_ids(v: &serde_json::Value, out: &mut Vec<(String, Option<String>)>) {
     match v {
         serde_json::Value::String(s) => {
             if let Ok(inner) = serde_json::from_str::<serde_json::Value>(s) {
@@ -204,7 +204,8 @@ fn collect_doing_ids(v: &serde_json::Value, out: &mut Vec<String>) {
         serde_json::Value::Object(map) => {
             if map.get("status").and_then(|s| s.as_str()) == Some("doing") {
                 if let Some(id) = map.get("id").and_then(|s| s.as_str()) {
-                    out.push(id.to_string());
+                    let since = map.get("doingSince").and_then(|s| s.as_str());
+                    out.push((id.to_string(), since.map(str::to_string)));
                 }
             }
             map.values().for_each(|i| collect_doing_ids(i, out));

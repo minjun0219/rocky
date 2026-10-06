@@ -537,7 +537,7 @@ fn claim_doing_hook_posts_the_started_todo_for_this_session() {
         format!(r#"{{"todo":{{"port":{port},"dir":"/nonexistent","expose":"off"}}}}"#),
     )
     .unwrap();
-    let todo = serde_json::json!({"id": "abc123", "status": "doing", "ref": "rocky-9"}).to_string();
+    let todo = serde_json::json!({"id": "abc123", "status": "doing", "ref": "rocky-9", "doingSince": "2026-10-06T00:00:00.000Z"}).to_string();
     let run = |input: serde_json::Value| {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rocky"))
             .args(["hook", "claim-doing"])
@@ -584,6 +584,6 @@ fn claim_doing_hook_posts_the_started_todo_for_this_session() {
         serde_json::from_str(requests.split("\r\n\r\n").nth(1).unwrap_or_default()).unwrap();
     assert_eq!(
         body,
-        serde_json::json!({"sessionId": "sess-1", "todoId": "abc123"})
+        serde_json::json!({"sessionId": "sess-1", "todoId": "abc123", "doingSince": "2026-10-06T00:00:00.000Z"})
     );
 }

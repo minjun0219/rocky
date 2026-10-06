@@ -1972,14 +1972,17 @@ async fn dispatch(
                 StatusCode::BAD_REQUEST,
             ));
         }
-        return Ok(match store.claim_doing_session(todo_id, session_id)? {
-            Some(todo) => ok_json(&with_ref_todo(store, todo)?),
-            // 조건이 안 맞으면(이미 귀속·방금 시작이 아님 등) 아무것도 하지 않았다 — 실패가 아니다.
-            None => Response::builder()
-                .status(StatusCode::NO_CONTENT)
-                .body(Body::empty())
-                .unwrap(),
-        });
+        let doing_since = str_field(&body, "doingSince");
+        return Ok(
+            match store.claim_doing_session(todo_id, session_id, doing_since)? {
+                Some(todo) => ok_json(&with_ref_todo(store, todo)?),
+                // 조건이 안 맞으면(이미 귀속·방금 시작이 아님 등) 아무것도 하지 않았다 — 실패가 아니다.
+                None => Response::builder()
+                    .status(StatusCode::NO_CONTENT)
+                    .body(Body::empty())
+                    .unwrap(),
+            },
+        );
     }
 
     // ── handoffs ──

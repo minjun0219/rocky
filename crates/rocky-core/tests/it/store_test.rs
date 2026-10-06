@@ -4023,7 +4023,7 @@ fn claim_doing_session_only_for_a_fresh_agent_start() {
         .unwrap();
     let claimed = f
         .store
-        .claim_doing_session(&mine.id, "sess-1")
+        .claim_doing_session(&mine.id, "sess-1", None)
         .unwrap()
         .unwrap();
     assert_eq!(claimed.doing_session_id.as_deref(), Some("sess-1"));
@@ -4031,7 +4031,7 @@ fn claim_doing_session_only_for_a_fresh_agent_start() {
     // 이미 귀속이 있으면 덮지 않는다.
     assert!(f
         .store
-        .claim_doing_session(&mine.id, "sess-2")
+        .claim_doing_session(&mine.id, "sess-2", None)
         .unwrap()
         .is_none());
 
@@ -4041,14 +4041,14 @@ fn claim_doing_session_only_for_a_fresh_agent_start() {
         .unwrap();
     assert!(f
         .store
-        .claim_doing_session(&human.id, "sess-1")
+        .claim_doing_session(&human.id, "sess-1", None)
         .unwrap()
         .is_none());
 
     let idle = create(&f.store, "rocky-todo", "안 든 것", "logan");
     assert!(f
         .store
-        .claim_doing_session(&idle.id, "sess-1")
+        .claim_doing_session(&idle.id, "sess-1", None)
         .unwrap()
         .is_none());
 
@@ -4070,4 +4070,36 @@ fn claim_doing_session_only_for_a_fresh_agent_start() {
         .set_todo_status(&mine.id, StatusAction::Stop, "claude-code", None)
         .unwrap();
     assert!(stopped.doing_session_id.is_none() && !stopped.doing_session_claimed);
+}
+
+/// 훅이 준 착수 시각이 지금 doing 과 다르면(그 사이 다른 세션이 다시 start) 붙이지 않는다. 10분이 지난 착수에도 붙이지 않는다.
+#[test]
+fn claim_doing_session_needs_the_same_fresh_start() {
+    let f = fx();
+    let todo = create(&f.store, "rocky-todo", "경합", "logan");
+    let started = f
+        .store
+        .set_todo_status(&todo.id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    let since = started.doing_since.clone().unwrap();
+    assert!(f
+        .store
+        .claim_doing_session(&todo.id, "sess-1", Some("2000-01-01T00:00:00.000Z"))
+        .unwrap()
+        .is_none());
+    // 10분보다 오래된 착수.
+    let old = (chrono::Utc::now() - chrono::TimeDelta::minutes(11)).to_rfc3339();
+    rusqlite::Connection::open(&f.db_path)
+        .unwrap()
+        .execute(
+            "UPDATE todos SET doing_since = ?1 WHERE id = ?2",
+            rusqlite::params![old, todo.id],
+        )
+        .unwrap();
+    assert!(f
+        .store
+        .claim_doing_session(&todo.id, "sess-1", Some(&old))
+        .unwrap()
+        .is_none());
+    let _ = since;
 }

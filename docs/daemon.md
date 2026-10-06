@@ -213,7 +213,9 @@
   (안 그러면 "끝났는데 미착수"라는 모순이 남는다), **사람이 누른 start는 귀속하지
   않는다**(그 요청은 여전히 세션이 안 집은 것이다).
   귀속이 필요한 이유는 `/mcp`가 stateless 라 도구 호출에 세션 식별자가 없고 에이전트가
-  자기 `session_id`를 모르기 때문 — 핸드오프가 그걸 아는 유일한 경로다.
+  자기 `session_id`를 모르기 때문 — 핸드오프, 그리고 세션이 스스로 `start` 한 것을 PostToolUse 훅이
+  붙이는 것(`doing_session_claimed`)이 그걸 아는 두 경로다. 훅 귀속은 statusline ⏺·턴 태그에만 쓰고 아래
+  상태 판정에는 쓰지 않는다(그 세션은 "닫았나?" 를 묻지 않아 턴마다 `idle` 이 되기 때문).
   판정은 `rocky_core::doing`(순수): `resolve_doing_state`는 `live`(세션 busy) / `idle`(세션은 사는데
   턴이 끝나고 완료가 없다 — **가장 흔한 실패**) / `gone` / `unknown`. 귀속이 없는 doing은
   보드 근사로 본다 — 에이전트 actor이고 그 보드 경로에 활성 세션이 **0개**일 때만 `gone`,

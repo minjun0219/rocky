@@ -15,7 +15,9 @@
 - **doing 귀속.** `start` 가 가장 오래된 배달 건을 수락하고 `doing_session_id` 를 귀속시킨다. `done` 이 완료하고 비운다. 사람이
   누른 `start` 는 귀속하지 않는다. 세션이 MCP `todo_status` 로 **스스로** `start` 한 것은 PostToolUse 훅 `claim-doing` 이
   `POST /api/sessions/doing`(로컬 전용)으로 귀속시키고 `doing_session_claimed` 로 표시한다 — 응답의 doing 할 일 id 만, 데몬이 다시
-  조건(에이전트가 10분 안에 시작·귀속 없음)을 본다. HTTP MCP 는 호출한 세션을 모르므로(헤더 없음, 환경 변수의 세션 id 는 `/clear`
+  조건(에이전트가 10분 안에 시작·귀속 없음·훅이 준 `doingSince` 가 지금 착수와 같음)을 본다. 이 귀속은 doing 상태 판정
+  (`resolve_doing_state` — 방치·멈춤·자동 해제·이어받기 추천)에 **쓰지 않는다** — 그 세션은 Stop 에서 묻지 않으므로 턴마다 `idle`,
+  `/clear` 뒤엔 `gone` 이 된다. 판정은 귀속 없는 doing 과 같은 보드 근사. HTTP MCP 는 호출한 세션을 모르므로(헤더 없음, 환경 변수의 세션 id 는 `/clear`
   뒤 낡는다) 훅 입력의 `session_id` 가 유일한 정확한 단서다. `resolve_doing_state` → `live` / `idle` / `gone` / `unknown`.
   - 세션 목록의 **pid 없는 background 행도 세션이다.** 사람 답을 기다리며 잠든(`state: blocked`) 세션은 `pid`·`status` 없이
     온다(Claude Code 2.1.289, cwd 는 워크트리가 아니라 레포 루트) — 버리면 그 doing 이 `gone` 이 되어 자동 해제된다. `blocked` 는

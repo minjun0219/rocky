@@ -42,8 +42,12 @@ fn state_of_session(session: &AgentSession) -> DoingState {
     }
 }
 
-/// doing 인 todo 의 생존 상태를 판정한다. 세션 귀속이 있으면 그 세션 하나만, 없으면
+/// doing 인 todo 의 생존 상태를 판정한다. 핸드오프 귀속이 있으면 그 세션 하나만, 없으면
 /// (에이전트 actor 일 때만) 보드 근사 — 그 보드에 활성 세션이 0개일 때만 `Gone`.
+///
+/// 세션이 스스로 든 것의 귀속(`doing_session_claimed`)은 **보지 않는다** — 그 세션은 Stop 에서 "닫았나?" 를 묻지 않으므로
+/// 턴이 끝날 때마다 `Idle`(방치·멈춤·이어받기 추천)이 되고, `/clear` 로 id 가 바뀌면 `Gone`(자동 해제)이 된다. 그 귀속은
+/// statusline ⏺·턴 태그에만 쓴다(오너 결정 2026-10-06).
 pub fn resolve_doing_state(todo: &Todo, board_key: &str, sessions: &SessionsResult) -> DoingState {
     if todo.status != TodoStatus::Doing {
         return DoingState::Unknown;
@@ -52,7 +56,11 @@ pub fn resolve_doing_state(todo: &Todo, board_key: &str, sessions: &SessionsResu
     if !sessions.available {
         return DoingState::Unknown;
     }
-    if let Some(session_id) = &todo.doing_session_id {
+    if let Some(session_id) = todo
+        .doing_session_id
+        .as_ref()
+        .filter(|_| !todo.doing_session_claimed)
+    {
         return match find_session(&sessions.sessions, session_id) {
             Some(session) => state_of_session(session),
             None => DoingState::Gone,

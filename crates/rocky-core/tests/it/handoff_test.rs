@@ -207,8 +207,9 @@ fn self_started_todos_are_held_but_not_asked_about() {
 fn started_todo_ids_read_the_mcp_response() {
     use rocky_core::handoff::started_todo_ids;
     let todo =
-        serde_json::json!({"id": "abc123", "ref": "rocky-9", "status": "doing", "title": "t"})
-            .to_string();
+        serde_json::json!({"id": "abc123", "ref": "rocky-9", "status": "doing", "title": "t",
+                           "doingSince": "2026-10-06T00:00:00.000Z"})
+        .to_string();
     let input = |action: &str, response: serde_json::Value| {
         serde_json::json!({
             "session_id": "s1",
@@ -218,16 +219,17 @@ fn started_todo_ids_read_the_mcp_response() {
         })
     };
     let blocks = serde_json::json!([{"type": "text", "text": todo}]);
-    assert_eq!(
-        started_todo_ids(&input("start", blocks.clone())),
-        ["abc123"]
-    );
+    let want = vec![(
+        "abc123".to_string(),
+        Some("2026-10-06T00:00:00.000Z".to_string()),
+    )];
+    assert_eq!(started_todo_ids(&input("start", blocks.clone())), want);
     assert_eq!(
         started_todo_ids(&input(
             "start",
             serde_json::json!({"content": blocks.clone()})
         )),
-        ["abc123"]
+        want
     );
     assert!(started_todo_ids(&input("done", blocks)).is_empty());
     // 실패한 start — 에러 문구뿐이다.

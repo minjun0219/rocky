@@ -32,7 +32,7 @@ async fn line_from(state: &Arc<ServerState>, query: &str) -> String {
     body.as_str().unwrap_or_default().to_string()
 }
 
-/// 배달된 핸드오프로 시작된 doing — 세션 귀속이 붙는 유일한 경로.
+/// 배달된 핸드오프로 시작된 doing — 핸드오프 귀속(세션이 스스로 든 것은 훅이 따로 귀속시킨다).
 fn started_by_session(f: &Fx, session_id: &str, title: &str) -> Todo {
     let todo = f
         .store
