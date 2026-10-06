@@ -208,7 +208,7 @@ fn fetch(token: &str, now: DateTime<Utc>) -> Result<rocky_core::limits::CachedUs
         .with_config()
         .limit(1 << 20)
         .read_to_vec()
-        .map_err(|e| Failure::from(e.to_string()))?;
+        .map_err(|e| Failure::from(format!("Get {url:?}: http {status}: read body: {e}")))?;
     match status {
         429 => Err(Failure {
             message: "rate limited (429)".into(),
