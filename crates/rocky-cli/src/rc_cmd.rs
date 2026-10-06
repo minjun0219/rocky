@@ -422,8 +422,6 @@ fn refuse_own_server(ctx: &CliContext, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 꺼진 대상 전부를 띄운다 — 비고정은 서버만, 고정은 세션까지(감시가 되살리는 방식과 같게 · 옛 CLI `-a`). 받은 것과 거절된
-/// 것을 한 줄씩. 진행은 `rocky rc` 로 본다.
 /// `start --all` 이 띄울 것 — 꺼진 대상마다 `(라벨, serverOnly)`. 꺼짐이 확실한 행만(`running: false`) 고르고,
 /// 고정은 감시가 되살릴 때처럼 세션과 함께(`serverOnly: false`), 나머지는 서버만.
 pub fn start_all_targets(raw: &Value) -> Vec<(String, bool)> {
@@ -441,6 +439,8 @@ pub fn start_all_targets(raw: &Value) -> Vec<(String, bool)> {
         .unwrap_or_default()
 }
 
+/// 꺼진 대상 전부를 띄운다 — 비고정은 서버만, 고정은 세션까지(감시가 되살리는 방식과 같게 · 옛 CLI `-a`). 받은 것과 거절된
+/// 것을 한 줄씩. 진행은 `rocky rc` 로 본다.
 fn start_all(ctx: &CliContext, extra: Option<&str>) -> Result<(), String> {
     if let Some(label) = extra {
         return Err(format!("--all 은 라벨을 받지 않는다: {label}"));
