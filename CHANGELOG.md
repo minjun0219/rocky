@@ -1,5 +1,61 @@
 # @minjun0219/rocky
 
+## 0.42.0
+
+### Minor Changes
+
+- [#354](https://github.com/minjun0219/rocky/pull/354) [`1512d07`](https://github.com/minjun0219/rocky/commit/1512d07e637ff8e230769fd77632b16629721393) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 원격 제어 탭의 Antigravity 줄에 켜기·끄기 버튼이 생겼다(로컬 화면에서만 — 폰·테일넷 화면에는 없다). rc 블록이 없는 기기라도 `agy` 가 있으면 원격 제어 탭이 보이고 Antigravity 줄만 나온다. 실패하면 사유를 줄 아래에 남긴다.
+
+- [#353](https://github.com/minjun0219/rocky/pull/353) [`b639c8b`](https://github.com/minjun0219/rocky/commit/b639c8ba417486cb61282300a958b2a44199f8a8) Thanks [@minjun0219](https://github.com/minjun0219)! - Antigravity 원격 제어(`agy remote-control`)를 rocky 에서 켜고 끈다 — `rocky rc agy [start|stop]` 과 `POST /api/rc/antigravity/{start,stop}`(로컬 전용). `GET /api/rc/servers` 의 `antigravity` 는 이제 `rc` 블록과 상관없이 `agy` 가 설치돼 있으면 실린다.
+
+- [#342](https://github.com/minjun0219/rocky/pull/342) [`735691b`](https://github.com/minjun0219/rocky/commit/735691b6e5d31d4651ce7e1a724b7f2862709b16) Thanks [@minjun0219](https://github.com/minjun0219)! - Antigravity(`agy`)에서 rocky 보드를 쓸 수 있다. 레포의 `antigravity/` 번들을 `agy plugin install`로 깔면 데몬 MCP(`todo_*` · `note_*`)와 `board` 스킬, 참조(`rocky-12`)를 보드 항목으로 읽는 규칙이 붙는다. `board` 스킬에는 작업을 Antigravity로 넘기는 절차가 생겼다 — 브리프를 할 일의 `description`에 쓰고, agy가 actor `antigravity`로 착수·댓글·완료를 남기면 Claude Code 세션에 보드 변경으로 주입된다. 워크로그는 agy가 MCP 서버를 플러그인 폴더에서 띄워 프로젝트를 못 가리므로 아직 빠져 있다.
+
+- [#370](https://github.com/minjun0219/rocky/pull/370) [`160ae53`](https://github.com/minjun0219/rocky/commit/160ae53684994a7bafe811925a1325d899add163) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 피드의 "내 차례"에 사람 답을 기다리는 background 세션(`claude agents` 의 `blocked`)을 올린다. 제목은 그 세션이 기다리는 것이고, 누르면 에이전트 탭으로 간다. 그 세션이 든 할 일이 있으면 진행 행(멈춤)만 남긴다. 에이전트 탭을 끄면 이 행도 없다.
+
+- [#374](https://github.com/minjun0219/rocky/pull/374) [`65ef477`](https://github.com/minjun0219/rocky/commit/65ef4772bc1f4b26c486a14deb80c08ba767d353) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc nightly --dry-run`(`GET /api/rc/nightly/preview`)으로 야간 재시작 리허설을 본다 — 지금 설치된 claude 버전으로 떠 있는 rc 서버마다 다시 띄울지 · 기다릴지 · 건너뛸지를 보인다. 아무것도 내리거나 띄우지 않는다.
+
+- [#376](https://github.com/minjun0219/rocky/pull/376) [`0834baa`](https://github.com/minjun0219/rocky/commit/0834baaecb080564ea6b383827457c89ef3bf2c5) Thanks [@minjun0219](https://github.com/minjun0219)! - 야간 재시작이 바쁜 rc 서버를 `rc.nightly.busyUntil`(기본 07:00)까지 5분마다 다시 보고 쉬면 다시 띄운다. 내렸는데 못 띄운 서버는 그때까지 1 · 2 · 4 · 8 · 16분 간격으로 다시 띄워 보고, 그래도 안 되면 되살림 표식을 남겨 감시에 넘긴다.
+
+- [#375](https://github.com/minjun0219/rocky/pull/375) [`dbf0e91`](https://github.com/minjun0219/rocky/commit/dbf0e91a6e839478180f0c2c97880997b9ec0912) Thanks [@minjun0219](https://github.com/minjun0219)! - `rc.nightly` 블록을 두면 데몬이 매일 새벽(기본 04:30)에 `claude update` 를 돌리고, 기동 버전이 설치 버전과 다르면서 쉬는 rc 서버만 다시 띄운다. 고정 하나를 먼저 띄워 보고 나머지를 내리며, 내리기 직전마다 네트워크를 확인한다. 못 띄운 서버는 되살림 표식을 남겨 감시(`rc.supervise`)가 비고정이어도 서버 모드로 띄운다. 맥이 그 시각에 자고 있었으면 깬 뒤 한 번 돈다. 현황 API 에 `nightly`(시각 · 도는 중 · 마지막 결과)가 실린다.
+
+- [#373](https://github.com/minjun0219/rocky/pull/373) [`a30e6b4`](https://github.com/minjun0219/rocky/commit/a30e6b43056503c574253ca40f960bf05818fba4) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬이 rc 서버를 띄울 때마다 그때 설치된 claude 버전을 `rc/<라벨>.version` 에 남기고, 감시(`rc.supervise`)는 야간 재시작이 내리고 못 띄워 되살림 표식(`rc/<라벨>.revive`)이 남은 서버를 비고정이어도 서버만 띄운다.
+
+- [#345](https://github.com/minjun0219/rocky/pull/345) [`2484080`](https://github.com/minjun0219/rocky/commit/24840807704eada28691c707a35134cc7dc8b126) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬이 `claude rc` 서버를 띄우고 다시 띄운다. `rocky rc start|restart <라벨>`(`--fresh` · `--wait`)과 로컬 전용 `POST /api/rc/servers/:label/{start,restart}` 가 생겼다. 재시작은 열린 세션이 있으면 이어받고(`-c`), `already served` 면 45·90초 뒤 다시 띄운다. 서버는 데몬과 다른 프로세스 그룹으로 떠서 데몬을 재시작·업데이트해도 살아 있다.
+
+- [#360](https://github.com/minjun0219/rocky/pull/360) [`308d0b9`](https://github.com/minjun0219/rocky/commit/308d0b9a2686eedc2fa46eb0385e8d165862593b) Thanks [@minjun0219](https://github.com/minjun0219)! - `rc.supervise` 를 켜면 데몬이 2분마다 고정 rc 서버를 보고 꺼져 있으면 스스로 띄운다(연달아 못 뜨면 30분까지 쉬었다 다시). 데몬 맥락의 claude 자격이 끊기거나 돌아오면 macOS 배너로 한 번씩 알리고, 회복 뒤에는 끊기기 전에 뜬 서버를 "자격 의심"으로 표시한다. `rocky rc` 와 현황 API 에 감시 상태 · `authSuspect` 가 실린다.
+
+- [#346](https://github.com/minjun0219/rocky/pull/346) [`91aeb1f`](https://github.com/minjun0219/rocky/commit/91aeb1fa9ae623e16f5b7dc2350f08bb84b0dfe4) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 원격 제어 탭에서 rc 서버를 띄우고 다시 띄운다. 꺼진 대상은 **띄우기**, 떠 있는 대상은 **재시작**(붙은 원격 세션이 끊긴다고 한 번 더 묻는다)이고, 진행 중에는 상태와 실패 이유를 행에 보여 준다. 로컬 주소로 연 화면에서만 보인다.
+
+- [#358](https://github.com/minjun0219/rocky/pull/358) [`9278e3f`](https://github.com/minjun0219/rocky/commit/9278e3fcb38c86d2e1b8bde169c0dfd81b0e478c) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 이 다른 도구의 statusline 줄을 덧붙인다. `rocky.json` 의 `statusline.extraCommands[]`(`command` argv · `timeoutMs` 기본 300)에 적은 명령을 나란히 돌려, rocky 줄과 보드 줄 사이에 설정 순서대로 붙인다. `{{cwd}}` · `{{session_id}}` 를 치환하고(쓰인 값이 비면 건너뜀), 늦거나 실패한 명령은 그 줄만 빠진다. cc-usage 의 `extra_commands` 와 같은 출력이다.
+
+- [#340](https://github.com/minjun0219/rocky/pull/340) [`59d77d4`](https://github.com/minjun0219/rocky/commit/59d77d4e57a69a27fe328a9c9636bce50bd2a889) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 이 cc-usage 와 같은 statusline 을 그린다 — 경로·git 줄(브랜치·변경 수·ahead/behind), 모델·effort·ctx·5h/7d 줄(남은 비율·리셋 시각·경보 배지), 한도가 소진되면 크레딧 줄, 그 아래 보드 줄. 앞의 줄들은 CLI 가 직접 그려 데몬이 없어도 남는다. 한도 설정은 `rocky.json` 최상위 `statusline` 블록(`source` · `alertPercent`). `extra_commands`·usage API 조회는 다음 조각에서 더한다.
+
+- [#365](https://github.com/minjun0219/rocky/pull/365) [`71db87d`](https://github.com/minjun0219/rocky/commit/71db87d51e50cf8c7f4285689fa7646017ae987e) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 이 usage API 로 한도·크레딧을 읽는다. `source: api`·`auto`(stdin 에 한도가 없을 때)나 한도가 소진됐을 때 statusline 이 갱신 프로세스를 detached 로 띄우고 기다리지 않는다 — 결과(5h/7d, 남은 크레딧, 실패 이유·stale)는 다음 렌더에 나온다. 계정은 세션의 `CLAUDE_CONFIG_DIR` 로 판단하고, 토큰은 `tokenEnv` → keychain(기본 설정 폴더만) → `.credentials.json` 순으로 읽기만 한다. 캐시(`~/.cache/rocky/statusline/`)는 설정 폴더와 로그인된 계정별로 갈라 계정을 바꿔도 남의 숫자를 그리지 않는다. 설정: `statusline` 블록의 `configDir` · `pollSeconds` · `creditPollSeconds` · `creditDivisor` · `currency` · `alwaysShowCredits` · `keychainService` · `credentialsFile` · `tokenEnv`. cc-usage 의 refresh 와 같은 동작이다.
+
+- [#349](https://github.com/minjun0219/rocky/pull/349) [`ac6fbba`](https://github.com/minjun0219/rocky/commit/ac6fbba4b4a4ddc976c0ced01c453906cf347e95) Thanks [@minjun0219](https://github.com/minjun0219)! - 토큰 추천에 `fresh-session` 규칙을 더한다 — 맥락이 무거운데(요청당 캐시 읽기, 기본 20만↑) 출력이 작으면(기본 1만↓) 기계적인 후속은 새 세션이나 가벼운 서브에이전트로 넘기라고 권한다. 근거에 턴 평균 캐시 읽기(`avgCacheReadTokens`)와 요청당 캐시 읽기(`avgContextTokens`)를 싣고, 기준은 `tokens.recommend` 의 `freshSession` · `heavyContextTokens` · `freshSessionOutputTokens` 로 바꾼다.
+
+- [#332](https://github.com/minjun0219/rocky/pull/332) [`0d27621`](https://github.com/minjun0219/rocky/commit/0d276213ecc23e185b39082b97e6cbf8bc89fd68) Thanks [@minjun0219](https://github.com/minjun0219)! - 기본 브랜치 검증: 실패하면 그 자리에서 한 번 더 돌고 두 번 연속 실패일 때만 알린다. `rocky verify --rerun [보드]`(`POST /api/verify/rerun`, 로컬 전용)로 같은 커밋을 다시 돌려 환경 탓 거짓 실패를 푼다. 대상 디렉터리의 `runs.jsonl` 에 실행 이력(통과·실패·끊김)과 검증을 못 한 이유를 남긴다.
+
+- [#369](https://github.com/minjun0219/rocky/pull/369) [`c92be1e`](https://github.com/minjun0219/rocky/commit/c92be1eb510724ea5cb776d1c180a99538df6cf0) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI에 **에이전트** 탭을 더한다. `claude agents` 가 보는 세션을 내 차례(사람 답을 기다리는 background 세션) → 실행 중 → 쉬는 중으로 묶어 보이고, background 세션에는 Claude 가 남긴 요약(기다리는 것 · 지금 하는 일)을 한 줄 싣는다. ⋯ 메뉴에서 탭을 끌 수 있다.
+
+- [#348](https://github.com/minjun0219/rocky/pull/348) [`18e79f6`](https://github.com/minjun0219/rocky/commit/18e79f687edd6d5006ef6532b09fec2fa08cabd7) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky mcp worklog --roots` 가 생겼다. 서버를 작업 폴더 밖에서 띄우는 호스트(Antigravity)를 위해, 도구를 부를 때마다 클라이언트에 MCP `roots/list` 를 물어 그 폴더를 워크로그의 프로젝트로 쓴다. 답을 못 받으면 서버 cwd 로 물러서지 않고 에러를 낸다. Antigravity 번들에 워크로그와 `worklog` 스킬을 다시 넣었다. 플래그 없이 띄우는 Claude Code·Codex·opencode 는 그대로다.
+
+### Patch Changes
+
+- [#351](https://github.com/minjun0219/rocky/pull/351) [`5d2b413`](https://github.com/minjun0219/rocky/commit/5d2b413a7aef675bf9dd71c09cbb433fe5c66973) Thanks [@minjun0219](https://github.com/minjun0219)! - 오래 조용했던 세션에 보드 변경이 100건 넘게 밀려 있으면, 훅이 그 너머를 건너뛰지 않고 다음 프롬프트에 이어서 싣는다.
+
+- [#377](https://github.com/minjun0219/rocky/pull/377) [`a5b5264`](https://github.com/minjun0219/rocky/commit/a5b5264224b20057a6ab20cd78f11260203a6abd) Thanks [@minjun0219](https://github.com/minjun0219)! - 원격 제어 화면과 `rocky rc` 에 기동 버전이 설치 버전과 다른 서버를 `구버전` 으로 보이고, 웹 원격 제어 탭의 환경 카드에 야간 재시작 시각과 마지막 결과(재시작 · 건너뜀 · 못 띄움)를 한 줄로 보인다.
+
+- [#361](https://github.com/minjun0219/rocky/pull/361) [`cd8c0cd`](https://github.com/minjun0219/rocky/commit/cd8c0cd8e3a534b258f3b7dd8133669eba113cbd) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 원격 제어 요약 줄에 감시 상태(`감시 중` · 데몬 자격이 끊기면 `자격 끊김`)를 보이고, 자격이 끊기기 전에 뜬 서버 행에 다시 띄우기를 권하는 줄을 더한다.
+
+- [#367](https://github.com/minjun0219/rocky/pull/367) [`9582e15`](https://github.com/minjun0219/rocky/commit/9582e1589ecc0f183ee5fbc682c694095a802d61) Thanks [@minjun0219](https://github.com/minjun0219)! - `claude agents --json` 의 pid 없는 background 세션(사람 답을 기다리며 잠든 `blocked`)을 세션 목록에서 버리지 않는다. 버리면 그 세션이 든 할 일이 "세션 없음" 으로 판정되어 24시간 뒤 자동으로 풀렸다.
+
+- [#368](https://github.com/minjun0219/rocky/pull/368) [`f8af240`](https://github.com/minjun0219/rocky/commit/f8af2401307d8cae87bb9b6e137b49e685628244) Thanks [@minjun0219](https://github.com/minjun0219)! - `GET /api/sessions` 의 background 행에 Claude Code 가 `~/.claude/jobs/<id>/state.json` 에 남긴 작업 요약을 `job` 으로 싣는다 — `detail`(지금 하는 일) · `needs`(사람에게 기다리는 것) · `updatedAt`. 내부 파일이라 못 읽거나 형식이 다르면 그 행만 `job` 이 없다.
+
+- [#331](https://github.com/minjun0219/rocky/pull/331) [`7a74183`](https://github.com/minjun0219/rocky/commit/7a7418381ec8c484343ab341ea4952d59ceadd74) Thanks [@minjun0219](https://github.com/minjun0219)! - `/clear` 된 세션은 더 이상 옛 세션의 PR·수집함 알림으로 깨우지 않는다. 남은 구독은 감시만 이어 가고, 새 세션으로 넘길지·지켜보기만 할지·해지할지는 `POST /api/sessions/cleared` 로 정한다(웹 화면은 다음 변경).
+
+- [#337](https://github.com/minjun0219/rocky/pull/337) [`abf108f`](https://github.com/minjun0219/rocky/commit/abf108f4aa60d8e27332451159973e9b81c6bb0b) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 GitHub 탭 "세션 전달" 칸에 `/clear` 된 세션이 뜨고, 남은 구독을 새 세션으로 넘길지·지켜보기만 할지·해지할지 고를 수 있다.
+
 ## 0.41.0
 
 ### Minor Changes
