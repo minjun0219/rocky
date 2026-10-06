@@ -395,6 +395,12 @@ pub struct RcController {
     ops: RcOps,
     busy: std::sync::Mutex<HashMap<String, RcAction>>,
     last: std::sync::Mutex<HashMap<String, RcResult>>,
+    /// 대상마다 마지막 시도가 못 박은 세션(`--session-id`) — 내린 뒤에는 서버에서 다시 읽을 수 없어, 야간 회복이 같은 대화로
+    /// 다시 띄우려고 여기서 읽는다(`pinned_session`). 시도마다 지우고 새로 적는다(낮의 재시작 값이 남지 않게).
+    pins: std::sync::Mutex<HashMap<String, String>>,
+    /// 대상마다 마지막으로 **실제로 뜬** 방식 — 첫 방식이 안 떠 새로 띄웠으면 그 방식. 야간 보고서가 판정 때 정한 방식이 아니라
+    /// 이것을 적는다(`launched_mode`).
+    launched: std::sync::Mutex<HashMap<String, LaunchMode>>,
     supervise: std::sync::Mutex<SuperviseState>,
     nightly: std::sync::Mutex<nightly::NightlyRun>,
     /// 받은편지함 등록(세션 id · 소켓 · 마지막 턴 시각) — 재시작이 이어받을 세션을 고를 때 본다. 데몬이 서버 상태를 만든 뒤 잇는다.
@@ -433,6 +439,8 @@ impl RcController {
             ops,
             busy: std::sync::Mutex::new(HashMap::new()),
             last: std::sync::Mutex::new(HashMap::new()),
+            pins: std::sync::Mutex::new(HashMap::new()),
+            launched: std::sync::Mutex::new(HashMap::new()),
             supervise: std::sync::Mutex::new(SuperviseState::default()),
             nightly: std::sync::Mutex::new(nightly::NightlyRun::default()),
             inboxes: std::sync::OnceLock::new(),
@@ -716,6 +724,31 @@ impl RcController {
     }
 
     /// 한 번 해 보고 결과를 남긴다 — 진행 중 표시는 그대로 둔다(야간은 못 뜬 대상을 회복이 끝날 때까지 쥔다).
+    /// 이 대상이 마지막으로 실제로 뜬 방식.
+    pub(crate) fn launched_mode(&self, label: &str) -> Option<LaunchMode> {
+        self.launched
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(label)
+            .copied()
+    }
+
+    fn note_launched(&self, label: &str, mode: LaunchMode) {
+        self.launched
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(label.to_string(), mode);
+    }
+
+    /// 이 대상의 마지막 시도가 못 박은 세션 — 없으면 None(못 박지 않았다).
+    pub(crate) fn pinned_session(&self, label: &str) -> Option<String> {
+        self.pins
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(label)
+            .cloned()
+    }
+
     async fn attempt(&self, target: &Target, command: RcCommand, policy: Policy<'_>) -> RcResult {
         let started = std::time::Instant::now();
         let outcome = self.execute(target, command, policy).await;
@@ -828,6 +861,13 @@ impl RcController {
             (RcCommand::Restart { .. } | RcCommand::Pin(_), None) => down_mode,
         };
         let fresh = matches!(command, RcCommand::Restart { fresh: true });
+        {
+            let mut pins = self.pins.lock().unwrap_or_else(|e| e.into_inner());
+            match (&session, mode) {
+                (Some(id), LaunchMode::Pin) => pins.insert(target.label.clone(), id.clone()),
+                _ => pins.remove(&target.label),
+            };
+        }
         self.launch_until_up(
             target,
             mode,
@@ -934,13 +974,15 @@ impl RcController {
             let pid = self.launch(target, mode, version, session)?;
             match self.judge(&target.label, pid).await {
                 Registration::Connected => {
-                    return Ok(format!("떴다 — {}(pid {pid})", rc::mode_note(mode, fresh)))
+                    self.note_launched(&target.label, mode);
+                    return Ok(format!("떴다 — {}(pid {pid})", rc::mode_note(mode, fresh)));
                 }
                 Registration::Pending if (self.ops.signal)(pid, 0) => {
+                    self.note_launched(&target.label, mode);
                     return Ok(format!(
                         "떴다(등록은 확인 못 함) — {}(pid {pid})",
                         rc::mode_note(mode, fresh)
-                    ))
+                    ));
                 }
                 Registration::Served => {
                     // 곧 스스로 내려가지만 기다리지 않고 내린다 — 다음 기동과 겹치지 않게.

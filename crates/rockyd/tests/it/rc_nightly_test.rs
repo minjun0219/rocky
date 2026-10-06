@@ -525,22 +525,92 @@ async fn servers_without_a_record_or_version_are_left_alone() {
 }
 
 #[tokio::test]
-async fn failed_canary_leaves_the_rest_and_recovers_it() {
-    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![DIES, READY]);
+async fn a_canary_that_recovers_lets_the_rest_follow_the_same_night() {
+    // canary 가 처음엔 안 떴다가(순간 장애) 회복 재시도로 떴다 — 새 버전이 도는 것이니 나머지도 마감 안에 이어서 한다.
+    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![DIES, READY, READY]);
+    let f = fixture(w, &[("repo-a", "2.1.200"), ("repo-b", "2.1.200")]);
+    let report = run(&f).await;
+    assert!(!report.canary_failed, "회복했으면 canary 실패가 아니다");
+    let (o, note) = outcome(&report, "repo-a");
+    assert_eq!(o, NightlyOutcome::Restarted);
+    assert!(note.ends_with("(1번째 재시도)"), "{note}");
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Restarted);
+    let log = log(&f);
+    let canary_up = log
+        .iter()
+        .rposition(|l| l.starts_with("spawn repo-a"))
+        .unwrap();
+    let rest_down = log.iter().position(|l| l == "stop repo-b").unwrap();
+    assert!(
+        canary_up < rest_down,
+        "canary 가 뜬 뒤에 나머지를 내린다: {log:?}"
+    );
+    assert!(
+        f.banners.lock().unwrap().is_empty(),
+        "다 떴으면 울리지 않는다"
+    );
+}
+
+#[tokio::test]
+async fn a_canary_that_never_recovers_leaves_the_rest_alone() {
+    let w = world(at(6, 50), &["repo-a", "repo-b"], vec![DIES; 20]);
     let f = fixture(w, &[("repo-a", "2.1.200"), ("repo-b", "2.1.200")]);
     let report = run(&f).await;
     assert!(report.canary_failed);
+    assert_eq!(outcome(&report, "repo-a").0, NightlyOutcome::Down);
     let (o, note) = outcome(&report, "repo-b");
     assert_eq!(o, NightlyOutcome::Skipped);
-    assert!(note.contains("repo-a 가 안 돼서"), "{note}");
+    assert!(note.contains("repo-a 가 마감까지 안 떠서"), "{note}");
     assert!(
         !log(&f).contains(&"stop repo-b".to_string()),
         "나머지는 내리지 않는다"
     );
+    assert_eq!(f.banners.lock().unwrap().len(), 1, "canary 실패는 알린다");
+}
+
+#[tokio::test]
+async fn recovery_brings_back_the_pinned_conversation_not_a_fresh_one() {
+    // 열린 대화가 있는 서버 — 첫 시도는 그 세션(cse_1)으로 못 박아 띄우지만 네트워크 장애로 뜨자마자 내려가고, 같은
+    // 시도 안의 새 세션 재시도도 내려간다. 회복은 새 세션이 아니라 그 세션으로 다시 띄운다(2026-10-07 실측: 대화를 버렸다).
+    let w = world(at(4, 30), &["repo-a"], vec![DIES, DIES, READY]);
+    w.lock().unwrap().sessions.insert("repo-a".to_string());
+    let f = fixture(w, &[("repo-a", "2.1.200")]);
+    let report = run(&f).await;
+    let log = log(&f);
+    assert_eq!(
+        log.last().map(String::as_str),
+        Some("spawn repo-a --session-id cse_1"),
+        "{log:?}"
+    );
     let (o, note) = outcome(&report, "repo-a");
     assert_eq!(o, NightlyOutcome::Restarted);
-    assert!(note.ends_with("(1번째 재시도)"), "{note}");
-    assert_eq!(f.banners.lock().unwrap().len(), 1, "canary 실패는 알린다");
+    assert!(
+        note.contains("그 세션 이어받기(--session-id) (1번째 재시도)"),
+        "보고서는 실제 띄운 방식을 적는다: {note}"
+    );
+}
+
+#[tokio::test]
+async fn the_last_recovery_before_the_deadline_starts_fresh() {
+    // 못 박은 세션으로는 끝내 안 뜬다 — 다음 대기가 마감(07:00)을 넘는 마지막 시도만 새로 띄워 서버를 내린 채 두지 않는다.
+    let w = world(at(6, 55), &["repo-a"], vec![DIES, DIES, DIES, READY]);
+    w.lock().unwrap().sessions.insert("repo-a".to_string());
+    let f = fixture(w, &[("repo-a", "2.1.200")]);
+    let report = run(&f).await;
+    let log = log(&f);
+    let spawns: Vec<&String> = log.iter().filter(|l| l.starts_with("spawn")).collect();
+    assert_eq!(spawns.len(), 4, "{log:?}");
+    assert_eq!(
+        spawns[2], "spawn repo-a --session-id cse_1",
+        "회복 첫 시도는 그 세션으로"
+    );
+    assert!(
+        !spawns[3].contains("--session-id"),
+        "마지막 시도는 새로: {log:?}"
+    );
+    let (o, note) = outcome(&report, "repo-a");
+    assert_eq!(o, NightlyOutcome::Restarted);
+    assert!(note.contains("새 세션과 함께"), "{note}");
 }
 
 #[tokio::test]
