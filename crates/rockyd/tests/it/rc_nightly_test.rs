@@ -674,3 +674,27 @@ async fn nothing_starts_once_the_last_wait_reaches_the_deadline() {
         "한 번만 띄웠다"
     );
 }
+
+#[tokio::test]
+async fn status_marks_servers_whose_record_differs_from_the_install() {
+    let w = world(at(4, 30), &["repo-a", "repo-b", "repo-c"], vec![]);
+    let f = fixture(w.clone(), &[("repo-a", "2.1.200"), ("repo-b", "2.1.300")]);
+    let mut status = rockyd::rc::probe(&runner(w.clone()), Some(&config()), "/home/u").await;
+    f.control.decorate(&mut status);
+    assert!(
+        status.servers.iter().all(|s| !s.stale),
+        "설치 버전을 모르면 아무것도 구버전이 아니다"
+    );
+    let home = f.dir.path().join("home");
+    let versions = home.join(".local/share/claude/versions");
+    std::fs::create_dir_all(&versions).unwrap();
+    std::fs::write(versions.join("2.1.300"), "").unwrap();
+    f.control.decorate(&mut status);
+    let stale: Vec<&str> = status
+        .servers
+        .iter()
+        .filter(|s| s.stale)
+        .map(|s| s.label.as_str())
+        .collect();
+    assert_eq!(stale, vec!["repo-a"], "기록이 없는 repo-c 는 모른다");
+}

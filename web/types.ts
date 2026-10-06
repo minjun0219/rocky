@@ -271,6 +271,27 @@ export interface RcServerRow {
   lastResult?: { ok: boolean; message: string; at: string };
   /** 자격이 끊겼다 돌아오기 전에 뜬 서버 — 죽은 토큰을 들고 있을 수 있다(감시가 켜져 있을 때만). */
   authSuspect?: boolean;
+  /** 기동 버전 기록이 지금 설치 버전과 다르다 — 야간 재시작이 쉬는 때 다시 띄운다. */
+  stale?: boolean;
+}
+
+/** 야간 재시작 한 대상의 결과 — Rust `rocky_core::rc::NightlyItem`. */
+export interface RcNightlyItem {
+  label: string;
+  outcome: 'restarted' | 'current' | 'skipped' | 'down' | 'would-restart' | 'would-wait';
+  note: string;
+}
+
+/** 야간 재시작 한 번 — Rust `rocky_core::rc::NightlyReport`. */
+export interface RcNightlyReport {
+  startedAt: string;
+  finishedAt?: string;
+  dryRun?: boolean;
+  update: string;
+  version?: string;
+  blocked?: string;
+  canaryFailed?: boolean;
+  items: RcNightlyItem[];
 }
 
 /** 대상 목록 밖의 폴더에서 도는 서버 — Rust `rocky_core::rc::StrayRow`. */
@@ -292,6 +313,8 @@ export interface RcStatus {
   probeError?: string;
   /** 감시(`rc.supervise`)가 켜져 있으면 그 상태 — 꺼져 있으면 없다. */
   supervise?: { lastTick?: string; loggedOut: boolean };
+  /** 야간 재시작(`rc.nightly`) — 일정이 켜졌거나 손으로 돌린 결과가 있으면. `at` 은 일정의 현지 시각. */
+  nightly?: { at?: string; running: boolean; last?: RcNightlyReport };
 }
 
 /** `GET /api/logs/worklog` 한 줄 — Rust `rocky_core::logindex::IndexedWorklog` 의 사본. */

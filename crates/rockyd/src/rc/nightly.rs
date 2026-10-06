@@ -790,7 +790,7 @@ fn last_write(home: &str, dir: &str) -> Option<i64> {
 
 /// 설치 경로로 읽은 버전 — `~/.local/bin/claude` 링크의 대상, 아니면 `versions/` 중 가장 높은 것. 새 바이너리의 첫
 /// 실행이 Gatekeeper 검사로 멎어 `--version` 을 못 잴 때 쓴다.
-fn installed_version_fs(home: &str) -> Option<String> {
+pub(super) fn installed_version_fs(home: &str) -> Option<String> {
     let home = Path::new(home);
     if let Ok(target) = std::fs::read_link(home.join(".local/bin/claude")) {
         if let Some(v) = rc::version_from_path(&target.to_string_lossy()) {

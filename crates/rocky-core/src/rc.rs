@@ -123,6 +123,9 @@ pub struct ServerRow {
     /// 자격이 끊겼다 돌아오기 전에 뜬 서버 — 죽은 토큰을 들고 있을 수 있어 다시 띄우기를 권한다(감시가 켜져 있을 때만 잰다).
     #[serde(skip_serializing_if = "is_false")]
     pub auth_suspect: bool,
+    /// 기동 버전 기록이 지금 설치 버전과 다르다 — 야간 재시작이 쉬는 때 다시 띄운다.
+    #[serde(skip_serializing_if = "is_false")]
+    pub stale: bool,
 }
 
 /// 진행 중인 일.
@@ -403,6 +406,7 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
                 action: None,
                 last_result: None,
                 auth_suspect: false,
+                stale: false,
             }
         })
         .collect();

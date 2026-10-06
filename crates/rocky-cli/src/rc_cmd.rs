@@ -161,6 +161,9 @@ fn line(v: &Value, running: bool) -> String {
     if let Some(up) = v.get("uptimeSecs").and_then(Value::as_u64) {
         parts.push(human_uptime(up));
     }
+    if v.get("stale").and_then(Value::as_bool) == Some(true) {
+        parts.push("구버전".into());
+    }
     match str_of(v, "action") {
         "starting" => parts.push("띄우는 중…".into()),
         "restarting" => parts.push("재시작 중…".into()),

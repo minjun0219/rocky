@@ -3,7 +3,7 @@ import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore } from '../test-support';
 import type { RcServerRow, RcStatus } from '../types';
-import { RcPane, RcSummary, rcCounts, rcUptime } from './RcPane';
+import { RcPane, RcSummary, rcCounts, rcNightlyText, rcUptime } from './RcPane';
 import { ViewSwitch } from './ViewSwitch';
 
 afterEach(cleanup);
@@ -244,5 +244,56 @@ describe('원격 제어 — 감시', () => {
     rc.servers[0] = { ...(rc.servers[0] as RcServerRow), authSuspect: true };
     renderWithStore(<RcPane />, { rc, loadRc, spawnAllowed: true });
     expect(screen.getByText(/자격 의심 — 끊기기 전에 떴다/)).toBeTruthy();
+  });
+});
+
+describe('원격 제어 — 야간 재시작', () => {
+  test('구버전 서버는 메타에, 야간 요약은 환경 카드 맨 아래에', () => {
+    const rc = status({
+      nightly: {
+        at: '04:30',
+        running: false,
+        last: {
+          startedAt: '2026-10-07T04:30:00+09:00',
+          finishedAt: '2026-10-07T04:31:00+09:00',
+          update: '변화 없음',
+          items: [
+            { label: 'repo-a', outcome: 'restarted', note: '' },
+            { label: 'repo-c', outcome: 'down', note: '' },
+          ],
+        },
+      },
+    });
+    rc.servers[0] = { ...(rc.servers[0] as RcServerRow), stale: true };
+    renderWithStore(<RcPane />, { rc, loadRc });
+    expect(screen.getByText(/구버전/)).toBeTruthy();
+    expect(screen.getByText('야간 재시작 04:30')).toBeTruthy();
+    expect(screen.getByText(/재시작 1 · 건너뜀 0 · 못 띄움 1/)).toBeTruthy();
+  });
+
+  test('요약 문구 — 도는 중 · 아직 · 전부 건너뜀', () => {
+    expect(rcNightlyText({ running: true })).toEqual({ text: '도는 중', down: 0 });
+    expect(rcNightlyText({ at: '04:30', running: false }).text).toBe('아직 안 돌았다');
+    const now = new Date('2026-10-07T12:00:00');
+    expect(
+      rcNightlyText(
+        {
+          running: false,
+          last: {
+            startedAt: 'x',
+            finishedAt: '2026-10-07T04:31:00',
+            update: 'u',
+            blocked: 'logged-out',
+            items: [],
+          },
+        },
+        now,
+      ).text,
+    ).toBe('마지막 04:31 · 전부 건너뜀(logged-out)');
+  });
+
+  test('야간을 켜지 않은 기기에는 그 줄이 없다', () => {
+    renderWithStore(<RcPane />, { rc: status(), loadRc });
+    expect(screen.queryByText(/야간 재시작/)).toBeNull();
   });
 });
