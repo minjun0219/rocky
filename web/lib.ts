@@ -391,6 +391,85 @@ export function readSeen(storage: SeenStorage): Record<string, string> {
   }
 }
 
+const COLLECT_SEEN_KEY = 'rocky-seen-collect';
+
+/** 피드에서 펼쳐 본 수집함 묶음 — 그때 실려 있던 항목들과 개수. */
+export interface CollectSeen {
+  keys: string[];
+  count: number;
+  /** 데몬이 준 미올림 전체의 지문(`collectToken`) — 있으면 이것만 비교한다. 옛 데몬은 없다. */
+  token?: string;
+}
+
+/** 수집함 항목 하나를 가리키는 키 — 요약은 id 를 싣지 않아 주소(없으면 출처·제목)로 가른다. */
+function collectKey(item: CollectItem): string {
+  return item.url ?? `${item.source}:${item.title}`;
+}
+
+/** 지금 묶음을 본 것으로 적을 값. */
+export function collectSeenOf(
+  count: number,
+  items: CollectItem[] | undefined,
+  token?: string | null,
+): CollectSeen {
+  return { keys: (items ?? []).map(collectKey), count, ...(token ? { token } : {}) };
+}
+
+/**
+ * 본 뒤로 새 것이 왔나. 데몬이 미올림 전체의 지문(`token`)을 주면 그것으로 — 하나 빠지고 하나 들어와 개수와 앞쪽
+ * 항목이 그대로여도 잡는다. 지문이 없는 옛 데몬이면 실린 항목 중 본 적 없는 것이 있거나 개수가 늘었을 때만.
+ * 어느 쪽이든 본 기록이 없으면 늘 새 것.
+ */
+export function hasNewCollect(
+  count: number,
+  items: CollectItem[] | undefined,
+  seen: CollectSeen | null | undefined,
+  token?: string | null,
+): boolean {
+  if (!seen) {
+    return true;
+  }
+  if (token && seen.token) {
+    if (token === seen.token) {
+      return false;
+    }
+    // 지문이 바뀌었는데 개수가 줄지 않았다 — 무언가 들어왔다(하나 빠지고 하나 들어온 것 포함). 줄었으면 보드로 옮겨
+    // 빠진 것일 수 있어 아래의 실린 항목 비교로 가른다.
+    if (count >= seen.count) {
+      return true;
+    }
+  }
+  const keys = new Set(seen.keys);
+  return count > seen.count || (items ?? []).some((item) => !keys.has(collectKey(item)));
+}
+
+/** 피드에서 본 수집함 묶음 — 깨진 값은 본 적 없음. */
+export function readCollectSeen(storage: SeenStorage): CollectSeen | null {
+  try {
+    const parsed = JSON.parse(storage.getItem(COLLECT_SEEN_KEY) ?? 'null') as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      Array.isArray((parsed as CollectSeen).keys) &&
+      typeof (parsed as CollectSeen).count === 'number'
+    ) {
+      const { keys, count, token } = parsed as CollectSeen;
+      return {
+        keys: keys.filter((k) => typeof k === 'string'),
+        count,
+        ...(typeof token === 'string' ? { token } : {}),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCollectSeen(storage: SeenStorage, seen: CollectSeen): void {
+  storage.setItem(COLLECT_SEEN_KEY, JSON.stringify(seen));
+}
+
 /** 이 todo 의 댓글을 `at` 까지 확인했다고 기록한다. */
 export function markSeen(storage: SeenStorage, todoId: string, at: string): void {
   const seen = readSeen(storage);
@@ -569,6 +648,13 @@ export function nowRows(
     collectItems?: CollectItem[];
     /** 수집함 행을 펼쳤나. */
     expandCollect?: boolean;
+    /**
+     * 피드에서 펼쳐 본 수집함 묶음 — 그 뒤로 새 것이 없으면 행을 내지 않는다(펼친 동안은 낸다). 보드로 옮기지 않고
+     * 외부 앱에 그대로 두는 항목이 늘 같은 자리에 남아 "내 차례" 를 차지하던 것(2026-10-06 오너).
+     */
+    collectSeen?: CollectSeen | null;
+    /** 데몬이 준 미올림 전체의 지문(`/api/summary` 의 `collectToken`). */
+    collectToken?: string | null;
     /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
     prs?: PrSnapshot[];
     /** `claude agents` 세션(에이전트 탭을 켰을 때만) — 사람 답을 기다리는 background 세션이 행이 된다. */
@@ -731,7 +817,12 @@ export function nowRows(
   const restUnreadTodos = unread.filter((t) => !recentIds.has(t.id));
   const restUnread = restUnreadTodos.length;
 
-  if (input.collect && input.collect > 0) {
+  if (
+    input.collect &&
+    input.collect > 0 &&
+    (input.expandCollect ||
+      hasNewCollect(input.collect, input.collectItems, input.collectSeen, input.collectToken))
+  ) {
     pushMine(MINE_RANK.collect, {
       key: 'collect',
       kind: 'collect',

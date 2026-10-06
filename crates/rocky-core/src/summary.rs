@@ -54,6 +54,20 @@ pub fn count_unpromoted(inbox: &InboxResponse) -> i64 {
     unpromoted(inbox).count() as i64
 }
 
+/// 아직 안 올라간 수집함 항목 전체의 지문 — 출처·id 를 정렬해 sha256 앞 8바이트(16진수). 순서가 바뀌는 것만으로는
+/// 바뀌지 않고, 항목이 하나라도 들고 나면 바뀐다.
+pub fn collect_token(inbox: &InboxResponse) -> String {
+    let mut keys: Vec<String> = unpromoted(inbox)
+        .map(|(source, item)| format!("{source}\u{1f}{}", item.id))
+        .collect();
+    keys.sort();
+    let digest = ring::digest::digest(&ring::digest::SHA256, keys.join("\n").as_bytes());
+    digest.as_ref()[..8]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// 외부 제목을 요약 한 줄에 싣는 모양으로 — 줄바꿈·제어문자를 공백으로, 연속 공백은 하나로,
 /// `max` 자를 넘으면 자르고 `…`. 수집함 제목은 남이 쓴 글이라 세션 컨텍스트에 여러 줄로 들어가면
 /// 요약의 모양을 흉내 낼 수 있다.
@@ -117,6 +131,11 @@ pub struct Summary {
     /// 미올림 수집함 항목 — 어댑터 순서 그대로, 최대 `SUMMARY_INBOX_MAX`. 넘친 수는 `collect` 로 안다.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub collect_items: Vec<CollectItem>,
+    /// 미올림 수집함 전체의 지문(`collect_token`) — 항목이 들고 나면 바뀐다. `collect_items` 는 앞쪽만 싣고 `collect` 는
+    /// 개수뿐이라, 하나 빠지고 하나 들어오면 둘 다 그대로다. 웹 피드가 "본 묶음 뒤로 새 것이 왔나" 를 이걸로 가른다.
+    /// 수집함 캐시가 없으면 None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collect_token: Option<String>,
 }
 
 /// 요약 조립. `todos` 는 보드의 미보관 항목 전부, `today` 는 `YYYY-MM-DD`.
@@ -183,6 +202,7 @@ pub fn build_summary(
                     .collect()
             })
             .unwrap_or_default(),
+        collect_token: inbox.map(collect_token),
     }
 }
 

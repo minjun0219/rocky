@@ -90,7 +90,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/ws` | `?actor=` (웹소켓 업그레이드) | JSON 프레임 — `doc`·`update`·`presence`·`sub`/`unsub` 요청, `ok`/`err`·`subbed`·`ev`·`lag` 답 (`rockyd::ws` 머리 주석이 정본) | 노트 동시 편집 소켓. cross-site 핸드셰이크는 403. 같은 일의 HTTP 라우트는 폴백 |
 | POST `/api/prs/filters` | `{query!, sessionId?}` | 201 `PrFilterSubscription` | **로컬 전용**. 한 줄·256자 안이 아니면 400. 같은 세션·같은 조건은 있던 것 |
 | DELETE `/api/prs/filters` | `?id=` | `{removed, prs}` | **로컬 전용**. 그 필터로 들어온 PR 구독도 걷는다(`prs` = 걷힌 수). 없으면 404 |
-| GET `/api/summary` | `?cwd=&cached=true` | `Summary` | **포팅 후 추가(0.26)** — 보드 요약 JSON(마감·진행중·핸드오프·수집함 미올림 + 항목 ≤4). `rocky today` · SessionStart 훅 · statusline이 쓴다 |
+| GET `/api/summary` | `?cwd=&cached=true` | `Summary` | **포팅 후 추가(0.26)** — 보드 요약 JSON(마감·진행중·핸드오프·수집함 미올림 + 항목 ≤4, 미올림 전체의 지문 `collectToken`). `rocky today` · SessionStart 훅 · statusline이 쓴다 |
 
 ### 동적 (`:ref`는 URL 디코드 후 ref 문법 해석)
 

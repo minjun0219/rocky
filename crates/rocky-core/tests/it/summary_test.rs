@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use rocky_core::inbox::{mark_promoted, InboxItem, InboxResponse, InboxSourceResult};
 use rocky_core::refs::TodoView;
 use rocky_core::summary::{
-    build_summary, count_unpromoted, due_bucket, one_line, render_summary, DueBucket, SummaryKind,
-    SUMMARY_INBOX_MAX, SUMMARY_ITEM_MAX,
+    build_summary, collect_token, count_unpromoted, due_bucket, one_line, render_summary,
+    DueBucket, SummaryKind, SUMMARY_INBOX_MAX, SUMMARY_ITEM_MAX,
 };
 use rocky_core::types::{Todo, TodoPriority, TodoStatus};
 
@@ -220,4 +220,39 @@ fn summary_json_shape() {
     assert_eq!(json["handoffsOpen"], 0);
     assert!(json.get("collect").is_none());
     assert_eq!(json["items"], serde_json::json!([]));
+}
+
+#[test]
+fn collect_token_changes_when_an_item_comes_or_goes_but_not_on_reorder() {
+    let inbox = |ids: &[&str]| InboxResponse {
+        sources: vec![source(
+            "todoist",
+            ids.iter().map(|id| item(id, id, None)).collect(),
+        )],
+    };
+    let base = collect_token(&inbox(&["a", "b", "c", "d"]));
+    assert_eq!(base.len(), 16);
+    assert_eq!(
+        collect_token(&inbox(&["d", "c", "b", "a"])),
+        base,
+        "순서만 바뀐 것은 같다"
+    );
+    // 하나 빠지고 하나 들어와 개수·앞쪽 항목이 그대로여도 바뀐다
+    assert_ne!(collect_token(&inbox(&["a", "b", "c", "e"])), base);
+    // 보드로 올라간 항목은 지문에서 빠진다
+    let mut promoted = inbox(&["a", "b", "c", "d"]);
+    promoted.sources[0].items[3].promoted = true;
+    assert_eq!(
+        collect_token(&promoted),
+        collect_token(&inbox(&["a", "b", "c"]))
+    );
+    // 요약은 캐시가 있을 때만 싣는다
+    let s = build_summary(None, &[], 0, Some(&inbox(&["a"])), "2026-09-27");
+    assert_eq!(
+        s.collect_token.as_deref(),
+        Some(collect_token(&inbox(&["a"])).as_str())
+    );
+    assert!(build_summary(None, &[], 0, None, "2026-09-27")
+        .collect_token
+        .is_none());
 }

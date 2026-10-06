@@ -359,7 +359,7 @@ rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 - **`rocky today [--json]`** — 첫 줄에 개수(마감 지남 · 오늘 마감 · 진행중 · 핸드오프 대기 · 수집함
   미올림), 그 아래 보드 항목 최대 4개(지난 마감 → 오늘 마감 → 진행중 순), 그 아래 **미올림 수집함 항목**
   최대 3개(`📥 소스: 제목`, 어댑터 순서 그대로, 넘치면 `… 외 N건`). 제목은 한 줄로 펴고 60자에서
-  자른다. `--json` 에는 `collectItems: [{source, title, url}]` 로(비면 생략). Claude Code 프롬프트에서
+  자른다. `--json` 에는 `collectItems: [{source, title, url}]` 로(비면 생략), 미올림 전체의 지문은 `collectToken`(sha256 앞 16자 — 항목이 들고 나면 바뀐다, 수집함 캐시가 없으면 생략; 웹 피드가 "본 묶음 뒤로 새 것이 왔나" 를 가른다). Claude Code 프롬프트에서
   **`! rocky today`**로 치면 LLM 턴 없이 그대로 뜬다(`!`는 셸 실행 모드). 수집함은 어댑터를
   실행해(캐시 없으면 기다림) 캐시를 데운다.
 - **SessionStart 요약** — `ensure-daemon` 훅이 데몬을 확인한 뒤 같은 문자열을 stdout으로 내
