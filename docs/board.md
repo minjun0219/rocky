@@ -154,7 +154,10 @@ PATH에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`.
   줄만 빈다. 할 일을 든 세션(핸드오프 귀속)은 행을 눌러 그 할 일을 연다. 끝나지 않은 세션에는 **메시지**(로컬 화면만) —
   `POST /api/sessions/message {sessionId, text}`(2000자까지)가 그 세션의 받은편지함에 한 줄을 넣어 쉬는 세션이면 턴을 연다.
   받은편지함을 등록하지 않은 세션이면 이유와 함께 409, 전달 기록에는 `message` 로 남는다. 받는 쪽에는 다른 세션의
-  메시지로 보여 사용자 승인으로 쓰이지 않는다. 화면 규칙은 `web/DESIGN.md` "Layout" 8.
+  메시지로 보여 사용자 승인으로 쓰이지 않는다. 살아 있는 background 세션에는 **멈추기**(로컬 화면만) —
+  `POST /api/sessions/stop {sessionId}` 가 `claude stop <짧은 id>` 를 돌린다(대화·워크트리는 남아 `claude attach` 로 잇는다).
+  pid 없이 잠든 세션·interactive·끝난 세션은 409, 목록에 없으면 404. background 행에는 `claude attach <id>` 복사 버튼이 있다.
+  화면 규칙은 `web/DESIGN.md` "Layout" 8.
 - 글자 크기는 여섯 단(`text-micro` 11 · `chip` 12 · `meta` 13 · `sm` 14 · `body` 15 · `title` 20,
   `web/styles/tokens.css`)뿐이다 — 임의 px 유틸리티를 새로 만들지 않는다.
 

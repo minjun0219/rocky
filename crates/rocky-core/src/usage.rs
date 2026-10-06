@@ -101,6 +101,7 @@ const LITERAL_THIRD: &[&str] = &[
     "recommendation",
     "cleared",
     "message",
+    "stop",
 ];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
@@ -302,6 +303,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/verify/subscriptions"),
     (UsageSource::Rest, "POST /api/verify/subscriptions"),
     (UsageSource::Rest, "DELETE /api/verify/subscriptions"),
+    (UsageSource::Rest, "POST /api/sessions/stop"),
     (UsageSource::Rest, "POST /api/inbox/subscriptions"),
     (UsageSource::Rest, "DELETE /api/inbox/subscriptions"),
     (UsageSource::Rest, "GET /api/sessions"),
@@ -403,6 +405,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:stray-close"),
     (UsageSource::Web, "web:agent-row"),
     (UsageSource::Web, "web:session-message"),
+    (UsageSource::Web, "web:session-stop"),
+    (UsageSource::Web, "web:session-attach-copy"),
     (UsageSource::Web, "web:access-logout"),
     (UsageSource::Web, "web:note-pin"),
     (UsageSource::Web, "web:note-format"),

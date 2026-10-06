@@ -293,6 +293,11 @@ interface UiState {
   fetchSessions: () => Promise<void>;
   /** 에이전트 탭 — 그 세션의 받은편지함에 한 줄(로컬 화면만). 못 보내면 데몬이 준 이유로 던진다. */
   sendSessionMessage: (sessionId: string, text: string) => Promise<void>;
+  /**
+   * 에이전트 탭 — background 세션을 멈춘다(로컬 화면만, `claude stop`). 성공하면 그 행을 바로 빼고 목록을 다시 읽는다(데몬이
+   * 세션 목록 캐시를 비웠다). 못 멈추면 데몬이 준 이유로 던진다.
+   */
+  stopSession: (sessionId: string) => Promise<void>;
   /** @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다. */
   /** 세션의 받은편지함에 바로 꽂아 깨웠으면 true — 아니면 그 세션이 다음 턴에 큐에서 집는다. */
   sendHandoff: (todoId: string, input: { sessionId?: string; note?: string }) => Promise<boolean>;
@@ -1075,6 +1080,22 @@ export const useUiStore = create<UiState>((set, get) => ({
       method: 'POST',
       body: JSON.stringify({ sessionId, text }),
     });
+  },
+
+  stopSession: async (sessionId) => {
+    logUsage('web:session-stop');
+    await api('/api/sessions/stop', get().actor, {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+    const { agents } = get();
+    set({
+      agents: agents && {
+        ...agents,
+        list: agents.list.filter((s) => s.sessionId !== sessionId),
+      },
+    });
+    void get().loadAgents();
   },
 
   sendHandoff: async (todoId, input) => {

@@ -26,6 +26,8 @@ export type WebUsageEvent =
   | 'web:stray-close'
   | 'web:agent-row'
   | 'web:session-message'
+  | 'web:session-stop'
+  | 'web:session-attach-copy'
   | 'web:access-logout';
 
 let actorHeader = 'unknown';

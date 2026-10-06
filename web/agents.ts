@@ -21,6 +21,14 @@ export function agentPhase(session: AgentSession): AgentPhase {
   return session.status === 'busy' || session.state === 'working' ? 'run' : 'idle';
 }
 
+/**
+ * `claude attach/stop` 에 넘길 수 있는 짧은 id 인가 — CLI 출력에서 온 값이라 셸 명령으로 복사하기 전에 영숫자 64자 이하만
+ * 받는다(데몬 `rocky_core::sessions::is_safe_short_id` 와 같은 규칙).
+ */
+export function isSafeShortId(id: string): boolean {
+  return /^[A-Za-z0-9]{1,64}$/.test(id);
+}
+
 function isUnder(cwd: string, root: string): boolean {
   const base = root.replace(/\/+$/, '');
   return base !== '' && (cwd === base || cwd.startsWith(`${base}/`));

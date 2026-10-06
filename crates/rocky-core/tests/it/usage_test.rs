@@ -43,6 +43,10 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
         Some("POST /api/sessions/message")
     );
     assert_eq!(
+        normalize_route("POST", "/api/sessions/stop").as_deref(),
+        Some("POST /api/sessions/stop")
+    );
+    assert_eq!(
         normalize_route("POST", "/api/rc/servers/repo-a/restart").as_deref(),
         Some("POST /api/rc/servers/:ref/restart")
     );

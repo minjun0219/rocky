@@ -38,6 +38,17 @@
   길이만 남긴다(`웹 메시지 (N자)`). 전달 기록은 DB 에도 남고 화면에 보여 비밀이 섞이면 그대로 남는다.
 - **본문은 데몬이 아는 사실만 밝힌다**(`web_session_message`) — "이 기기의 로컬 요청(웹 에이전트 탭 경로)". 사람이 쳤다거나
   승인이라고 주장하지 않는다. 받는 쪽에는 다른 세션의 메시지로 보여 권한 허락·결정 답으로 쓰이지 않고, 화면이 그 사실을 밝힌다.
+- **멈추기는 살아 있는(pid 있는) background 세션만**(`POST /api/sessions/stop` → `claude stop <짧은 id>`, 판정 `stop_target`). 하던 턴이
+  끊기므로 행 아래 한 줄로 한 번 더 묻는다. 로컬 요청만(아니면 403). 데몬은 **캐시 없는 목록**에서 대상을 고르고 명령에는 목록의 짧은 id
+  만 넘긴다 — 사람이 보낸 값이 인자가 되지 않는다. 실측(2.1.289): 살아 있는 세션은 transient 서비스(`claude daemon run`)의 자식이라
+  stop 할 때 서비스가 늘 떠 있고, stop 뒤 대화·워크트리는 남아 `claude attach` 로 잇는다. 세션은 기본 목록에서 빠진다(`blocked` 는
+  `stopped` 가 되어 "내 차례" 에서도 빠진다). **pid 없이 잠든 세션의 stop 은 재 보지 못해 받지 않는다**(409).
+- **멈추면 데몬이 세션 목록 캐시를 비운다**(`invalidate_sessions` — `/api/sessions`·statusline 의 SWR). 안 비우면 오래된 값을 최대
+  30분 더 줘서 다른 탭·폰·`doingState` 가 멈춘 세션을 산 것으로 본다. 비우기 전에 시작한 조회는 끝나도 캐시에 쓰지 않는다(세대 번호).
+  화면은 그 행을 바로 빼고 목록을 다시 읽는다 — 화면 쪽 감춤 상태는 두지 않는다(두면 곧바로 attach 로 이은 세션까지 숨는다).
+- **attach 복사는 background 행 전부**(짧은 id 가 있으면) — `claude attach <id>` 를 클립보드에. 아무것도 움직이지 않아 노출된 화면에도
+  둔다. pid 없이 잠든 세션에 답하는 길이 이것이다(메시지는 들을 프로세스가 없다). **짧은 id 는 셸 명령이 되므로 웹도 형식을 본다**
+  (`isSafeShortId` — 영숫자 64자 이하, 데몬 `is_safe_short_id` 와 같은 규칙). 형식이 다르면 attach·멈추기 둘 다 그리지 않는다.
 - **쓰던 메시지는 세션 id 로 탭에 둔다** — 행이 다른 묶음으로 옮겨 가면(실행 중 → 쉬는 중) 다시 마운트돼 입력칸이 사라진다.
 - **세션 목록 폴링은 앱 한 곳**(`useAgentsPolling`, `main.tsx`) — 탭을 보는 동안 15초, 아니면 60초(피드 숫자는 어느 탭에서나
   보인다). ⋯ 메뉴에서 탭을 끄면 폴링도 멈추고 `?view=agents` 도 피드로 돌아간다.
@@ -49,7 +60,7 @@
 - **진행 중 할 일을 든 세션이면 빼고 그 진행 행(멈춤)만 남긴다** — 같은 일을 두 줄로 세지 않는다. 대신 기다리는 것 문구는 그
   경우 에이전트 탭에만 보인다.
 - **에이전트 탭을 끄면 이 행도 없다**(GitHub 탭과 같은 규칙 — 끄면 그 표면은 어디에도 안 보인다).
-- **기간으로 자르지 않는다** — 몇 달 잠든 세션도 뜬다. 숨기기(×)는 없고, 치우는 길은 그 세션에 답하거나 `claude rm`.
+- **기간으로 자르지 않는다** — 몇 달 잠든 세션도 뜬다. 숨기기(×)는 없고, 치우는 길은 그 세션에 답하거나, 살아 있으면 에이전트 탭의 멈추기, 아니면 `claude rm`.
 
 ## 코드
 
@@ -61,12 +72,16 @@
 | 에이전트 탭의 판정(상태·보드·묶음) | `web/agents.ts` |
 | 에이전트 탭 화면·폴링 | `web/components/AgentsPane.tsx`(`useAgentsPolling`), 탭 전환 `web/components/ViewSwitch.tsx` |
 | 세션에 메시지 | `POST /api/sessions/message` `crates/rockyd/src/server.rs`(`wake_session` — 핸드오프와 같은 길), 본문 `crates/rocky-core/src/peer_inbox.rs`(`web_session_message`), 화면 `AgentsPane.tsx`(`MessageToggle`) |
+| 세션 멈추기 · attach 복사 | 판정 `crates/rocky-core/src/sessions.rs`(`stop_target`), 실행 `crates/rockyd/src/sessions_exec.rs`(`stop_session`), 라우트 `POST /api/sessions/stop` `server.rs`, 캐시 비우기 `sessions_exec.rs`(`swr_sessions_with_invalidate`), 화면 `AgentsPane.tsx`(`useStopAction` · `AttachCopy`) |
 | 피드 행 | `web/lib.ts`(`nowRows`), 누르면 탭으로 `web/components/NowTable.tsx` |
 
 테스트: `crates/rocky-core/tests/it/sessions_test.rs`(`background_rows_without_pid_are_kept`, `job_state_*`),
 `crates/rocky-core/tests/it/doing_test.rs`(`dormant_blocked_background_is_idle_not_gone`),
 `crates/rockyd/tests/it/server_handoff_test.rs`(`background_sessions_carry_job_summary`, `auto_match_skips_dormant_background_sessions`),
 `crates/rockyd/tests/it/prwatch_test.rs`(`web_message_goes_to_a_registered_session_only_from_a_local_request`),
+`crates/rocky-core/tests/it/sessions_test.rs`(`stop_target_takes_only_live_background_sessions`),
+`crates/rockyd/tests/it/server_handoff_test.rs`(`stop_runs_claude_stop_for_live_background_sessions_only`),
+`crates/rockyd/tests/it/sessions_swr_test.rs`(`invalidate_drops_the_cache_and_ignores_lookups_started_before_it`),
 `web/agents.test.ts`, `web/components/AgentsPane.test.tsx`, `web/lib.test.ts`("nowRows — 답을 기다리는 에이전트").
 
 ## 함정

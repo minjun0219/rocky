@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { agentPhase, agentSections, boardOfSession, repoLabel } from './agents';
+import { agentPhase, agentSections, boardOfSession, isSafeShortId, repoLabel } from './agents';
 import type { Board, SessionRow, TodoView } from './types';
 
 // `test-support` 는 스토어(=DOM 전역)를 끌고 와 순수 실행에서 못 쓴다 — 쓰는 필드만 채운다.
@@ -139,5 +139,15 @@ describe('agentSections', () => {
       doing: [],
     });
     expect(mine?.rows.map((r) => r.session.sessionId)).toEqual(['b', 'a']);
+  });
+});
+
+describe('isSafeShortId', () => {
+  test('영숫자 64자 이하만 — 셸 명령으로 복사하기 전에 거른다', () => {
+    expect(isSafeShortId('0da6a98a')).toBe(true);
+    expect(isSafeShortId('a'.repeat(64))).toBe(true);
+    for (const bad of ['', 'a'.repeat(65), '../x', 'a b', 'aa;rm', '-rf', 'a\nb']) {
+      expect(isSafeShortId(bad)).toBe(false);
+    }
   });
 });
