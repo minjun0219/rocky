@@ -567,3 +567,37 @@ fn statusline_block_reads_guard_defaulting_off() {
     let (_dir, path) = write_config(r#"{ "statusline": {} }"#);
     assert!(!load_statusline_block(&path).limits.guard);
 }
+
+#[test]
+fn access_block_needs_team_aud_and_emails() {
+    let (_dir, path) = write_config(
+        r#"{"access":{"team":"my-team","aud":"tag","emails":[" a@b.c ",""],"remoteControl":true}}"#,
+    );
+    let access = load_access_block(&path).expect("켜짐");
+    assert_eq!(access.team, "my-team");
+    let (_dir2, upper) =
+        write_config(r#"{"access":{"team":"My-Team","aud":"tag","emails":"a@b.c"}}"#);
+    let upper = load_access_block(&upper).expect("켜짐");
+    assert_eq!(upper.team, "my-team");
+    assert_eq!(upper.emails, vec!["a@b.c".to_string()]);
+    assert_eq!(access.aud, vec!["tag".to_string()]);
+    assert_eq!(access.emails, vec!["a@b.c".to_string()]);
+    assert!(access.remote_control);
+
+    // 반쯤 채운 설정으로는 아무것도 열지 않는다(fail-closed).
+    for partial in [
+        r#"{"access":{"team":"my-team","aud":["tag"],"emails":[]}}"#,
+        r#"{"access":{"team":"my-team","emails":["a@b.c"]}}"#,
+        r#"{"access":{"aud":"tag","emails":["a@b.c"]}}"#,
+        // 팀 이름에 점·슬래시가 섞이면 공개키를 엉뚱한 곳에서 받는다.
+        r#"{"access":{"team":"evil.example.com/x","aud":"tag","emails":["a@b.c"]}}"#,
+        r#"{}"#,
+    ] {
+        let (_dir, path) = write_config(partial);
+        assert_eq!(load_access_block(&path), None, "{partial}");
+    }
+
+    // remoteControl 은 명시해야 켜진다.
+    let (_dir, path) = write_config(r#"{"access":{"team":"t","aud":"tag","emails":["a@b.c"]}}"#);
+    assert!(!load_access_block(&path).unwrap().remote_control);
+}

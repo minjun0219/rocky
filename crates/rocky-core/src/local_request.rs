@@ -121,6 +121,41 @@ pub fn is_cross_site_request(get_header: impl Fn(&str) -> Option<String>, req_ur
     !allowed.contains(&origin_hostname)
 }
 
+/// 같은 출처의 페이지가 보낸 요청인가 — [`is_cross_site_request`] 보다 좁다. Access 원격 제어처럼 **쿠키로 인증되는** 변경에
+/// 건다: `same-site`(같은 등록 도메인의 다른 서브도메인)도 Access 쿠키를 싣고 오므로, 그 페이지가 시킨 POST 를 막으려면
+/// 출처까지 같아야 한다. `Sec-Fetch-Site` 가 있으면 `same-origin` 만, 없으면 `Origin` 의 authority(호스트[:포트])가 `Host`
+/// (또는 `x-forwarded-host` 의 첫 값)와 같아야 한다. 둘 다 없으면 비브라우저 클라이언트로 보고 통과 — 브라우저는 변경 요청에
+/// 둘 중 하나를 꼭 붙인다.
+pub fn is_same_origin_request(get_header: impl Fn(&str) -> Option<String>, host: &str) -> bool {
+    if let Some(site) = get_header("sec-fetch-site") {
+        return site.trim().eq_ignore_ascii_case("same-origin");
+    }
+    let Some(origin) = get_header("origin") else {
+        return true;
+    };
+    let Some(authority) = origin
+        .trim()
+        .split_once("://")
+        .map(|(_, rest)| {
+            rest.split(['/', '?', '#'])
+                .next()
+                .unwrap_or("")
+                .to_lowercase()
+        })
+        .filter(|a| !a.is_empty())
+    else {
+        // 불투명 Origin(`null`) 포함.
+        return false;
+    };
+    let mut allowed = vec![host.trim().to_lowercase()];
+    if let Some(forwarded) = get_header("x-forwarded-host") {
+        if let Some(first) = forwarded.split(',').next() {
+            allowed.push(first.trim().to_lowercase());
+        }
+    }
+    allowed.iter().any(|a| !a.is_empty() && *a == authority)
+}
+
 /// `host:1234` 의 끝 포트만 뗀다 — `[::1]:80` 도 지원. TS 의 `/:\d+$/` 대응.
 fn strip_trailing_port(host: &str) -> String {
     if let Some(colon) = host.rfind(':') {

@@ -1242,6 +1242,7 @@ dependencies = [
 name = "rocky-core"
 version = "0.48.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "rand 0.9.5",
  "ring",
@@ -1263,6 +1264,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "libc",
+ "ring",
  "rmcp",
  "rocky-core",
  "rusqlite",
