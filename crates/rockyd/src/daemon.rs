@@ -339,6 +339,8 @@ pub async fn run_daemon(
         control.set_inbox_source(Arc::new(move || {
             weak.upgrade().map(|s| s.inboxes()).unwrap_or_default()
         }));
+        // 데몬이 띄운 서버의 기동 로그가 끝없이 자라지 않게 — 감시 · 야간 설정과 상관없이.
+        crate::rc::spawn_rc_log_trim(control.clone(), rocky_core::rc::SERVER_LOG_TRIM_INTERVAL);
     }
     // rc 감시 — `rc.supervise` 일 때만. 꺼진 고정 서버를 2분마다 되살리고, 데몬 맥락의 자격이 끊기거나 돌아오면 배너 한 번.
     // 야간 재시작 — `rc.nightly` 일 때만. 못 띄운 서버는 표식을 남기고 감시가 살리므로 둘을 함께 켠다.

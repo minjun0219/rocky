@@ -184,13 +184,9 @@ impl RcController {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
         let argv = rc::handoff_server_argv(name);
-        let pid = (self.ops.spawn)(
-            &argv,
-            Path::new(dir),
-            &self.log_path(label, "out"),
-            &self.log_path(label, "err"),
-        )
-        .map_err(|e| format!("못 띄웠다({dir} 에서 {}): {e}", argv.join(" ")))?;
+        let pid = self
+            .spawn_logged(&argv, Path::new(dir), label)
+            .map_err(|e| format!("못 띄웠다({dir} 에서 {}): {e}", argv.join(" ")))?;
         self.event(
             "handoff-start",
             label,
