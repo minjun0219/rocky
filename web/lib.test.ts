@@ -788,6 +788,17 @@ describe('nowRows — 본 수집함', () => {
     expect(keys({ collect: 2, collectItems: swapped, collectSeen: seen })).toContain('collect');
   });
 
+  test('데몬이 지문을 주면 하나 빠지고 하나 들어온 것도 잡고, 옮겨서 빠지기만 한 것은 넘긴다', () => {
+    const marked = collectSeenOf(2, items, 't1');
+    const run = (input: Partial<Parameters<typeof nowRows>[0]>) =>
+      keys({ collectItems: items, collectSeen: marked, ...input });
+    expect(run({ collect: 2, collectToken: 't1' })).toEqual([]);
+    // 개수·앞쪽 항목은 그대로인데 전체가 바뀌었다(요약 밖에서 하나 빠지고 하나 들어옴)
+    expect(run({ collect: 2, collectToken: 't2' })).toContain('collect');
+    // 보드로 옮겨 하나 빠졌다 — 지문은 바뀌어도 새 것이 아니다
+    expect(run({ collect: 1, collectItems: items.slice(1), collectToken: 't3' })).toEqual([]);
+  });
+
   test('본 기록은 저장소에서 되읽고, 깨진 값은 본 적 없음이다', () => {
     const store = new Map<string, string>();
     const storage = {
@@ -797,6 +808,8 @@ describe('nowRows — 본 수집함', () => {
     expect(readCollectSeen(storage)).toBeNull();
     writeCollectSeen(storage, seen);
     expect(readCollectSeen(storage)).toEqual(seen);
+    writeCollectSeen(storage, collectSeenOf(2, items, 't1'));
+    expect(readCollectSeen(storage)?.token).toBe('t1');
     store.set('rocky-seen-collect', '{"keys":"x","count":1}');
     expect(readCollectSeen(storage)).toBeNull();
     store.set('rocky-seen-collect', 'not json');

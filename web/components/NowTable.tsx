@@ -92,6 +92,7 @@ export function useNowRows(
   const collect = useUiStore((s) => s.collect);
   const collectItems = useUiStore((s) => s.collectItems);
   const collectSeen = useUiStore((s) => s.collectSeen);
+  const collectToken = useUiStore((s) => s.collectToken);
   const agents = useUiStore((s) => (s.showAgents ? s.agents?.list : undefined));
   return nowRows({
     todos: nowTodos,
@@ -100,6 +101,7 @@ export function useNowRows(
     collect,
     collectItems,
     collectSeen,
+    collectToken,
     agents,
     expanded,
     expandUnread,

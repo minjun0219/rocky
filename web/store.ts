@@ -132,6 +132,8 @@ interface UiState {
   collect: number | null;
   /** 미올림 수집함 항목(최대 3개) — 피드의 수집함 행을 펼치면 보인다. */
   collectItems: CollectItem[];
+  /** 미올림 수집함 전체의 지문 — 옛 데몬은 없다(null). */
+  collectToken: string | null;
   sections: Section[];
   notes: NoteView[];
   selected: BoardSelection;
@@ -385,6 +387,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   prs: [],
   collect: null,
   collectItems: [],
+  collectToken: null,
   sections: [],
   notes: [],
   // 첫 fetch 부터 올바른 보드를 조회하도록 URL 을 먼저 읽는다. 없는 보드였다면
@@ -648,10 +651,12 @@ export const useUiStore = create<UiState>((set, get) => ({
           : skip,
         // 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름".
         want('summary')
-          ? api<{ collect?: number; collectItems?: CollectItem[] }>(
+          ? api<{ collect?: number; collectItems?: CollectItem[]; collectToken?: string }>(
               '/api/summary?cached=true',
               actor,
-            ).catch((): { collect?: number; collectItems?: CollectItem[] } => ({}))
+            ).catch(
+              (): { collect?: number; collectItems?: CollectItem[]; collectToken?: string } => ({}),
+            )
           : skip,
         // PR 감시 스냅숏 — 없거나 실패하면 빈 목록("모름" 이 아니라 "없음" 으로 보여도 무해).
         want('prs')
@@ -669,6 +674,7 @@ export const useUiStore = create<UiState>((set, get) => ({
         ? {
             collect: typeof summary.collect === 'number' ? summary.collect : null,
             collectItems: summary.collectItems ?? [],
+            collectToken: summary.collectToken ?? null,
           }
         : {}),
     });
@@ -901,8 +907,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   markCollectSeen: () => {
-    const { collect, collectItems } = get();
-    const seen = collectSeenOf(collect ?? 0, collectItems);
+    const { collect, collectItems, collectToken } = get();
+    const seen = collectSeenOf(collect ?? 0, collectItems, collectToken);
     try {
       writeCollectSeen(localStorage, seen);
     } catch {
