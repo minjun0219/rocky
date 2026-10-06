@@ -71,6 +71,7 @@ const ACTION_TEXT: Record<NonNullable<RcServerRow['action']>, string> = {
   starting: '띄우는 중…',
   restarting: '재시작 중…',
   retrying: '다시 시도 중…',
+  waiting: '대화가 끝나길 기다리는 중…',
 };
 
 /**

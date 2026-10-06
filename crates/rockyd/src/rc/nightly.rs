@@ -22,7 +22,7 @@ use rocky_core::rc::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{probe, RcCommand, RcController, RcNotifier, RcRefusal};
+use super::{probe, Policy, RcCommand, RcController, RcNotifier, RcRefusal};
 
 /// 일정 확인 간격 — 1분마다 "오늘 그 시각이 지났고 아직 안 돌았나" 를 본다.
 pub const NIGHTLY_CHECK: Duration = Duration::from_secs(60);
@@ -353,25 +353,29 @@ impl RcController {
             return;
         }
         let mut reqs = rc::canary_first(reqs, |r| r.target.pinned).into_iter();
-        let canary = reqs.next().expect("비어 있지 않다");
-        let rest: Vec<Req> = reqs.collect();
         if !self.wait_online("canary").await {
-            for r in std::iter::once(canary).chain(rest) {
+            for r in reqs {
                 self.skip_req(r, "네트워크 없음 — 내리면 다시 등록하지 못한다", report);
             }
             return;
         }
-        let canary_label = canary.target.label.clone();
+        // canary — 손대지 못한 것(판정 뒤 대화를 다시 시작함 · 정지 실패)은 시험이 아니니 다음 것으로 넘어간다.
+        let mut canary_label = String::new();
         let mut down = Vec::new();
-        let canary_up = match self.restart_req(canary, current, report).await {
-            Attempted::Up => true,
-            Attempted::Down(r) => {
-                down.push(r);
-                false
+        for r in reqs.by_ref() {
+            canary_label = r.target.label.clone();
+            match self.restart_req(r, current, report).await {
+                Attempted::Up => break,
+                Attempted::Down(r) => {
+                    down.push(r);
+                    break;
+                }
+                Attempted::Untouched => {}
             }
-            Attempted::Untouched => false,
-        };
-        if !canary_up {
+        }
+        // 남은 것 — canary 가 떴을 때만 있다(모두 손대지 못했으면 비어 있다).
+        let rest: Vec<Req> = reqs.collect();
+        if !down.is_empty() {
             report.canary_failed = true;
             for r in rest {
                 let note = format!("먼저 시도한 {canary_label} 가 안 돼서 건드리지 않음");
@@ -427,8 +431,12 @@ impl RcController {
             .attempt(
                 &r.target,
                 RcCommand::Restart { fresh: false },
-                &rc::NIGHTLY_REGISTRATION_BACKOFF,
-                current,
+                Policy {
+                    backoff: &rc::NIGHTLY_REGISTRATION_BACKOFF,
+                    known_version: current,
+                    // 판정 뒤 대화가 다시 시작됐으면 기다리지 않는다 — 마감이 있고, 다음 날 다시 본다.
+                    turn_wait: Duration::ZERO,
+                },
             )
             .await;
         let label = r.target.label.clone();
@@ -512,7 +520,15 @@ impl RcController {
                 }
                 let mode = rc::retry_mode(r.target.pinned);
                 let result = self
-                    .attempt(&r.target, RcCommand::Revive(mode), &[], current)
+                    .attempt(
+                        &r.target,
+                        RcCommand::Revive(mode),
+                        Policy {
+                            backoff: &[],
+                            known_version: current,
+                            turn_wait: Duration::ZERO,
+                        },
+                    )
                     .await;
                 if result.ok {
                     self.release(&label);
@@ -766,7 +782,7 @@ where
 }
 
 /// 그 폴더 대화 기록(`~/.claude/projects/<이름>/*.jsonl`) 중 가장 최근 mtime(unix 초). 없으면 None.
-fn last_write(home: &str, dir: &str) -> Option<i64> {
+pub(super) fn last_write(home: &str, dir: &str) -> Option<i64> {
     let projects = Path::new(home)
         .join(".claude/projects")
         .join(rc::project_dir_name(dir));

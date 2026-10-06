@@ -136,6 +136,8 @@ pub enum RcAction {
     Restarting,
     /// `already served` 를 만나 쉬었다 다시 띄우는 중, 또는 이어받기가 안 떠 새로 띄우는 중.
     Retrying,
+    /// 재시작하려는데 열린 세션이 막 대화하는 중 — 턴이 끝나길 기다린다.
+    Waiting,
 }
 
 /// 띄우기 · 재시작 한 번의 결과.
@@ -262,6 +264,24 @@ pub fn parse_ps(out: &str) -> Vec<PsRow> {
             })
         })
         .collect()
+}
+
+/// `start` 의 조상 pid(자기 자신 포함) — 같은 `ps` 표의 ppid 를 따라 올라간다. CLI 가 자기 서버를 재시작하려는지 가르는
+/// 데 쓴다(옛 CLI 의 자가-살해 가드). 고리가 있어도 끝나게 64단까지만.
+pub fn ancestors(rows: &[PsRow], start: u32) -> HashSet<u32> {
+    let parent: HashMap<u32, u32> = rows.iter().map(|r| (r.pid, r.ppid)).collect();
+    let mut out = HashSet::new();
+    let mut pid = start;
+    for _ in 0..64 {
+        if !out.insert(pid) {
+            break;
+        }
+        match parent.get(&pid) {
+            Some(&p) if p > 1 => pid = p,
+            _ => break,
+        }
+    }
+    out
 }
 
 /// 표에서 rc 서버만(pid 순).
@@ -442,6 +462,8 @@ pub enum LaunchMode {
     Session,
     /// `--no-create-session-in-dir` — 서버만 띄우고 세션은 앱에서 연다.
     Server,
+    /// `--session-id <id>` — 사람이 고른 세션으로 못 박아 이어받는다(`-c` 가 무는 "마지막 세션" 이 원하는 것이 아닐 때).
+    Pin,
 }
 
 /// 꺼진 대상을 이름으로 띄울 때의 방식 — 고정이든 아니든 세션을 만들어 둔다(사람이 지금 쓰려고 부른 것이다).
@@ -471,13 +493,28 @@ fn fresh_mode(pinned: bool) -> LaunchMode {
     }
 }
 
-/// 안 뜰 수 있는 방식인가 — 그러면 내려간 것을 보고 `retry_mode` 로 한 번 더 띄운다.
+/// 안 뜰 수 있는 방식인가 — 그러면 내려간 것을 보고 `retry_mode` 로 한 번 더 띄운다. 못 박은 세션도 만료됐거나 틀린
+/// id 면 뜨자마자 내려간다.
 pub fn may_fail_to_start(mode: LaunchMode) -> bool {
-    mode == LaunchMode::Resume
+    matches!(mode, LaunchMode::Resume | LaunchMode::Pin)
 }
 
-/// 띄울 argv — 셸을 거치지 않는다. 라벨이 `--name` 이라 서버 판정(`is_server_argv`)에 걸린다.
-pub fn server_argv(label: &str, mode: LaunchMode) -> Vec<String> {
+/// 못 박을 수 있는 세션 id 인가 — claude.ai 쪽 id(`cse_…` · `session_…`)다. 로컬 전사본 UUID 를 넣으면 서버가
+/// 400 으로 뜨자마자 내려가니 미리 거른다.
+pub fn valid_session_id(id: &str) -> bool {
+    let rest = id
+        .strip_prefix("cse_")
+        .or_else(|| id.strip_prefix("session_"));
+    rest.is_some_and(|r| {
+        !r.is_empty()
+            && r.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    })
+}
+
+/// 띄울 argv — 셸을 거치지 않는다. 라벨이 `--name` 이라 서버 판정(`is_server_argv`)에 걸린다. `Pin` 은 `session`
+/// 이 있어야 뜻이 있다(없으면 이어받기와 같다).
+pub fn server_argv(label: &str, mode: LaunchMode, session: Option<&str>) -> Vec<String> {
     let mut argv = vec![
         "claude".to_string(),
         "rc".to_string(),
@@ -488,6 +525,10 @@ pub fn server_argv(label: &str, mode: LaunchMode) -> Vec<String> {
         LaunchMode::Resume => argv.push("-c".to_string()),
         LaunchMode::Session => {}
         LaunchMode::Server => argv.push("--no-create-session-in-dir".to_string()),
+        LaunchMode::Pin => match session {
+            Some(id) => argv.extend(["--session-id".to_string(), id.to_string()]),
+            None => argv.push("-c".to_string()),
+        },
     }
     argv
 }
@@ -514,8 +555,9 @@ pub fn read_registration(out: &str, err: &str) -> Registration {
     }
 }
 
-/// `Served` 로 실패한 대상을 다시 띄우기 전에 쉬는 시간. 남은 등록이 풀리는 데 2~3분이라 합이 3분을 넘지 않게 둘.
-pub const REGISTRATION_BACKOFF: [Duration; 2] = [Duration::from_secs(45), Duration::from_secs(90)];
+/// `Served` 로 실패한 대상을 다시 띄우기 전에 쉬는 시간 — 합 3분. 남은 등록이 풀리는 데 2~3분인데, 45 · 90초(합 2분 15초)로는
+/// 못 풀린 재시작이 있었다(2026-10-06 실측 — 내린 뒤 3분쯤에 풀렸다).
+pub const REGISTRATION_BACKOFF: [Duration; 2] = [Duration::from_secs(60), Duration::from_secs(120)];
 /// 내린 뒤 같은 폴더에 새로 띄우기 전에 쉬는 시간 — 곧바로 띄우면 `Served` 가 난다.
 pub const RESTART_DELAY: Duration = Duration::from_secs(5);
 /// SIGTERM 뒤 이만큼 기다리고도 살아 있으면 SIGKILL — SIGKILL 은 등록을 남겨 다음 기동이 `Served` 가 된다.
@@ -525,10 +567,29 @@ pub const REGISTRATION_FIRST: Duration = Duration::from_secs(3);
 pub const REGISTRATION_POLL: Duration = Duration::from_secs(2);
 pub const REGISTRATION_WAIT: Duration = Duration::from_secs(40);
 
+/// 낮 재시작의 턴 대기 — 열린 세션이 `TURN_QUIET` 안에 대화했으면 막 답하는 중으로 보고 `TURN_POLL` 마다 다시 보며
+/// `TURN_WAIT` 까지 기다린다. 야간의 "쉬는 서버"(60분)보다 훨씬 짧다 — 사람이 시킨 재시작이고, 대화 중인 세션은
+/// 이어받기로 돌아오니 막 답하는 중만 피하면 된다.
+pub const TURN_QUIET: Duration = Duration::from_secs(2 * 60);
+pub const TURN_POLL: Duration = Duration::from_secs(15);
+pub const TURN_WAIT: Duration = Duration::from_secs(10 * 60);
+
+/// 턴이 도는 중인가 — 열린 세션이 있고 그 폴더 대화 기록(`last_write`, unix 초)이 `quiet` 안에 바뀌었다. 세션이 없거나
+/// 기록이 없으면 아니다. 자기 서버를 재시작해도 요청한 턴이 끝난 뒤에 내려간다.
+pub fn turn_in_progress(
+    live_session: bool,
+    last_write: Option<i64>,
+    now: i64,
+    quiet: Duration,
+) -> bool {
+    live_session && last_write.is_some_and(|t| now.saturating_sub(t) < quiet.as_secs() as i64)
+}
+
 /// 사람에게 보일 방식 설명 — CLI 출력과 웹 확인 창.
 pub fn mode_note(mode: LaunchMode, fresh: bool) -> &'static str {
     match mode {
         LaunchMode::Resume => "열린 세션 이어받기(-c)",
+        LaunchMode::Pin => "고른 세션 이어받기(--session-id)",
         _ if fresh => "이어받지 않고 새로",
         LaunchMode::Session => "새 세션과 함께",
         LaunchMode::Server => "서버만(세션은 앱에서)",

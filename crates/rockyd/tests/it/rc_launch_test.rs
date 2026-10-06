@@ -168,7 +168,10 @@ fn fixture(session: bool, running: bool, script: Vec<Behavior>) -> Fixture {
 }
 
 async fn run(f: &Fixture, label: &str, command: RcCommand) -> rocky_core::rc::RcResult {
-    let target = f.control.begin(label, command).expect("받아야 한다");
+    let target = f
+        .control
+        .begin(label, command.clone())
+        .expect("받아야 한다");
     f.control.run(target, command).await
 }
 
@@ -240,7 +243,7 @@ async fn served_three_times_gives_up_with_reason() {
     assert_eq!(
         f.world.lock().unwrap().spawns.len(),
         3,
-        "처음 + 45초 + 90초"
+        "처음 + 60초 + 120초"
     );
 }
 
@@ -431,7 +434,7 @@ async fn logged_out_daemon_context_touches_nothing() {
         ops(world.clone()),
     );
     let command = RcCommand::Restart { fresh: false };
-    let target = control.begin("repo-a", command).unwrap();
+    let target = control.begin("repo-a", command.clone()).unwrap();
     let result = control.run(target, command).await;
     assert!(!result.ok);
     assert!(result.message.contains("로그인돼 있지 않다"));
@@ -766,4 +769,207 @@ async fn a_record_that_cannot_be_written_is_not_left_stale() {
         .unwrap()
         .ends_with("repo-a.version"));
     assert_eq!(line["fields"]["forgotten"], false);
+}
+
+// ── 낮 재시작의 턴 대기 · 세션 못 박기 ──
+
+/// repo-a 에 열린 세션이 방금 대화했다. `quiet_from` 번째 `ps` 부터 대화 기록이 10분 전 것이 된다(턴이 끝났다).
+fn talking(
+    quiet_from: Option<usize>,
+    script: Vec<Behavior>,
+) -> (tempfile::TempDir, Arc<Mutex<World>>, Arc<RcController>) {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude/projects/-w-repo-a");
+    std::fs::create_dir_all(&projects).unwrap();
+    let log = projects.join("s.jsonl");
+    std::fs::write(&log, "{}\n").unwrap();
+    let calls = Arc::new(Mutex::new(0usize));
+    let inner = probe_runner(true, true);
+    let runner: Runner = Arc::new(move |argv: Vec<String>, stdin, timeout| {
+        if argv[0] == "ps" {
+            let mut n = calls.lock().unwrap();
+            *n += 1;
+            if quiet_from.is_some_and(|q| *n >= q) {
+                let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+                std::fs::File::options()
+                    .write(true)
+                    .open(&log)
+                    .unwrap()
+                    .set_modified(old)
+                    .unwrap();
+            }
+        }
+        inner(argv, stdin, timeout)
+    });
+    let world = Arc::new(Mutex::new(World {
+        alive: [100].into(),
+        next_pid: 200,
+        script: script.into(),
+        ..Default::default()
+    }));
+    let control = Arc::new(RcController::new(
+        Some(config()),
+        home.to_string_lossy().into_owned(),
+        dir.path().join("rc"),
+        runner,
+        ops(world.clone()),
+    ));
+    (dir, world, control)
+}
+
+fn event_names(dir: &tempfile::TempDir) -> Vec<String> {
+    std::fs::read_to_string(dir.path().join("rc/events.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| {
+            serde_json::from_str::<serde_json::Value>(l).unwrap()["event"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn restart_waits_for_the_turn_to_end_then_resumes() {
+    // 첫 ps(내리기 직전)는 막 대화하는 중, 두 번 다시 본 뒤 턴이 끝났다.
+    let (dir, world, control) = talking(Some(3), vec![CONNECTED]);
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    let result = control.run(target, command).await;
+    assert!(result.ok, "{}", result.message);
+    assert_eq!(
+        world.lock().unwrap().spawns,
+        vec![vec!["claude", "rc", "--name", "repo-a", "-c"]],
+        "턴이 끝난 뒤 이어받는다"
+    );
+    let events = event_names(&dir);
+    let wait = events
+        .iter()
+        .position(|e| e == "turn-wait")
+        .expect("기다렸다");
+    let stop = events.iter().position(|e| e == "stop").expect("내렸다");
+    assert!(wait < stop, "{events:?}");
+}
+
+#[tokio::test]
+async fn restart_never_cuts_a_turn_that_keeps_going() {
+    let (_dir, world, control) = talking(None, vec![]);
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    let result = control.run(target, command).await;
+    assert!(!result.ok);
+    assert!(
+        result.message.contains("10분 넘게 이어져"),
+        "{}",
+        result.message
+    );
+    let w = world.lock().unwrap();
+    assert!(w.signals.is_empty() && w.spawns.is_empty(), "손대지 않았다");
+}
+
+#[tokio::test]
+async fn pinned_session_restart_uses_that_session_or_starts_fresh() {
+    let f = fixture(true, true, vec![CONNECTED]);
+    let result = run(&f, "repo-a", RcCommand::Pin("cse_01abc".into())).await;
+    assert!(result.ok, "{}", result.message);
+    assert!(result.message.contains("고른 세션"));
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--session-id",
+            "cse_01abc"
+        ]]
+    );
+
+    // 만료됐거나 틀린 세션이면 뜨자마자 내려간다 — 새로 한 번 더(고정은 세션까지).
+    let f = fixture(true, true, vec![DIES, CONNECTED]);
+    let result = run(&f, "repo-a", RcCommand::Pin("cse_gone".into())).await;
+    assert!(result.ok, "{}", result.message);
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![
+            vec![
+                "claude",
+                "rc",
+                "--name",
+                "repo-a",
+                "--session-id",
+                "cse_gone"
+            ],
+            vec!["claude", "rc", "--name", "repo-a"],
+        ]
+    );
+}
+
+#[tokio::test]
+async fn restart_route_checks_the_session_id() {
+    let f = fixture(false, false, vec![READY]);
+    let control = f.control.clone();
+    let fx_ = fx();
+    let state = rebuild(&fx_, move |o| o.rc_control = Some(control));
+    let (code, body) = post(
+        &state,
+        "/api/rc/servers/repo-a/restart",
+        json!({"session": "3f2c9a10-1b2c-4d5e-8f90-0a1b2c3d4e5f"}),
+    )
+    .await;
+    assert_eq!(code, 400, "로컬 전사본 UUID 는 거른다: {body}");
+    let (code, _) = post(
+        &state,
+        "/api/rc/servers/repo-a/restart",
+        json!({"session": "cse_1", "fresh": true}),
+    )
+    .await;
+    assert_eq!(code, 400, "둘은 같이 줄 수 없다");
+    let remote = ReqOptions {
+        peer: Some("100.64.0.1"),
+        ..Default::default()
+    };
+    let (code, _) = call(
+        &state,
+        "POST",
+        "/api/rc/servers/repo-a/restart",
+        Some(json!({"session": "bad"})),
+        remote,
+    )
+    .await;
+    assert_eq!(code, 403, "모양을 보기 전에 로컬부터");
+    let (code, _) = post(
+        &state,
+        "/api/rc/servers/repo-a/restart",
+        json!({"session": 42}),
+    )
+    .await;
+    assert_eq!(code, 400, "문자열이 아닌 session 을 조용히 버리지 않는다");
+    let (code, body) = post(
+        &state,
+        "/api/rc/servers/repo-a/restart",
+        json!({"session": "cse_1"}),
+    )
+    .await;
+    assert_eq!(code, 202, "{body}");
+    // 받은 세션이 실제로 기동 인자에 들어간다(꺼져 있던 대상이라 그 세션으로 띄운다).
+    for _ in 0..200 {
+        if !f.world.lock().unwrap().spawns.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--session-id",
+            "cse_1"
+        ]]
+    );
 }

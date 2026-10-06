@@ -46,6 +46,8 @@ struct World {
     fail_ps_call: Option<usize>,
     /// `ps` 를 이만큼 부른 뒤 그 라벨의 세션이 닫힌다.
     close_session_after: Option<(&'static str, usize)>,
+    /// `ps` 를 이만큼 부른 뒤 그 라벨에 세션이 열린다(판정 뒤 대화를 시작했다).
+    open_session_after: Option<(&'static str, usize)>,
 }
 
 fn at(h: u32, m: u32) -> NaiveDateTime {
@@ -77,6 +79,7 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         ps_calls: 0,
         fail_ps_call: None,
         close_session_after: None,
+        open_session_after: None,
     }))
 }
 
@@ -104,6 +107,11 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                 if let Some((label, after)) = w.close_session_after {
                     if w.ps_calls > after {
                         w.sessions.remove(label);
+                    }
+                }
+                if let Some((label, after)) = w.open_session_after {
+                    if w.ps_calls > after {
+                        w.sessions.insert(label.to_string());
                     }
                 }
                 let mut ps = String::from("    1     0 30-00:00:00 /sbin/launchd\n");
@@ -612,8 +620,9 @@ async fn manual_run_route_is_local_only_and_one_at_a_time() {
 
 #[tokio::test]
 async fn a_restart_that_never_stopped_the_server_is_not_a_restart() {
-    // 첫 ps 는 야간의 판정, 둘째는 기동기가 내리기 직전 — 그것이 실패하면 옛 서버는 그대로다.
-    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![]);
+    // 첫 ps 는 야간의 판정, 둘째는 기동기가 내리기 직전 — 그것이 실패하면 옛 서버는 그대로다. 손대지 못한 canary 는
+    // 시험이 아니니 다음 것(repo-b)이 canary 가 된다.
+    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![READY]);
     w.lock().unwrap().fail_ps_call = Some(2);
     let f = fixture(w, &[("repo-a", "2.1.200"), ("repo-b", "2.1.200")]);
     let report = run(&f).await;
@@ -621,11 +630,15 @@ async fn a_restart_that_never_stopped_the_server_is_not_a_restart() {
     assert_eq!(o, NightlyOutcome::Skipped);
     assert!(note.starts_with("손대지 못했다 — 현황을 못 읽어"), "{note}");
     assert!(
-        report.canary_failed,
-        "canary 가 안 됐으니 나머지는 건드리지 않는다"
+        !report.canary_failed,
+        "손대지 못한 것은 canary 실패가 아니다"
     );
-    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Skipped);
-    assert!(log(&f).is_empty(), "아무것도 내리지 않았다");
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Restarted);
+    assert_eq!(
+        log(&f),
+        vec!["stop repo-b", "spawn repo-b --no-create-session-in-dir"],
+        "repo-a 는 내리지 않았다"
+    );
     assert!(
         !f.dir.path().join("rc/repo-a.revive").exists(),
         "떠 있는 서버의 표식은 남기지 않는다"
@@ -697,4 +710,25 @@ async fn status_marks_servers_whose_record_differs_from_the_install() {
         .map(|s| s.label.as_str())
         .collect();
     assert_eq!(stale, vec!["repo-a"], "기록이 없는 repo-c 는 모른다");
+}
+
+#[tokio::test]
+async fn a_canary_that_started_talking_is_skipped_not_waited_on() {
+    // 판정(첫 ps) 뒤 repo-a 에 세션이 열려 방금 대화했다 — 야간은 턴을 기다리지 않고 그것만 건너뛰고, 다음 것이 canary 다.
+    let w = world(at(4, 30), &["repo-a", "repo-b"], vec![READY]);
+    w.lock().unwrap().open_session_after = Some(("repo-a", 1));
+    let f = fixture(w, &[("repo-a", "2.1.200"), ("repo-b", "2.1.200")]);
+    let projects = f.dir.path().join("home/.claude/projects/-w-repo-a");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::write(projects.join("s.jsonl"), "{}\n").unwrap();
+    let report = run(&f).await;
+    let (o, note) = outcome(&report, "repo-a");
+    assert_eq!(o, NightlyOutcome::Skipped);
+    assert!(note.contains("막 대화하는 중"), "{note}");
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Restarted);
+    assert!(!report.canary_failed, "바빴을 뿐 실패가 아니다");
+    assert!(
+        f.world.lock().unwrap().clock < at(4, 35),
+        "10분을 기다리지 않았다"
+    );
 }

@@ -266,7 +266,7 @@ export interface RcServerRow {
   uptimeSecs?: number;
   sessions: number;
   /** 데몬이 지금 하는 일 — 없으면 쉬는 중. */
-  action?: 'starting' | 'restarting' | 'retrying';
+  action?: 'starting' | 'restarting' | 'retrying' | 'waiting';
   /** 마지막 띄우기 · 재시작 결과(데몬이 다시 뜨면 사라진다). */
   lastResult?: { ok: boolean; message: string; at: string };
   /** 자격이 끊겼다 돌아오기 전에 뜬 서버 — 죽은 토큰을 들고 있을 수 있다(감시가 켜져 있을 때만). */

@@ -1,8 +1,9 @@
 //! `rocky rc` — `claude rc` 서버. 대상 목록은 `rocky.json` 의 `rc` 블록이다.
 //!
 //! - `rocky rc [status] [--json]` — 현황(`GET /api/rc/servers`)
-//! - `rocky rc start <라벨> [--wait]` · `rocky rc restart <라벨> [--fresh] [--wait]` — 데몬이 띄우거나 다시 띄운다.
-//!   재시작은 그 서버에 붙은 원격 세션을 끊는다. `--wait` 면 결과가 날 때까지 기다려 찍는다.
+//! - `rocky rc start <라벨> [--wait]` · `rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait]` — 데몬이 띄우거나
+//!   다시 띄운다. 재시작은 그 서버에 붙은 원격 세션을 끊는다(막 대화하는 중이면 턴이 끝날 때까지 기다린다). `--session` 은
+//!   이어받을 세션을 claude.ai 쪽 id 로 못 박는다. `--wait` 면 결과가 날 때까지 기다려 찍는다.
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 //! - `rocky rc nightly [--dry-run]` — 야간 재시작을 지금 한 번 돌린다(데몬이 백그라운드로, 결과는 `rocky rc`).
 //!   `--dry-run` 은 리허설: 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다).
@@ -17,9 +18,9 @@ use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run]";
-/// `--wait` 상한 — 등록 판정 40초 + `already served` 재시도 45·90초 + 정지 유예를 넉넉히 덮는다.
-const WAIT_LIMIT: Duration = Duration::from_secs(300);
+const USAGE: &str = "usage: rocky rc [status] | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run]";
+/// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
+const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// 리허설 응답 한도 — 데몬의 `claude --version` 한도(40초)와 프로브를 덮는다.
 const PREVIEW_LIMIT: Duration = Duration::from_secs(90);
 
@@ -55,7 +56,26 @@ pub fn cmd_rc(
             let label = rest
                 .get(1)
                 .ok_or_else(|| format!("{USAGE} — 라벨이 필요하다"))?;
-            let body = serde_json::json!({ "fresh": flags.bool_flag("fresh") });
+            if verb == "start" && flags.str_flag("session").is_some() {
+                return Err(
+                    "--session 은 restart 에만 쓴다(그 세션으로 이어받아 다시 띄운다)".into(),
+                );
+            }
+            if verb == "restart" {
+                refuse_own_server(ctx, label)?;
+            }
+            let session = flags.str_flag("session").filter(|_| verb == "restart");
+            if let Some(id) = session {
+                if flags.bool_flag("fresh") {
+                    return Err("--fresh(이어받지 않음)와 --session(이 세션으로 이어받음)은 같이 줄 수 없다".into());
+                }
+                if !rocky_core::rc::valid_session_id(id) {
+                    return Err(format!(
+                        "--session 은 claude.ai 쪽 세션 id(cse_… · session_…)다 — 로컬 전사본 UUID 가 아니다: {id}"
+                    ));
+                }
+            }
+            let body = serde_json::json!({ "fresh": flags.bool_flag("fresh"), "session": session });
             let path = format!("/api/rc/servers/{}/{verb}", encode_uri_component(label));
             let accepted = request_value(ctx, "POST", &path, Some(&body))?;
             if let Some(err) = accepted.get("error").and_then(Value::as_str) {
@@ -168,6 +188,7 @@ fn line(v: &Value, running: bool) -> String {
         "starting" => parts.push("띄우는 중…".into()),
         "restarting" => parts.push("재시작 중…".into()),
         "retrying" => parts.push("다시 시도 중…".into()),
+        "waiting" => parts.push("대화가 끝나길 기다리는 중…".into()),
         _ if v.get("authSuspect").and_then(Value::as_bool) == Some(true) => {
             parts.push("⚠ 자격 의심 — 다시 띄우기를 권한다".into())
         }
@@ -336,4 +357,35 @@ pub fn render_nightly(raw: &Value) -> String {
         out.push("떠 있는 대상이 없다".into());
     }
     out.join("\n")
+}
+
+/// 이 CLI 가 그 서버의 세션 안에서 돌고 있으면 거절한다 — 재시작이 이 턴을 끊는다. 데몬의 턴 대기는 대화 기록이 2분
+/// 조용하면 끝난 것으로 보는데, 도구 호출(이 명령 자신 포함)이 도는 동안에는 기록이 멈춰 있다. 옛 CLI 의 자가-살해 가드와
+/// 같다. 현황이나 `ps` 를 못 읽으면 막지 않는다(데몬의 다른 검사가 남는다).
+fn refuse_own_server(ctx: &CliContext, label: &str) -> Result<(), String> {
+    let Ok(raw) = request_value(ctx, "GET", "/api/rc/servers", None) else {
+        return Ok(());
+    };
+    let Some(pid) = raw
+        .get("servers")
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.iter().find(|r| str_of(r, "label") == label))
+        .and_then(|r| r.get("pid"))
+        .and_then(Value::as_u64)
+    else {
+        return Ok(());
+    };
+    let Ok(out) = std::process::Command::new("ps")
+        .args(["-axww", "-o", "pid=,ppid=,etime=,args="])
+        .output()
+    else {
+        return Ok(());
+    };
+    let rows = rocky_core::rc::parse_ps(&String::from_utf8_lossy(&out.stdout));
+    if rocky_core::rc::ancestors(&rows, std::process::id()).contains(&(pid as u32)) {
+        return Err(format!(
+            "{label} 은(는) 이 세션이 붙은 서버다 — 재시작하면 이 턴이 끊긴다. 웹 원격 제어 탭 · 다른 세션 · 터미널에서 재시작한다"
+        ));
+    }
+    Ok(())
 }
