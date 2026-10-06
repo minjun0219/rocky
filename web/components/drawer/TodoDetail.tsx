@@ -5,6 +5,7 @@ import { mountMarkdownEditor } from '../../codemirror-editor';
 import { boardCommand, copyRefWithFeedback, linkLabel, linkedPrStatus } from '../../lib';
 import { useUiStore } from '../../store';
 import { IssueAction } from './IssueAction';
+import { SessionLinks } from './SessionLinks';
 import { FormatToolbar } from '../FormatToolbar';
 import { Markdown } from '../Markdown';
 import { PR_ICON } from '../NowTable';
@@ -547,6 +548,7 @@ export function TodoDetail() {
           )}
         </div>
       ) : null}
+      <SessionLinks todo={todo} />
       <IssueAction todo={todo} />
     </div>
   );
