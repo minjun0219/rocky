@@ -2056,8 +2056,15 @@ async fn dispatch(
         }
         return Ok(json_response(&status, StatusCode::OK));
     }
-    // ── 야간 재시작 리허설 — 지금 설치 버전으로 판정만(손대지 않는다). `claude --version` 과 프로브를 캐시 없이 돈다 ──
+    // ── 야간 재시작 리허설 — 지금 설치 버전으로 판정만(손대지 않는다). `claude --version` 과 프로브를 캐시 없이 띄우므로
+    // 로컬 전용 — 노출된 화면에서 되풀이해 부르면 그만큼 프로세스가 뜬다 ──
     if *method == Method::GET && path == "/api/rc/nightly/preview" {
+        if !local {
+            return Ok(error_response(
+                "야간 리허설은 claude 와 프로브를 띄우므로 로컬 요청만 받는다",
+                StatusCode::FORBIDDEN,
+            ));
+        }
         let Some(control) = state.rc_control.clone() else {
             return Ok(error_response(
                 "이 기기에서는 rc 가 꺼져 있다",

@@ -110,7 +110,7 @@ rocky rc nightly --dry-run       # 야간 재시작 리허설 — 지금 설치 
 | --- | --- |
 | `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않는다 |
 | `GET /api/rc/servers` | 대상 행(`servers`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 5초 캐시 |
-| `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 돈다. rc 가 꺼진 기기면 404 |
+| `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 띄우므로 로컬 전용(403). rc 가 꺼진 기기면 404 |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.

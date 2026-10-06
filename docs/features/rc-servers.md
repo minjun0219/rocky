@@ -41,7 +41,7 @@
 - **야간 리허설**(`GET /api/rc/nightly/preview`, `rocky rc nightly --dry-run`): 지금 설치 버전(`claude --version`, 못 재면
   `~/.local/bin/claude` 링크 대상 → `versions/` 중 가장 높은 것)으로 떠 있는 **설정 대상**마다 `decide_nightly` 를 돌려 보인다.
   update · 내리기 · 띄우기 · 기다리기 없이, `rc/` 에 아무것도 쓰지 않는다. 쉬는지는 `~/.claude/projects/<project_dir_name>/*.jsonl` 의
-  최신 mtime 으로 잰다. 프로브 실패 · 로그아웃이면 `blocked`.
+  최신 mtime 으로 잰다. 프로브 실패 · 로그아웃이면 `blocked`. 읽기지만 프로세스를 캐시 없이 띄우므로 **로컬 전용**(403).
 - **자격 관찰**: 끊김(`In → Out`)과 회복(`Out → In`)을 바뀐 바퀴에 한 번씩만 배너로 알린다 — 같은 상태가 이어지면 다시 울리지 않는다.
   기록은 `rc/auth.json`(데몬을 다시 띄워도 회복을 알아채게). 회복 뒤 로그아웃보다 먼저 뜬 서버는 `authSuspect` — 자동으로 재시작하지
   않는다(세션이 붙어 있을 수 있다). launchd 로 도는 데몬은 키체인을 읽어 셸과 자격이 갈릴 수 있다(2026-10-06 두 번째 재발).

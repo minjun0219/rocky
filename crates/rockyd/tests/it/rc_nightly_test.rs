@@ -298,6 +298,12 @@ async fn preview_route_answers_with_the_report() {
     .await;
     assert_eq!(code, 200, "{body}");
     assert_eq!(body["dryRun"], true);
+    let remote = ReqOptions {
+        peer: Some("100.64.0.1"),
+        ..Default::default()
+    };
+    let (code, _) = call(&state, "GET", "/api/rc/nightly/preview", None, remote).await;
+    assert_eq!(code, 403, "프로세스를 띄우는 읽기는 로컬 전용");
     assert_eq!(body["items"][0]["outcome"], "current");
     let (code, _) = call(
         &fx_.state,
