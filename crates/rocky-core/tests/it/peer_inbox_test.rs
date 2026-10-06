@@ -241,3 +241,30 @@ fn superseded_sessions_are_earlier_ids_of_the_same_process() {
     );
     assert!(superseded_sessions(&regs, &new, None).is_empty());
 }
+
+/// `plugin/hooks/lab` 의 `rockyToast` 가 이 머리(`rocky: ` · `# rocky: `)로 데몬 메시지를 알아본다 — 머리를 바꾸면 lab 도.
+#[test]
+fn daemon_messages_open_with_the_head_lab_reads() {
+    let item = rocky_core::inbox::InboxItem {
+        id: "1".into(),
+        title: "새 버그".into(),
+        url: None,
+        note: None,
+        due: None,
+        created_at: None,
+        promoted: false,
+    };
+    for msg in [
+        pr_session_message(&event(PrEventKind::Ready)).unwrap(),
+        review_session_message(&event(PrEventKind::Review)).unwrap(),
+        rocky_core::peer_inbox::inbox_item_message("gh-bugs", &[&item]),
+    ] {
+        assert!(msg.starts_with("rocky: "), "{msg}");
+    }
+    let poke = rocky_core::handoff::build_handoff_poke(&rocky_core::handoff::HandoffPokeInput {
+        session_name: "s",
+        todo_ref: "rocky-1",
+        todo_title: "제목",
+    });
+    assert!(poke.message.starts_with("# rocky: "), "{}", poke.message);
+}

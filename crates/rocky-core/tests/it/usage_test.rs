@@ -3,7 +3,7 @@
 use chrono::{TimeZone, Utc};
 use rocky_core::usage::{
     append_event, build_report, client_of, month_file, normalize_route, parse_since, read_events,
-    render_report, UsageEvent, UsageSource, KNOWN_SURFACES,
+    render_report, rest_surface, UsageEvent, UsageSource, KNOWN_SURFACES, LAB_CLIENT,
 };
 
 fn ev(ts: &str, source: UsageSource, name: &str, ok: bool, ms: Option<u64>) -> UsageEvent {
@@ -96,6 +96,17 @@ fn client_prefers_the_header_then_guesses_from_user_agent() {
     assert_eq!(client_of(None, Some("ureq/3")), "cli");
     assert_eq!(client_of(None, Some("Mozilla/5.0 Safari")), "web");
     assert_eq!(client_of(None, None), "other");
+}
+
+#[test]
+fn lab_reads_count_as_lab_not_as_the_route() {
+    let route = || "GET /api/deliveries".to_string();
+    assert_eq!(rest_surface(route(), "web"), (UsageSource::Rest, route()));
+    assert_eq!(
+        rest_surface(route(), LAB_CLIENT),
+        (UsageSource::Hook, "hook lab".to_string())
+    );
+    assert!(KNOWN_SURFACES.contains(&(UsageSource::Hook, "hook lab")));
 }
 
 #[test]

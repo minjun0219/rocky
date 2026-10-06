@@ -149,6 +149,20 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     Some(shape)
 }
 
+/// lab(`plugin/hooks/lab`, Claude Code function hooks 실험)이 데몬을 읽을 때 다는 `x-rocky-client`.
+pub const LAB_CLIENT: &str = "claude-code-lab";
+
+/// REST 요청 하나를 어느 표면으로 셀지 — 보통은 라우트 모양 그대로. lab 이 부른 것은 라우트가 아니라 `hook lab`
+/// 하나로 센다: 턴마다 읽는 요청이 그 라우트(`GET /api/deliveries` 등)를 쓰이는 것처럼 부풀리지 않고, lab 자체가
+/// 쓰이는지를 남긴다.
+pub fn rest_surface(route: String, client: &str) -> (UsageSource, String) {
+    if client == LAB_CLIENT {
+        (UsageSource::Hook, "hook lab".into())
+    } else {
+        (UsageSource::Rest, route)
+    }
+}
+
 /// 클라이언트 종류 — `x-rocky-client` 헤더가 있으면 그것, 없으면 User-Agent 로 추정.
 pub fn client_of(x_rocky_client: Option<&str>, user_agent: Option<&str>) -> String {
     if let Some(c) = x_rocky_client.map(str::trim).filter(|c| !c.is_empty()) {
@@ -325,6 +339,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Hook, "hook notify-todo"),
     (UsageSource::Hook, "hook handoff-stop"),
     (UsageSource::Hook, "hook log-turn"),
+    (UsageSource::Hook, "hook lab"),
     (UsageSource::Cli, "rocky ls"),
     (UsageSource::Cli, "rocky next"),
     (UsageSource::Cli, "rocky today"),
