@@ -104,8 +104,8 @@ pub fn spawn_detached(source: Source) -> bool {
 
 /// 실패 — 기록할 문구와, 서버가 말한 대기 시간(429 의 `Retry-After`).
 #[derive(Debug)]
-struct Failure {
-    message: String,
+pub(crate) struct Failure {
+    pub message: String,
     retry_after: TimeDelta,
 }
 
@@ -123,15 +123,39 @@ fn load_token(
     slot: &Slot,
     now: DateTime<Utc>,
 ) -> Result<OauthToken, Failure> {
+    let found = find_token(cfg, slot)?;
+    claude_account::check_token(found.token, now).map_err(|e| match found.file {
+        // 원인을 앞에, 어느 파일인지는 뒤에 — statusline 은 에러를 40바이트에서 자른다.
+        Some(file) => Failure::from(format!("{e} (file: {})", file.display())),
+        None => Failure::from(e),
+    })
+}
+
+/// 찾은 토큰과 그 출처 — 만료는 아직 보지 않았다.
+pub(crate) struct FoundToken {
+    pub token: OauthToken,
+    /// `env:<이름>` · `keychain` · `file`.
+    pub source: String,
+    /// 파일에서 읽었으면 그 경로.
+    pub file: Option<std::path::PathBuf>,
+}
+
+/// 토큰을 찾는다(`tokenEnv` → keychain → `.credentials.json`). keychain 에서 찾았으면 만료여도 그 결과다 — 파일로 넘어가지
+/// 않는다(cc-usage 와 같다). 못 찾으면 후보마다의 이유를 모은 문구.
+pub(crate) fn find_token(cfg: &StatuslineConfig, slot: &Slot) -> Result<FoundToken, String> {
     if let Some(var) = cfg.token_env.as_deref() {
         if let Some(v) = std::env::var(var)
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
         {
-            return Ok(OauthToken {
-                access_token: v,
-                expires_at: None,
+            return Ok(FoundToken {
+                token: OauthToken {
+                    access_token: v,
+                    expires_at: None,
+                },
+                source: format!("env:{var}"),
+                file: None,
             });
         }
     }
@@ -148,8 +172,13 @@ fn load_token(
             home,
         ) {
             Some(service) => match from_keychain(&service) {
-                // 찾았으면 만료여도 그 결과다 — 파일로 넘어가지 않는다(cc-usage 와 같다).
-                Ok(token) => return claude_account::check_token(token, now).map_err(Failure::from),
+                Ok(token) => {
+                    return Ok(FoundToken {
+                        token,
+                        source: "keychain".into(),
+                        file: None,
+                    })
+                }
                 Err(e) => errors.push(format!("keychain: service {service:?}: {e}")),
             },
             None => errors.push("keychain: 건너뜀 (비기본 config_dir)".to_string()),
@@ -163,16 +192,18 @@ fn load_token(
     );
     match std::fs::read_to_string(&file) {
         Ok(raw) => match claude_account::parse_token(&raw) {
-            // 원인을 앞에, 어느 파일인지는 뒤에 — statusline 은 에러를 40바이트에서 자른다.
             Ok(token) => {
-                return claude_account::check_token(token, now)
-                    .map_err(|e| Failure::from(format!("{e} (file: {})", file.display())))
+                return Ok(FoundToken {
+                    token,
+                    source: "file".into(),
+                    file: Some(file),
+                })
             }
             Err(e) => errors.push(format!("file: {}: {e}", file.display())),
         },
         Err(e) => errors.push(format!("file: {}: {e}", file.display())),
     }
-    Err(format!("token not found ({})", errors.join("; ")).into())
+    Err(format!("token not found ({})", errors.join("; ")))
 }
 
 fn from_keychain(service: &str) -> Result<OauthToken, String> {
@@ -189,7 +220,19 @@ fn from_keychain(service: &str) -> Result<OauthToken, String> {
 }
 
 fn fetch(token: &str, now: DateTime<Utc>) -> Result<rocky_core::limits::CachedUsage, Failure> {
-    let url = std::env::var(USAGE_URL_ENV).unwrap_or_else(|_| USAGE_URL.to_string());
+    let body = fetch_raw(token, now)?;
+    // 원인을 앞에, 요청 맥락은 뒤 괄호에 — statusline 은 에러를 40바이트에서 자르므로 앞이 원인이어야 읽힌다.
+    parse_usage_response(&body, now)
+        .map_err(|e| Failure::from(format!("{e} (GET {} → http 200)", usage_url())))
+}
+
+fn usage_url() -> String {
+    std::env::var(USAGE_URL_ENV).unwrap_or_else(|_| USAGE_URL.to_string())
+}
+
+/// usage API 를 한 번 부르고 200 이면 본문을 그대로 — `probe` 가 원본을 보이는 데도 쓴다.
+pub(crate) fn fetch_raw(token: &str, now: DateTime<Utc>) -> Result<Vec<u8>, Failure> {
+    let url = usage_url();
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(FETCH_TIMEOUT))
         // 상태 코드는 직접 본다 — 에러로 바꾸면 429 의 Retry-After 와 본문을 잃는다.
@@ -223,9 +266,7 @@ fn fetch(token: &str, now: DateTime<Utc>) -> Result<rocky_core::limits::CachedUs
             retry_after,
         }),
         401 | 403 => Err("unauthorized (401/403)".to_string().into()),
-        // 원인을 앞에, 요청 맥락은 뒤 괄호에 — statusline 은 에러를 40바이트에서 자르므로 앞이 원인이어야 읽힌다.
-        200 => parse_usage_response(&body, now)
-            .map_err(|e| Failure::from(format!("{e} (GET {url} → http {status})"))),
+        200 => Ok(body),
         _ => Err(format!(
             "http {status}: {}",
             truncate(&String::from_utf8_lossy(&body), 120)

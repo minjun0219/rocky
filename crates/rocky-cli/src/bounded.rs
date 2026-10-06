@@ -26,10 +26,42 @@ pub(crate) fn spawn_lock() -> std::sync::MutexGuard<'static, ()> {
 
 /// `argv` 를 셸 없이 돌려 stdout 을 바이트 그대로 돌려준다. 실행 파일이 없거나, 0 이 아닌 코드로 끝났거나, 마감을
 /// 넘겼거나, 끝난 뒤에도 자식이 파이프를 붙잡고 있으면 `None` — 어느 쪽이든 statusline 에는 아무것도 붙지 않는다.
-/// stderr 는 읽어서 버린다(닫히는지만 본다).
 pub fn run(argv: &[String], timeout: Duration) -> Option<Vec<u8>> {
-    let (program, args) = argv.split_first()?;
-    let mut child = {
+    match run_detailed(argv, timeout).0 {
+        Outcome::Ok(stdout) => Some(stdout),
+        _ => None,
+    }
+}
+
+/// 한 번 돌린 결과 — `run` 은 성공만 쓰고, doctor 는 나머지로 "왜 안 붙는가" 를 말한다.
+#[derive(Debug)]
+pub enum Outcome {
+    /// 0 으로 끝났다 — stdout.
+    Ok(Vec<u8>),
+    /// 0 이 아닌 코드(또는 시그널)로 끝났다 — 종료 상태와 stderr.
+    Failed {
+        status: String,
+        stderr: Vec<u8>,
+    },
+    /// 본 프로세스는 끝났는데 자식이 파이프를 붙잡고 있다(백그라운드로 띄운 것).
+    HeldPipes,
+    /// 실행 파일이 없다.
+    NotFound(String),
+    /// 그 밖의 이유로 띄우지 못했다(권한 등).
+    SpawnError(String),
+    Timeout,
+}
+
+/// `run` 과 같은 경로로 돌리고 결과의 종류와 걸린 시간을 준다. stderr 는 읽어서 돌려준다(닫히는지도 본다).
+pub fn run_detailed(argv: &[String], timeout: Duration) -> (Outcome, Duration) {
+    let started = Instant::now();
+    let Some((program, args)) = argv.split_first() else {
+        return (
+            Outcome::SpawnError("command 가 비어 있다".into()),
+            Duration::ZERO,
+        );
+    };
+    let spawned = {
         let _guard = spawn_lock();
         Command::new(program)
             .args(args)
@@ -38,7 +70,21 @@ pub fn run(argv: &[String], timeout: Duration) -> Option<Vec<u8>> {
             .stderr(Stdio::piped())
             .process_group(0)
             .spawn()
-            .ok()?
+    };
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return (
+                Outcome::NotFound(format!("{program}: {e}")),
+                started.elapsed(),
+            )
+        }
+        Err(e) => {
+            return (
+                Outcome::SpawnError(format!("{program}: {e}")),
+                started.elapsed(),
+            )
+        }
     };
     // 출력이 파이프 버퍼를 넘치면 자식이 write 에서 멈춘다 — 기다리는 동안 따로 읽는다.
     let (tx, rx) = mpsc::channel();
@@ -63,41 +109,102 @@ pub fn run(argv: &[String], timeout: Duration) -> Option<Vec<u8>> {
     }
     drop(tx);
 
-    let deadline = Instant::now() + timeout;
+    let deadline = started + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let out = drain(&rx, Instant::now() + PIPE_GRACE);
-                if out.is_none() {
+                let Some((stdout, stderr)) = drain(&rx, Instant::now() + PIPE_GRACE) else {
                     kill_group(child.id());
-                }
-                return out.filter(|_| status.success());
+                    return (Outcome::HeldPipes, started.elapsed());
+                };
+                let outcome = if status.success() {
+                    Outcome::Ok(stdout)
+                } else {
+                    Outcome::Failed {
+                        // Go 의 `exit status 1` 꼴 — 코드가 없으면(시그널) 그 설명.
+                        status: status
+                            .code()
+                            .map_or_else(|| status.to_string(), |c| format!("exit status {c}")),
+                        stderr,
+                    }
+                };
+                return (outcome, started.elapsed());
             }
             Ok(None) if Instant::now() >= deadline => {
                 kill_group(child.id());
                 // 그룹을 떠난 프로세스면 그룹 kill 이 빗나간다 — 본 프로세스는 따로 끊어 wait 가 막히지 않게 한다.
                 let _ = child.kill();
                 let _ = child.wait();
-                return None;
+                return (Outcome::Timeout, started.elapsed());
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(2)),
-            Err(_) => return None,
+            Err(e) => return (Outcome::SpawnError(format!("wait: {e}")), started.elapsed()),
         }
     }
 }
 
-/// 두 파이프가 `until` 안에 모두 닫히면 stdout 을, 아니면(읽기 실패 포함) `None`.
-fn drain(rx: &mpsc::Receiver<(bool, std::io::Result<Vec<u8>>)>, until: Instant) -> Option<Vec<u8>> {
-    let mut stdout = None;
+/// `extraCommands` 의 명령 하나 — 치환·건너뛰기·실행·줄 정리까지 statusline 과 doctor 가 같은 경로를 탄다(둘이 어긋나면
+/// 진단이 실제 동작과 다른 말을 한다).
+pub fn run_extra(
+    command: &rocky_core::statusline::extra::ExtraCommand,
+    vars: rocky_core::statusline::extra::Vars,
+) -> (Option<Vec<String>>, rocky_core::statusline::extra::Probe) {
+    use rocky_core::statusline::extra::{expand_checked, output_lines, Probe};
+    let argv = match expand_checked(&command.command, vars) {
+        Ok(argv) => argv,
+        Err(missing) => return (None, Probe::Skipped { missing }),
+    };
+    let (outcome, elapsed) = run_detailed(&argv, command.timeout());
+    let probe = match outcome {
+        Outcome::Ok(stdout) => {
+            let lines = output_lines(&stdout);
+            if lines.is_empty() {
+                Probe::Empty { elapsed }
+            } else {
+                Probe::Ok { lines, elapsed }
+            }
+        }
+        Outcome::Failed { status, stderr } => Probe::Failed {
+            error: status,
+            stderr: String::from_utf8_lossy(&stderr)
+                .trim()
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        },
+        Outcome::HeldPipes => Probe::Failed {
+            error: "자식 프로세스가 stdout 을 붙잡고 있다 (백그라운드로 띄운 것이 있는가?)".into(),
+            stderr: String::new(),
+        },
+        Outcome::NotFound(e) => Probe::NotFound(e),
+        Outcome::SpawnError(e) => Probe::Failed {
+            error: e,
+            stderr: String::new(),
+        },
+        Outcome::Timeout => Probe::Timeout,
+    };
+    (Some(argv), probe)
+}
+
+/// 두 파이프가 `until` 안에 모두 닫히면 (stdout, stderr) 를, 아니면(읽기 실패 포함) `None`.
+fn drain(
+    rx: &mpsc::Receiver<(bool, std::io::Result<Vec<u8>>)>,
+    until: Instant,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
     for _ in 0..2 {
         let left = until.saturating_duration_since(Instant::now());
         let (is_stdout, read) = rx.recv_timeout(left).ok()?;
         let bytes = read.ok()?;
         if is_stdout {
-            stdout = Some(bytes);
+            stdout = bytes;
+        } else {
+            stderr = bytes;
         }
     }
-    stdout
+    Some((stdout, stderr))
 }
 
 fn kill_group(pid: u32) {

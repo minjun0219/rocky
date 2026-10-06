@@ -409,3 +409,168 @@ fn keychain_setting_applies_only_to_its_own_config_dir() {
     assert!(!error.contains("rocky-test-absent"), "{error}");
     assert!(api.requests.lock().unwrap().is_empty());
 }
+
+impl Home {
+    fn run(&self, api: &str, env: &[(&str, &str)], args: &[&str]) -> (i32, String, String) {
+        let out = self
+            .rocky(api, env)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    }
+}
+
+/// `probe` — 원본 응답을 들여 써서 그대로 보인다(필드 확인용). 캐시는 쓰지 않는다.
+#[test]
+fn probe_prints_the_raw_usage_response() {
+    let api = FakeApi::start(
+        "200 OK",
+        "",
+        r#"{"seven_day":{"utilization":10},"new_field":[1,2]}"#,
+    );
+    let home = Home::new(
+        Some(EMAIL),
+        serde_json::json!({"source": "stdin", "tokenEnv": "ROCKY_TEST_TOKEN"}),
+    );
+    let (code, out, err) = home.run(&api.url, &TOKEN_ENV, &["statusline", "probe"]);
+    assert_eq!(code, 0, "{err}");
+    let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(printed["new_field"], serde_json::json!([1, 2]));
+    assert!(out.contains("\n  \""), "들여 쓰지 않았다: {out}");
+    assert!(!home.bucket(Some(EMAIL)).join("usage.json").exists());
+}
+
+/// probe 의 실패는 이유와 함께 exit 1 — 토큰 없음·401·429.
+#[test]
+fn probe_fails_with_the_reason() {
+    let no_token = Home::new(
+        Some(EMAIL),
+        serde_json::json!({"source": "api", "credentialsFile": "/nonexistent/creds.json"}),
+    );
+    let (code, _, err) = no_token.run("http://127.0.0.1:1/usage", &[], &["statusline", "probe"]);
+    assert_eq!(code, 1);
+    assert!(err.contains("token not found"), "{err}");
+
+    let home = Home::new(
+        Some(EMAIL),
+        serde_json::json!({"source": "api", "tokenEnv": "ROCKY_TEST_TOKEN"}),
+    );
+    for (status, want) in [
+        ("401 Unauthorized", "unauthorized (401/403)"),
+        ("429 Too Many Requests", "rate limited (429)"),
+    ] {
+        let api = FakeApi::start(status, "", "{}");
+        let (code, _, err) = home.run(&api.url, &TOKEN_ENV, &["statusline", "probe"]);
+        assert_eq!((code, err.trim()), (1, want), "{status}");
+    }
+}
+
+/// `doctor` — 설정·계정·토큰·크레딧·extra 를 줄마다. 크레딧 줄은 guard 와 같은 판단(관측값 > 계정 파일 힌트).
+#[test]
+fn doctor_reports_what_statusline_would_do() {
+    let home = Home::new(
+        Some(EMAIL),
+        serde_json::json!({
+            "source": "api", "guard": true, "tokenEnv": "ROCKY_TEST_TOKEN", "alertPercent": 80,
+            "extraCommands": [
+                {"command": ["sh", "-c", "echo one; echo two"]},
+                {"command": ["tool", "{{session_id}}"]},
+                {"command": ["rocky-test-no-such-tool"]},
+                {"command": ["sh", "-c", "echo boom >&2; exit 3"]},
+                {"command": ["sleep", "5"], "timeoutMs": 50},
+                {"command": ["true"]},
+            ],
+        }),
+    );
+    let (code, out, err) = home.run(
+        "http://127.0.0.1:1/usage",
+        &TOKEN_ENV,
+        &["statusline", "doctor"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let home_dir = home.path.display().to_string();
+    for want in [
+        format!("config:        {home_dir}/rocky.json"),
+        "source:        api".to_string(),
+        format!("config_dir:    {home_dir}/.claude"),
+        format!("계정:          {EMAIL}"),
+        "keychain:      rocky-test-absent".to_string(),
+        format!("creds file:    {home_dir}/.claude/.credentials.json"),
+        format!("cache dir:     {}", home.bucket(Some(EMAIL)).display()),
+        "guard:         true".to_string(),
+        "크레딧:        모름 (-) — 소진 시 guard 가 막습니다".to_string(),
+        "alert:         임박 80% (0이면 소진만)".to_string(),
+        "token:         ok (source=env:ROCKY_TEST_TOKEN, expires=unknown)".to_string(),
+        "extraCommands: 6개".to_string(),
+        "  [1] sh -c echo one; echo two".to_string(),
+        "ms → one (외 1줄)".to_string(),
+        "      건너뜀 — {{session_id}} 가 비어 있다".to_string(),
+        "      미설치 — rocky-test-no-such-tool:".to_string(),
+        "      비정상 종료 — exit status 3: boom".to_string(),
+        "      타임아웃 — 50ms 를 넘겼다 (timeoutMs 로 늘릴 수 있다)".to_string(),
+        "      출력 없음 — exit 0 이지만 stdout 이 비었다".to_string(),
+        "\"state\": {}".to_string(),
+    ] {
+        assert!(out.contains(&want), "{want:?} 가 없다:\n{out}");
+    }
+
+    // --session 을 주면 치환한 argv 를 함께 보인다. 크레딧이 꺼진 관측값이면 guard 가 막지 않는다고 말한다.
+    std::fs::create_dir_all(home.bucket(Some(EMAIL))).unwrap();
+    std::fs::write(
+        home.bucket(Some(EMAIL)).join("usage.json"),
+        r#"{"usage":{"fetched_at":"2026-09-16T07:39:00Z","extra":{"enabled":false}}}"#,
+    )
+    .unwrap();
+    let (_, out, _) = home.run(
+        "http://127.0.0.1:1/usage",
+        &TOKEN_ENV,
+        &["statusline", "doctor", "--session", "s-1"],
+    );
+    assert!(out.contains("session_id=s-1"), "{out}");
+    assert!(
+        out.contains("  [2] tool {{session_id}}\n      = tool s-1\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("크레딧:        꺼짐 (usage.json) — guard 가 막지 않습니다"),
+        "{out}"
+    );
+}
+
+/// 비기본 설정 폴더 세션은 keychain 을 건너뛴다고 말하고, 그 폴더의 credentials 를 본다. 만료된 토큰은 이유와 출처를 함께.
+#[test]
+fn doctor_explains_skipped_keychain_and_expired_tokens() {
+    let home = Home::new(Some(EMAIL), serde_json::json!({"source": "api"}));
+    let work = home.path.join("work-claude");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(
+        work.join(".credentials.json"),
+        r#"{"claudeAiOauth":{"accessToken":"t","expiresAt":1000}}"#,
+    )
+    .unwrap();
+    let env = [("CLAUDE_CONFIG_DIR", work.to_str().unwrap())];
+    let (_, out, _) = home.run("http://127.0.0.1:1/usage", &env, &["statusline", "doctor"]);
+    assert!(
+        out.contains("keychain:      (건너뜀 — 비기본 config_dir, creds 파일만 봅니다)"),
+        "{out}"
+    );
+    assert!(
+        out.contains(&format!(
+            "creds file:    {}/.credentials.json",
+            work.display()
+        )),
+        "{out}"
+    );
+    assert!(out.contains("token:         oauth token expired (Claude Code를 한 번 사용하면 갱신됩니다) (source=file)"), "{out}");
+    // 이 폴더에는 계정 파일이 없다 — 다른 계정의 파일로 넘어가지 않는다.
+    assert!(
+        out.contains("계정:          (계정 파일을 못 읽었다"),
+        "{out}"
+    );
+}

@@ -18,6 +18,7 @@ pub mod hooks;
 pub mod launchd;
 pub mod rc_cmd;
 pub mod statusline_cache;
+pub mod statusline_doctor;
 pub mod statusline_guard;
 pub mod statusline_refresh;
 pub mod system;
@@ -69,6 +70,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky statusline guard                    UserPromptSubmit 훅 — 한도 소진으로 크레딧이 차감되면 prompt 를 막는다(exit 2).
                                             statusline.guard 가 켜져 있어야 돈다
   rocky statusline allow [DURATION|off]     guard 를 잠시 끈다(기본 30m, 예: 2h · 1h30m). off 면 다시 켠다
+  rocky statusline probe                    usage API 원본 응답(필드 확인용)
+  rocky statusline doctor [--session S]     설정·계정·토큰·캐시·keychain 후보·extraCommands 진단
   rocky config show|init|link|path [--json] 설치·설정 점검 / 기본 rocky.json 생성 / ~/.local/bin/rocky 링크 / 설정 파일 경로
   rocky usage [--since 30d] [--json]        사용 로그 보고 — 많이 쓴 표면 · 에러 · 안 쓴 표면 (rocky.json usage 블록으로 끔)
   rocky tokens [--since 30d] [--by model,effort|model|effort|session|branch] [--json]

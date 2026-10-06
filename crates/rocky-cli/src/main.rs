@@ -76,7 +76,10 @@ fn run(argv: &[String]) -> Result<(), String> {
         return Ok(());
     }
     // guard·allow 같은 statusline 의 하위 명령은 사람이 부르거나 prompt 당 한 번 도는 것이라 보통 경로(사용 로그)를 탄다.
-    let statusline_tool = matches!(rest.first().map(String::as_str), Some("guard" | "allow"));
+    let statusline_tool = matches!(
+        rest.first().map(String::as_str),
+        Some("guard" | "allow" | "probe" | "doctor")
+    );
     if command == "statusline" && !statusline_tool {
         commands::cmd_statusline(
             &ctx,
@@ -162,6 +165,14 @@ fn run(argv: &[String]) -> Result<(), String> {
                     }
                     Ok(())
                 }
+                Some("probe") => rocky_cli::statusline_doctor::probe(&cfg, now)
+                    .map(|body| println!("{body}")),
+                Some("doctor") => rocky_cli::statusline_doctor::doctor(
+                    &cfg,
+                    &rocky_core::config::user_config_path(),
+                    parsed.str_flag("session"),
+                    now,
+                ),
                 _ => rocky_cli::statusline_guard::allow(rest.get(1).map(String::as_str), now)
                     .map(|message| println!("{message}")),
             }

@@ -1642,7 +1642,7 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 /// 것이면 Claude 쪽(토큰·API·캐시·계정 파일)을 건드리지 않는다(`limits::local_limits`).
 fn statusline_full(ctx: &CliContext, source: Option<&str>) {
     use rocky_core::limits::{local_limits, override_source, Input, SOURCE_ENV};
-    use rocky_core::statusline::extra::{expand, output_lines, Vars};
+    use rocky_core::statusline::extra::Vars;
     use rocky_core::statusline::full::{lines, Style, View};
 
     let input = Input::parse(&statusline_stdin().unwrap_or_default());
@@ -1666,14 +1666,7 @@ fn statusline_full(ctx: &CliContext, source: Option<&str>) {
         let extras: Vec<_> = cfg
             .extra_commands
             .iter()
-            .map(|c| {
-                let argv = expand(&c.command, vars);
-                scope.spawn(move || {
-                    argv.and_then(|argv| crate::bounded::run(&argv, c.timeout()))
-                        .map(|stdout| output_lines(&stdout))
-                        .unwrap_or_default()
-                })
-            })
+            .map(|c| scope.spawn(move || crate::bounded::run_extra(c, vars).1.into_lines()))
             .collect();
 
         let limits_cfg = &cfg.limits;
