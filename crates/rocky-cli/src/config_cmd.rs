@@ -134,7 +134,7 @@ fn local_bin_on_path() -> bool {
 }
 
 /// 점검 재료 수집 — 전부 fail-open. 데몬이 없거나 파일이 없으면 그 자리만 비운다.
-fn gather(ctx: &CliContext, todo: &TodoConfig) -> SetupInput {
+pub(crate) fn gather(ctx: &CliContext, todo: &TodoConfig) -> SetupInput {
     let config_path = user_config_path();
     let config = config_file_state(&config_path);
     let daemon = daemon_health(&ctx.base_url).map(|h| DaemonState {

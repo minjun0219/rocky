@@ -129,8 +129,8 @@ PATH에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`.
 싣는다 — 상세를 여는 동작이 뒤 화면의 보드를 바꾸지 않는다.
 
 - **화면** — 왼쪽 보드 목록(+ 새 보드), 가운데 섹션별 항목(체크·순서 이동 핸들·번호 버튼은
-  `/rocky:board rocky-12` 슬래시 커맨드 복사), 오른쪽 메모 레일. 항목을 누르면 상세 드로어 —
-  마크다운 설명, 섹션/보드 이동, 시작·완료·보관, **에이전트에게 보내기**(핸드오프 — 첫 대상이 새 세션), GitHub 이슈
+  `/rocky:board rocky-12` 슬래시 커맨드 복사, 맨 아래 접힌 완료 묶음은 펼치면 **모두 보관**), 오른쪽 메모 레일. 항목을 누르면 상세 드로어 —
+  마크다운 설명, 섹션/보드 이동, 중단·완료·보관(시작은 에이전트가 남기는 신호라 버튼이 없다), **에이전트에게 보내기**(핸드오프 — 첫 대상이 새 세션), GitHub 이슈
   만들기, 댓글, 타임라인. 상단은 SSE 연결 표시와 최근 활동 띠(앰버=에이전트,
   블루=사람), 테마(시스템/밝게/어둡게), 보관됨 표시, actor 이름.
 - **갱신** — SSE(`/api/events`)로 변경이 오면 refetch. 낙관적 갱신 없음(서버가 정본).
@@ -949,6 +949,9 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 `rocky config init`이 기본 파일(expose off · sessionSummary on)을 없을 때만 만든다. Claude Code
 에서는 `/rocky:config`가 그 결과를 보고 빠진 항목을 하나씩 물어 채운다(`/rocky:config expose off`
 처럼 값 변경도). `settings.json`의 statusLine은 덮어쓰지 않는다 — 조각을 붙일지 묻는다.
+`rocky doctor`는 같은 점검에 실행 상태를 더한다 — `/api/health`(DB 무결성·PR 감시 `available`·`lastTick` 15분),
+`/api/verify`(실패한 대상), `/api/deliveries`(24시간 안 실패·끝난 세션 수), `/api/rc/servers`(자격·꺼진 고정 서버). 판정은
+`rocky_core::doctor`, 데몬이 꺼져 있으면 띄우지 않고 "닿지 못함" 으로 남긴다.
 
 | env | 의미 |
 | --- | --- |

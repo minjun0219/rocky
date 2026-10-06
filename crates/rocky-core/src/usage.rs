@@ -365,6 +365,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky mcp"),
     (UsageSource::Cli, "rocky tailscale"),
     (UsageSource::Cli, "rocky config"),
+    (UsageSource::Cli, "rocky doctor"),
     (UsageSource::Cli, "rocky tokens"),
     (UsageSource::Cli, "rocky tokens here"),
     (UsageSource::Cli, "rocky verify"),
@@ -402,6 +403,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:theme"),
     (UsageSource::Web, "web:archived-toggle"),
     (UsageSource::Web, "web:quick-add"),
+    (UsageSource::Web, "web:archive-done"),
     (UsageSource::Web, "web:alert-open"),
     (UsageSource::Web, "web:worklog-todo"),
 ];

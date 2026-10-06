@@ -5,6 +5,7 @@ mod actor_test;
 mod cc_usage_parity_test;
 mod claude_account_test;
 mod config_test;
+mod doctor_test;
 mod doing_test;
 mod handoff_test;
 mod inbox_test;

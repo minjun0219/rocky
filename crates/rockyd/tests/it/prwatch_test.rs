@@ -814,6 +814,25 @@ async fn deliveries_hide_registrations_of_ended_sessions() {
     assert_eq!(body["ended"], 0);
 }
 
+/// 전달 기록은 데몬이 다시 떠도 남는다 — 배포마다 재시작해도 "예전에 못 보냈나" 를 볼 수 있게.
+#[tokio::test]
+async fn delivery_log_survives_a_daemon_restart() {
+    let f = fx();
+    f.state.record_delivery(rocky_core::peer_inbox::Delivery {
+        at: "2026-10-06T00:00:00Z".into(),
+        kind: "pr-conflict".into(),
+        subject: "o/r#9 PR 9".into(),
+        url: Some("https://github.com/o/r/pull/9".into()),
+        session_id: "s1".into(),
+        ok: false,
+        reason: Some("받을 세션 등록 없음".into()),
+    });
+    let restarted = rebuild(&f, |_| {});
+    let (_, body) = get(&restarted, "/api/deliveries").await;
+    assert_eq!(body["recent"][0]["subject"], "o/r#9 PR 9");
+    assert_eq!(body["recent"][0]["reason"], "받을 세션 등록 없음");
+}
+
 /// 세션 전달 현황 — 세션마다 구독한 PR(`repo#N`)과 최근 보낸 기록이 보이고, "보내지 않기" 를 켠 세션에는
 /// 보내지 않는다(다른 세션으로 넘기지도 않는다). 다시 켜면 받는다. 현황·조작은 로컬 전용.
 #[cfg(unix)]

@@ -150,6 +150,8 @@ claude plugin install rocky@rocky-marketplace
 
 설치 후 첫 세션이 열리면 `SessionStart` 훅이 릴리스 바이너리를 데이터 홈(`$XDG_DATA_HOME`, 기본 `~/.local/share`)의 `rocky/v<버전>/`에 받고 `~/.local/bin/rocky` 링크를 건다. `~/.local/bin`이 PATH에 있으면 터미널에서 `rocky`를 바로 쓸 수 있다(없으면 셸 rc에 `export PATH="$HOME/.local/bin:$PATH"`). 상태는 `rocky config show`의 `cli` 행에서 본다. 세션을 열지 않고 지금 링크를 걸려면 `"${XDG_DATA_HOME:-$HOME/.local/share}/rocky/current/rocky" config link`를 실행한다.
 
+"뭔가 안 도는 것 같다" 면 `rocky doctor`(`--json`) 하나로 본다 — 위 `config show` 의 설치·설정 점검에 실행 상태(DB 무결성 · PR 감시 마지막 tick · 기본 브랜치 검증 실패 · 24시간 안에 못 보낸 세션 전달 · rc 자격·꺼진 고정 서버)를 더해 항목마다 ✓/⚠ 와 고치는 명령을 낸다. 읽기만 하고, 꺼진 데몬도 띄우지 않는다(statusline 은 `rocky statusline doctor`).
+
 원격 세션 안에서는 `/plugin` 슬래시 커맨드로 똑같이 설치한다. 설치본은 GitHub `main`에서 clone하므로, 코드 변경은 push한 뒤 `claude plugin update rocky@rocky-marketplace`로 반영한다.
 
 플러그인 소스는 `plugin/` 디렉터리다(마켓플레이스 `source: "./plugin"`). 그래서 설치본에는 `crates/`·`target/`·`node_modules`가 복사되지 않는다. 설치본이 쓰는 MCP 서버는 `plugin/.claude-plugin/plugin.json`의 `mcpServers` 둘뿐이다. 저장소에 `.mcp.json`을 두지 않는 이유는 그 파일이 설치본의 MCP 설정으로 새기 때문이다.

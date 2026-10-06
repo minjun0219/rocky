@@ -12,6 +12,7 @@ import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { VersionFooter } from './components/VersionFooter';
 import { slicesFor } from './lib';
+import { useMediaQuery, WIDE_QUERY } from './media';
 import { parseRoute } from './route';
 import { useUiStore } from './store';
 import { setUsageActor } from './usage';
@@ -26,6 +27,7 @@ function App() {
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
   const view = useUiStore((s) => s.view);
+  const wide = useMediaQuery(WIDE_QUERY);
   const loadRc = useUiStore((s) => s.loadRc);
   // 탭 줄이 원격 제어 탭을 보일지 알려면 rc 가 이 기기에서 켜졌는지부터 안다 — 기동 때 한 번.
   useEffect(() => {
@@ -167,27 +169,32 @@ function App() {
         <TopBar />
         {/* 원격 제어 요약 — 피드에서만, rc 가 꺼진 기기면 그리지 않는다. */}
         {view === 'feed' ? <RcSummary /> : null}
-        {/* 돌고 있음 — 탭과 상관없이 늘 보인다(2026-10-02 오너). 없으면 자리를 차지하지 않는다. */}
-        <NowTable />
+        {/* 돌고 있음 — 탭과 상관없이 늘 보인다(2026-10-02 오너). 없으면 자리를 차지하지 않는다. 넓은 창은
+            머리 대신 오른쪽 열에 둔다 — 머리에 두면 늘 붙어 있어 목록이 그만큼 밀린다. */}
+        {wide ? null : <NowTable />}
       </div>
       {/* 관제판 — 한 열. 머리(보드 스위처 · 돌고 있음 · 탭) 아래 첫 화면은 피드(PR 알림 + 내 차례).
           할 일: 그 보드의 목록. 노트: 그 보드의 노트가 화면 전체(`web/DESIGN.md` "Notes"). */}
-      <div className="layout flex min-h-0 flex-1 flex-col">
-        {view === 'feed' ? (
-          <FeedPane />
-        ) : view === 'todos' ? (
-          <TodoPane />
-        ) : view === 'notes' ? (
-          <NotesRail />
-        ) : view === 'worklog' ? (
-          <WorklogPane />
-        ) : view === 'rc' ? (
-          <RcPane />
-        ) : view === 'agents' ? (
-          <AgentsPane />
-        ) : (
-          <GithubPane />
-        )}
+      <div className="layout flex min-h-0 flex-1 flex-row">
+        {/* 화면은 늘 이 감싸개 안이다 — 넓은 창을 오가도 화면이 다시 마운트되지 않게(편집 중인 노트 등). */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {view === 'feed' ? (
+            <FeedPane />
+          ) : view === 'todos' ? (
+            <TodoPane />
+          ) : view === 'notes' ? (
+            <NotesRail />
+          ) : view === 'worklog' ? (
+            <WorklogPane />
+          ) : view === 'rc' ? (
+            <RcPane />
+          ) : view === 'agents' ? (
+            <AgentsPane />
+          ) : (
+            <GithubPane />
+          )}
+        </div>
+        {wide ? <NowTable placement="rail" /> : null}
       </div>
       <VersionFooter />
       <DetailDrawer />

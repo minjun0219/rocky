@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { TodoView } from '../types';
 import { resolveDropBefore } from '../lib';
@@ -296,46 +296,31 @@ function TodoSection({ title, roots, childrenOf, renderTree, labelClass }: TodoS
   // 완전 완료 루트: 자신과 모든 자손이 전부 완료된 항목들
   const doneRoots = roots.filter((t) => !hasActiveDescendant(t, childrenOf));
 
-  // 이 섹션에 속한 모든 항목 중 완료(done) 상태인 항목의 총 개수 (하위 작업 포함)
-  let totalDoneCount = 0;
-  const countDone = (list: TodoView[]) => {
+  // 이 섹션에 속한 모든 항목 중 완료(done) 상태인 항목 (하위 작업 포함)
+  const doneItems: TodoView[] = [];
+  const collectDone = (list: TodoView[]) => {
     for (const item of list) {
       if (item.status === 'done') {
-        totalDoneCount++;
+        doneItems.push(item);
       }
       const children = childrenOf.get(item.id);
       if (children && children.length > 0) {
-        countDone(children);
+        collectDone(children);
       }
     }
   };
-  countDone(roots);
+  collectDone(roots);
 
   return (
     <section className="mb-6">
       <div className={labelClass}>{title}</div>
       {renderTree(activeRoots, 0, showDone)}
 
-      {totalDoneCount > 0 && (
-        <div className="mt-2 border-t border-line/40 pt-1.5">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-mono text-chip text-muted transition-colors hover:text-text"
-            onClick={() => setShowDone((prev) => !prev)}
-            aria-expanded={showDone}
-          >
-            <ChevronRight
-              size={12}
-              aria-hidden
-              className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
-            />
-            <span>완료한 할 일 {totalDoneCount}개</span>
-          </button>
-          {showDone && doneRoots.length > 0 && (
-            <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
-          )}
-        </div>
-      )}
+      <DoneFooter done={doneItems} showDone={showDone} onToggle={() => setShowDone((v) => !v)}>
+        {showDone && doneRoots.length > 0 && (
+          <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
+        )}
+      </DoneFooter>
     </section>
   );
 }
@@ -369,8 +354,8 @@ function BoardGroup({
   // 완전 완료 루트: 자신과 모든 자손이 전부 완료된 항목들
   const doneRoots = roots.filter((t) => !hasActiveDescendant(t, childrenOf));
 
-  // 이 보드에 속한 모든 항목 중 완료(done) 상태인 항목의 총 개수
-  const totalDoneCount = allBoardTodos.filter((t) => t.status === 'done').length;
+  // 이 보드에 속한 모든 항목 중 완료(done) 상태인 항목
+  const doneItems = allBoardTodos.filter((t) => t.status === 'done');
   const count = allBoardTodos.length;
   const Chevron = folded ? ChevronRight : ChevronDown;
 
@@ -391,28 +376,102 @@ function BoardGroup({
         <>
           {renderTree(activeRoots, 0, showDone)}
 
-          {totalDoneCount > 0 && (
-            <div className="mt-2 border-t border-line/40 pt-1.5">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 font-mono text-chip text-muted transition-colors hover:text-text"
-                onClick={() => setShowDone((prev) => !prev)}
-                aria-expanded={showDone}
-              >
-                <ChevronRight
-                  size={12}
-                  aria-hidden
-                  className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
-                />
-                <span>완료한 할 일 {totalDoneCount}개</span>
-              </button>
-              {showDone && doneRoots.length > 0 && (
-                <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
-              )}
-            </div>
-          )}
+          <DoneFooter done={doneItems} showDone={showDone} onToggle={() => setShowDone((v) => !v)}>
+            {showDone && doneRoots.length > 0 && (
+              <div className="mt-1">{renderTree(doneRoots, 0, true)}</div>
+            )}
+          </DoneFooter>
         </>
       )}
     </section>
+  );
+}
+
+interface DoneFooterProps {
+  /** 이 묶음의 완료 항목(하위 작업 포함) — 세는 것과 보관하는 것이 같은 집합이다. */
+  done: TodoView[];
+  showDone: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * "완료한 할 일 N개" 접힘 줄. 펼쳐서 무엇이 있는지 본 뒤에만 "모두 보관" 이 보이고, 한 번 더
+ * 물은 뒤 보관한다 — 되돌리기는 항목마다 "보관 해제" 라 한꺼번에 되돌릴 길이 없다.
+ */
+function DoneFooter({ done, showDone, onToggle, children }: DoneFooterProps) {
+  const archiveTodos = useUiStore((s) => s.archiveTodos);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (done.length === 0) {
+    return null;
+  }
+  // 보관 보기가 켜져 있으면 이미 보관된 완료도 섞여 보인다 — 그건 다시 보관하지 않는다.
+  const archivable = done.filter((t) => !t.archivedAt);
+  const chip =
+    'inline-flex items-center gap-1 rounded px-1.5 py-1 font-mono text-chip transition-colors';
+
+  const archive = async () => {
+    setBusy(true);
+    try {
+      await archiveTodos(archivable.map((t) => t.id));
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 border-t border-line/40 pt-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          className={`${chip} gap-1.5 text-muted hover:text-text`}
+          onClick={() => {
+            setConfirming(false);
+            onToggle();
+          }}
+          aria-expanded={showDone}
+        >
+          <ChevronRight
+            size={12}
+            aria-hidden
+            className={`transition-transform duration-150 ${showDone ? 'rotate-90' : ''}`}
+          />
+          <span>완료한 할 일 {done.length}개</span>
+        </button>
+        {showDone && archivable.length > 0 && !confirming ? (
+          <button
+            type="button"
+            className={`${chip} ml-auto text-muted hover:text-text`}
+            onClick={() => setConfirming(true)}
+          >
+            <Archive size={12} aria-hidden />
+            모두 보관
+          </button>
+        ) : null}
+        {showDone && confirming ? (
+          <span className="ml-auto inline-flex items-center gap-1 font-mono text-chip">
+            <span className="text-muted">{archivable.length}개를 보관할까요?</span>
+            <button
+              type="button"
+              className={`${chip} text-text hover:bg-surface`}
+              disabled={busy}
+              onClick={() => void archive()}
+            >
+              보관
+            </button>
+            <button
+              type="button"
+              className={`${chip} text-muted hover:text-text`}
+              onClick={() => setConfirming(false)}
+            >
+              취소
+            </button>
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </div>
   );
 }

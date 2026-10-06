@@ -76,6 +76,26 @@ describe('NowTable', () => {
     expect(openTodoDetail).toHaveBeenCalledWith('gone');
   });
 
+  test('넓은 창의 오른쪽 열에 둘 때는 열 모양(왼쪽 테두리·따로 스크롤)으로 그린다', () => {
+    const live = todoFixture({
+      id: 'l',
+      status: 'doing',
+      doingBy: 'claude-code',
+      doingState: 'live',
+    });
+    renderWithStore(<NowTable placement="rail" />, {
+      nowTodos: [live],
+      nowHandoffs: [],
+      collect: null,
+    });
+    const rail = screen.getByRole('region', { name: '실행 중' });
+    expect(rail.className).toContain('now-rail');
+    expect(rail.className).not.toContain('border-b');
+    cleanup();
+    renderWithStore(<NowTable />, { nowTodos: [live], nowHandoffs: [], collect: null });
+    expect(screen.getByRole('region', { name: '실행 중' }).className).not.toContain('now-rail');
+  });
+
   test('수집함 행은 출처를 말하고, 누르면 항목이 원래 앱 링크로 펼쳐진다', async () => {
     renderWithStore(<MineSection />, {
       nowTodos: [],

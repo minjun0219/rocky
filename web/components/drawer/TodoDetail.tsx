@@ -1,4 +1,12 @@
-import { Archive, ArchiveRestore, ArrowUpRight, Check, Pause, Play, RotateCcw } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowUpRight,
+  Check,
+  type LucideIcon,
+  Pause,
+  RotateCcw,
+} from 'lucide-react';
 import type { EditorView } from '@codemirror/view';
 import { useEffect, useRef, useState } from 'react';
 import { mountMarkdownEditor } from '../../codemirror-editor';
@@ -206,7 +214,7 @@ export function TodoDetail() {
   };
 
   const statusButton = (
-    Icon: typeof Play,
+    Icon: LucideIcon,
     label: string,
     action: Parameters<typeof setTodoStatus>[1],
   ) => (
@@ -412,8 +420,8 @@ export function TodoDetail() {
         </div>
       )}
       <div className="drawer-actions">
-        {/* 끝난 일은 "다시 열기" 가 먼저다 — 완료에서 곧장 시작하면 상태가 한 단계를 건너뛴다 */}
-        {todo.status !== 'doing' && todo.status !== 'done' && statusButton(Play, '시작', 'start')}
+        {/* "시작" 은 두지 않는다 — 착수는 에이전트가 `start` 로 남기는 신호이고, 사람이 눌러 둔
+            doing 은 자동으로 놓이지 않아 잘못 누르면 그대로 남는다. 멈추기·완료만 여기서 한다. */}
         {todo.status === 'doing' && statusButton(Pause, '중단', 'stop')}
         {todo.status !== 'done' && statusButton(Check, '완료', 'done')}
         {todo.status === 'done' && statusButton(RotateCcw, '다시 열기', 'reopen')}

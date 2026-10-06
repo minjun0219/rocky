@@ -11,6 +11,7 @@ pub mod client;
 pub mod commands;
 pub mod config_cmd;
 pub mod context;
+pub mod doctor_cmd;
 pub mod flags;
 pub mod format;
 pub mod git_status;
@@ -73,6 +74,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky statusline probe                    usage API 원본 응답(필드 확인용)
   rocky statusline doctor [--session S]     설정·계정·토큰·캐시·keychain 후보·extraCommands 진단
   rocky config show|init|link|path [--json] 설치·설정 점검 / 기본 rocky.json 생성 / ~/.local/bin/rocky 링크 / 설정 파일 경로
+  rocky doctor [--json]                   한 번에 점검 — 설치·설정 + 실행 상태(DB·PR 감시·기본 브랜치 검증·세션 전달·rc), 읽기만
   rocky usage [--since 30d] [--json]        사용 로그 보고 — 많이 쓴 표면 · 에러 · 안 쓴 표면 (rocky.json usage 블록으로 끔)
   rocky tokens [--since 30d] [--by model,effort|model|effort|session|branch] [--json]
                                           Claude Code 토큰 합계 — 모델·effort 고를 때 참고 (rocky.json tokens 블록)
