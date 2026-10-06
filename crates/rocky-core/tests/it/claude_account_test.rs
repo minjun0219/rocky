@@ -99,3 +99,61 @@ fn cache_dirs_split_by_config_dir_and_account() {
         .to_string_lossy()
         .contains("a@x"));
 }
+
+#[test]
+fn keychain_only_for_the_default_dir_unless_configured_for_that_dir() {
+    let default = Path::new("/home/me/.claude");
+    let work = Path::new("/home/me/work");
+    assert_eq!(
+        keychain_service(None, default, default, home()).as_deref(),
+        Some(DEFAULT_KEYCHAIN_SERVICE)
+    );
+    // 비기본 폴더에서 기본 이름을 읽으면 기본 계정의 토큰을 집는다 — 건너뛴다.
+    assert_eq!(keychain_service(None, default, work, home()), None);
+    // 설정값은 그것이 가리키는 폴더의 세션에만 — 다른 폴더 세션이 그 토큰을 집으면 남의 숫자다.
+    assert_eq!(
+        keychain_service(Some("Mine"), work, work, home()).as_deref(),
+        Some("Mine")
+    );
+    assert_eq!(
+        keychain_service(Some("Mine"), work, default, home()).as_deref(),
+        Some(DEFAULT_KEYCHAIN_SERVICE)
+    );
+    assert_eq!(keychain_service(Some("Mine"), default, work, home()), None);
+
+    assert_eq!(
+        credentials_file(None, default, work, home()),
+        PathBuf::from("/home/me/work/.credentials.json")
+    );
+    assert_eq!(
+        credentials_file(Some("~/c.json"), work, work, home()),
+        PathBuf::from("/home/me/c.json")
+    );
+    assert_eq!(
+        credentials_file(Some("~/c.json"), default, work, home()),
+        PathBuf::from("/home/me/work/.credentials.json")
+    );
+}
+
+#[test]
+fn token_parse_accepts_bare_and_oauth_json_and_checks_expiry() {
+    let bare = parse_token("  tok\n").unwrap();
+    assert_eq!((bare.access_token.as_str(), bare.expires_at), ("tok", None));
+    let json =
+        parse_token(r#"{"claudeAiOauth":{"accessToken":"a","expiresAt":1757997600000}}"#).unwrap();
+    assert_eq!(json.access_token, "a");
+    let at = json.expires_at.unwrap();
+    assert!(check_token(json.clone(), at - chrono::TimeDelta::seconds(1)).is_ok());
+    assert_eq!(
+        check_token(json, at + chrono::TimeDelta::seconds(1)).unwrap_err(),
+        TOKEN_EXPIRED
+    );
+    for bad in [
+        "",
+        "{}",
+        r#"{"claudeAiOauth":{"accessToken":""}}"#,
+        "{ broken",
+    ] {
+        assert!(parse_token(bad).is_err(), "{bad:?}");
+    }
+}

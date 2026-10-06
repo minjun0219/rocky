@@ -4,6 +4,11 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+/// `--full` 이 띄우는 detached 갱신이 테스트에서 **실제 토큰·실제 API 에 닿지 않게** 막는 두 겹 — 없는 keychain 항목
+/// (macOS keychain 은 HOME 과 무관해 임시 HOME 으로는 못 막는다)과 아무도 안 듣는 usage API 주소.
+const TEST_KEYCHAIN: &str = "rocky-test-absent";
+const DEAD_USAGE_URL: &str = "http://127.0.0.1:1/usage";
+
 /// 테스트가 띄우는 바이너리를 사용자 환경에서 떼어 낸다 — 사용 로그(`~/.config/rocky/usage`)와 홈을 임시
 /// 디렉터리로. 안 그러면 테스트 실행이 실제 `rocky usage` 숫자에 섞인다(한때 `board pr-authors` 오류 177건).
 fn isolate<'a>(cmd: &'a mut Command, dir: &std::path::Path) -> &'a mut Command {
@@ -210,6 +215,7 @@ fn full_replays_cc_usage_goldens() {
             .map(|c| serde_json::json!({ "command": c["command"], "timeoutMs": c["timeout_ms"] }))
             .collect();
         let statusline = serde_json::json!({
+            "keychainService": TEST_KEYCHAIN,
             "source": case["config"]["source"],
             "alertPercent": case["config"]["alert_percent"],
             "extraCommands": extra_commands,
@@ -230,6 +236,7 @@ fn full_replays_cc_usage_goldens() {
             .env("HOME", &home)
             .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
             .env("ROCKY_CONFIG", &config)
+            .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
             .env("ROCKY_STATUSLINE_NOW", case["now"].as_str().unwrap())
             .env("TZ", case["tz"].as_str().unwrap());
         for (k, v) in case["env"].as_object().unwrap() {
@@ -306,7 +313,7 @@ fn full_kills_a_hung_git_with_its_process_group() {
     let config = dir.path().join("rocky.json");
     std::fs::write(
         &config,
-        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"}}"#,
+        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"keychainService":"rocky-test-absent"}}"#,
     )
     .unwrap();
 
@@ -317,6 +324,7 @@ fn full_kills_a_hung_git_with_its_process_group() {
         .env("HOME", dir.path())
         .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
         .env("ROCKY_CONFIG", &config)
+        .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
         .env("NO_COLOR", "1")
         .args(["statusline", "--full"])
         .stdin(Stdio::piped())
@@ -371,6 +379,7 @@ fn full_once(home: &std::path::Path, env: &[(&str, &str)], config: &str, stdin: 
         .env("HOME", home)
         .env("ROCKY_USAGE_DIR", home.join("usage"))
         .env("ROCKY_CONFIG", &rocky_json)
+        .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
         .env("NO_COLOR", "1")
         .env("TZ", "UTC");
     for (k, v) in env {
@@ -391,8 +400,7 @@ fn full_once(home: &std::path::Path, env: &[(&str, &str)], config: &str, stdin: 
     String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
 }
 
-const API_CONFIG: &str =
-    r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"api"}}"#;
+const API_CONFIG: &str = r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"api","keychainService":"rocky-test-absent"}}"#;
 const NOW: &str = "2026-09-16T07:40:00Z";
 
 /// 계정 하나의 usage 캐시를 심는다 — 5분 전 응답, 5h 사용률 `used`.
@@ -491,7 +499,7 @@ fn full_follows_an_account_switch_inside_one_config_dir() {
 fn full_records_stdin_limits_for_the_six_hour_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path();
-    let config = r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"stdin"}}"#;
+    let config = r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"stdin","keychainService":"rocky-test-absent"}}"#;
     let now = [("ROCKY_STATUSLINE_NOW", NOW)];
     let with =
         r#"{"model":{"display_name":"M"},"rate_limits":{"five_hour":{"used_percentage":30}}}"#;

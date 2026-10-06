@@ -1701,7 +1701,7 @@ fn statusline_full(ctx: &CliContext) {
 /// 테스트 전용 — RFC3339 시각을 주면 "지금" 을 고정한다(골든 대조용, cc-usage 의 `CC_USAGE_NOW` 와 같은 자리).
 const STATUSLINE_NOW_ENV: &str = "ROCKY_STATUSLINE_NOW";
 
-fn statusline_now() -> chrono::DateTime<chrono::Utc> {
+pub fn statusline_now() -> chrono::DateTime<chrono::Utc> {
     std::env::var(STATUSLINE_NOW_ENV)
         .ok()
         .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())

@@ -472,6 +472,51 @@ pub fn need_refresh(
     (lim.exhausted() || cfg.always_show_credits) && due
 }
 
+/// usage API 응답 본문 → 캐시에 넣을 한 번의 응답. 필드는 모두 optional 이고, 타입이 틀리면 응답 전체를 실패로 본다.
+pub fn parse_usage_response(body: &[u8], now: DateTime<Utc>) -> Result<CachedUsage, String> {
+    #[derive(Deserialize)]
+    struct RawWindow {
+        utilization: Option<f64>,
+        resets_at: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct RawExtra {
+        #[serde(default)]
+        is_enabled: bool,
+        monthly_limit: Option<f64>,
+        used_credits: Option<f64>,
+        utilization: Option<f64>,
+    }
+    #[derive(Deserialize)]
+    struct Raw {
+        five_hour: Option<RawWindow>,
+        seven_day: Option<RawWindow>,
+        extra_usage: Option<RawExtra>,
+    }
+    let raw: Raw = serde_json::from_slice(body).map_err(|e| format!("parse usage: {e}"))?;
+    let window = |w: Option<RawWindow>| {
+        let w = w?;
+        Some(Window {
+            percent: w.utilization?,
+            resets_at: w
+                .resets_at
+                .and_then(|r| DateTime::parse_from_rfc3339(&r).ok())
+                .map(|t| t.with_timezone(&Utc)),
+        })
+    };
+    Ok(CachedUsage {
+        fetched_at: Some(now),
+        five_hour: window(raw.five_hour),
+        seven_day: window(raw.seven_day),
+        extra: raw.extra_usage.map(|e| ExtraUsage {
+            enabled: e.is_enabled,
+            used_credits: e.used_credits,
+            monthly_limit: e.monthly_limit,
+            utilization: e.utilization,
+        }),
+    })
+}
+
 /// 갱신 성공 — 응답을 넣고 실패 기록을 지우고, 크레딧이 늘었는지(소진 중)와 한도 소진 창의 크레딧 기준선을 고친다.
 /// `hit_key` 는 새 응답 기준으로 소진된 창의 키(`Limits::exhausted_key`).
 pub fn apply_fetch(
@@ -526,7 +571,12 @@ pub fn apply_failure(
     cache.failures += 1;
     let backoff =
         (TimeDelta::minutes(1) * (1 << (cache.failures - 1).min(5))).min(TimeDelta::minutes(30));
-    cache.backoff_until = Some(now + backoff.max(retry_after));
+    // 넘치면(터무니없는 Retry-After) 그 자리에 머문다 — 시각이 비면 backoff 가 풀린다.
+    let wait = backoff.max(retry_after);
+    cache.backoff_until = Some(
+        now.checked_add_signed(wait)
+            .unwrap_or(DateTime::<Utc>::MAX_UTC),
+    );
 }
 
 fn used_credits(usage: Option<&CachedUsage>) -> Option<f64> {

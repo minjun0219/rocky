@@ -210,11 +210,50 @@
       "properties": {
         "source": {
           "enum": ["auto", "stdin", "api", "none"],
-          "description": "한도를 어디서 읽나. stdin = statusline 입력의 rate_limits(Pro/Max), none = 한도를 다루지 않음. api·auto 의 usage API 조회는 아직 없다(조회 대기로 보인다). 기본 auto."
+          "description": "한도를 어디서 읽나. stdin = statusline 입력의 rate_limits(Pro/Max) — 한도가 소진되면 크레딧을 보려고 usage API 도 부른다, api = usage API(statusline 이 갱신 프로세스를 detached 로 띄우고 결과는 다음 렌더에 나온다), auto = 최근 6시간 안에 stdin 한도를 봤으면 stdin, 아니면 api, none = 한도를 다루지 않음. 기본 auto."
         },
         "alertPercent": {
           "type": "number",
           "description": "이 사용률(%)부터 임박 배지. 0 이면 임박 경고를 끄고 소진(100%)만 강조, 0~100 밖도 끈 것. 기본 90."
+        },
+        "pollSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "usage API 폴링 주기(초). 기본 300. 가장 급한 창이 70% 아래면 3배(stale 경계를 넘지 않게), 소진이면 creditPollSeconds."
+        },
+        "creditPollSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "한도 소진 뒤 크레딧 조회 주기(초). 기본 300."
+        },
+        "creditDivisor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "used_credits 단위 환산. 기본 100(cent)."
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "description": "통화 기호. 기본 $."
+        },
+        "alwaysShowCredits": {
+          "type": "boolean",
+          "description": "크레딧이 0 이어도 줄을 낸다. stdin 모드에서는 한도 전에도 usage API 를 부르게 된다. 기본 false."
+        },
+        "keychainService": {
+          "type": "string",
+          "minLength": 1,
+          "description": "토큰을 읽을 macOS keychain 항목. 기본은 기본 설정 폴더(~/.claude)일 때만 Claude Code-credentials — 다른 폴더에서 기본 이름을 읽으면 기본 계정의 토큰을 집는다."
+        },
+        "credentialsFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "토큰 파일. 기본 <configDir>/.credentials.json."
+        },
+        "tokenEnv": {
+          "type": "string",
+          "minLength": 1,
+          "description": "이 환경 변수에 토큰이 있으면 먼저 쓴다."
         },
         "configDir": {
           "type": "string",

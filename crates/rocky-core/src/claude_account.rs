@@ -101,11 +101,100 @@ pub fn cache_bucket(slot: &Path, email: Option<&str>) -> PathBuf {
     }
 }
 
-/// 경로·이메일을 폴더 이름으로 — sha256 앞 12자리. 이메일이 디스크 경로에 그대로 남지 않게 한다.
+/// 경로·이메일을 폴더 이름으로 — sha256 앞 12자리. 폴더 이름에 쓸 수 없는 글자를 피하고 길이를 고정한다(이메일 원문은
+/// 0600 `account.json` 에만 있다).
 fn short_hash(s: &str) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA256, s.as_bytes());
     digest.as_ref()[..6]
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// 기본 설정 폴더의 keychain 항목 이름 — 접미사가 없어 폴더와 무관하게 같은 값이다.
+pub const DEFAULT_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+/// 토큰을 읽을 keychain 항목. 설정값(`keychainService`)은 **그 설정이 가리키는 폴더**(`settings_dir` — 설정의
+/// `configDir`, 없으면 `~/.claude`)의 세션에만 쓰고, 그 밖에서는 기본 규칙 — **기본 설정 폴더일 때만** 기본 이름.
+///
+/// rocky 는 사용자 `rocky.json` 하나를 모든 세션이 같이 쓴다. 설정값을 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰을
+/// 집어 남의 숫자를 그린다. 비기본 폴더에서 기본 이름을 읽어도 같은 일이 난다(cc-usage 가 실측한 함정) — 그래서 그
+/// 경우는 keychain 을 건너뛰고 `<config_dir>/.credentials.json` 을 본다. 못 찾으면 숫자가 안 나오지만, 틀린 계정의
+/// 숫자보다 낫다.
+pub fn keychain_service(
+    configured: Option<&str>,
+    settings_dir: &Path,
+    config_dir: &Path,
+    home: &Path,
+) -> Option<String> {
+    if let Some(name) = configured.filter(|n| !n.is_empty()) {
+        if clean(config_dir) == clean(settings_dir) {
+            return Some(name.to_string());
+        }
+    }
+    (clean(config_dir) == default_config_dir(home)).then(|| DEFAULT_KEYCHAIN_SERVICE.to_string())
+}
+
+/// 토큰 파일 — 설정값(`credentialsFile`)은 그 설정이 가리키는 폴더의 세션에만, 그 밖에서는 `<config_dir>/.credentials.json`.
+pub fn credentials_file(
+    configured: Option<&str>,
+    settings_dir: &Path,
+    config_dir: &Path,
+    home: &Path,
+) -> PathBuf {
+    match configured.filter(|p| !p.is_empty()) {
+        Some(p) if clean(config_dir) == clean(settings_dir) => expand(p, home),
+        _ => config_dir.join(".credentials.json"),
+    }
+}
+
+/// Claude Code 의 OAuth 토큰. 읽기만 한다 — 만료돼도 갱신하지 않는다(Claude Code 가 다음 요청에서 갱신한다).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OauthToken {
+    pub access_token: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 만료된 토큰의 에러 문구.
+pub const TOKEN_EXPIRED: &str = "oauth token expired (Claude Code를 한 번 사용하면 갱신됩니다)";
+
+/// keychain 값이나 `.credentials.json` 내용 → 토큰. `{` 로 시작하지 않으면 토큰 그 자체로 본다.
+pub fn parse_token(raw: &str) -> Result<OauthToken, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("empty".into());
+    }
+    if !raw.starts_with('{') {
+        return Ok(OauthToken {
+            access_token: raw.to_string(),
+            expires_at: None,
+        });
+    }
+    let v: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    let oauth = v.get("claudeAiOauth");
+    let access = oauth
+        .and_then(|o| o.get("accessToken"))
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+        .ok_or("claudeAiOauth.accessToken missing")?;
+    let expires_at = oauth
+        .and_then(|o| o.get("expiresAt"))
+        .and_then(Value::as_i64)
+        .filter(|ms| *ms > 0)
+        .and_then(chrono::DateTime::from_timestamp_millis);
+    Ok(OauthToken {
+        access_token: access.to_string(),
+        expires_at,
+    })
+}
+
+/// 만료됐으면 에러.
+pub fn check_token(
+    token: OauthToken,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<OauthToken, String> {
+    if token.expires_at.is_some_and(|at| now > at) {
+        return Err(TOKEN_EXPIRED.into());
+    }
+    Ok(token)
 }
