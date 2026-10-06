@@ -26,6 +26,7 @@ pub fn todo_fixture() -> TodoView {
             doing_by: None,
             doing_since: None,
             doing_session_id: None,
+            doing_session_claimed: false,
             completed_at: None,
             archived_at: None,
             created_at: "2026-07-23T00:00:00.000Z".into(),

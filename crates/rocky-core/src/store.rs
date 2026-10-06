@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS todos (
   doing_by TEXT,
   doing_since TEXT,
   doing_session_id TEXT,
+  doing_session_claimed INTEGER NOT NULL DEFAULT 0,
   position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -256,6 +257,7 @@ fn todo_from_row(row: &Row) -> rusqlite::Result<Todo> {
         doing_by: row.get("doing_by")?,
         doing_since: row.get("doing_since")?,
         doing_session_id: row.get("doing_session_id")?,
+        doing_session_claimed: row.get::<_, i64>("doing_session_claimed")? != 0,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -1230,6 +1232,9 @@ fn must_get_note_conn(
 
 /// 웹 편집의 히스토리 묶음 창(초) — 이 안의 같은 actor `edit` 는 한 줄로 친다.
 pub const NOTE_EDIT_COALESCE_SECS: i64 = 60;
+
+/// `claim_doing_session` 이 "방금 시작했다" 로 보는 시간 — 훅은 start 직후에 돌지만 느린 턴·재시도를 감안한다.
+pub const CLAIM_WINDOW: chrono::TimeDelta = chrono::TimeDelta::minutes(10);
 /// 히스토리 줄 없이도 전역 변경 이벤트를 흘리는 최소 간격 — 다른 화면이 따라오는 속도.
 pub const NOTE_EDIT_EVENT_THROTTLE: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -1787,6 +1792,7 @@ impl TodoStore {
                 doing_by: None,
                 doing_since: None,
                 doing_session_id: None,
+                doing_session_claimed: false,
                 position: next_position(&conn, "todos", Some(&board.id))?,
                 created_at: now.clone(),
                 updated_at: now,
@@ -1993,6 +1999,53 @@ impl TodoStore {
         Ok(todo)
     }
 
+    /// 세션이 스스로 `start` 한 doing 에 그 세션을 귀속시킨다 — `todo_status` 직후 PostToolUse 훅이 부른다. 귀속이
+    /// 이미 있거나(핸드오프), doing 이 아니거나, 에이전트가 든 게 아니거나, 방금(`CLAIM_WINDOW`) 시작한 게 아니면 손대지
+    /// 않는다 — 실패한 start 의 응답으로 남이 든 doing 을 가로채지 않게. `doing_since` 를 주면(훅은 start 응답의 값을 준다)
+    /// 지금 doing 의 시작 시각과 같아야 한다 — 훅이 늦게 도는 사이 다른 세션이 다시 start 했으면 그쪽 것이다. 붙였으면 `Some`.
+    pub fn claim_doing_session(
+        &self,
+        todo_id: &str,
+        session_id: &str,
+        doing_since: Option<&str>,
+    ) -> StoreResult<Option<Todo>> {
+        let conn = self.lock();
+        let current = must_get_todo_conn(&conn, todo_id, None)?;
+        let fresh = current
+            .doing_since
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .is_some_and(|at| chrono::Utc::now().signed_duration_since(at) <= CLAIM_WINDOW);
+        let same_start =
+            doing_since.is_none_or(|since| current.doing_since.as_deref() == Some(since));
+        let claimable = current.status == TodoStatus::Doing
+            && current.doing_session_id.is_none()
+            && same_start
+            && current
+                .doing_by
+                .as_deref()
+                .is_some_and(crate::actors::is_agent_actor)
+            && fresh
+            && !session_id.is_empty();
+        if !claimable {
+            return Ok(None);
+        }
+        conn.execute(
+            "UPDATE todos SET doing_session_id = ?1, doing_session_claimed = 1 WHERE id = ?2 AND doing_session_id IS NULL",
+            params![session_id, current.id],
+        )?;
+        let todo = get_todo_conn(&conn, &current.id, None)?;
+        drop(conn);
+        // 히스토리는 남기지 않는다(같은 착수의 덧붙임이다) — 화면이 다시 받아 오게 변경 신호만.
+        self.emit_all(vec![ChangeEvent {
+            entity: HistoryEntity::Todo,
+            entity_id: current.id.clone(),
+            action: "claim-session".into(),
+            board_id: Some(current.board_id.clone()),
+        }]);
+        Ok(todo)
+    }
+
     pub fn set_todo_status(
         &self,
         todo_ref: &str,
@@ -2014,14 +2067,14 @@ impl TodoStore {
                     // 사람이 누른 start 면 None 이 와서 예전과 같은 모양이 된다.
                     let session_id = accept_handoff_for(&conn, &current.id, actor, &now)?;
                     conn.execute(
-                        "UPDATE todos SET status = ?1, doing_by = ?2, doing_since = ?3, doing_session_id = ?4, updated_at = ?5 WHERE id = ?6",
+                        "UPDATE todos SET status = ?1, doing_by = ?2, doing_since = ?3, doing_session_id = ?4, doing_session_claimed = 0, updated_at = ?5 WHERE id = ?6",
                         params!["doing", actor, now, session_id, now, current.id],
                     )?;
                 }
                 StatusAction::Stop => {
                     changes.insert("status".into(), json!([current.status, "todo"]));
                     conn.execute(
-                        "UPDATE todos SET status = ?1, doing_by = NULL, doing_since = NULL, doing_session_id = NULL, updated_at = ?2 WHERE id = ?3",
+                        "UPDATE todos SET status = ?1, doing_by = NULL, doing_since = NULL, doing_session_id = NULL, doing_session_claimed = 0, updated_at = ?2 WHERE id = ?3",
                         params!["todo", now, current.id],
                     )?;
                 }
@@ -2029,7 +2082,7 @@ impl TodoStore {
                     changes.insert("status".into(), json!([current.status, "done"]));
                     complete_handoff_for(&conn, &current.id, actor, &now)?;
                     conn.execute(
-                        "UPDATE todos SET status = ?1, doing_by = NULL, doing_since = NULL, doing_session_id = NULL, completed_at = ?2, updated_at = ?3 WHERE id = ?4",
+                        "UPDATE todos SET status = ?1, doing_by = NULL, doing_since = NULL, doing_session_id = NULL, doing_session_claimed = 0, completed_at = ?2, updated_at = ?3 WHERE id = ?4",
                         params!["done", now, now, current.id],
                     )?;
                 }

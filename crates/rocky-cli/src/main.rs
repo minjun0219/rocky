@@ -195,9 +195,11 @@ fn run(argv: &[String]) -> Result<(), String> {
                 "notify-todo" => hooks::hook_notify_todo(&ctx, todo_config.watch),
                 "handoff-stop" => hooks::hook_handoff_stop(&ctx),
                 "log-turn" => hooks::hook_log_turn(&ctx),
+                "claim-doing" => hooks::hook_claim_doing(&ctx),
                 _ => {
                     return Err(
-                        "usage: rocky hook ensure-daemon|notify-todo|handoff-stop|log-turn".into(),
+                        "usage: rocky hook ensure-daemon|notify-todo|handoff-stop|log-turn|claim-doing"
+                            .into(),
                     )
                 }
             }

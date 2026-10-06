@@ -489,3 +489,101 @@ fn a_port_holder_without_a_pid_is_not_killed_but_reported() {
         "{warning}"
     );
 }
+
+/// `hook claim-doing`(PostToolUse) — 방금 start 한 할 일의 id 를 응답에서 읽어 데몬에 이 세션의 귀속을 요청한다.
+/// start 가 아니거나 서브에이전트면 아무것도 보내지 않는다. 데몬이 없어도 조용히 성공한다.
+#[test]
+fn claim_doing_hook_posts_the_started_todo_for_this_session() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            // 머리와 본문이 따로 올 수 있다 — content-length 만큼 다 받을 때까지 읽는다.
+            let mut raw = Vec::new();
+            let mut buf = [0u8; 16384];
+            loop {
+                let n = stream.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                raw.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&raw);
+                let Some(head_end) = text.find("\r\n\r\n") else {
+                    continue;
+                };
+                let length = text[..head_end]
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: "))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if raw.len() >= head_end + 4 + length {
+                    break;
+                }
+            }
+            log.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&raw).into_owned());
+            let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n");
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("rocky.json");
+    std::fs::write(
+        &config,
+        format!(r#"{{"todo":{{"port":{port},"dir":"/nonexistent","expose":"off"}}}}"#),
+    )
+    .unwrap();
+    let todo = serde_json::json!({"id": "abc123", "status": "doing", "ref": "rocky-9", "doingSince": "2026-10-06T00:00:00.000Z"}).to_string();
+    let run = |input: serde_json::Value| {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rocky"))
+            .args(["hook", "claim-doing"])
+            .env("HOME", dir.path())
+            .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
+            .env("ROCKY_CONFIG", &config)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+    };
+    let input = |action: &str, agent: Option<&str>| {
+        let mut v = serde_json::json!({
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__plugin_rocky_rocky__todo_status",
+            "tool_input": {"id": "rocky-9", "action": action},
+            "tool_response": [{"type": "text", "text": todo}],
+        });
+        if let Some(agent) = agent {
+            v["agent_id"] = agent.into();
+        }
+        v
+    };
+    run(input("done", None));
+    run(input("start", Some("sub-1")));
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "보내면 안 되는 경우에 보냈다"
+    );
+    run(input("start", None));
+    let requests = seen.lock().unwrap().join("\n");
+    assert!(
+        requests.starts_with("POST /api/sessions/doing"),
+        "{requests}"
+    );
+    let body: serde_json::Value =
+        serde_json::from_str(requests.split("\r\n\r\n").nth(1).unwrap_or_default()).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({"sessionId": "sess-1", "todoId": "abc123", "doingSince": "2026-10-06T00:00:00.000Z"})
+    );
+}

@@ -28,6 +28,7 @@ fn todo(n: i64, title: &str, status: TodoStatus, due: Option<&str>) -> TodoView 
             doing_by: None,
             doing_since: None,
             doing_session_id: None,
+            doing_session_claimed: false,
             position: n,
             created_at: String::new(),
             updated_at: String::new(),

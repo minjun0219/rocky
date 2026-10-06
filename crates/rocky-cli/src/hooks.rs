@@ -626,6 +626,33 @@ pub fn hook_handoff_stop(ctx: &CliContext) {
     );
 }
 
+/// PostToolUse(`todo_status`): 세션이 스스로 `start` 한 할 일에 이 세션을 귀속시킨다 — statusline 의 ⏺ 와 턴 태그가 그
+/// 귀속을 본다(Stop 의 "닫았나?" 확인은 핸드오프로 받은 것에만). 데몬이 조건(방금 시작·에이전트·귀속 없음)을 다시 본다.
+/// 서브에이전트가 든 것은 메인 세션의 것으로 붙지 않게 건너뛴다. 어떤 실패도 조용하다(fail-open).
+pub fn hook_claim_doing(ctx: &CliContext) {
+    let input = read_stdin_json();
+    let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) else {
+        return;
+    };
+    // 서브에이전트(`agent_id`)만 뺀다 — `agent_type` 은 `claude --agent` 로 띄운 **메인** 세션에도 붙으므로 보지 않는다
+    // (handoff-stop 은 핸드오프를 가로채지 않으려고 둘 다 본다).
+    if input
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .is_some_and(|v| !v.is_empty())
+    {
+        return;
+    }
+    for (todo_id, doing_since) in rocky_core::handoff::started_todo_ids(&input) {
+        let _ = hook_agent()
+            .post(format!("{}/api/sessions/doing", ctx.base_url))
+            .header("content-type", "application/json")
+            .send_json(
+                json!({ "sessionId": session_id, "todoId": todo_id, "doingSince": doing_since }),
+            );
+    }
+}
+
 /// Stop: 트랜스크립트에서 이번 턴을 뽑아 `kind:"turn"` 한 줄을 워크로그에 append 한다.
 /// TS 원본 `src/hooks/log-turn.ts`. 결정론적(LLM 0), 어떤 실패도 턴을 막지 않는다.
 ///

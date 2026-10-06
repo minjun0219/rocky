@@ -22,6 +22,18 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__plugin_rocky_rocky__todo_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/rocky\" hook claim-doing",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

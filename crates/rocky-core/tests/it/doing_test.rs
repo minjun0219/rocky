@@ -50,6 +50,7 @@ fn doing_todo() -> Todo {
         doing_by: Some("claude-code".into()),
         doing_since: None,
         doing_session_id: None,
+        doing_session_claimed: false,
         position: 1,
         created_at: "2026-07-01T00:00:00.000Z".into(),
         updated_at: "2026-07-01T00:00:00.000Z".into(),
@@ -82,6 +83,7 @@ fn handoff() -> Handoff {
 fn attributed_busy_session_is_live() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     assert_eq!(
@@ -94,6 +96,7 @@ fn attributed_busy_session_is_live() {
 fn attributed_idle_session_is_idle() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -110,6 +113,7 @@ fn attributed_idle_session_is_idle() {
 fn background_state_done_is_gone_even_if_listed() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -130,6 +134,7 @@ fn background_state_done_is_gone_even_if_listed() {
 fn dormant_blocked_background_is_idle_not_gone() {
     let todo = Todo {
         doing_session_id: Some("0da6a98a".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let sessions = rocky_core::sessions::parse_sessions(
@@ -145,6 +150,7 @@ fn dormant_blocked_background_is_idle_not_gone() {
 fn missing_session_is_gone() {
     let todo = Todo {
         doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -162,6 +168,7 @@ fn short_spawn_id_finds_session_too() {
     // createSpawnedHandoff 는 full UUID 가 아니라 짧은 8자 id 를 저장한다.
     let todo = Todo {
         doing_session_id: Some("a1b2c3d4".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     let s = AgentSession {
@@ -232,6 +239,7 @@ fn human_doing_is_not_judged() {
 fn unavailable_sessions_is_always_unknown() {
     let attributed = Todo {
         doing_session_id: Some("sess-x".into()),
+        doing_session_claimed: false,
         ..doing_todo()
     };
     assert_eq!(
@@ -380,6 +388,7 @@ fn doing_by(actor: &str, since: &str) -> Todo {
         doing_by: Some(actor.into()),
         doing_since: Some(since.into()),
         doing_session_id: None,
+        doing_session_claimed: false,
         position: 1,
         created_at: since.into(),
         updated_at: since.into(),
@@ -519,4 +528,37 @@ fn doing_unchanged_requires_same_state_actor_start_and_session() {
     let mut attributed = snap.clone();
     attributed.doing_session_id = Some("sess".into());
     assert!(!doing_unchanged(&snap, &attributed));
+}
+
+/// 세션이 스스로 든 것의 귀속(훅)은 상태 판정에 쓰지 않는다 — 턴이 끝날 때마다 Idle(방치·멈춤), `/clear` 로 id 가 바뀌면
+/// Gone(자동 해제)이 되지 않게. 보드 근사(그 보드에 세션이 있으면 Unknown, 없으면 Gone)로 간다(오너 결정 2026-10-06).
+#[test]
+fn claimed_attribution_does_not_drive_the_doing_state() {
+    let todo = Todo {
+        doing_session_id: Some("sess-full-uuid".into()),
+        doing_session_claimed: true,
+        ..doing_todo()
+    };
+    let idle = AgentSession {
+        status: "idle".into(),
+        ..session()
+    };
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &available(vec![idle])),
+        DoingState::Unknown
+    );
+    // 귀속된 세션이 목록에 없어도(/clear 로 id 가 바뀜) 보드에 세션이 있으면 Gone 이 아니다.
+    let other = AgentSession {
+        session_id: "after-clear".into(),
+        id: None,
+        ..session()
+    };
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &available(vec![other])),
+        DoingState::Unknown
+    );
+    assert_eq!(
+        resolve_doing_state(&todo, "rocky-todo", &available(vec![])),
+        DoingState::Gone
+    );
 }

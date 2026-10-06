@@ -63,12 +63,14 @@ export interface Todo {
   doingBy?: string;
   doingSince?: string;
   /**
-   * 이 doing 을 들고 있는 Claude Code 세션. 핸드오프로 시작된 작업에만 채워진다 —
-   * `/mcp` 는 stateless 라 도구 호출에 세션 식별자가 없고, 에이전트는 자기 session_id 를
-   * 모른다. 그래서 유일하게 세션을 아는 경로(claim 된 핸드오프)에서 물려받는다.
-   * 이 값이 있으면 `/api/sessions` 와 대조해 "죽은 doing" 을 정확히 판정할 수 있다.
+   * 이 doing 을 들고 있는 Claude Code 세션. `/mcp` 는 stateless 라 도구 호출에 세션 식별자가 없어서,
+   * 세션을 아는 두 경로에서만 채워진다 — claim 된 핸드오프, 그리고 세션이 스스로 `start` 한 것을
+   * PostToolUse 훅이 붙인 것(`doingSessionClaimed`). 핸드오프 귀속이면 `/api/sessions` 와 대조해
+   * "죽은 doing" 을 정확히 판정한다(훅 귀속은 판정에 쓰지 않는다 — `doingState` 는 서버가 낸다).
    */
   doingSessionId?: string;
+  /** `doingSessionId` 가 훅이 붙인 귀속(세션이 스스로 start). */
+  doingSessionClaimed?: boolean;
   position: number;
   createdAt: string;
   updatedAt: string;

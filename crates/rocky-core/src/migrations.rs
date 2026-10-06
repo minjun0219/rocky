@@ -328,7 +328,21 @@ fn add_cleared_sessions(db: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-pub const MIGRATIONS: [MigrationFn; 17] = [
+/// 마이그레이션 18: `todos.doing_session_claimed` — doing 의 세션 귀속이 핸드오프가 아니라 훅(세션이 스스로 `start`)에서
+/// 왔다. statusline·턴 태그는 같이 쓰고, Stop 훅의 "닫았나?" 확인은 핸드오프로 받은 것에만 한다.
+fn add_doing_session_claimed(db: &Connection) -> rusqlite::Result<()> {
+    if !table_columns(db, "todos")?
+        .iter()
+        .any(|c| c == "doing_session_claimed")
+    {
+        db.execute_batch(
+            "ALTER TABLE todos ADD COLUMN doing_session_claimed INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
+    Ok(())
+}
+
+pub const MIGRATIONS: [MigrationFn; 18] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -346,6 +360,7 @@ pub const MIGRATIONS: [MigrationFn; 17] = [
     add_pr_filter_subscriptions,
     add_session_inboxes,
     add_cleared_sessions,
+    add_doing_session_claimed,
 ];
 
 #[derive(Default)]

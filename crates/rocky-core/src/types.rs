@@ -276,6 +276,10 @@ pub struct Todo {
     pub doing_since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doing_session_id: Option<String>,
+    /// `doing_session_id` 가 핸드오프가 아니라 세션이 스스로 `start` 한 것을 훅이 붙인 귀속이다 — Stop 훅의 "닫았나?"
+    /// 확인은 이것을 묻지 않는다.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub doing_session_claimed: bool,
     pub position: i64,
     pub created_at: String,
     pub updated_at: String,
