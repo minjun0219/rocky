@@ -2,7 +2,8 @@
  * UI 순수 헬퍼 — actor 톤(두 대기 컨셉), 시간 표기, 초경량 markdown 렌더 토큰화.
  */
 import { isAgentActor } from './actors';
-import type { CollectItem, HandoffView, PrSnapshot, RcStatus, TodoView } from './types';
+import { agentPhase } from './agents';
+import type { CollectItem, HandoffView, PrSnapshot, RcStatus, SessionRow, TodoView } from './types';
 import type { Comment, HistoryEntry, SurfaceStat, WorklogEntry } from './types';
 
 /**
@@ -497,7 +498,7 @@ export function resolveDropBefore(
 
 // ── "지금" 표 — 첫 화면이 답할 한 가지: 무슨 일이 돌고 있고, 무엇이 내 차례인가 ──
 
-export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect' | 'pr';
+export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect' | 'pr' | 'agent';
 
 /**
  * 행이 어느 묶음에 가나 — `mine` = 내 차례(사람이 손대야 끝난다), `run` = 돌고 있음(보기만),
@@ -537,7 +538,7 @@ export interface NowRow {
 }
 
 /**
- * 내 차례의 순서 = 우선순위. PR 충돌 → 머지 가능 → 세션 없음·멈춤 → 안 집힌 넘김 →
+ * 내 차례의 순서 = 우선순위. PR 충돌 → 머지 가능 → 세션 없음·멈춤·답 기다리는 에이전트 → 안 집힌 넘김 →
  * 읽지 않은 댓글 → 수집함. 같은 순위 안에서는 오래 방치된 것이 위다.
  */
 const MINE_RANK = {
@@ -570,6 +571,8 @@ export function nowRows(
     expandCollect?: boolean;
     /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
     prs?: PrSnapshot[];
+    /** `claude agents` 세션(에이전트 탭을 켰을 때만) — 사람 답을 기다리는 background 세션이 행이 된다. */
+    agents?: SessionRow[];
     expanded?: boolean;
     /** 읽지 않은 댓글 요약 줄을 펼쳤나 — `expanded`(내 차례 5행 제한)와 따로. */
     expandUnread?: boolean;
@@ -647,6 +650,32 @@ export function nowRows(
             ? '넘김 · 세션 없음'
             : '넘김 · 아직 받지 않음'
           : '넘김 · 받았지만 착수 전',
+    });
+  }
+
+  // 사람 답을 기다리는 background 세션 — 멈춘 진행과 같은 순위. 진행 중 할 일을 든 세션이면 위의 진행 행(멈춤)이
+  // 이미 말하므로 뺀다. 제목은 그 세션이 기다리는 것(Claude 가 남긴 요약).
+  const held = new Set(
+    input.todos.flatMap((t) =>
+      t.status === 'doing' && t.doingSessionId ? [t.doingSessionId] : [],
+    ),
+  );
+  for (const s of input.agents ?? []) {
+    if (agentPhase(s) !== 'blocked' || held.has(s.sessionId) || (s.id && held.has(s.id))) {
+      continue;
+    }
+    pushMine(MINE_RANK.stuck, {
+      key: `agent:${s.sessionId}`,
+      kind: 'agent',
+      group: 'mine',
+      glyph: 'mine',
+      ref: s.name,
+      title: s.job?.needs ?? s.job?.detail ?? '답을 기다려요',
+      who: 'AGENT',
+      since: s.job?.updatedAt ?? new Date(s.startedAt).toISOString(),
+      live: false,
+      unread: 0,
+      state: '답 기다림',
     });
   }
 

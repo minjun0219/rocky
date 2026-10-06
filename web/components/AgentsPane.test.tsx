@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { boardFixture, renderWithStore, todoFixture } from '../test-support';
 import type { SessionRow } from '../types';
 import { AgentsPane } from './AgentsPane';
+import { MineSection } from './NowTable';
 import { ViewSwitch } from './ViewSwitch';
 
 afterEach(cleanup);
@@ -53,7 +54,6 @@ describe('AgentsPane', () => {
     expect(screen.getByRole('region', { name: '실행 중' }).textContent).toContain('hail-mary');
     await userEvent.click(screen.getByRole('button', { name: /rocky-25/ }));
     expect(openTodoDetail).toHaveBeenCalledWith(todo.id);
-    expect(loadAgents).toHaveBeenCalled();
   });
 
   test('세션 목록을 못 읽으면 사유를 말한다', () => {
@@ -82,5 +82,24 @@ describe('ViewSwitch', () => {
     cleanup();
     renderWithStore(<ViewSwitch />, { showAgents: true });
     expect(screen.getByRole('button', { name: '에이전트' })).toBeTruthy();
+  });
+});
+
+describe('피드의 답을 기다리는 에이전트', () => {
+  test('행을 누르면 에이전트 탭으로, 탭을 끄면 행도 없다', async () => {
+    const setView = mock(() => {});
+    renderWithStore(<MineSection />, {
+      agents: { available: true, list: [blocked] },
+      showAgents: true,
+      setView,
+    });
+    await userEvent.click(screen.getByRole('button', { name: /룰셋을 끌지 정해 주세요/ }));
+    expect(setView).toHaveBeenCalledWith('agents');
+    cleanup();
+    renderWithStore(<MineSection />, {
+      agents: { available: true, list: [blocked] },
+      showAgents: false,
+    });
+    expect(screen.queryByText('룰셋을 끌지 정해 주세요')).toBeNull();
   });
 });

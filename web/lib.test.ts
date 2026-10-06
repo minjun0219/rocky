@@ -1080,3 +1080,72 @@ describe('mdToPlain · shortTools — 작업로그 목록의 글자', () => {
     expect(shortTools('mcp__context7__query-docs')).toBe('context7:query-docs');
   });
 });
+
+describe('nowRows — 답을 기다리는 에이전트', () => {
+  const NOW = Date.parse('2026-10-06T03:00:00.000Z');
+  const session = (over: Partial<import('./types').SessionRow>): import('./types').SessionRow => ({
+    kind: 'background',
+    id: '0da6a98a',
+    sessionId: '0da6a98a-full',
+    name: 'acorn-25',
+    cwd: '/w/acorn/.claude/worktrees/todo-25',
+    status: 'idle',
+    state: 'blocked',
+    startedAt: Date.parse('2026-08-09T00:00:00.000Z'),
+    matched: false,
+    job: { needs: '룰셋을 끌지 정해 주세요', updatedAt: '2026-08-10T08:28:00.000Z' },
+    ...over,
+  });
+  const doing = (sessionId: string): TodoView => ({
+    id: 'held',
+    number: 25,
+    boardId: 'b',
+    title: '든 일',
+    description: '',
+    status: 'doing',
+    priority: 'p4',
+    labels: [],
+    links: [],
+    position: 0,
+    createdAt: '2026-08-09T00:00:00.000Z',
+    updatedAt: '2026-08-09T00:00:00.000Z',
+    ref: 'acorn-25',
+    commentCount: 0,
+    doingBy: 'claude-code',
+    doingSessionId: sessionId,
+    doingState: 'idle',
+  });
+
+  test('blocked background 세션은 기다리는 것을 제목으로 내 차례가 된다', () => {
+    const rows = nowRows({ todos: [], handoffs: [], seen: {}, agents: [session({})] }, NOW);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'agent',
+      group: 'mine',
+      glyph: 'mine',
+      ref: 'acorn-25',
+      title: '룰셋을 끌지 정해 주세요',
+      since: '2026-08-10T08:28:00.000Z',
+      state: '답 기다림',
+    });
+    expect(mineCount(rows)).toBe(1);
+  });
+
+  test('실행 중 · 쉬는 interactive 세션은 행이 아니다', () => {
+    const agents = [
+      session({ state: 'working' }),
+      session({ kind: 'interactive', id: undefined, state: undefined, pid: 1 }),
+    ];
+    expect(nowRows({ todos: [], handoffs: [], seen: {}, agents }, NOW)).toEqual([]);
+  });
+
+  test('진행 중 할 일을 든 세션은 그 진행 행(멈춤)만 남는다 — 짧은 id 귀속도', () => {
+    for (const held of ['0da6a98a', '0da6a98a-full']) {
+      const rows = nowRows(
+        { todos: [doing(held)], handoffs: [], seen: {}, agents: [session({})] },
+        NOW,
+      );
+      expect(rows.map((r) => r.kind)).toEqual(['doing']);
+    }
+  });
+});

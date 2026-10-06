@@ -91,12 +91,14 @@ export function useNowRows(
   const seenComments = useUiStore((s) => s.seenComments);
   const collect = useUiStore((s) => s.collect);
   const collectItems = useUiStore((s) => s.collectItems);
+  const agents = useUiStore((s) => (s.showAgents ? s.agents?.list : undefined));
   return nowRows({
     todos: nowTodos,
     handoffs,
     seen: seenComments,
     collect,
     collectItems,
+    agents,
     expanded,
     expandUnread,
     expandCollect,
@@ -197,6 +199,7 @@ function NowGroupHead(props: { title: string; count: number; tone: 'mine' | 'run
 function NowItem(props: { row: NowRow; now: number; onToggle?: () => void; toggled?: boolean }) {
   const { row, now } = props;
   const openTodoDetail = useUiStore((s) => s.openTodoDetail);
+  const setView = useUiStore((s) => s.setView);
   // PR 행은 PR 모양 아이콘으로 — 머지 가능이면 머지, 충돌이면 경고.
   const glyph =
     row.kind === 'pr' ? PR_ICON[row.glyph === 'dead' ? 'conflict' : 'ready'] : GLYPH[row.glyph];
@@ -249,6 +252,18 @@ function NowItem(props: { row: NowRow; now: number; onToggle?: () => void; toggl
           onClick={() => {
             logUsage('web:now-row', { kind: row.kind });
             void openTodoDetail(row.todoId as string);
+          }}
+        >
+          {body}
+        </button>
+      ) : row.kind === 'agent' ? (
+        // 답을 기다리는 에이전트 — 에이전트 탭에서 무엇을 기다리는지와 나머지 세션을 같이 본다.
+        <button
+          type="button"
+          className={className}
+          onClick={() => {
+            logUsage('web:now-row', { kind: row.kind });
+            setView('agents');
           }}
         >
           {body}

@@ -7,7 +7,7 @@ import { WorklogPane } from './components/WorklogPane';
 import { NotesRail } from './components/NotesRail';
 import { NowTable } from './components/NowTable';
 import { RcPane, RcSummary } from './components/RcPane';
-import { AgentsPane } from './components/AgentsPane';
+import { AgentsPane, useAgentsPolling } from './components/AgentsPane';
 import { TodoPane } from './components/TodoPane';
 import { TopBar } from './components/TopBar';
 import { VersionFooter } from './components/VersionFooter';
@@ -31,6 +31,8 @@ function App() {
   useEffect(() => {
     void loadRc();
   }, [loadRc]);
+  // 에이전트 — 탭과 피드의 "내 차례"(답을 기다리는 background 세션)가 같은 목록을 본다.
+  useAgentsPolling();
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const headRef = useRef<HTMLDivElement>(null);
 

@@ -6,8 +6,9 @@ import { useUiStore } from '../store';
 import { logUsage } from '../usage';
 import { StateIcon, useNow } from './NowTable';
 
-/** 탭이 보이는 동안만 이 간격으로 다시 읽는다 — 데몬이 `claude agents --json` 을 몇 초 캐시한다. */
+/** 다시 읽는 간격 — 탭을 보는 동안은 짧게, 아니면 피드의 "내 차례" 몫으로 길게. 데몬이 몇 초 캐시한다. */
 const POLL_MS = 15_000;
+const IDLE_POLL_MS = 60_000;
 
 /** 상태 아이콘 — `web/DESIGN.md` "State Vocabulary". 사람 답을 기다리는 것만 `mine` 이다. */
 const PHASE_ICON: Record<AgentPhase, { Icon: LucideIcon; className: string; label: string }> = {
@@ -17,15 +18,22 @@ const PHASE_ICON: Record<AgentPhase, { Icon: LucideIcon; className: string; labe
   done: { Icon: CircleCheck, className: 'text-faint', label: '끝남' },
 };
 
-function useAgentsPolling() {
-  const agents = useUiStore((s) => s.agents);
+/**
+ * 세션 목록 폴링 — 앱 한 곳(`main.tsx`)에서 돈다. 탭을 끄면 돌지 않는다(피드의 에이전트 행도 같이 사라진다).
+ * `claude agents --json` 은 데몬이 돌리는 CLI 라 탭 밖에서는 1분에 한 번이면 된다.
+ */
+export function useAgentsPolling() {
+  const enabled = useUiStore((s) => s.showAgents);
+  const watching = useUiStore((s) => s.view === 'agents');
   const loadAgents = useUiStore((s) => s.loadAgents);
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     void loadAgents();
-    const id = setInterval(() => void loadAgents(), POLL_MS);
+    const id = setInterval(() => void loadAgents(), watching ? POLL_MS : IDLE_POLL_MS);
     return () => clearInterval(id);
-  }, [loadAgents]);
-  return agents;
+  }, [enabled, watching, loadAgents]);
 }
 
 /**
@@ -33,7 +41,7 @@ function useAgentsPolling() {
  * 그 보드의 세션만. 출력·로그는 두지 않고 Claude 가 남긴 요약 한 줄만(`web/DESIGN.md` "Not in the Panel").
  */
 export function AgentsPane() {
-  const agents = useAgentsPolling();
+  const agents = useUiStore((s) => s.agents);
   const boards = useUiStore((s) => s.boards);
   const selected = useUiStore((s) => s.selected);
   const doing = useUiStore((s) => s.nowTodos);
