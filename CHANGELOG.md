@@ -1,5 +1,29 @@
 # @minjun0219/rocky
 
+## 0.44.0
+
+### Minor Changes
+
+- [#384](https://github.com/minjun0219/rocky/pull/384) [`f0da646`](https://github.com/minjun0219/rocky/commit/f0da6460412e57d6a9d6ecb91c44b11a066c8d71) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc --activity`(`GET /api/rc/servers?activity=1`, 로컬 전용)가 대상마다 최근 활동(마지막 커밋 시각 · 제목, 작업 중, 곁가지 브랜치)을 보이고 꺼진 비고정 대상 중 오래 조용한 것을 "정박"으로 가른다. `rocky rc start --all` 은 꺼진 대상 전부를 띄운다 — 비고정은 세션 없이 서버만(start 본문 `serverOnly`), 고정은 세션과 함께.
+
+- [#385](https://github.com/minjun0219/rocky/pull/385) [`7520df6`](https://github.com/minjun0219/rocky/commit/7520df6fd1939fc6cea77da8b27c1b310ec9b672) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc report` 로 마지막 야간 재시작 보고를 본다. 야간 보고에 rocky 세 층(플러그인 · CLI · 데몬)의 버전과 최신 릴리스 태그, agy 버전과 원격 제어 데몬 상태(업데이트 전 바이너리로 도는지 포함)가 남는다(설치 · 재시작은 하지 않는다). README 에 에이전트가 rc 서버를 바꿀 때 사람 확인을 받는 `permissions.ask` 권장 규칙을 적었다.
+
+- [#383](https://github.com/minjun0219/rocky/pull/383) [`ea4193d`](https://github.com/minjun0219/rocky/commit/ea4193dd8b5c87bfc277f5a1cb9cb345744e2818) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 서버 재시작이 열린 세션이 막 대화하는 중(2분 안)이면 턴이 끝날 때까지 15초마다 보며 10분까지 기다렸다 내린다 — 끝내 안 끝나면 손대지 않는다(행 상태 `waiting`). 이 세션이 붙은 서버는 CLI 가 재시작을 거절한다(재시작이 이 턴을 끊는다). `rocky rc restart <라벨> --session <cse_…>`(본문 `session`)로 이어받을 세션을 못 박을 수 있다. `already served` 재시도 간격을 45·90초에서 60·120초로 늘렸다.
+
+- [#394](https://github.com/minjun0219/rocky/pull/394) [`c8d31b5`](https://github.com/minjun0219/rocky/commit/c8d31b5e39a9258ff1010ead1ba2d44424cb794e) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드의 "새 세션 띄우기"(`rocky spawn`, `POST /api/todos/:ref/spawn`)가 rc 가 켜진 기기에서는 할 일의 워크트리에 단일 세션 rc 서버(`<보드>-<n>: <요약>`)를 띄우고 그 세션에 핸드오프를 넣어 깨운다 — 폰 · 웹의 원격 제어 목록에서 이어 보고, 끝나면 사람이 닫는다. `claude --bg` 세션은 로그인 세션 밖이라 ssh · 자격이 끊겨 PR 로 끝나는 일을 끝내지 못했다. rc 가 꺼진 기기는 지금처럼 `claude --bg` 로 띄우고 응답에 그 경고를 단다. 이미 도는 세션에 넘길 때도 받은편지함이 있으면 깨운다.
+
+- [#389](https://github.com/minjun0219/rocky/pull/389) [`5ac4723`](https://github.com/minjun0219/rocky/commit/5ac4723158d04129bb3447b67063060c41d77380) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 을 Antigravity(`agy`)의 statusLine 에도 걸 수 있다. stdin 의 `product: "antigravity"` 로 알아보고, 한도는 agy 가 주는 `quota`(Gemini 모델이면 `gemini-*`, 그 밖이면 `3p-*` 버킷)로 그린다 — Claude 쪽 토큰·API·캐시·계정 배지는 보지 않고, 경보는 배지로 고정된다. `--source auto|stdin|api|none` 플래그와 환경 변수 `ROCKY_STATUSLINE_SOURCE` 로 설정의 `source` 를 그 실행에서만 바꿀 수 있다(플래그가 이긴다, 갱신 프로세스에도 같은 값이 간다).
+
+- [#391](https://github.com/minjun0219/rocky/pull/391) [`afbd996`](https://github.com/minjun0219/rocky/commit/afbd996c30d7974bc73283c48292495b986ae484) Thanks [@minjun0219](https://github.com/minjun0219)! - statusline 진단 명령 둘을 더한다. `rocky statusline doctor [--session ID]` 는 읽는 설정·`source`·설정 폴더와 로그인된 계정·keychain 항목(macOS 면 후보 전부)·credentials 파일·캐시 폴더·guard·크레딧 상태·토큰을 찍고, `extraCommands` 를 statusline 과 같은 경로로 돌려 항목마다 결과(ok · 출력 없음 · 건너뜀 · 미설치 · 타임아웃 · 비정상 종료)를 보인다. `rocky statusline probe` 는 usage API 원본 응답을 보인다(필드 확인용).
+
+- [#390](https://github.com/minjun0219/rocky/pull/390) [`e46832e`](https://github.com/minjun0219/rocky/commit/e46832ecde991908466bd617cda0ae99f1029428) Thanks [@minjun0219](https://github.com/minjun0219)! - 크레딧 guard 를 더한다. `rocky.json` 의 `statusline.guard: true` 와 `UserPromptSubmit` 훅 `rocky statusline guard` 를 걸면, 한도가 소진돼 크레딧이 차감되기 시작할 때(또는 최근 크레딧이 늘었을 때) prompt 를 막는다(exit 2). 설정 오류·데이터 없음·크레딧이 꺼진 계정·`source: none` 에서는 막지 않는다. `rocky statusline allow [30m|2h|off]` 로 잠시 풀거나 다시 켠다 — 계정과 상관없이 하나라 어느 터미널에서 불러도 된다.
+
+### Patch Changes
+
+- [#393](https://github.com/minjun0219/rocky/pull/393) [`71cbd8f`](https://github.com/minjun0219/rocky/commit/71cbd8feb9281f2a149417d11f38c4f88b4baf53) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드의 "새 세션 띄우기"를 두 곳(탭 둘 · 웹과 CLI)에서 거의 동시에 누르면 같은 워크트리에 세션이 둘 뜰 수 있던 것을 고쳤다 — 진 쪽은 409 를 받는다.
+
+- [#387](https://github.com/minjun0219/rocky/pull/387) [`098b51a`](https://github.com/minjun0219/rocky/commit/098b51a5475e5ed37d6568924f59f96edd971d8c) Thanks [@minjun0219](https://github.com/minjun0219)! - Cloudflare Access 로 들어온 웹 화면의 ⋯ 메뉴 맨 아래에 로그인한 이메일과 **로그아웃**을 보인다(`/cdn-cgi/access/logout` — Access 세션 전체가 끝난다). `/api/health` 가 그 이메일을 `accessUser` 로 알려 준다. 로컬·테일넷 화면에는 없다.
+
 ## 0.43.0
 
 ### Minor Changes
