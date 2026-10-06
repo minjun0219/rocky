@@ -1,5 +1,39 @@
 # @minjun0219/rocky
 
+## 0.48.0
+
+### Minor Changes
+
+- [#417](https://github.com/minjun0219/rocky/pull/417) [`5782d4d`](https://github.com/minjun0219/rocky/commit/5782d4d4606f674d3ad5d2cd1e2e23150603cc76) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky doctor`(`--json`) — "뭔가 안 도는 것 같다" 를 한 명령으로 본다. `rocky config show` 의 설치·설정 점검에 실행 상태(DB 무결성 · PR 감시 마지막 tick · 기본 브랜치 검증 실패 · 24시간 안에 못 보낸 세션 전달 · rc 자격·꺼진 고정 서버)를 더해 항목마다 ✓/⚠ 와 고치는 명령을 낸다. 읽기만 하고 꺼진 데몬도 띄우지 않는다.
+
+- [#425](https://github.com/minjun0219/rocky/pull/425) [`cd2d5ea`](https://github.com/minjun0219/rocky/commit/cd2d5ea79fe22a0ac9321c917101b2c02373d2ee) Thanks [@minjun0219](https://github.com/minjun0219)! - 새 슬래시 커맨드 `/rocky:spec-check` — 구현이 요구사항대로 됐는지만 본다. 요구사항 원문(인자로 준 보드 참조·이슈·스펙 경로, 대화의 사용자 발화, 세션이 든 보드 할 일, `docs/design` 문서, PR 본문)을 요약하지 않고 출처와 함께 `reviewer` 에게 넘기고, 항목마다 충족·빠짐·다르게 해석·요청 안 한 것으로 판정받는다. 버그는 기본 `/code-review` 몫이다. `/rocky:review-request` 2.5단계의 요구사항 점검이 이걸 부르게 바뀌어, 구현한 세션이 요구사항을 한 문단으로 고쳐 쓰던 단계가 없어졌다.
+
+- [#424](https://github.com/minjun0219/rocky/pull/424) [`8ec453e`](https://github.com/minjun0219/rocky/commit/8ec453eaf4665fcaac6069dc451d8d9730fd103d) Thanks [@minjun0219](https://github.com/minjun0219)! - 기본 브랜치 검증 결과를 구독한 세션에 보낸다. 세션 안에서 `rocky verify subscribe [보드] [--branch B]` 로 구독하면 끝난 실행마다(통과도) 그 세션 받은편지함으로 한 줄(`rocky: <보드> <브랜치> 검증 <sha> 통과 …` / `… 실패(<단계>) …`)이 온다 — 배포를 맡은 세션이 `/api/verify` 를 폴링하지 않아도 된다. 같은 커밋은 한 번, 다시 돌려 결과가 바뀌면 다시. 대상마다 세션 하나(다시 구독하면 넘겨받기), `unsubscribe`·`subscriptions` 와 `GET|POST|DELETE /api/verify/subscriptions`(바꾸기는 로컬 전용). 전달 기록에는 `verify-passed`·`verify-failed` 로 남고, "보내지 않기"·`/clear` 규칙은 PR 알림과 같다.
+
+- [#420](https://github.com/minjun0219/rocky/pull/420) [`b45d3e1`](https://github.com/minjun0219/rocky/commit/b45d3e101ada9bdd501c645bf218561757b539e7) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 에이전트 탭에서 끝나지 않은 세션에 **메시지**를 보낸다(로컬 화면만). 그 세션의 받은편지함에 한 줄이 들어가 쉬는 세션이면 턴이 열린다 — 새 라우트 `POST /api/sessions/message`(로컬 요청 전용, 2000자까지, 받은편지함을 등록하지 않은 세션은 이유와 함께 409). 받는 쪽에는 다른 세션의 메시지로 보여 사용자 승인으로 쓰이지 않는다. 전달 기록에는 `message` 로 남는다.
+
+- [#427](https://github.com/minjun0219/rocky/pull/427) [`b7b212c`](https://github.com/minjun0219/rocky/commit/b7b212c5f3505d190f8791fcb4a58c5f806b2565) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 에이전트 탭에서 살아 있는 background 세션을 **멈추고**(로컬 화면만, 한 번 더 묻는다) background 행의 `claude attach <id>` 명령을 복사한다. 새 라우트 `POST /api/sessions/stop {sessionId}` 가 `claude stop <짧은 id>` 를 돌린다 — 대화·워크트리는 남아 `claude attach` 로 잇는다. 로컬 요청 전용이고, 목록에 없으면 404, interactive·끝난 세션·pid 없이 잠든 세션은 409. 멈추면 데몬이 세션 목록 캐시를 비워 다른 탭·statusline 도 바로 따라온다.
+
+- [#412](https://github.com/minjun0219/rocky/pull/412) [`dd7ef22`](https://github.com/minjun0219/rocky/commit/dd7ef2215f82459dd689661520b03f333338d2bf) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 보드의 "완료한 할 일 N개" 묶음을 펼치면 **모두 보관** 버튼이 붙는다. 그 묶음(보드 화면은 섹션, 전체 보기는 보드)의 보관 안 된 완료를 한 줄 확인 뒤 한 번에 보관한다. 사용 로그 이름은 `web:archive-done`.
+
+- [#413](https://github.com/minjun0219/rocky/pull/413) [`bbdc81c`](https://github.com/minjun0219/rocky/commit/bbdc81c9883f6878c19b415c89fa4e9db07f299f) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 할 일 상세에 **세션** 묶음을 더한다 — 지금 진행을 든 Claude Code 세션의 이름·상태(작업 중 · 쉬는 중 · 답을 기다림 · 끝남 · 세션 없음)와 연결 방식(보내서 받음 · 스스로 착수), 그리고 이 할 일을 보낸 기록(핸드오프, 최근 5건)을 보인다. 세션 목록을 못 얻으면 상태는 비우고 이름만 보인다.
+
+- [#418](https://github.com/minjun0219/rocky/pull/418) [`79096a5`](https://github.com/minjun0219/rocky/commit/79096a521662360b39e10b43b8b6fd7a32dd114e) Thanks [@minjun0219](https://github.com/minjun0219)! - 넓은 창(1280px 이상)에서 웹 보드의 "실행 중" 을 머리 대신 화면 오른쪽 열에 둔다. 머리에 두면 늘 붙어 있어 넓은 화면에서도 목록이 그만큼 밀렸고(1920×1080 에서 화면 높이의 1/3), 목록은 가로로 늘어나 오른쪽이 비었다. 오른쪽 열은 따로 스크롤하고, 그보다 좁은 창은 그대로다.
+
+### Patch Changes
+
+- [#415](https://github.com/minjun0219/rocky/pull/415) [`32b800c`](https://github.com/minjun0219/rocky/commit/32b800c43cb78ea455fdd00b200962ff6e0d7d8a) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 "세션 전달" 카드에서 이미 끝난 세션의 등록을 뺀다. 받은편지함 등록은 24시간 TTL 로만 걷혀, 끝난 세션이 카드에 잔뜩 쌓여 동작하지 않는 것처럼 보였다(실측: 등록 29개 중 22개가 끝난 세션). 뺀 개수는 한 줄로 알린다(`GET /api/deliveries` 의 `ended`). 세션 목록을 못 얻으면 아무것도 빼지 않고, 등록 자체는 지우지 않는다.
+
+- [#416](https://github.com/minjun0219/rocky/pull/416) [`ec72c5b`](https://github.com/minjun0219/rocky/commit/ec72c5bd173f7eb117d5ff3206b11a5ed16f60ca) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션 전달 기록(웹 "세션 전달" 의 최근 50건)을 DB 에도 남겨, 데몬이 다시 떠도 이어 보인다. 배포마다 재시작하면 예전에 못 보낸 기록이 사라졌다.
+
+- [#421](https://github.com/minjun0219/rocky/pull/421) [`bae4ecc`](https://github.com/minjun0219/rocky/commit/bae4ecc1b1e38dc4c415cf040aefe0a969c3adc4) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky doctor` · `rocky config show` 의 오탐 둘을 고친다. 데몬이 막 떠 PR 감시의 첫 tick 전이면 "멈춤 — 이유 모름"(+ `gh auth status` 안내) 대신 "첫 바퀴 전" 으로 낸다. statusLine 이 `rocky statusline`(·`--full`)을 직접 부르면 연결된 것으로 본다 — 전에는 "rocky 세그먼트 없음" 이라며 `/api/statusline` 조각을 붙이라고 해, 따르면 보드 줄이 두 번 나왔다.
+
+- [#426](https://github.com/minjun0219/rocky/pull/426) [`8345ce7`](https://github.com/minjun0219/rocky/commit/8345ce7a0064bd15e37c045cd8efede659f4d947) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드의 세션 띄우기가 사람 답을 기다리며 잠든 background 세션을 본다. 그 할 일의 워크트리에 그런 세션만 있으면 두 번째 세션을 띄우지 않고 409 로 막으며, 답하거나(`claude attach`) 치운 뒤(`claude rm`) 다시 누르라고 알린다. 잠든 세션은 목록에서 cwd 가 레포 루트로 와 지금까지 가드를 빠져나갔다.
+
+- [#419](https://github.com/minjun0219/rocky/pull/419) [`76fbff0`](https://github.com/minjun0219/rocky/commit/76fbff0f85d8b05a67264ef0c80e95c4f647c115) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 피드의 "내 차례" 에서 수집함 행을 한 번 펼쳐 보면, 새 항목이 올 때까지 그 행을 다시 띄우지 않는다. 보드로 옮기지 않고 외부 앱에 두는 항목이 늘 같은 자리에 남아 내 차례(와 피드 탭 숫자)를 차지했다. 보드로 옮겨 개수가 줄기만 한 것은 새 것으로 치지 않는다. 전체 목록은 GitHub 탭의 수집함에 그대로 있다. `/api/summary` 에 미올림 수집함 전체의 지문 `collectToken` 을 더해, 요약에 실리지 않은 항목이 하나 빠지고 하나 들어와도 새 것으로 잡는다.
+
+- [#411](https://github.com/minjun0219/rocky/pull/411) [`9fb2b4e`](https://github.com/minjun0219/rocky/commit/9fb2b4e904a71a710f3049fcf5db484dcefff6ae) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 할 일 상세에서 "시작" 버튼을 뺀다. 착수는 에이전트가 남기는 신호이고, 사람이 눌러 둔 진행은 자동으로 놓이지 않아 잘못 누르면 그대로 남았다. 진행 중인 항목의 "중단"·"완료"·"보관"은 그대로다.
+
 ## 0.47.0
 
 ### Minor Changes
