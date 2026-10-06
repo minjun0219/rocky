@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { boardFixture, renderWithStore, todoFixture } from '../test-support';
@@ -232,5 +232,80 @@ describe('TodoPane — 전체 보기의 보드 접기', () => {
     // rocky 완료 작업은 열리고, mdwire 완료 작업은 여전히 접혀 있음
     expect(screen.getByText('rocky 완료 작업')).toBeDefined();
     expect(screen.queryByText('mdwire 완료 작업')).toBeNull();
+  });
+});
+
+describe('TodoPane — 완료 묶음 모두 보관', () => {
+  const doneRoot = todoFixture({ id: 'd-root', boardId: 'b1', title: '끝난 일', status: 'done' });
+  const openParent = todoFixture({ id: 'o-parent', boardId: 'b1', title: '열린 부모' });
+  const doneChild = todoFixture({
+    id: 'd-child',
+    boardId: 'b1',
+    title: '끝난 하위',
+    parentId: 'o-parent',
+    status: 'done',
+  });
+  // 보관 보기를 켜면 이미 보관된 완료도 섞여 온다
+  const doneArchived = todoFixture({
+    id: 'd-archived',
+    boardId: 'b1',
+    title: '이미 보관한 일',
+    status: 'done',
+    archivedAt: '2026-10-01T00:00:00.000Z',
+  });
+
+  function mount(selected: string, list = [doneRoot, openParent, doneChild, doneArchived]) {
+    const archiveTodos = mock(async (_ids: string[]) => {});
+    renderWithStore(<TodoPane />, { selected, boards, todos: list, sections: [], archiveTodos });
+    return { archiveTodos };
+  }
+
+  test('펼쳐서 본 뒤에야 버튼이 보이고, 한 번 더 물은 뒤 보관 안 된 완료만 보관한다', async () => {
+    const { archiveTodos } = mount('rocky');
+    expect(screen.queryByRole('button', { name: '모두 보관' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /완료한 할 일 3개/ }));
+    await userEvent.click(screen.getByRole('button', { name: '모두 보관' }));
+    expect(screen.getByText('2개를 보관할까요?')).toBeDefined();
+    expect(archiveTodos).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: '보관' }));
+    expect(archiveTodos).toHaveBeenCalledTimes(1);
+    expect([...(archiveTodos.mock.calls[0]?.[0] ?? [])].sort()).toEqual(['d-child', 'd-root']);
+  });
+
+  test('취소하거나 접으면 보관하지 않는다', async () => {
+    const { archiveTodos } = mount('rocky');
+    const toggle = screen.getByRole('button', { name: /완료한 할 일 3개/ });
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole('button', { name: '모두 보관' }));
+    await userEvent.click(screen.getByRole('button', { name: '취소' }));
+    expect(screen.getByRole('button', { name: '모두 보관' })).toBeDefined();
+
+    await userEvent.click(screen.getByRole('button', { name: '모두 보관' }));
+    await userEvent.click(toggle);
+    expect(screen.queryByText(/보관할까요/)).toBeNull();
+    expect(archiveTodos).not.toHaveBeenCalled();
+  });
+
+  test('전부 이미 보관됐으면 버튼을 내지 않는다', async () => {
+    mount('rocky', [doneArchived]);
+    await userEvent.click(screen.getByRole('button', { name: /완료한 할 일 1개/ }));
+    expect(screen.queryByRole('button', { name: '모두 보관' })).toBeNull();
+  });
+
+  test('전체 보기에서는 그 보드의 완료만 보관한다', async () => {
+    const doneOther = todoFixture({
+      id: 'd-other',
+      boardId: 'b2',
+      title: '남의 끝난 일',
+      status: 'done',
+    });
+    const { archiveTodos } = mount('all', [doneRoot, doneOther]);
+    const toggles = screen.getAllByRole('button', { name: /완료한 할 일 1개/ });
+    await userEvent.click(toggles[1]!);
+    await userEvent.click(screen.getByRole('button', { name: '모두 보관' }));
+    await userEvent.click(screen.getByRole('button', { name: '보관' }));
+    expect(archiveTodos.mock.calls[0]?.[0]).toEqual(['d-other']);
   });
 });

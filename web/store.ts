@@ -250,6 +250,8 @@ interface UiState {
   moveTodoToBoard: (id: string, board: string) => Promise<void>;
   patchTodo: (id: string, patch: Record<string, unknown>) => Promise<void>;
   setTodoStatus: (id: string, action: StatusAction) => Promise<void>;
+  /** 여러 할 일을 차례로 보관하고 한 번만 다시 읽는다 — 완료 묶음의 "모두 보관". */
+  archiveTodos: (ids: string[]) => Promise<void>;
   addNote: (input: { board?: string; title: string }) => Promise<void>;
   saveNote: (id: string, patch: { title?: string; content?: string }) => Promise<void>;
   archiveNote: (id: string) => Promise<void>;
@@ -896,6 +898,23 @@ export const useUiStore = create<UiState>((set, get) => ({
       body: JSON.stringify({ action }),
     });
     await get().refetch();
+  },
+
+  archiveTodos: async (ids) => {
+    logUsage('web:archive-done', { count: ids.length });
+    const { actor } = get();
+    try {
+      // 차례로 보낸다 — 데몬 저장소는 연결 하나라 한꺼번에 쏴도 빨라지지 않고, 중간에 실패하면
+      // 거기서 멈춰 나머지를 건드리지 않는다. 실패해도 그때까지 보관된 것은 다시 읽어 보인다.
+      for (const id of ids) {
+        await api(`/api/todos/${id}/status`, actor, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'archive' }),
+        });
+      }
+    } finally {
+      await get().refetch();
+    }
   },
 
   addNote: async (input) => {
