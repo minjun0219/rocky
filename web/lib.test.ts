@@ -1088,7 +1088,7 @@ describe('nowRows — 답을 기다리는 에이전트', () => {
     id: '0da6a98a',
     sessionId: '0da6a98a-full',
     name: 'acorn-25',
-    cwd: '/w/acorn/.claude/worktrees/todo-25',
+    cwd: '/w/acorn',
     status: 'idle',
     state: 'blocked',
     startedAt: Date.parse('2026-08-09T00:00:00.000Z'),
