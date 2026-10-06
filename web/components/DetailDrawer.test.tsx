@@ -72,6 +72,29 @@ describe('DetailDrawer 제목 편집', () => {
   });
 });
 
+describe('DetailDrawer 상태 버튼', () => {
+  function mountWithStatus(status: 'todo' | 'doing') {
+    renderWithStore(<DetailDrawer />, {
+      detail: { kind: 'todo', todo: todoFixture({ status }), history: [], comments: [] },
+      sections: [],
+      handoffs: [],
+      sessions: { available: false, reason: '테스트', list: [] },
+    });
+  }
+
+  // 착수는 에이전트의 신호다 — 사람이 눌러 둔 doing 은 자동으로 놓이지 않는다.
+  test('시작 버튼은 없고 완료는 있다', () => {
+    mountWithStatus('todo');
+    expect(screen.queryByRole('button', { name: '시작' })).toBeNull();
+    expect(screen.getByRole('button', { name: '완료' })).toBeTruthy();
+  });
+
+  test('진행 중이면 중단할 수 있다', () => {
+    mountWithStatus('doing');
+    expect(screen.getByRole('button', { name: '중단' })).toBeTruthy();
+  });
+});
+
 describe('DetailDrawer 미착수 핸드오프', () => {
   function handoffFixture(over: Partial<HandoffView> = {}): HandoffView {
     return {

@@ -31,13 +31,15 @@ test('상세에서 제목·설명·댓글을 고친다', async ({ page, api, tag
   await expect(dialog.getByText(`${tag} 댓글`).first()).toBeVisible();
 });
 
-test('시작·완료하면 목록에서 접히고, 펼쳐서 보관한다', async ({ page, api, tag }) => {
+test('완료하면 목록에서 접히고, 펼쳐서 보관한다', async ({ page, api, tag }) => {
   await api.todo({ title: tag });
   await page.goto('/demo?view=todos');
   await row(page, tag).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: '시작', exact: true }).click();
   const done = dialog.getByRole('button', { name: '완료', exact: true });
+  await expect(done).toBeVisible();
+  // 착수는 에이전트가 남기는 신호라 상세에 "시작" 이 없다.
+  await expect(dialog.getByRole('button', { name: '시작', exact: true })).toHaveCount(0);
   await done.click();
   // 완료하면 "완료" 버튼이 사라지고 다시 여는 버튼으로 바뀐다.
   await expect(done).toHaveCount(0);
