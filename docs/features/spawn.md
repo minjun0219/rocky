@@ -15,7 +15,9 @@
   놓는다([rc-servers](rc-servers.md)).
 - rc 가 꺼진 기기는 `boards.path` 에서 `claude --bg --worktree todo-<n>` 으로 띄우고 응답에 `warning` 을 단다(로그인 세션 밖이라
   ssh · 자격이 끊길 수 있다). **어느 쪽이든 그 워크트리에 살아 있는 세션이 있으면 띄우지 않고 그 세션을 쓴다** — 받은편지함이
-  있으면 깨운다.
+  있으면 깨운다. 일을 받을 수 있는 세션을 먼저 고르고, 사람 답을 기다리며 잠든 background 세션(`blocked`)뿐이면 쓰지도 않고 409 — 답하거나(`claude attach`)
+  치우라고(`claude rm`) 알린다. 잠든 행은 cwd 가 레포 루트로 오므로 가드(`find_live_session_at`)는 cwd 가 다르면 그 세션의
+  `state.json` 의 `worktreePath`(`parse_job_worktree`)로 한 번 더 본다 — 그 값은 응답에 싣지 않는다([sessions](sessions.md)).
 - 이중 기동은 캐시 없는 세션 목록과 `RecentSpawns` 예약이 막는다 — 예약은 확인과 잡기를 **한 락 안에서**(`try_reserve`, 앞의
   `is_recent` 와 잡기 사이에 세션 목록 await 가 있다), 요청이 끝날 때까지 진행 중으로 잡고 끝난 뒤 60초(창 안의 재요청은 409).
   확실히 아무것도 안 띄웠을 때만 되돌린다(`Reservation::release`). 경로가 키라 자기 예약만 고친다(토큰).

@@ -32,8 +32,8 @@ use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
 };
 use rocky_core::sessions::{
-    job_state_path, match_board, parse_job_state, stop_target, takes_handoff, AgentSession,
-    JobSummary, SessionsResult, StopRefusal,
+    job_state_path, match_board, parse_job_state, parse_job_worktree, stop_target, takes_handoff,
+    AgentSession, JobSummary, SessionsResult, StopRefusal,
 };
 use rocky_core::statusline::{
     board_key_for_cwd, render_statusline, BoardLocation, StatuslineData, StatuslineMine,
@@ -880,13 +880,17 @@ struct SessionOut {
     job: Option<JobSummary>,
 }
 
-/// background 세션의 작업 요약 — 짧은 id 가 있는 행만, 읽기 실패는 조용히 `None`(Claude Code 내부 파일이다).
+/// background 세션의 `state.json` 원문 — 짧은 id 가 있는 행만, 읽기 실패는 조용히 `None`(Claude Code 내부 파일이다).
+fn read_job_state(jobs_dir: Option<&std::path::Path>, session: &AgentSession) -> Option<String> {
+    std::fs::read_to_string(job_state_path(jobs_dir?, session.id.as_deref()?)?).ok()
+}
+
+/// background 세션의 작업 요약 — `/api/sessions` 에 싣는다.
 fn read_job_summary(
     jobs_dir: Option<&std::path::Path>,
     session: &AgentSession,
 ) -> Option<JobSummary> {
-    let path = job_state_path(jobs_dir?, session.id.as_deref()?)?;
-    parse_job_state(&std::fs::read_to_string(path).ok()?)
+    parse_job_state(&read_job_state(jobs_dir, session)?)
 }
 
 // ── 메인 핸들러 ─────────────────────────────────────────────────────────────
@@ -3497,12 +3501,30 @@ async fn spawn_route(
 
     // 이미 도는 세션이 있으면 새로 띄우지 않는다 — 세션 재사용(기존 큐로 pending). 받은편지함을 등록한 세션이면 핸드오프
     // 라우트처럼 깨운다 — 쉬는 rc 세션은 깨우지 않으면 사람이 뭔가 칠 때까지 집지 않는다.
-    if let Some(live) = find_live_session_at(&sessions.sessions, &worktree_path) {
+    let jobs_dir = state.claude_jobs_dir.as_deref();
+    if let Some(live) = find_live_session_at(&sessions.sessions, &worktree_path, |s| {
+        parse_job_worktree(&read_job_state(jobs_dir, s)?)
+    }) {
+        // 사람 답을 기다리며 잠든 세션은 일을 새로 넘길 곳이 아니다(`takes_handoff`) — 띄우지도 넘기지도 않고 알린다.
+        if !takes_handoff(live) {
+            let how = match live.id.as_deref() {
+                Some(id) => format!("답하거나(claude attach {id}) 치운 뒤(claude rm {id})"),
+                None => "답하거나 치운 뒤".to_string(),
+            };
+            return Ok(error_response(
+                &format!(
+                    "이 워크트리에 사람 답을 기다리는 세션 {} 이 있다 — {how} 다시 시도하라: {worktree_path}",
+                    live.name
+                ),
+                StatusCode::CONFLICT,
+            ));
+        }
         let handoff = store.create_handoff(&CreateHandoffInput {
             todo_ref: r.to_string(),
             session_id: live.session_id.clone(),
             session_name: Some(live.name.clone()),
-            session_cwd: Some(live.cwd.clone()),
+            // 세션의 cwd 가 아니라 맞춘 워크트리 — `worktreePath` 로 맞은 행의 cwd 는 레포 루트다.
+            session_cwd: Some(worktree_path.clone()),
             note,
             actor: actor.to_string(),
             current_board_id: current_board_id.clone(),

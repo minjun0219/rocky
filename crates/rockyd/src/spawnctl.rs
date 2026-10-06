@@ -8,7 +8,7 @@ use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use rocky_core::sessions::AgentSession;
+use rocky_core::sessions::{takes_handoff, AgentSession};
 
 /// Claude Code 가 워크트리를 만드는 자리.
 const WORKTREE_DIR: &str = ".claude/worktrees";
@@ -69,15 +69,23 @@ pub fn parse_background_id(stdout: &str) -> Option<String> {
     None
 }
 
-/// 그 워크트리에서 아직 돌고 있는 세션 — 있으면 새로 띄우면 안 된다(동시 실행 가드).
-/// `state` 없음(= interactive)은 살아있는 것으로 본다.
+/// 그 워크트리에 붙은 끝나지 않은 세션 — 있으면 새로 띄우면 안 된다(동시 실행 가드).
+/// `state` 없음(= interactive)은 살아있는 것으로 본다. 사람 답을 기다리며 잠든 background 행은 cwd 가 레포 루트로
+/// 오므로 cwd 가 다르면 `worktree_of`(그 세션의 `state.json` 의 `worktreePath`)로 한 번 더 본다.
+/// 잠든 세션도 돌려준다 — 일을 받을 수 있는 세션(`takes_handoff`)이 같이 있으면 목록 순서와 상관없이 그쪽을 먼저.
 pub fn find_live_session_at<'a>(
     sessions: &'a [AgentSession],
     worktree_path: &str,
+    worktree_of: impl Fn(&AgentSession) -> Option<String>,
 ) -> Option<&'a AgentSession> {
     sessions
         .iter()
-        .find(|s| s.cwd == worktree_path && s.state.as_deref() != Some("done"))
+        .filter(|s| {
+            s.state.as_deref() != Some("done")
+                && (s.cwd == worktree_path
+                    || worktree_of(s).is_some_and(|p| p.trim_end_matches('/') == worktree_path))
+        })
+        .min_by_key(|s| !takes_handoff(s))
 }
 
 pub struct SpawnCommandInput<'a> {

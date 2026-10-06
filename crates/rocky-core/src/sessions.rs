@@ -152,6 +152,17 @@ pub fn parse_job_state(raw: &str) -> Option<JobSummary> {
     (summary != JobSummary::default()).then_some(summary)
 }
 
+/// `state.json` 의 `worktreePath` — 잠든 background 행은 `claude agents --json` 의 cwd 가 레포 루트라 워크트리는 여기에만
+/// 있다. spawn 가드만 쓰고 응답에는 싣지 않는다([`JobSummary`] 와 따로 둔 이유).
+pub fn parse_job_worktree(raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    value
+        .get("worktreePath")?
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// 짧은 id 로 쓸 수 있는 값인가 — CLI 출력에서 온 값이라 경로 조각·명령 인자로 쓰기 전에 영숫자 64자 이하만 받는다.
 pub fn is_safe_short_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric())

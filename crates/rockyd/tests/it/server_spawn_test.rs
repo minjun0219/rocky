@@ -218,6 +218,88 @@ async fn live_session_at_worktree_queues_instead_of_spawn() {
     assert!(body.get("sessionShortId").is_none());
 }
 
+/// 사람 답을 기다리며 잠든 background 세션 — `claude agents --json` 의 cwd 는 레포 루트, 워크트리는 `state.json` 에만 있다.
+/// 그 워크트리면 띄우지도(두 번째 세션) 넘기지도(잠든 세션은 일을 새로 받지 않는다) 않고 409.
+#[tokio::test]
+async fn dormant_session_at_worktree_is_409_without_spawn() {
+    let f = fx();
+    let todo = seed(&f);
+    let jobs = tempfile::tempdir().unwrap();
+    let write_job = |id: &str, worktree: &str| {
+        std::fs::create_dir_all(jobs.path().join(id)).unwrap();
+        std::fs::write(
+            jobs.path().join(id).join("state.json"),
+            json!({"state":"blocked","cwd":"/repo","worktreePath":worktree}).to_string(),
+        )
+        .unwrap();
+    };
+    write_job(
+        "0da6a98a",
+        &format!("/repo/.claude/worktrees/todo-{}", todo.number),
+    );
+    write_job("1eb7c0de", "/repo/.claude/worktrees/todo-999");
+    let dormant = |short: &str| {
+        let mut s = sess(0, "/repo", &format!("{short}-full"), "rocky-todo-x", "idle");
+        s.pid = None;
+        s.kind = "background".into();
+        s.id = Some(short.into());
+        s.state = Some("blocked".into());
+        s
+    };
+    let spawned = Arc::new(AtomicUsize::new(0));
+    let dir = jobs.path().to_path_buf();
+    let state = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![
+            dormant("1eb7c0de"),
+            dormant("0da6a98a"),
+        ])));
+        o.spawn = Some(counting_spawn(spawned.clone()));
+        o.path_exists = Some(Arc::new(|_| true));
+        o.real_path = Some(Arc::new(|p| Ok(p.to_string())));
+        o.claude_jobs_dir = Some(dir);
+    });
+    let (status, body) = post(&state, &format!("/api/todos/{}/spawn", todo.id), json!({})).await;
+    assert_eq!(status, 409, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("claude attach 0da6a98a"),
+        "다른 워크트리의 잠든 세션이 아니라 이 워크트리의 것: {body}"
+    );
+    assert_eq!(spawned.load(Ordering::SeqCst), 0);
+    assert!(handoffs_of(&f, &todo.id).is_empty());
+}
+
+/// cwd 로 맞은 잠든 세션도 재사용하지 않는다 — 전에는 그 세션 앞으로 pending 핸드오프가 쌓였다.
+#[tokio::test]
+async fn dormant_session_matched_by_cwd_is_409_too() {
+    let f = fx();
+    let todo = seed(&f);
+    let mut dormant = sess(
+        1,
+        &format!("/repo/.claude/worktrees/todo-{}", todo.number),
+        "dormant-full",
+        "rocky-todo-x",
+        "idle",
+    );
+    dormant.kind = "background".into();
+    dormant.id = Some("0da6a98a".into());
+    dormant.state = Some("blocked".into());
+    let state = use_handle(
+        &f,
+        Some(available(vec![dormant])),
+        Some(failing_spawn(
+            "잠든 세션이 있으면 띄우면 안 된다",
+            Some(false),
+        )),
+        None,
+    );
+    let (status, body) = post(&state, &format!("/api/todos/{}/spawn", todo.id), json!({})).await;
+    assert_eq!(status, 409, "{body}");
+    assert!(handoffs_of(&f, &todo.id).is_empty());
+}
+
 #[tokio::test]
 async fn failed_spawn_is_400_with_no_delivery_record() {
     let f = fx();
