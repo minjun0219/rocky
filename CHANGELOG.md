@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.47.0
+
+### Minor Changes
+
+- [#409](https://github.com/minjun0219/rocky/pull/409) [`6299ce5`](https://github.com/minjun0219/rocky/commit/6299ce54c7ce5eeed2ed03e06aac825790698bc9) Thanks [@minjun0219](https://github.com/minjun0219)! - 배달됐지만 아무도 착수하지 않은 핸드오프도 취소한다 — `rocky handoff REF --cancel`(대기 중인 것이 먼저)과 할 일 상세의 "받았지만 착수하지 않았어요" 줄의 **취소** 버튼. 에이전트가 `start` 를 부르면 데몬이 먼저 그 할 일 앞의 착수 안 된 배달 중 버려진 것(배달 뒤 10분이 지났고 받은 세션이 사라진 것, 다시 보내 밀렸고 받은 세션이 일하는 중이 아닌 것)을 취소한다 — 멈춘 세션 앞의 배달을 다른 세션의 `start` 가 수락해 진행중이 사라진 세션에 귀속되던 문제(Stop 확인 · 턴 태그가 엉뚱한 세션으로, 24시간 뒤 자동 해제가 일하는 중인 할 일을 멈춤)를 막는다.
+
 ## 0.46.0
 
 ### Minor Changes
