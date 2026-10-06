@@ -982,6 +982,20 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   `~/.gemini/antigravity-cli/settings.json` 에 `"statusLine": { "type": "command", "command": "rocky statusline --full" }`.
   `{{session_id}}` 에는 agy 의 세션 id 가 들어간다.
 
+  **크레딧 guard** — 한도가 소진돼 크레딧이 차감되기 시작하면 prompt 를 막는다. 원할 때만 켠다: `rocky.json` 의
+  `statusline.guard: true` 와 `~/.claude/settings.json` 의 `hooks.UserPromptSubmit` 에 항목 하나(기존 훅은 지우지 않는다).
+
+  ```json
+  { "hooks": [ { "type": "command", "command": "rocky statusline guard" } ] }
+  ```
+
+  막으면 exit 2 로 끝나 Claude Code 가 prompt 를 버리고 이유를 보인다 — 한도가 소진됐는데 크레딧이 꺼졌다고 확인되지 않았을 때,
+  그리고 최근 15분 안에 크레딧이 늘었을 때. 크레딧이 켜졌는지는 usage 응답이 있으면 그것으로, 없으면(`stdin` 은 한도 전까지
+  API 를 부르지 않는다) 계정 파일의 `hasExtraUsageEnabled` 로 본다. 설정 오류·데이터 없음·`source: none` 에서는 막지 않는다
+  (fail-open). 설정 파일의 `source` 만 보고 `ROCKY_STATUSLINE_SOURCE` 는 보지 않는다. 풀려면 터미널에서
+  `rocky statusline allow 30m`(기간은 `2h` · `1h30m` 꼴, `off` 면 다시 켬) — 허용은 계정과 상관없이 하나라 막힌 세션과 다른
+  환경의 터미널에서 불러도 풀린다.
+
   계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
   로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. 기본이 아닌 설정 폴더는 keychain
   을 건너뛰고 `<그 폴더>/.credentials.json` 을 본다(비기본 폴더에서 기본 keychain 이름을 읽으면 기본 계정의 토큰을 집는다).

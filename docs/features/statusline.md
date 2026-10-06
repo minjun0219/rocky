@@ -55,13 +55,20 @@
   와 무관하게 이쪽이고, 한도는 `quota` 의 모델 버킷(`gemini-*` / `3p-*`, 모델 이름으로 고름)이다. 고른 버킷이 없거나 모델
   이름을 모르면 창을 비운다 — 다른 버킷의 숫자를 대신 그리지 않는다. 경보는 배지로 고정(깜빡임은 캐시가 있어야 센다).
 
+- **guard 는 fail-open 이고 설정 파일의 `source` 만 본다**(`limits::guard`, `crates/rocky-cli/src/statusline_guard.rs`). 꺼져 있거나
+  `none` 이거나 홈·캐시를 모르면 막지 않는다. `ROCKY_STATUSLINE_SOURCE` 를 보면 다른 호스트 때문에 셸에 걸어 둔 `none` 이 같은
+  셸에서 띄운 Claude Code 의 guard 를 조용히 끈다. 크레딧 활성은 usage 관측값이 계정 파일 힌트를 이기고, 둘 다 모르면 막는다.
+  계정은 statusline 과 같은 규칙(계정 파일을 prompt 마다 직접 읽고, 못 읽으면 계정 캐시). `allow.json` 은 계정마다가 아니라
+  `<cache>/rocky/statusline/` 에 하나다.
+
 ## 코드
 
 | 무엇 | 어디 |
 | --- | --- |
 | 세그먼트 렌더 | `crates/rocky-core/src/statusline.rs` |
 | `--full` 렌더·폭·git·extra | `crates/rocky-core/src/statusline/{full,width,git,extra}.rs` |
-| 한도 판정 | `crates/rocky-core/src/limits.rs`, agy `limits/agy.rs` |
+| 한도 판정 | `crates/rocky-core/src/limits.rs`, agy `limits/agy.rs`, guard `limits/guard.rs` |
+| guard·allow | `crates/rocky-cli/src/statusline_guard.rs` |
 | CLI 입구 | `crates/rocky-cli/src/commands.rs`·`client.rs`(`rocky statusline`) |
 | 하위 프로세스(마감·그룹 kill) | `crates/rocky-cli/src/{bounded,git_status}.rs` |
 | 계정 판단·캐시·갱신 | `crates/rocky-core/src/claude_account.rs`, `crates/rocky-cli/src/{statusline_cache,statusline_refresh}.rs` |

@@ -157,3 +157,31 @@ fn token_parse_accepts_bare_and_oauth_json_and_checks_expiry() {
         assert!(parse_token(bad).is_err(), "{bad:?}");
     }
 }
+
+/// 크레딧 힌트 — "필드 없음"(모름)과 `false` 를 가른다. 타입이 틀리면 파일 전체를 못 읽은 것이다.
+#[test]
+fn account_file_carries_the_credit_hint() {
+    let hint = |raw: &str| parse_account_file(raw).map(|a| a.extra_usage_enabled);
+    assert_eq!(
+        hint(r#"{"oauthAccount":{"emailAddress":"a@x","hasExtraUsageEnabled":true}}"#),
+        Some(Some(true))
+    );
+    assert_eq!(
+        hint(r#"{"oauthAccount":{"hasExtraUsageEnabled":false}}"#),
+        Some(Some(false))
+    );
+    assert_eq!(
+        hint(r#"{"oauthAccount":{"emailAddress":"a@x"}}"#),
+        Some(None)
+    );
+    assert_eq!(hint(r#"{}"#), Some(None));
+    assert_eq!(
+        hint(r#"{"oauthAccount":{"hasExtraUsageEnabled":"yes"}}"#),
+        None
+    );
+    assert_eq!(hint("not json"), None);
+    assert_eq!(
+        allow_file(Path::new("/c")),
+        PathBuf::from("/c/rocky/statusline/allow.json")
+    );
+}

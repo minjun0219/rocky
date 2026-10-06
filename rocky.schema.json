@@ -262,6 +262,10 @@
           "type": "boolean",
           "description": "크레딧을 안 쓸 때 금액을 옅은 색으로, 쓰기 시작하면 3초에 걸쳐 원래 색으로 페이드한다(rocky 만의 표시). false 면 cc-usage 와 같은 색. 기본 true."
         },
+        "guard": {
+          "type": "boolean",
+          "description": "rocky statusline guard(UserPromptSubmit 훅)를 켠다 — 한도가 소진돼 크레딧이 차감되기 시작하면 prompt 를 막는다(exit 2). 설정 오류·데이터 없음에서는 막지 않는다. 풀려면 rocky statusline allow 30m. 기본 false."
+        },
         "alwaysShowCredits": {
           "type": "boolean",
           "description": "크레딧이 0 이어도 줄을 낸다. stdin 모드에서는 한도 전에도 usage API 를 부르게 된다. 기본 false."

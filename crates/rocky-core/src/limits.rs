@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod agy;
+mod guard;
 pub use agy::{agy_limits, local_limits, AgyQuota, PRODUCT_ANTIGRAVITY};
+pub use guard::{credits_enabled, guard, parse_go_duration, AllowFile};
 
 /// 한도를 어디서 읽나 — cc-usage 설정의 `source` 와 같은 값.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -89,6 +91,8 @@ pub struct LimitsConfig {
     pub credit_poll_seconds: Option<u64>,
     /// 크레딧을 안 쓸 때 금액을 옅게, 쓰기 시작하면 원래 색으로 페이드(`creditFade`) — 없으면 켜짐. 끄면 cc-usage 와 같은 색.
     pub credit_fade: Option<bool>,
+    /// `rocky statusline guard` 를 켠다 — 없으면 꺼짐(훅을 걸어도 아무것도 막지 않는다).
+    pub guard: bool,
 }
 
 impl LimitsConfig {
