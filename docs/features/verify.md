@@ -28,7 +28,15 @@
   (기동 직후 첫 대기 포함). "도는 중" 은 `last.json` 의 `running` 이 아니라 잡이 실제로 단계를 도는지(`VerifyQueue.in_flight`)로 —
   `running` 은 데몬이 죽은 뒤에도 남는다. 요청 맡기기와 돌기 시작(요청 흡수)은 한 락 아래(틈에 맡긴 요청이 같은 커밋을 또 돌린다).
   다시 돌린 실행은 기록의 `rerun` 으로 남는다.
-- 실패·복구만 배너. 조회는 `GET /api/verify`·`rocky verify`. 히스토리·웹 "지금"·세션 받은편지함에는 아직 싣지 않는다.
+- 실패·복구만 배너. 조회는 `GET /api/verify`·`rocky verify`. 히스토리·웹 "지금"·SSE(`/api/events`)에는 아직 싣지 않는다.
+- **구독한 세션에는 끝난 실행마다(통과도) 받은편지함으로 한 줄**(`session_notice` → `server::notify_verify_subscriber`) — 배포를 맡은
+  세션이 폴링하지 않고 이것으로 움직인다. 같은 커밋은 한 번: 직전 판정과 커밋·결과가 같으면(다시 돌렸는데 그대로) 보내지 않고,
+  결과가 바뀌면 보낸다. 자동 재시도 전 첫 실패는 판정이 아니라 보내지 않는다. 전달 기록 kind 는 `verify-passed`·`verify-failed`.
+- **구독은 대상(보드·브랜치)마다 세션 하나**(`verify_subscriptions`, 다시 구독하면 넘겨받기) — `rocky verify subscribe [BOARD]
+  [--branch B]`(세션 안에서만, `CLAUDE_CODE_SESSION_ID`)·`unsubscribe`·`subscriptions`, `GET|POST|DELETE /api/verify/subscriptions`(바꾸기는
+  로컬 전용, 원격 조회는 세션 id 를 가린다). 보드는 별칭까지 풀어 설정의 대상 key 로 적는다 — 설정에 없는 대상은 404.
+  보내는 규칙은 PR 알림과 같다: "보내지 않기" 면 보내지 않고, `/clear` 된 세션·받은편지함 등록 없는 세션이면 사유만 남긴다.
+  `/clear` 결정에서 넘기기는 후계로 옮기고, 지켜보기만·해지는 걷는다(세션 없이는 보낼 곳이 없다 — 수집함 구독과 같다).
 
 ## 코드
 
@@ -38,9 +46,11 @@
 | 설정 | `crates/rocky-core/src/config.rs`(`load_verify_block`) + `rocky.schema.json` |
 | 잡·git·프로세스 그룹·기록 | `crates/rockyd/src/verify.rs` |
 | CLI | `crates/rocky-cli/src/verify_cmd.rs` |
+| 구독 저장·`/clear` | `crates/rocky-core/src/store.rs`(`subscribe_verify` · `cleared_sessions`) |
+| 구독한 세션에 보내기 | `crates/rockyd/src/server.rs`(`notify_verify_subscriber` · 구독 라우트) |
 
 테스트: `crates/rocky-core/tests/it/verify_test.rs`, `crates/rockyd/tests/it/verify_test.rs`(임시 bare 원격 + clone 으로 통과·실패·
-같은 커밋 생략·복구·시간 초과·손자 정리·번호 재사용·준비 실패), `crates/rocky-cli/tests/it/verify_cmd_test.rs`.
+같은 커밋 생략·복구·시간 초과·손자 정리·번호 재사용·준비 실패, `subscribed_session_hears_each_finished_run`), `crates/rocky-cli/tests/it/verify_cmd_test.rs`.
 
 ## 함정
 

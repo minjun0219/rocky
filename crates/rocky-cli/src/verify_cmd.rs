@@ -12,6 +12,16 @@ pub fn cmd_verify(
     flags: &ParsedFlags,
     printer: &Printer,
 ) -> Result<(), String> {
+    match rest.first().map(String::as_str) {
+        Some("subscribe") => return subscribe(ctx, &rest[1..], flags, printer),
+        Some("unsubscribe") => return unsubscribe(ctx, &rest[1..], flags, printer),
+        Some("subscriptions") => {
+            let raw = request_value(ctx, "GET", "/api/verify/subscriptions", None)?;
+            printer.emit(&raw, || render_subscriptions(&raw));
+            return Ok(());
+        }
+        _ => {}
+    }
     if flags.bool_flag("rerun") {
         // 보드를 안 주면 대상 전부 — cwd 에서 유추하지 않는다(대상은 보통 하나뿐이고, 유추가 빗나가면 404 만 남는다).
         let mut body = serde_json::Map::new();
@@ -28,6 +38,106 @@ pub fn cmd_verify(
     let raw = request_value(ctx, "GET", "/api/verify", None)?;
     printer.emit(&raw, || render_verify(&raw));
     Ok(())
+}
+
+/// 이 세션이 검증 결과를 받는다 — 끝난 실행마다 받은편지함으로 한 줄. 보드를 안 주면 대상 전부(보통 하나), 이미 다른
+/// 세션이 맡았으면 넘겨받는다. 세션 밖(터미널)에서는 받을 곳이 없어 거절한다.
+fn subscribe(
+    ctx: &CliContext,
+    rest: &[String],
+    flags: &ParsedFlags,
+    printer: &Printer,
+) -> Result<(), String> {
+    let session = std::env::var("CLAUDE_CODE_SESSION_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or("세션 안에서만 구독할 수 있다 — 결과를 받을 Claude Code 세션이 없다(CLAUDE_CODE_SESSION_ID)")?;
+    let mut body = target_filter(rest, flags);
+    body.insert("sessionId".into(), Value::from(session));
+    let raw = request_value(
+        ctx,
+        "POST",
+        "/api/verify/subscriptions",
+        Some(&Value::Object(body)),
+    )?;
+    printer.emit(&raw, || {
+        let names = raw["subscribed"]
+            .as_array()
+            .map(|a| a.iter().map(target_name).collect::<Vec<_>>())
+            .unwrap_or_default();
+        format!(
+            "✓ 검증 결과 구독 — {} (끝난 실행마다 이 세션 받은편지함으로)",
+            names.join(", ")
+        )
+    });
+    Ok(())
+}
+
+fn unsubscribe(
+    ctx: &CliContext,
+    rest: &[String],
+    flags: &ParsedFlags,
+    printer: &Printer,
+) -> Result<(), String> {
+    let filter = target_filter(rest, flags);
+    let query: Vec<String> = filter
+        .iter()
+        .filter_map(|(k, v)| {
+            v.as_str()
+                .map(|v| format!("{k}={}", crate::format::encode_uri_component(v)))
+        })
+        .collect();
+    let path = if query.is_empty() {
+        "/api/verify/subscriptions".to_string()
+    } else {
+        format!("/api/verify/subscriptions?{}", query.join("&"))
+    };
+    let raw = request_value(ctx, "DELETE", &path, None)?;
+    printer.emit(&raw, || {
+        format!(
+            "✓ 검증 결과 구독 해지 — {}개",
+            raw["removed"].as_i64().unwrap_or(0)
+        )
+    });
+    Ok(())
+}
+
+/// `[BOARD] [--branch B]` — 빼면 그 축은 전부.
+fn target_filter(rest: &[String], flags: &ParsedFlags) -> serde_json::Map<String, Value> {
+    let mut body = serde_json::Map::new();
+    if let Some(board) = rest.first().map(String::as_str).or(flags.str_flag("board")) {
+        body.insert("board".into(), Value::from(board));
+    }
+    if let Some(branch) = flags.str_flag("branch") {
+        body.insert("branch".into(), Value::from(branch));
+    }
+    body
+}
+
+fn target_name(v: &Value) -> String {
+    format!(
+        "{} {}",
+        v["board"].as_str().unwrap_or("?"),
+        v["branch"].as_str().unwrap_or("?")
+    )
+}
+
+/// `rocky verify subscriptions` — 대상마다 맡은 세션(로컬이면 id 앞 8자).
+pub fn render_subscriptions(raw: &Value) -> String {
+    let rows = raw.as_array().cloned().unwrap_or_default();
+    if rows.is_empty() {
+        return "검증 결과를 구독한 세션이 없다 — 세션 안에서 `rocky verify subscribe`".into();
+    }
+    rows.iter()
+        .map(|r| {
+            let session = r["sessionId"]
+                .as_str()
+                .map(|s| &s[..s.len().min(8)])
+                .unwrap_or("?");
+            format!("{}  → 세션 {session}", target_name(r))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `--rerun` 응답 — 맡긴 대상과 도는 중이라 건너뛴 대상.

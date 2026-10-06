@@ -4152,3 +4152,50 @@ fn delivery_log_survives_reopen_and_keeps_only_the_newest() {
     assert_eq!(log[1].reason.as_deref(), Some("받을 세션 등록 없음"));
     assert!(!log[1].ok);
 }
+
+/// 검증 결과 구독 — 대상 하나에 세션 하나(다시 구독하면 넘겨받기). `/clear` 되면 그것만 남아 있어도 결정을 기다리고,
+/// 넘기기는 후계로 옮기고, 지켜보기만은 걷는다(세션 없이는 보낼 곳이 없다).
+#[test]
+fn verify_subscriptions_take_over_and_follow_the_clear_decision() {
+    let f = fx();
+    assert!(f.store.subscribe_verify("rocky", "main", "  ").is_err());
+    f.store.subscribe_verify("rocky", "main", "a").unwrap();
+    let sub = f.store.subscribe_verify("rocky", "main", "b").unwrap();
+    assert_eq!(sub.session_id, "b", "다른 세션이 구독하면 넘겨받는다");
+    assert_eq!(f.store.verify_subscriptions().unwrap().len(), 1);
+
+    // 검증 구독만 남은 세션도 /clear 결정을 기다린다
+    assert!(f.store.mark_session_cleared("b", "b2", "/w/rocky").unwrap());
+    let cleared = f.store.cleared_sessions().unwrap();
+    assert_eq!(cleared[0].verify, vec!["rocky main".to_string()]);
+    f.store
+        .resolve_cleared_session("b", ClearedAction::Handover)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        f.store
+            .verify_subscription("rocky", "main")
+            .unwrap()
+            .unwrap()
+            .session_id,
+        "b2"
+    );
+
+    assert!(f
+        .store
+        .mark_session_cleared("b2", "b3", "/w/rocky")
+        .unwrap());
+    f.store
+        .resolve_cleared_session("b2", ClearedAction::Watch)
+        .unwrap()
+        .unwrap();
+    assert!(f
+        .store
+        .verify_subscription("rocky", "main")
+        .unwrap()
+        .is_none());
+
+    f.store.subscribe_verify("rocky", "main", "c").unwrap();
+    assert!(f.store.unsubscribe_verify("rocky", "main").unwrap());
+    assert!(!f.store.unsubscribe_verify("rocky", "main").unwrap());
+}

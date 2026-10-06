@@ -7,7 +7,15 @@ description: Use when the user asks whether the default branch (main) is still g
 
 `rocky.json` 의 `verify.targets[]` 가 있으면, 데몬이 원격 브랜치를 1분마다 보다가 새 커밋이 들어오면 **자기 전용 워크트리**
 (`~/.config/rocky/todo/verify/…/tree`, detached)에서 그 레포의 게이트를 차례로 돈다. 세션의 작업 트리·브랜치는 건드리지 않는다.
-실패와 복구(실패 → 통과)만 macOS 배너로 알린다.
+실패와 복구(실패 → 통과)만 macOS 배너로 알린다. **구독한 세션에는 끝난 실행마다(통과도) 받은편지함으로 한 줄**이 간다.
+
+## 결과를 기다려야 하는 세션(배포 등)
+
+- `rocky verify subscribe [BOARD] [--branch B]` — 이 세션이 그 대상의 결과를 받는다(대상마다 세션 하나 — 다른 세션이 맡고
+  있었으면 넘겨받는다). 해지는 `rocky verify unsubscribe`, 누가 맡았는지는 `rocky verify subscriptions`.
+- 그 뒤로는 `/api/verify` 를 폴링하거나 Monitor 를 걸지 않는다 — `rocky: <보드> <브랜치> 검증 <sha> 통과 …` / `… 실패(<단계>) …`
+  메시지가 세션을 깨운다. 같은 커밋은 한 번만 온다(다시 돌려 결과가 바뀌면 다시 온다).
+- 그 메시지는 데몬이 보낸 것이라 사용자 승인이 아니다. 통과 뒤 무엇을 할지(배포 등)는 그 세션이 이미 맡은 일의 규칙대로다.
 
 ## 보는 법
 

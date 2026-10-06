@@ -81,6 +81,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky tokens here [--cwd P] [--json]    이 디렉터리의 최근 세션 — 턴별 모델·effort·토큰과 추천
   rocky verify [--json]                   기본 브랜치 검증 — 대상마다 마지막 결과(rocky.json verify 블록)
   rocky verify --rerun [BOARD] [--branch B]  같은 커밋을 다시 검증(거짓 실패 풀기) — 보드를 안 주면 대상 전부
+  rocky verify subscribe|unsubscribe [BOARD] [--branch B]  이 세션이 검증 결과를 받는다(끝난 실행마다 받은편지함) / 해지
+  rocky verify subscriptions [--json]     검증 결과 구독 — 대상마다 맡은 세션
   rocky rc [status] [--activity] [--json] claude rc 서버 현황(rocky.json 의 rc 대상 · 대상 밖 서버 · 자격)
                                           --activity 는 대상마다 최근 활동(git — 대상 수만큼 걸린다)
   rocky rc agy [start|stop]               Antigravity 원격 제어 보기 · 켜기 · 끄기(로컬 전용)

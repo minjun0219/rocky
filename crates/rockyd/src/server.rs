@@ -25,7 +25,7 @@ use rocky_core::local_request::{
     access_user_email, is_cross_site_request, is_local_request, CROSS_SITE_MESSAGE,
     NON_LOCAL_AGY_MESSAGE, NON_LOCAL_BOARD_META_MESSAGE, NON_LOCAL_INBOX_SOURCE_MESSAGE,
     NON_LOCAL_ISSUE_MESSAGE, NON_LOCAL_PR_SUBSCRIPTION_MESSAGE, NON_LOCAL_SESSION_MESSAGE,
-    NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE,
+    NON_LOCAL_SPAWN_MESSAGE, NON_LOCAL_VERIFY_RERUN_MESSAGE, NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE,
 };
 use rocky_core::refs::{
     ref_needs_board_context, ref_of, with_ref_note, with_ref_todo, NoteView, TodoView,
@@ -2391,6 +2391,95 @@ async fn dispatch(
         // 기본 브랜치 검증 — 대상마다 마지막(또는 도는 중인) 결과. 설정에 대상이 없으면 빈 목록.
         return Ok(ok_json(&json!({ "targets": state.verify() })));
     }
+    // 기본 브랜치 검증 결과 구독 — 대상(보드·브랜치)마다 세션 하나, 끝난 실행마다 그 세션 받은편지함으로 결과 한 줄
+    // (`verify::verify_target` → `notify_verify_subscriber`). 조회는 누구나(원격이면 세션 id 를 가린다), 바꾸기는 로컬 전용.
+    if path == "/api/verify/subscriptions" {
+        let resolve = |key: &str| {
+            store
+                .get_board(key)
+                .ok()
+                .flatten()
+                .map(|b| b.key)
+                .unwrap_or_else(|| key.to_string())
+        };
+        if *method == Method::GET {
+            let subs = store.verify_subscriptions()?;
+            let rows: Vec<Value> = subs
+                .iter()
+                .map(|s| {
+                    let mut row =
+                        json!({ "board": s.board, "branch": s.branch, "createdAt": s.created_at });
+                    if local {
+                        row["sessionId"] = json!(s.session_id);
+                    }
+                    row
+                })
+                .collect();
+            return Ok(ok_json(&rows));
+        }
+        if *method == Method::POST || *method == Method::DELETE {
+            if !local {
+                return Ok(error_response(
+                    NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE,
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+            if *method == Method::DELETE {
+                // 설정에서 빠진 대상의 구독도 걷을 수 있게 저장된 구독에서 고른다. 빼면 그 축은 전부.
+                let board = query.get("board").map(|b| resolve(b.trim()));
+                let branch = query.get("branch").map(|b| b.trim().to_string());
+                let mut removed = 0;
+                for s in store.verify_subscriptions()? {
+                    if board.as_ref().is_some_and(|b| *b != resolve(&s.board))
+                        || branch.as_ref().is_some_and(|b| *b != s.branch)
+                    {
+                        continue;
+                    }
+                    if store.unsubscribe_verify(&s.board, &s.branch)? {
+                        removed += 1;
+                    }
+                }
+                return Ok(ok_json(&json!({ "removed": removed })));
+            }
+            let body = read_body(headers, body).await?;
+            let Some(session_id) = str_field(&body, "sessionId")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                return Ok(error_response(
+                    "sessionId 가 필요하다 — 결과를 받을 세션이다",
+                    StatusCode::BAD_REQUEST,
+                ));
+            };
+            let wanted = str_field(&body, "board")
+                .map(str::trim)
+                .filter(|b| !b.is_empty())
+                .map(resolve);
+            let branch = str_field(&body, "branch")
+                .map(str::trim)
+                .filter(|b| !b.is_empty());
+            let mut subscribed = Vec::new();
+            for t in state.verify() {
+                if wanted.as_ref().is_some_and(|w| *w != resolve(&t.board))
+                    || branch.is_some_and(|b| b != t.branch)
+                {
+                    continue;
+                }
+                subscribed.push(store.subscribe_verify(&t.board, &t.branch, session_id)?);
+            }
+            if subscribed.is_empty() {
+                return Ok(error_response(
+                    &format!(
+                        "검증 대상이 없다(board={}, branch={}) — rocky.json 의 verify.targets[] 를 본다",
+                        wanted.as_deref().unwrap_or("*"),
+                        branch.unwrap_or("*")
+                    ),
+                    StatusCode::NOT_FOUND,
+                ));
+            }
+            return Ok(ok_json(&json!({ "subscribed": subscribed })));
+        }
+    }
     if *method == Method::POST && path == "/api/verify/rerun" {
         // 같은 커밋을 다시 — 환경 탓 거짓 실패를 다음 커밋까지 빨강으로 두지 않게. 프로세스를 띄우는 동작이라 로컬 전용.
         // 본문 `board`·`branch` 로 좁히고, 없으면 대상 전부. 도는 중인 대상은 건너뛴다.
@@ -3051,6 +3140,70 @@ async fn wake_session(
     kind: &str,
 ) -> Result<(), String> {
     let target = state.live_inbox(session_id).await?;
+    write_to_session(state, &target, text, subject, kind).await
+}
+
+/// 기본 브랜치 검증 결과를 그 대상을 구독한 세션에 — PR 알림과 같은 규칙이다: "보내지 않기" 면 보내지 않고(기록도 없이),
+/// `/clear` 된 세션이나 받은편지함 등록이 없는 세션이면 못 보낸 사유만 전달 기록에 남긴다. 구독이 없으면 아무것도 안 한다.
+pub(crate) async fn notify_verify_subscriber(
+    state: &Arc<ServerState>,
+    record: &rocky_core::verify::VerifyRecord,
+    kind: &str,
+    text: &str,
+) {
+    let Ok(Some(sub)) = state
+        .store
+        .verify_subscription(&record.board, &record.branch)
+    else {
+        return;
+    };
+    if state.is_muted(&sub.session_id) {
+        return;
+    }
+    let short = &record.sha[..record.sha.len().min(7)];
+    let subject = format!(
+        "{} {} {short} {}",
+        record.board,
+        record.branch,
+        record.subject.as_deref().unwrap_or("")
+    )
+    .trim_end()
+    .to_string();
+    let unreachable = if state
+        .store
+        .is_session_cleared(&sub.session_id)
+        .unwrap_or(false)
+    {
+        Some("세션이 /clear 됨 — 웹에서 정할 때까지 보내지 않는다".to_string())
+    } else {
+        match state.live_inbox(&sub.session_id).await {
+            Ok(target) => {
+                let _ = write_to_session(state, &target, text, subject, kind).await;
+                return;
+            }
+            Err(reason) => Some(reason.to_string()),
+        }
+    };
+    state.record_delivery(rocky_core::peer_inbox::Delivery {
+        at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        kind: kind.to_string(),
+        subject,
+        url: None,
+        session_id: sub.session_id,
+        ok: false,
+        reason: unreachable,
+    });
+}
+
+/// 등록을 찾은 세션의 받은편지함 소켓에 한 줄 쓰고 전달 기록을 남긴다 — 못 쓰면 그 등록을 걷고 이유를 돌려준다.
+async fn write_to_session(
+    state: &Arc<ServerState>,
+    target: &rocky_core::peer_inbox::InboxRegistration,
+    text: &str,
+    subject: String,
+    kind: &str,
+) -> Result<(), String> {
+    let session_id = target.session_id.as_str();
     let line = rocky_core::peer_inbox::inbox_line(text);
     let socket = target.socket.clone();
     let reason = match tokio::task::spawn_blocking(move || {

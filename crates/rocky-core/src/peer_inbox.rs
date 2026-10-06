@@ -76,6 +76,9 @@ pub struct ClearedSession {
     pub filters: Vec<String>,
     /// 남은 수집함 구독 소스.
     pub inbox: Vec<String>,
+    /// 남은 기본 브랜치 검증 구독(`보드 브랜치`).
+    #[serde(default)]
+    pub verify: Vec<String>,
 }
 
 /// `/clear` 된 세션의 구독을 어떻게 할지 — 웹 "세션 전달" 칸의 세 버튼.
@@ -130,7 +133,8 @@ pub fn registration_alive(
 pub struct Delivery {
     /// RFC 3339.
     pub at: String,
-    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox` · `handoff` · `message`(웹 에이전트 탭).
+    /// `pr-ready` · `pr-conflict` · `pr-merged` · `pr-ci-failed` · `pr-review` · `inbox` · `handoff` · `message`(웹 에이전트 탭) ·
+    /// `verify-passed` · `verify-failed`(기본 브랜치 검증).
     pub kind: String,
     /// 무엇을 — `owner/repo#12 제목` 또는 `gh-bugs 새 항목 2건`.
     pub subject: String,

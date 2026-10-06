@@ -460,6 +460,8 @@ export interface ClearedSession {
   prs: string[];
   filters: string[];
   inbox: string[];
+  /** 기본 브랜치 검증 구독(`보드 브랜치`). 옛 데몬은 없다. */
+  verify?: string[];
 }
 
 /** `POST /api/sessions/cleared` 의 action. */
