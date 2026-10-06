@@ -151,18 +151,22 @@ export function MineSection() {
 }
 
 /**
- * "실행 중" — 할 일 화면 맨 위. 세션이 붙어 진행 중인 일(전 보드). 없으면 자리를 차지하지 않는다.
- * 손댈 것(내 차례)은 피드로 옮겼다.
+ * "실행 중" — 세션이 붙어 진행 중인 일(전 보드). 없으면 자리를 차지하지 않는다. 손댈 것(내 차례)은 피드로 옮겼다.
+ * 보통은 머리 안(`head`)이고, 넓은 창은 화면 오른쪽 열(`rail`) — 열이 따로 스크롤한다.
  */
-export function NowTable() {
+export function NowTable({ placement = 'head' }: { placement?: 'head' | 'rail' }) {
   const rows = useNowRows();
   const run = rows.filter((r) => r.group === 'run');
   const now = useNow(run, 0);
   if (run.length === 0) {
     return null;
   }
+  const where =
+    placement === 'rail'
+      ? 'now-rail w-[400px] shrink-0 overflow-y-auto border-l border-line'
+      : 'border-b border-line';
   return (
-    <section className="now border-b border-line px-4 pb-3.5 pt-3" aria-label="실행 중">
+    <section className={`now ${where} px-4 pb-3.5 pt-3`} aria-label="실행 중">
       <NowGroupHead title="실행 중" count={run.length} tone="run" />
       <ul className="m-0 list-none overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-xs">
         {run.map((row) => (
