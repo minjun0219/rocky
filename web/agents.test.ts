@@ -77,6 +77,17 @@ describe('어디서 도나', () => {
     expect(boardOfSession('/w/rocky-wt', boards)).toBeUndefined();
   });
 
+  test('path 가 key 보다 먼저, 후보가 여럿이면 더 구체적인 쪽', () => {
+    const outer = boardFixture({ id: 'o', key: 'ws', path: '/w' });
+    const inner = boardFixture({ id: 'i', key: 'acorn', path: '/w/acorn' });
+    const clash = boardFixture({ id: 'c', key: 'w' }); // 상위 폴더 이름과 우연히 같은 key
+    expect(boardOfSession('/w/acorn/src', [outer, clash, inner])?.key).toBe('acorn');
+    expect(boardOfSession('/w/other', [clash, outer])?.key).toBe('ws');
+    const short = boardFixture({ id: 's', key: 'a' });
+    const long = boardFixture({ id: 'l', key: 'acorn-server' });
+    expect(boardOfSession('/x/a/acorn-server', [short, long])?.key).toBe('acorn-server');
+  });
+
   test('보드가 없으면 레포 폴더 이름, 워크트리는 레포로 접는다', () => {
     expect(repoLabel('/w/acorn/.claude/worktrees/todo-25')).toBe('acorn');
     expect(repoLabel('/w/cc-usage')).toBe('cc-usage');

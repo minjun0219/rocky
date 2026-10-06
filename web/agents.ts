@@ -27,15 +27,28 @@ function isUnder(cwd: string, root: string): boolean {
 }
 
 /**
- * 세션이 붙은 보드 — cwd 경로 세그먼트가 key(옛 key 포함)와 같거나 cwd 가 보드 `path` 아래. 데몬의
- * `board_has_session` 과 같은 판정이다(basename 만 보면 워크트리를 놓친다).
+ * 세션이 붙은 보드 — 데몬의 `board_key_for_cwd` 와 같은 순서: cwd 가 보드 `path` 아래인 것 중 가장 긴 경로, 없으면
+ * key(옛 key 포함)가 cwd 의 경로 세그먼트인 것 중 가장 긴 key. 처음 맞는 것을 고르면 보드 생성 순서에 따라
+ * 바깥 보드나 우연히 같은 이름의 상위 폴더로 갈 수 있다(basename 만 보면 워크트리를 놓친다).
  */
 export function boardOfSession(cwd: string, boards: Board[]): Board | undefined {
+  const longest = <T>(items: [T, number][]) =>
+    items.reduce<[T, number] | undefined>((a, b) => (a && a[1] >= b[1] ? a : b), undefined)?.[0];
+  const byPath = longest(
+    boards.flatMap((b): [Board, number][] =>
+      b.path !== undefined && isUnder(cwd, b.path) ? [[b, b.path.replace(/\/+$/, '').length]] : [],
+    ),
+  );
+  if (byPath) {
+    return byPath;
+  }
   const segments = cwd.split('/');
-  return boards.find(
-    (b) =>
-      [b.key, ...(b.previousKeys ?? [])].some((k) => segments.includes(k)) ||
-      (b.path !== undefined && isUnder(cwd, b.path)),
+  return longest(
+    boards.flatMap((b): [Board, number][] =>
+      [b.key, ...(b.previousKeys ?? [])]
+        .filter((k) => k !== '' && segments.includes(k))
+        .map((k): [Board, number] => [b, k.length]),
+    ),
   );
 }
 
