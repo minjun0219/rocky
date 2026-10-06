@@ -153,7 +153,7 @@ async fn pending_handoff_counts_as_inbox() {
     let state = statusline_state(&f, None);
     assert_eq!(
         line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await,
-        "✉ 1"
+        "🤝 1"
     );
 }
 
@@ -408,4 +408,59 @@ async fn summary_route_returns_board_counts_and_items() {
     // 수집함 캐시가 없으면 collect 는 생략(모름).
     let (_, body) = get(&state, "/api/summary?cwd=/w/rocky-todo&cached=true").await;
     assert!(body.get("collect").is_none());
+}
+
+fn snapshot(number: i64, ready: bool, merge_state: &str) -> rocky_core::prwatch::PrSnapshot {
+    rocky_core::prwatch::PrSnapshot {
+        repo: "o/r".into(),
+        number,
+        title: format!("PR {number}"),
+        url: format!("https://github.com/o/r/pull/{number}"),
+        state: "OPEN".into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "h".into(),
+        merge_state: merge_state.into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        unhandled_ids: vec![],
+        decision: 0,
+        ready,
+        updated_at: "2026-10-06T00:00:00Z".into(),
+        author: None,
+    }
+}
+
+/// 이 세션이 구독한 PR 의 머지 후보·충돌이 보드 줄에 붙는다 — doing·핸드오프가 없어도. 다른 세션 줄에는 없다.
+#[tokio::test]
+async fn my_subscribed_prs_show_ready_and_conflict() {
+    let f = fx();
+    f.store
+        .apply_pr_snapshot(
+            "o/r",
+            &[
+                snapshot(1, true, "CLEAN"),
+                snapshot(2, false, "DIRTY"),
+                snapshot(3, true, "CLEAN"),
+            ],
+            "rockyd",
+            &|_, _| true,
+        )
+        .unwrap();
+    f.store.subscribe_pr("o/r", 1, Some("sess-live")).unwrap();
+    f.store.subscribe_pr("o/r", 2, Some("sess-live")).unwrap();
+    f.store
+        .subscribe_pr("o/r", 3, Some("someone-else"))
+        .unwrap();
+    let state = statusline_state(&f, Some("[✅{pr.ready}][ ⛔{pr.conflict}]"));
+    assert_eq!(
+        line_from(&state, "?session=sess-live&cwd=/w/rocky-todo").await,
+        "✅1 ⛔1"
+    );
+    assert_eq!(
+        line_from(&state, "?session=sess-other&cwd=/w/rocky-todo").await,
+        ""
+    );
+    // 세션을 모르는 호출(옛 extra 명령)에는 붙지 않는다.
+    assert_eq!(line_from(&state, "?cwd=/w/rocky-todo").await, "");
 }

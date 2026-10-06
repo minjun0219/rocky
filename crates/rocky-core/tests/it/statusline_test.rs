@@ -16,11 +16,8 @@ fn with_mine() -> StatuslineData {
             title: "statusline API 추가".into(),
             comments: 0,
         }),
-        inbox: 0,
-        stale: 0,
         doing: 1,
-        due: 0,
-        collect: 0,
+        ..StatuslineData::default()
     }
 }
 
@@ -297,4 +294,85 @@ fn due_and_collect_placeholders_render_and_vanish_when_zero() {
     assert_eq!(render("[⏰{due}][ 📥{collect}]", &empty()), "");
     // 기본 템플릿에도 들어 있다.
     assert_eq!(render(DEFAULT_STATUSLINE_TEMPLATE, &data), "⏰ 2  📥 3");
+}
+
+/// 기본 템플릿 — 핸드오프는 🤝(받은편지함 메시지가 아니다), 구독한 PR 의 머지 후보 ✅ · 충돌 ⛔.
+#[test]
+fn default_template_shows_handoffs_and_my_pr_states() {
+    let data = StatuslineData {
+        inbox: 1,
+        pr_ready: 2,
+        pr_conflict: 1,
+        ..empty()
+    };
+    assert_eq!(
+        render(DEFAULT_STATUSLINE_TEMPLATE, &data),
+        "🤝 1  ✅ 2  ⛔ 1"
+    );
+    assert_eq!(render("[✅{pr.ready}][⛔{pr.conflict}]", &empty()), "");
+}
+
+fn pr(
+    repo: &str,
+    number: i64,
+    state: &str,
+    ready: bool,
+    merge_state: &str,
+) -> rocky_core::prwatch::PrSnapshot {
+    rocky_core::prwatch::PrSnapshot {
+        repo: repo.into(),
+        number,
+        title: format!("PR {number}"),
+        url: String::new(),
+        state: state.into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "h".into(),
+        merge_state: merge_state.into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        unhandled_ids: vec![],
+        decision: 0,
+        ready,
+        updated_at: String::new(),
+        author: None,
+    }
+}
+
+fn sub(repo: &str, number: i64, session: Option<&str>) -> rocky_core::prwatch::PrSubscription {
+    rocky_core::prwatch::PrSubscription {
+        repo: repo.into(),
+        number,
+        session_id: session.map(str::to_string),
+        created_at: String::new(),
+        filter_id: None,
+    }
+}
+
+/// 이 세션(별칭 포함)이 구독한 열린 PR 만 센다 — 충돌이면 머지 후보로 세지 않는다, 닫힌 PR·남의 구독·세션 없는 구독은 뺀다.
+#[test]
+fn session_pr_counts_only_my_open_prs() {
+    use rocky_core::statusline::session_pr_counts;
+    let prs = [
+        pr("O/R", 1, "OPEN", true, "CLEAN"),
+        pr("o/r", 2, "OPEN", false, "DIRTY"),
+        pr("o/r", 3, "MERGED", true, "CLEAN"),
+        pr("o/r", 4, "OPEN", true, "CLEAN"),
+        pr("o/r", 5, "OPEN", true, "CLEAN"),
+        pr("o/r", 6, "OPEN", false, "BLOCKED"),
+    ];
+    let subs = [
+        sub("o/r", 1, Some("short")),
+        sub("o/r", 2, Some("full-uuid")),
+        sub("o/r", 3, Some("full-uuid")),
+        sub("o/r", 4, Some("someone-else")),
+        sub("o/r", 5, None),
+        sub("o/r", 6, Some("full-uuid")),
+    ];
+    let aliases = ["full-uuid".to_string(), "short".to_string()];
+    assert_eq!(session_pr_counts(&subs, &prs, &aliases), (1, 1));
+    assert_eq!(
+        session_pr_counts(&subs, &prs, &["nobody".to_string()]),
+        (0, 0)
+    );
 }

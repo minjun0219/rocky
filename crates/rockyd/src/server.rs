@@ -3501,8 +3501,28 @@ async fn statusline_inner(
         .await?;
         (due, count_unpromoted(&inbox))
     };
+    // 이 세션이 구독했을 수 있는 PR 중 알릴 것(머지 후보·충돌) — 세션 별칭은 아래에서 푼다.
+    let (pr_subscriptions, notable_prs) = if session.is_some() {
+        let prs: Vec<_> = store
+            .list_prs(None, true)?
+            .into_iter()
+            .filter(|p| p.ready || p.merge_state == "DIRTY")
+            .collect();
+        if prs.is_empty() {
+            (Vec::new(), prs)
+        } else {
+            (store.pr_subscriptions()?, prs)
+        }
+    } else {
+        (Vec::new(), Vec::new())
+    };
     // 보여줄 게 없으면 **세션 조회 전에** 빈 문자열 — 초당 도는 최빈 경로의 비용 절감.
-    if doing.is_empty() && pending.is_empty() && due == 0 && collect == 0 {
+    if doing.is_empty()
+        && pending.is_empty()
+        && due == 0
+        && collect == 0
+        && pr_subscriptions.is_empty()
+    {
         return Ok(String::new());
     }
 
@@ -3574,12 +3594,20 @@ async fn statusline_inner(
                 .count() as i64
         })
         .unwrap_or(0);
+    let (pr_ready, pr_conflict) = aliases
+        .as_ref()
+        .map(|aliases| {
+            rocky_core::statusline::session_pr_counts(&pr_subscriptions, &notable_prs, aliases)
+        })
+        .unwrap_or((0, 0));
 
     Ok(render_statusline(
         &state.statusline_template,
         &StatuslineData {
             mine,
             inbox,
+            pr_ready,
+            pr_conflict,
             stale,
             due,
             collect,

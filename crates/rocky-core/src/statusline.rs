@@ -22,8 +22,13 @@ pub struct StatuslineMine {
 #[derive(Debug, Clone, Default)]
 pub struct StatuslineData {
     pub mine: Option<StatuslineMine>,
-    /// 이 세션 앞으로 대기 중인(pending) 핸드오프 수.
+    /// 이 세션 앞으로 대기 중인(pending) 핸드오프 수 — 변수 이름은 `{inbox}` 지만 받은편지함 메시지가 아니다(그건 큐 없이
+    /// 바로 세션에 들어간다).
     pub inbox: i64,
+    /// 이 세션이 구독한 열린 PR 중 머지 후보(`PrSnapshot::ready`) 수.
+    pub pr_ready: i64,
+    /// 이 세션이 구독한 열린 PR 중 충돌(`mergeStateStatus` DIRTY) 수.
+    pub pr_conflict: i64,
     /// 보드에서 방치된 doing 수 — `resolve_doing_state` 가 idle/gone 인 것.
     pub stale: i64,
     /// 보드의 전체 doing 수.
@@ -36,7 +41,7 @@ pub struct StatuslineData {
 
 /// 기본 템플릿 — 세션 앵커 중심. 칸마다 앞에 두 칸(칸 사이), 이모지 뒤에 한 칸(이모지와 숫자 사이).
 pub const DEFAULT_STATUSLINE_TEMPLATE: &str =
-    "[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  ✉ {inbox}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]";
+    "[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  🤝 {inbox}][  ✅ {pr.ready}][  ⛔ {pr.conflict}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]";
 
 /// 제목 절단 길이.
 pub const STATUSLINE_TITLE_MAX: usize = 30;
@@ -90,6 +95,8 @@ fn values_of(data: &StatuslineData, title_max: usize) -> Vec<(&'static str, Stri
                 .unwrap_or_default(),
         ),
         ("inbox", count(data.inbox)),
+        ("pr.ready", count(data.pr_ready)),
+        ("pr.conflict", count(data.pr_conflict)),
         ("stale", count(data.stale)),
         ("doing", count(data.doing)),
         ("due", count(data.due)),
@@ -204,6 +211,33 @@ pub fn render_statusline(template: &str, data: &StatuslineData, title_max: usize
         }
     }
     out.trim().to_string()
+}
+
+/// 이 세션(별칭들)이 구독한 **열린** PR 중 (머지 후보 수, 충돌 수). 저장소 이름은 대소문자를 가리지 않는다. 구독에 세션이
+/// 없는 것(필터 구독의 옛 행 등)은 세지 않는다.
+pub fn session_pr_counts(
+    subscriptions: &[crate::prwatch::PrSubscription],
+    prs: &[crate::prwatch::PrSnapshot],
+    aliases: &[String],
+) -> (i64, i64) {
+    let mut ready = 0;
+    let mut conflict = 0;
+    for pr in prs.iter().filter(|p| p.state == "OPEN") {
+        let mine = subscriptions.iter().any(|s| {
+            s.number == pr.number
+                && s.repo.eq_ignore_ascii_case(&pr.repo)
+                && s.session_id.as_ref().is_some_and(|id| aliases.contains(id))
+        });
+        if !mine {
+            continue;
+        }
+        if pr.merge_state == "DIRTY" {
+            conflict += 1;
+        } else if pr.ready {
+            ready += 1;
+        }
+    }
+    (ready, conflict)
 }
 
 /// `boardKeyForCwd` 가 보는 보드 정보.
