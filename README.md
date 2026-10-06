@@ -45,6 +45,7 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
 - **수집함 CLI**: `rocky inbox [--json]`이 소스별 항목을 보여 준다(✓는 이미 어느 보드든 올라간 것). `rocky today`와 세션 시작 요약은 아직 안 올린 항목을 최대 3개 싣는다. 세션에 "gh-bugs 구독해"라고 하면(`rocky inbox subscribe`) 그 뒤 새 항목을 데몬이 그 세션에 알린다. 착수는 사람이 정한다([`docs/board.md`](./docs/board.md) "요약").
 - **훅** (`hooks/hooks.json`): `SessionStart`가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit`이 사람이 보드에서 바꾼 것을 세션에 알리고, `Stop`이 핸드오프를 집은 뒤 턴을 워크로그에 자동으로 남긴다(`kind:"turn"`, LLM을 쓰지 않는다, `worklog.autoCapture`로 끈다). 모든 훅은 실패해도 세션을 막지 않는다.
 - **스킬** (`skills/`): rocky 를 **쓰는** 에이전트가 상황에 맞을 때 읽는 문서다(평소엔 컨텍스트를 쓰지 않는다). `pull-request`는 PR 구독과 받은편지함 메시지별 할 일, `token-usage`는 모델·effort 고르기, `branch-verify`는 기본 브랜치 검증 결과 읽기, `handoff`는 보드에서 넘겨받은 일의 start→done, `worklog`는 무엇을 언제 기록하나를 다룬다. rocky 를 **고치는** 에이전트용 기능 문서는 레포의 `docs/features/`에 따로 있다. `board`는 보드 에티켓(start→done, 링크 첨부, 보관만)과 MCP·CLI 폴백을, `writing-cc-plugin`은 Claude Code 플러그인 작성 가이드와 매니페스트·컴포넌트·배포 레퍼런스를 담는다.
+- **lab** (`hooks/lab/`, 실험): Claude Code function hooks 모듈. 사용자 `rocky.json` 에 `"lab": {}` 를 두면 받은편지함 메시지 toast, 프롬프트 위 보드 요약 줄, 엔진 한도 status, `/rocky-lab` 진단이 붙는다. 데몬을 읽기만 한다. 아래 "설정"의 `lab`.
 - **서브에이전트** (`agents/`): `reviewer`는 새 컨텍스트에서 **diff와 요구사항만** 받아 검토하는 읽기 전용 리뷰어다. `/rocky:review-request`가 위험한 변경일 때 요구사항 대비 점검으로 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘"처럼 직접 부를 수도 있다. 돌려 본 것만 통과라고 쓰고, 통과처럼 보이는 실패(false pass)를 따로 챙기며, 파일을 고치거나 머지하지 않는다.
   `quick-fix`(Sonnet)와 `merge-cleanup`(Haiku)은 `/rocky:review-fix`의 기계적인 단계 — 충돌 해소·판단이 필요 없는 리뷰 수정·CI 실패, 머지 뒤 정리 — 를 가벼운 모델과 **새 맥락**에서 맡는다. 긴 세션이 몇 줄짜리 손질을 위해 대화 전체를 요청마다 다시 읽지 않게 하려는 것이다. 둘 다 강제 푸시·`-D`·코멘트·resolve·머지를 하지 않고, 판단이 필요한 건은 메인 세션에 돌려준다.
 
@@ -163,7 +164,7 @@ claude plugin install rocky@rocky-marketplace
 }
 ```
 
-허용하는 top-level 키는 아래 여섯뿐이다. 그 밖의 키는 바로 거부한다(오타 가드). 제거된 `openapi` / `seo`도 거부하니 옛 설정 파일에 남아 있으면 지운다. 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json)과 `crates/rocky-core/src/config.rs`가 함께 정한다.
+허용하는 top-level 키는 아래뿐이다. 그 밖의 키는 스키마(`additionalProperties: false`)가 오타로 잡는다. 제거된 `openapi` / `seo`도 거부하니 옛 설정 파일에 남아 있으면 지운다. 정확한 모양은 [`rocky.schema.json`](./rocky.schema.json)과 `crates/rocky-core/src/config.rs`가 함께 정한다.
 
 | 키 | 내용 |
 | --- | --- |
@@ -174,6 +175,7 @@ claude plugin install rocky@rocky-marketplace
 | `statusline` | `rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄 — cc-usage 와 같은 출력)의 한도 설정. `source`(`auto` 기본 / `stdin` / `api` / `none`) / `alertPercent`(기본 90, `0` 이면 임박 경고 끔). `extraCommands[]`(다른 도구의 statusline 줄 — `command` argv, `timeoutMs` 기본 300). `configDir`(기본 `~/.claude`, 세션의 `CLAUDE_CONFIG_DIR` 가 이긴다) — 한도 캐시(`~/.cache/rocky/statusline/`)는 설정 폴더와 로그인된 계정별로 갈린다. usage API 는 statusline 이 갱신 프로세스를 detached 로 띄워 부르고(`pollSeconds` 기본 300 · `creditPollSeconds` 300, 토큰은 `tokenEnv` → keychain → `.credentials.json` 순으로 읽기만 한다. `keychainService` · `credentialsFile` 은 `configDir`(없으면 `~/.claude`)의 세션에만 쓰이고, 그 밖의 세션은 Claude Code 의 이름 규칙 `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>` 으로 keychain 을 찾고, keychain 토큰이 만료됐으면 유효한 `<그 폴더>/.credentials.json` 이 이긴다), `creditDivisor`(100) · `currency`(`$`) · `alwaysShowCredits` 로 크레딧 표시를 고른다. 크레딧 금액은 안 쓸 때 옅은 색이고 쓰기 시작하면 3초에 걸쳐 원래 색으로 페이드한다(`creditFade: false` 면 cc-usage 와 같은 색). `badges`(이메일 → `emoji` 또는 `glyph`+`color`)로 로그인된 계정을 상태 줄 앞에 표시한다. 한도가 임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남는다. `source` 는 `--source` 플래그와 `ROCKY_STATUSLINE_SOURCE` 로 그 실행에서만 바꿀 수 있다. Antigravity(`agy`)의 statusLine 에 같은 명령을 걸면 agy 가 주는 `quota` 로 한도를 그린다(Claude 쪽 토큰·캐시는 보지 않는다). `guard: true` 면 `UserPromptSubmit` 훅 `rocky statusline guard` 가 한도 소진으로 크레딧이 차감되기 시작할 때 prompt 를 막는다(`rocky statusline allow 30m` 으로 잠시 해제). 줄이 안 나오면 `rocky statusline doctor`(설정·계정·토큰·캐시·keychain 후보·`extraCommands` 실행 결과)와 `rocky statusline probe`(usage API 원본 응답). 보드 줄 템플릿(`todo.statusline`)과는 다른 자리다 |
 | `tokens` | Claude Code 토큰 색인. `enabled`(기본 true) / `dir`(트랜스크립트 루트, 기본 `$CLAUDE_CONFIG_DIR/projects` → `~/.claude/projects`) / `recommend`(`window` 15 · `minTurns` 5 · `lowOutputTokens` 3000 · `lowerEffort` · `holdAfterRaise` · `switchToSonnet` · `freshSession` · `heavyContextTokens` 200000 · `freshSessionOutputTokens` 10000) |
 | `verify` | 기본 브랜치 검증(opt-in). `targets[]` — `board`(그 보드 `path`가 레포) / `branch`(기본 `main`) / `steps[]`(`name` · `command` argv · `timeoutMs` 기본 30분) — 와 `intervalSeconds`(기본 60). 아래 "기본 브랜치 검증" |
+| `lab` | Claude Code function hooks 실험(early access) — **사용자 설정에서만 읽고 기본 꺼짐**. 블록만 두면(`"lab": {}`) 켜진다: `toast`(데몬이 세션에 보낸 PR·리뷰·수집함·핸드오프 메시지를 화면 toast 로도) / `band`(프롬프트 위 보드 요약 · PR 감시 · 받은편지함 등록 줄) / `limits`(엔진이 밀어 주는 5h/7d·ctx 를 status 줄에), 각각 기본 true. `enabled: false` 로 끈다. 세션을 다시 열어야 적용되고, `/rocky-lab` 이 세션 id·받은편지함·스위치를 진단한다. [`docs/features/lab.md`](./docs/features/lab.md) |
 | `todo` | 보드 데몬 설정. `port` / `dir` / `expose` / `watch` / `statusline` / `inbox` / `inboxAdapters` / `sessionSummary`. Rust 데몬(`crates/`)이 읽는다. 자세한 모양은 [`docs/board.md`](./docs/board.md) |
 
 ### 환경 변수
@@ -222,6 +224,7 @@ bun install        # 개발 도구(biome · changesets · husky 훅 배선)와 �
 bun run check      # Biome 검증
 bun run typecheck  # tsc --noEmit
 bun run test       # 스크립트·웹 UI 테스트. 맨 `bun test`는 DOM 테스트 준비가 빠져 실패한다
+bun run test:lab   # lab 모듈(plugin/hooks/lab) — claude CLI 의 plugin validate + test. CI 밖
 bun run e2e        # 웹 UI E2E(Playwright): 격리 데몬과 가짜 데이터로 폰·cmux·데스크톱 세 화면
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 cargo build --workspace   # target/debug/{rocky,rockyd}. ROCKY_BIN=target/debug/rocky로 부트스트랩을 우회한다

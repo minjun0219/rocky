@@ -226,6 +226,29 @@
       },
       "additionalProperties": false
     },
+    "lab": {
+      "type": "object",
+      "description": "Claude Code function hooks(early access) 실험 — 데몬이 받은편지함으로 보낸 rocky 메시지 toast, 프롬프트 위 보드 요약 줄, 엔진 한도 status, /rocky-lab 진단(docs/features/lab.md). 사용자 설정에서만 읽는다. 블록이 없거나 enabled 가 false 면 꺼진다. 세션을 다시 열어야 적용된다.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "끄려면 false (기본 true — 블록만 두면 켜진다)."
+        },
+        "toast": {
+          "type": "boolean",
+          "description": "PR 전이·리뷰·수집함·핸드오프 메시지를 화면 toast 로도 띄운다(기본 true)."
+        },
+        "band": {
+          "type": "boolean",
+          "description": "프롬프트 위에 보드 요약 · PR 감시 · 받은편지함 등록 · 마지막 rocky 메시지 줄(기본 true). 턴이 끝날 때와 rocky 메시지가 올 때만 데몬을 읽는다."
+        },
+        "limits": {
+          "type": "boolean",
+          "description": "엔진이 밀어 주는 5h/7d 한도·컨텍스트를 status 줄에(기본 true) — rocky statusline 숫자와 비교용."
+        }
+      },
+      "additionalProperties": false
+    },
     "statusline": {
       "type": "object",
       "description": "`rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄)의 한도 설정 — cc-usage 와 같은 출력을 낸다. 보드 줄 템플릿(todo.statusline)과는 다른 자리다.",
