@@ -949,6 +949,9 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 `rocky config init`이 기본 파일(expose off · sessionSummary on)을 없을 때만 만든다. Claude Code
 에서는 `/rocky:config`가 그 결과를 보고 빠진 항목을 하나씩 물어 채운다(`/rocky:config expose off`
 처럼 값 변경도). `settings.json`의 statusLine은 덮어쓰지 않는다 — 조각을 붙일지 묻는다.
+`rocky doctor`는 같은 점검에 실행 상태를 더한다 — `/api/health`(DB 무결성·PR 감시 `available`·`lastTick` 15분),
+`/api/verify`(실패한 대상), `/api/deliveries`(24시간 안 실패·끝난 세션 수), `/api/rc/servers`(자격·꺼진 고정 서버). 판정은
+`rocky_core::doctor`, 데몬이 꺼져 있으면 띄우지 않고 "닿지 못함" 으로 남긴다.
 
 | env | 의미 |
 | --- | --- |
