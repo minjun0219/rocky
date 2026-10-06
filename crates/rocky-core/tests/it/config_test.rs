@@ -523,7 +523,7 @@ fn statusline_block_reads_refresh_and_credit_settings() {
     assert!(c.limits.always_show_credits);
     // 빈 문자열·0 은 기본값.
     let (_dir, path) =
-        write_config(r#"{ "statusline": { "configDir": " ", "pollSeconds": 0, "currency": "" } }"#);
+        write_config(r#"{ "statusline": { "configDir": "", "pollSeconds": 0, "currency": "" } }"#);
     let c = load_statusline_block(&path);
     assert_eq!(c.config_dir, None);
     assert_eq!(c.limits.poll(), chrono::TimeDelta::seconds(300));

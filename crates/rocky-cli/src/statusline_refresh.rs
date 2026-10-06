@@ -35,8 +35,16 @@ pub fn run(cfg: &StatuslineConfig, now: DateTime<Utc>) {
     let Some(slot) = Slot::from_env(cfg.config_dir.as_deref()) else {
         return;
     };
-    // 계정 파일을 직접 읽는다 — 토큰과 같은 계정의 캐시에 써야 한다.
-    let bucket = slot.bucket(slot.read_email().as_deref());
+    // 홈이 없으면(지워진 임시 폴더 등) 아무것도 만들지 않는다.
+    if !std::env::var("HOME").is_ok_and(|h| Path::new(&h).is_dir()) {
+        return;
+    }
+    // 계정 파일을 직접 읽는다 — 토큰과 같은 계정의 캐시에 써야 한다. 못 읽으면(원자적 재작성 중 등) 이 계정이 누구인지
+    // 모르는 것이라 쓰지 않는다 — `_` 에 쓰면 그 숫자가 나중에 다른 계정 줄에 나온다.
+    let Some(email) = slot.read_email() else {
+        return;
+    };
+    let bucket = slot.bucket(Some(&email));
     let Some(_lock) = Lock::try_acquire(&bucket.join("refresh.lock")) else {
         return; // 다른 갱신이 도는 중
     };
@@ -45,7 +53,12 @@ pub fn run(cfg: &StatuslineConfig, now: DateTime<Utc>) {
     if usage.backoff_until.is_some_and(|t| now < t) {
         return;
     }
-    match load_token(cfg, &slot, now).and_then(|token| fetch(&token.access_token, now)) {
+    let result = load_token(cfg, &slot, now).and_then(|token| fetch(&token.access_token, now));
+    // 그 사이 계정이 바뀌었으면(claude-swap 이 keychain 을 먼저 바꾸는 등) 이 응답이 누구 것인지 확신할 수 없다 — 버린다.
+    if slot.read_email().as_deref() != Some(email.as_str()) {
+        return;
+    }
+    match result {
         Ok(fetched) => {
             // 새 응답 기준으로 소진된 창 — 크레딧 기준선이 어느 창의 것인지 정한다.
             let mut next = usage.clone();
@@ -80,6 +93,8 @@ pub fn spawn_detached() -> bool {
             Ok(())
         });
     }
+    // git·extra 를 띄우는 스레드와 겹치면 그 파이프 끝을 이 자식이 물려받는다(`bounded` 의 주석) — 같은 잠금 아래서.
+    let _guard = crate::bounded::spawn_lock();
     cmd.spawn().is_ok()
 }
 
@@ -118,10 +133,13 @@ fn load_token(
     }
     let home = std::env::var("HOME").unwrap_or_default();
     let home = Path::new(&home);
+    // keychainService·credentialsFile 이 가리키는 폴더 — 설정의 configDir(세션 env 는 보지 않는다).
+    let settings_dir = claude_account::config_dir(None, cfg.config_dir.as_deref(), home);
     let mut errors = Vec::new();
     if cfg!(target_os = "macos") {
         match claude_account::keychain_service(
             cfg.keychain_service.as_deref(),
+            &settings_dir,
             &slot.config_dir,
             home,
         ) {
@@ -133,8 +151,12 @@ fn load_token(
             None => errors.push("keychain: 건너뜀 (비기본 config_dir)".to_string()),
         }
     }
-    let file =
-        claude_account::credentials_file(cfg.credentials_file.as_deref(), &slot.config_dir, home);
+    let file = claude_account::credentials_file(
+        cfg.credentials_file.as_deref(),
+        &settings_dir,
+        &slot.config_dir,
+        home,
+    );
     match std::fs::read_to_string(&file) {
         Ok(raw) => match claude_account::parse_token(&raw) {
             Ok(token) => return claude_account::check_token(token, now).map_err(Failure::from),
@@ -173,7 +195,7 @@ fn fetch(token: &str, now: DateTime<Utc>) -> Result<rocky_core::limits::CachedUs
         .header("Accept", "application/json")
         .header("User-Agent", "rocky")
         .call()
-        .map_err(|e| Failure::from(e.to_string()))?;
+        .map_err(|e| Failure::from(format!("Get {url:?}: {e}")))?;
     let status = response.status().as_u16();
     let retry_after = response
         .headers()
@@ -205,13 +227,17 @@ fn fetch(token: &str, now: DateTime<Utc>) -> Result<rocky_core::limits::CachedUs
 /// `Retry-After` — 초, 또는 HTTP 날짜. 읽을 수 없으면 0.
 fn retry_after(v: &str, now: DateTime<Utc>) -> TimeDelta {
     let v = v.trim();
-    if let Ok(secs) = v.parse::<i64>() {
-        return TimeDelta::seconds(secs);
-    }
-    DateTime::parse_from_rfc2822(v)
-        .map(|t| t.with_timezone(&Utc) - now)
-        .unwrap_or_default()
+    let wait = match v.parse::<i64>() {
+        Ok(secs) => TimeDelta::try_seconds(secs).unwrap_or(MAX_RETRY_AFTER),
+        Err(_) => DateTime::parse_from_rfc2822(v)
+            .map(|t| t.with_timezone(&Utc) - now)
+            .unwrap_or_default(),
+    };
+    // 터무니없는 값에 갇히지 않게 — 하루를 넘기면 하루로.
+    wait.clamp(TimeDelta::zero(), MAX_RETRY_AFTER)
 }
+
+const MAX_RETRY_AFTER: TimeDelta = TimeDelta::hours(24);
 
 /// 120바이트에서 자른다(글자 중간에서는 자르지 않는다).
 fn truncate(s: &str, n: usize) -> String {

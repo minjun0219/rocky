@@ -13,7 +13,8 @@
   `crates/rocky-core/tests/fixtures/cc-usage/`). 한도(5h/7d) 판정은 순수 함수, "지금"은 인자로 받는다.
 - `--full` 의 줄은 **CLI 가 그린다** — 데몬이 없어도 경로·모델·한도 줄은 남고, 보드 줄은 그 아래 한 세그먼트라 실패하면 그 줄만
   빠진다. 설정은 `rocky.json` 최상위 `statusline` 블록(보드 줄 템플릿 `todo.statusline` 과 다른 자리).
-- 골든은 cc-usage(기능 동결)에서 `scripts/cc-usage-capture.ts` 로 뜬다. 일부러 다르게 둔 곳은 케이스의 `allow` 에만 적는다.
+- 골든은 cc-usage(아카이브됨 — 로컬 체크아웃을 빌드해 쓴다)에서 `scripts/cc-usage-capture.ts` 로 뜬다. 일부러 다르게 둔 곳은
+  케이스의 `allow` 나 스펙의 "의도된 차이" 에 적는다.
   테스트 전용 `ROCKY_STATUSLINE_NOW`(RFC3339)가 "지금" 을 고정한다 — 사용자 표면이 아니라 README 표에 올리지 않는다(cc-usage
   쪽 짝은 `CC_USAGE_NOW`).
 - git 세그먼트는 `git status --porcelain=v2` 한 번, 500ms. 넘으면 **프로세스 그룹째** 끊고 그 세그먼트만 뺀다 — git 만 죽이면

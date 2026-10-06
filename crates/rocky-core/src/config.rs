@@ -666,7 +666,6 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
         block
             .get(key)
             .and_then(|v| v.as_str())
-            .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
     };

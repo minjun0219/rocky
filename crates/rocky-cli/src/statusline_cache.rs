@@ -98,7 +98,11 @@ pub fn write<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
         .truncate(true)
         .mode(0o600)
         .open(&tmp)?;
-    file.write_all(&body)?;
+    if let Err(e) = file.write_all(&body) {
+        drop(file);
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     drop(file);
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);

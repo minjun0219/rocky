@@ -571,7 +571,12 @@ pub fn apply_failure(
     cache.failures += 1;
     let backoff =
         (TimeDelta::minutes(1) * (1 << (cache.failures - 1).min(5))).min(TimeDelta::minutes(30));
-    cache.backoff_until = Some(now + backoff.max(retry_after));
+    // 넘치면(터무니없는 Retry-After) 그 자리에 머문다 — 시각이 비면 backoff 가 풀린다.
+    let wait = backoff.max(retry_after);
+    cache.backoff_until = Some(
+        now.checked_add_signed(wait)
+            .unwrap_or(DateTime::<Utc>::MAX_UTC),
+    );
 }
 
 fn used_credits(usage: Option<&CachedUsage>) -> Option<f64> {

@@ -4,7 +4,8 @@
  *
  *   bun scripts/cc-usage-capture.ts [cc-usage 바이너리]   # 기본: PATH 의 cc-usage
  *
- * cc-usage 는 기능 동결 상태라 한 번 뜬 출력이 그대로 기준으로 남는다. 버그 수정으로 출력이 바뀌면 다시 뜬다.
+ * cc-usage 는 아카이브됐다(2026-10-06) — 한 번 뜬 출력이 그대로 기준이다. 새 케이스는 로컬 체크아웃(`CC_USAGE_NOW` 가 있는
+ * main)을 빌드해 뜬다. 설치된 `~/.local/bin/cc-usage` 는 그 이전 빌드라 쓰지 않는다.
  * 케이스는 이 파일의 `CASES` 가 정본이고, `crates/rocky-core/tests/fixtures/cc-usage/<이름>/` 에 `case.json` 과
  * `expected.txt` 를 쓴다(있던 폴더는 지우고 새로 쓴다). Rust 쪽 테스트는 Go 없이 그 둘만 읽는다.
  *
