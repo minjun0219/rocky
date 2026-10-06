@@ -934,7 +934,8 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄은 맨 아래다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
   읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 한도가
   임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
-  표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 아직 없는 것: guard·probe·doctor·agy — 설계
+  표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
+  페이드한다 — rocky 만의 표시라 `creditFade: false` 로 끄면 cc-usage 와 같은 색이다. 아직 없는 것: guard·probe·doctor·agy — 설계
   `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
 
   계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와

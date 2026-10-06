@@ -117,6 +117,9 @@ pub struct Observed {
     pub alert: rocky_core::limits::Alert,
     /// 로그인된 계정의 이메일(계정 캐시) — 배지를 고른다. 모르면 `None`.
     pub email: Option<String>,
+    pub credits: rocky_core::limits::CreditView,
+    /// 크레딧 금액 색의 진하기(`limits::credit_glow`).
+    pub credit_glow: Option<f64>,
 }
 
 /// 이 렌더의 한도·usage 캐시·경보·계정 — `None` 이면 한도를 다루지 않는다(`source: none`, 캐시를 읽지도 쓰지도 않는다).
@@ -132,8 +135,8 @@ pub fn observe(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<Observed> {
     use rocky_core::limits::{
-        account_cached, alert, alerts, need_account_check, need_refresh, select, use_stdin,
-        AccountCache, Source, StateFile, UsageCache,
+        account_cached, alert, alerts, credit_glow, credits, need_account_check, need_refresh,
+        select, use_stdin, AccountCache, Source, StateFile, UsageCache,
     };
 
     if cfg.source == Source::None {
@@ -144,11 +147,20 @@ pub fn observe(
         // (cc-usage 는 HOME 이 없어도 CLAUDE_CONFIG_DIR 의 계정 파일·XDG_CACHE_HOME 을 쓴다 — 의도된 차이, 스펙 참고.)
         let usage = UsageCache::default();
         let lim = select(cfg, input, &StateFile::default(), &usage, now)?;
+        // 쓰기 시작한 시각을 적을 데도 없어 페이드 없이 — 쓰는 중이면 원래 색, 아니면 옅은 색.
+        let cv = credits(cfg, &lim, &usage, now);
+        let credit_glow = (cfg.credit_fade() && cv.show && cv.enabled).then_some(if cv.spending {
+            1.0
+        } else {
+            0.0
+        });
         return Some(Observed {
             alert: alert(cfg, &lim),
             limits: lim,
             usage,
             email: None,
+            credits: cv,
+            credit_glow,
         });
     };
     let load = |email: Option<&str>| {
@@ -200,7 +212,10 @@ pub fn observe(
     }
     // 단계가 오른 시각을 적어야 다음 렌더가 깜빡임 구간인지 안다.
     let (alert, alert_dirty) = alerts(cfg, &lim, &mut state, now);
-    if dirty || alert_dirty {
+    // 크레딧을 쓰기 시작한 시각도 적어야 다음 렌더가 페이드를 이어 그린다.
+    let cv = credits(cfg, &lim, &usage, now);
+    let (credit_glow, glow_dirty) = credit_glow(cfg, &cv, &mut state, now);
+    if dirty || alert_dirty || glow_dirty {
         let _ = write(&state_file(&bucket), &state);
     }
     Some(Observed {
@@ -208,5 +223,7 @@ pub fn observe(
         usage,
         alert,
         email,
+        credits: cv,
+        credit_glow,
     })
 }

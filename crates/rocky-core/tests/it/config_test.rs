@@ -551,3 +551,11 @@ fn statusline_block_reads_badges_and_skips_malformed_ones() {
         ("◆", "33")
     );
 }
+
+#[test]
+fn statusline_block_reads_credit_fade_defaulting_on() {
+    let (_dir, path) = write_config(r#"{ "statusline": { "creditFade": false } }"#);
+    assert!(!load_statusline_block(&path).limits.credit_fade());
+    let (_dir, path) = write_config(r#"{ "statusline": {} }"#);
+    assert!(load_statusline_block(&path).limits.credit_fade());
+}

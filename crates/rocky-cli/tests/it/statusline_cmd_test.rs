@@ -225,6 +225,8 @@ fn full_replays_cc_usage_goldens() {
             .collect();
         let statusline = serde_json::json!({
             "keychainService": TEST_KEYCHAIN,
+            // rocky 만의 크레딧 페이드는 끄고 대조한다(끄면 cc-usage 와 같은 색).
+            "creditFade": false,
             "source": case["config"]["source"],
             "alertPercent": case["config"]["alert_percent"],
             "extraCommands": extra_commands,
@@ -550,4 +552,55 @@ fn full_records_when_an_alert_rose_and_blinks_from_there() {
         serde_json::from_str(&std::fs::read_to_string(bucket.join("state.json")).unwrap()).unwrap();
     assert_eq!(state["alert_key"], "2@5h");
     assert_eq!(state["alert_at"], NOW);
+}
+
+/// 크레딧을 쓰기 시작하면 그 시각을 `state.json` 에 적고, 다음 렌더들이 거기서부터 옅은 색 → 원래 색으로 이어 그린다.
+#[test]
+fn full_fades_the_credit_amount_in_when_credits_start_burning() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let config = home.join("rocky.json");
+    std::fs::write(
+        &config,
+        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"stdin","keychainService":"rocky-test-absent"}}"#,
+    )
+    .unwrap();
+    // 방금(15분 안에) 크레딧이 늘었다 — 쓰는 중.
+    let bucket = rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
+    std::fs::create_dir_all(&bucket).unwrap();
+    std::fs::write(
+        bucket.join("usage.json"),
+        r#"{"usage":{"fetched_at":"2026-09-16T07:39:00Z","extra":{"enabled":true,"used_credits":1160,"monthly_limit":5000}},"credits_rising_at":"2026-09-16T07:39:00Z"}"#,
+    )
+    .unwrap();
+    let render = |now: &str| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rocky"))
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", home)
+            .env("ROCKY_USAGE_DIR", home.join("usage"))
+            .env("ROCKY_CONFIG", &config)
+            .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
+            .env("ROCKY_STATUSLINE_NOW", now)
+            .env("COLORTERM", "truecolor")
+            .args(["statusline", "--full"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"model":{"display_name":"M"},"rate_limits":{"five_hour":{"used_percentage":30}}}"#)
+            .unwrap();
+        String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+    };
+    // 처음 — 옅은 색(105,149,76)에서 출발하고 시각을 적는다.
+    assert!(render("2026-09-16T07:40:00Z").contains("\x1b[38;2;105;149;76m$38.40"));
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(bucket.join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["credits_spending_at"], "2026-09-16T07:40:00Z");
+    // 3초 뒤 — 원래 색(82,170,23).
+    assert!(render("2026-09-16T07:40:03Z").contains("\x1b[38;2;82;170;23m$38.40"));
 }

@@ -22,6 +22,8 @@ fn render(case: &Value) -> String {
             .and_then(Source::parse)
             .unwrap_or_default(),
         alert_percent: case["config"]["alert_percent"].as_f64(),
+        // rocky 만의 크레딧 페이드는 끄고 대조한다(끄면 cc-usage 와 같은 색).
+        credit_fade: Some(false),
         ..Default::default()
     };
     // 캡처 때 cc-usage 캐시에 심은 usage.json — 없으면 빈 캐시.
@@ -67,6 +69,7 @@ fn render(case: &Value) -> String {
         credits: selected.map_or_else(Default::default, |_| credits(&cfg, &limits, &cache, now)),
         currency: cfg.currency(),
         badge: badge.as_ref(),
+        credit_glow: None,
         home: Some(HOME),
         now,
     };
@@ -233,4 +236,57 @@ fn extra_expand_skips_only_when_a_used_placeholder_is_empty() {
     // UTF-8 이 아닌 바이트는 그대로 두고, 공백으로 보지 않는다.
     assert_eq!(output_lines(b"a\xffb\n\xff\n"), [&b"a\xffb"[..], b"\xff"]);
     assert!(output_lines(b"").is_empty());
+}
+
+/// 크레딧 금액 색 — 옅은 색(회색 쪽으로 반)에서 원래 색(사용률 그라데이션)으로. 24bit 는 정확히 섞고, 색을 섞을 수 없는
+/// 터미널은 원래 색이 아니면 회색이다.
+#[test]
+fn credit_amount_fades_from_pale_to_its_usage_color() {
+    use rocky_core::limits::{CreditView, Limits};
+    let now = DateTime::parse_from_rfc3339("2026-09-16T07:40:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let credit_row = |glow: Option<f64>, style: Style| {
+        let view = View {
+            dir: "",
+            git: None,
+            model: "",
+            effort: "",
+            context_pct: None,
+            limits: Limits::default(),
+            usage: Some(&UsageCache::default()),
+            alert: Default::default(),
+            credits: CreditView {
+                show: true,
+                enabled: true,
+                used: 11.6,
+                limit: Some(50.0),
+                ..Default::default()
+            },
+            currency: "$",
+            home: None,
+            now,
+            badge: None,
+            credit_glow: glow,
+        };
+        // 상태 문구("usage …")가 크레딧 앞에 오므로 줄 안에서 찾는다.
+        lines(&view, &style, &chrono::Utc).join("\n")
+    };
+    let truecolor = Style {
+        color: true,
+        true_color: true,
+        ..Default::default()
+    };
+    // 사용률 23.2% 의 원래 색 = rgb(82,170,23). 옅은 색은 회색(128,128,128)과 반씩.
+    assert!(credit_row(None, truecolor).contains("\x1b[38;2;82;170;23m$38.40"));
+    assert!(credit_row(Some(1.0), truecolor).contains("\x1b[38;2;82;170;23m$38.40"));
+    assert!(credit_row(Some(0.0), truecolor).contains("\x1b[38;2;105;149;76m$38.40"));
+    assert!(credit_row(Some(0.5), truecolor).contains("\x1b[38;2;94;160;50m$38.40"));
+    // 3단계 터미널 — 옅은 쪽은 회색, 원래 색이면 초록.
+    let plain = Style {
+        color: true,
+        ..Default::default()
+    };
+    assert!(credit_row(Some(0.5), plain).contains("\x1b[90m$38.40"));
+    assert!(credit_row(Some(1.0), plain).contains("\x1b[32m$38.40"));
 }

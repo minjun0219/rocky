@@ -64,6 +64,21 @@ impl Style {
         .to_string()
     }
 
+    /// 크레딧 금액 색 — 사용률 색(`pct_color`)을 `glow` 만큼 진하게. 0 이면 회색 쪽으로 반쯤 섞은 옅은 색, 1 이면 원래 색.
+    /// 색을 섞을 수 없는 터미널(24bit·256 아님)은 1 이 아니면 회색이다. `None` 이면 원래 색 그대로(cc-usage 와 같다).
+    fn credit_tone(&self, used: f64, glow: Option<f64>) -> String {
+        let Some(glow) = glow else {
+            return self.pct_color(used);
+        };
+        let base = gradient_rgb(used);
+        let pale = mix(base, (128, 128, 128), 0.5);
+        match self.rgb(mix(pale, base, glow)) {
+            Some(c) => c,
+            None if glow >= 1.0 => self.pct_color(used),
+            None => DIM.to_string(),
+        }
+    }
+
     /// ctx 색 — 한도와 다른 축(파랑). 차오를수록 밝아지되 뒤로 몰아서 밝아진다.
     fn ctx_color(&self, p: f64) -> String {
         let p = p.clamp(0.0, 100.0);
@@ -126,6 +141,13 @@ fn cube_axis(v: i32) -> i32 {
     best.0
 }
 
+/// `a` 에서 `b` 쪽으로 `t`(0~1)만큼.
+fn mix(a: (i32, i32, i32), b: (i32, i32, i32), t: f64) -> (i32, i32, i32) {
+    let t = t.clamp(0.0, 1.0);
+    let one = |x: i32, y: i32| (x as f64 + (y - x) as f64 * t).round() as i32;
+    (one(a.0, b.0), one(a.1, b.1), one(a.2, b.2))
+}
+
 fn gradient_rgb(used: f64) -> (i32, i32, i32) {
     let t = (100.0 - used.clamp(0.0, 100.0)) / 100.0; // 남은 비율
     (
@@ -154,6 +176,8 @@ pub struct View<'a> {
     pub currency: &'a str,
     /// 로그인된 계정의 표시 — `None` 이면 없음(목록에 없는 계정).
     pub badge: Option<&'a Badge>,
+    /// 크레딧 금액 색의 진하기(`limits::credit_glow`) — `None` 이면 cc-usage 와 같은 색.
+    pub credit_glow: Option<f64>,
     /// `~` 로 줄일 홈 디렉터리.
     pub home: Option<&'a str>,
     pub now: DateTime<Utc>,
@@ -265,7 +289,7 @@ fn credit_line(v: &View, s: &Style) -> String {
     let cur = v.currency;
     let mut t = match cv.limit.filter(|l| *l > 0.0) {
         Some(limit) => {
-            let tone = s.pct_color(cv.used / limit * 100.0);
+            let tone = s.credit_tone(cv.used / limit * 100.0, v.credit_glow);
             s.c(&tone, &money(cur, limit - cv.used))
                 + &s.c(DIM, &format!(" ({})", money_short(cur, limit)))
         }

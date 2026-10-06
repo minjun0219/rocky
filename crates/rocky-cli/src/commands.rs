@@ -1631,7 +1631,7 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 /// 보드 줄 — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
 /// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
 fn statusline_full(ctx: &CliContext) {
-    use rocky_core::limits::{credits, Input};
+    use rocky_core::limits::Input;
     use rocky_core::statusline::extra::{expand, output_lines, Vars};
     use rocky_core::statusline::full::{lines, Style, View};
 
@@ -1677,11 +1677,10 @@ fn statusline_full(ctx: &CliContext) {
             limits,
             usage: cache,
             alert: observed.as_ref().map(|o| o.alert).unwrap_or_default(),
-            credits: cache.map_or_else(Default::default, |usage| {
-                credits(limits_cfg, &limits, usage, now)
-            }),
+            credits: observed.as_ref().map(|o| o.credits).unwrap_or_default(),
             currency: limits_cfg.currency(),
             badge,
+            credit_glow: observed.as_ref().and_then(|o| o.credit_glow),
             home: home.as_deref(),
             now,
         };
