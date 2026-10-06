@@ -740,3 +740,37 @@ async fn handoff_picks_its_target_from_the_uncached_session_list() {
     assert_eq!(status, 400);
     assert!(f.store.pending_handoff_of(&todo.id).unwrap().is_none());
 }
+
+/// 잠든 background 세션(Claude Code 2.1.289 의 실제 모양 — pid·status 없음, cwd 는 레포 루트)은 자동 대상이 아니다.
+/// 목록에 남아 보드와 맞지만, 일을 넘기면 아무도 집지 않는 큐가 된다.
+#[tokio::test]
+async fn auto_match_skips_dormant_background_sessions() {
+    let mut dormant = sess(0, "/w/rocky-todo", "0da6a98a-full", "rocky-todo-25", "idle");
+    dormant.pid = None;
+    dormant.kind = "background".into();
+    dormant.id = Some("0da6a98a".into());
+    dormant.state = Some("blocked".into());
+    let f = fx();
+    let both = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![
+            dormant.clone(),
+            sess(1, "/w/rocky-todo", "sess-1", "rocky-todo-1e", "idle"),
+        ])))
+    });
+    let todo = create(&f, "rocky-todo", "x");
+    let (status, body) = post(&both, &format!("/api/todos/{}/handoff", todo.id), json!({})).await;
+    assert_eq!(status, 201, "잠든 세션을 빼면 후보는 하나다: {body}");
+    assert_eq!(body["sessionId"], "sess-1");
+
+    let alone = rebuild(&f, |o| {
+        o.sessions = Some(fixed_sessions(available(vec![dormant])))
+    });
+    let other = create(&f, "rocky-todo", "y");
+    let (status, body) = post(
+        &alone,
+        &format!("/api/todos/{}/handoff", other.id),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, 409, "잠든 세션뿐이면 사람이 고른다: {body}");
+}

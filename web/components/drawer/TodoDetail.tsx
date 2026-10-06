@@ -404,7 +404,7 @@ export function TodoDetail() {
                 <option value="">자동 (이 보드의 세션)</option>
                 {sessions.list.map((session) => (
                   <option key={session.sessionId} value={session.sessionId}>
-                    {session.name} · {session.status} · {session.cwd}
+                    {session.name} · {session.state ?? session.status} · {session.cwd}
                   </option>
                 ))}
               </select>
