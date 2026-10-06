@@ -140,6 +140,16 @@ CREATE TABLE IF NOT EXISTS session_inboxes (
   cwd TEXT NOT NULL,
   seen_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  url TEXT,
+  session_id TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  reason TEXT
+);
 CREATE TABLE IF NOT EXISTS cleared_sessions (
   session_id TEXT PRIMARY KEY,
   successor_id TEXT NOT NULL,
@@ -2476,6 +2486,54 @@ impl TodoStore {
                     cwd: r.get(2)?,
                     seen_at: r.get(3)?,
                     restored: true,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// 세션에 보낸 한 건을 남기고 최근 `keep` 건만 둔다 — 데몬이 다시 떠도 웹 "세션 전달" 의 최근 기록이 이어지게.
+    pub fn save_delivery(
+        &self,
+        delivery: &crate::peer_inbox::Delivery,
+        keep: usize,
+    ) -> StoreResult<()> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO deliveries (at, kind, subject, url, session_id, ok, reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                delivery.at,
+                delivery.kind,
+                delivery.subject,
+                delivery.url,
+                delivery.session_id,
+                delivery.ok,
+                delivery.reason
+            ],
+        )?;
+        conn.execute(
+            "DELETE FROM deliveries WHERE id NOT IN (SELECT id FROM deliveries ORDER BY id DESC LIMIT ?1)",
+            params![keep as i64],
+        )?;
+        Ok(())
+    }
+
+    /// 남긴 전달 기록 — 새 것부터 `limit` 건.
+    pub fn load_deliveries(&self, limit: usize) -> StoreResult<Vec<crate::peer_inbox::Delivery>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT at, kind, subject, url, session_id, ok, reason FROM deliveries ORDER BY id DESC LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![limit as i64], |r| {
+                Ok(crate::peer_inbox::Delivery {
+                    at: r.get(0)?,
+                    kind: r.get(1)?,
+                    subject: r.get(2)?,
+                    url: r.get(3)?,
+                    session_id: r.get(4)?,
+                    ok: r.get(5)?,
+                    reason: r.get(6)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
