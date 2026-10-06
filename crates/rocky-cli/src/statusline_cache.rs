@@ -58,9 +58,14 @@ impl Slot {
 
     /// 지금 로그인된 이메일 — 후보를 차례로 보고 처음 **읽힌** 파일의 값. 아무것도 못 읽으면 `None`.
     pub fn read_email(&self) -> Option<String> {
+        self.read_account().map(|a| a.email)
+    }
+
+    /// 계정 파일 — 후보를 차례로 보고 처음 **읽힌** 파일. 아무것도 못 읽으면 `None`.
+    pub fn read_account(&self) -> Option<claude_account::AccountFile> {
         self.account_paths.iter().find_map(|p| {
             let raw = std::fs::read_to_string(p).ok()?;
-            claude_account::email_from_account_file(&raw)
+            claude_account::parse_account_file(&raw)
         })
     }
 }

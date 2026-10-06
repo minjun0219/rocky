@@ -758,6 +758,10 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
         .get("alwaysShowCredits")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    cfg.limits.guard = block
+        .get("guard")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let extras = block.get("extraCommands").and_then(|v| v.as_array());
     cfg.extra_commands = extras
         .into_iter()

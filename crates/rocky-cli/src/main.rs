@@ -75,7 +75,9 @@ fn run(argv: &[String]) -> Result<(), String> {
         rocky_cli::statusline_refresh::run(&cfg, commands::statusline_now());
         return Ok(());
     }
-    if command == "statusline" {
+    // guard·allow 같은 statusline 의 하위 명령은 사람이 부르거나 prompt 당 한 번 도는 것이라 보통 경로(사용 로그)를 탄다.
+    let statusline_tool = matches!(rest.first().map(String::as_str), Some("guard" | "allow"));
+    if command == "statusline" && !statusline_tool {
         commands::cmd_statusline(
             &ctx,
             parsed.str_flag("cwd"),
@@ -98,7 +100,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     let started = std::time::Instant::now();
     let usage_name = match command {
         "section" | "note" | "board" | "daemon" | "mcp" | "tailscale" | "config" | "inbox"
-        | "pr" | "tokens" | "rc" => match rest.first() {
+        | "pr" | "tokens" | "rc" | "statusline" => match rest.first() {
             Some(sub) => format!("rocky {command} {sub}"),
             None => format!("rocky {command}"),
         },
@@ -140,6 +142,30 @@ fn run(argv: &[String]) -> Result<(), String> {
         "tokens" => rocky_cli::tokens_cmd::cmd_tokens(&ctx, &rest, &parsed, &printer),
         "verify" => rocky_cli::verify_cmd::cmd_verify(&ctx, &rest, &parsed, &printer),
         "rc" => rocky_cli::rc_cmd::cmd_rc(&ctx, &rest, &parsed, &printer),
+        "statusline" => {
+            let cfg =
+                rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+            let now = commands::statusline_now();
+            match rest.first().map(String::as_str) {
+                // 막으면 exit 2 — Claude Code 가 prompt 를 버리고 stderr 를 보인다. 막는 것도 정상 동작이라 성공으로 남긴다.
+                Some("guard") => {
+                    if let Some(reason) = rocky_cli::statusline_guard::check(&cfg, now) {
+                        eprintln!("{}", rocky_cli::statusline_guard::block_message(&reason));
+                        rocky_cli::usage_cmd::record(
+                            rocky_core::usage::UsageSource::Cli,
+                            &usage_name,
+                            true,
+                            Some(started),
+                            None,
+                        );
+                        std::process::exit(2);
+                    }
+                    Ok(())
+                }
+                _ => rocky_cli::statusline_guard::allow(rest.get(1).map(String::as_str), now)
+                    .map(|message| println!("{message}")),
+            }
+        }
         "mcp" if rest.first().map(String::as_str) == Some("worklog") => {
             rocky_cli::worklog_mcp::serve_stdio(if parsed.bool_flag("roots") {
                 rocky_cli::worklog_mcp::ProjectSource::Roots

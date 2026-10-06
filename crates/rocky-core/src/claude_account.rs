@@ -55,27 +55,45 @@ fn clean(p: &Path) -> PathBuf {
 /// `Some("")` 는 읽었는데 이메일이 없다(API 키 인증 등) — 둘을 가른다. 섞으면 원자적 재작성 중의 일시적 실패가
 /// "이메일 없음 = 기본 계정" 이라는 틀린 신호로 굳는다.
 pub fn email_from_account_file(raw: &str) -> Option<String> {
+    parse_account_file(raw).map(|a| a.email)
+}
+
+/// 계정 파일에서 읽는 것.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AccountFile {
+    /// 로그인된 이메일 — 없으면 빈 값(API 키 인증 등).
+    pub email: String,
+    /// 크레딧(extra usage)이 켜져 있나 — 필드가 없으면 `None`(모름). guard 가 usage 응답이 없는 구간을 이것으로 메운다.
+    /// "필드 없음" 과 `false` 를 가른다 — 같게 다루면 이 필드를 쓰지 않는 설치에서 크레딧이 켜져 있어도 꺼진 것으로 단정한다.
+    pub extra_usage_enabled: Option<bool>,
+}
+
+/// 계정 파일 내용 → 이메일·크레딧 힌트. `None` 은 **읽지 못했다**(JSON 이 아니거나 필드 타입이 틀림).
+pub fn parse_account_file(raw: &str) -> Option<AccountFile> {
     let v: Value = serde_json::from_str(raw).ok()?;
     let Some(account) = v.get("oauthAccount") else {
-        return Some(String::new());
+        return Some(AccountFile::default());
     };
     match account {
-        Value::Null => return Some(String::new()),
+        Value::Null => return Some(AccountFile::default()),
         Value::Object(_) => {}
         _ => return None,
     }
     // Go 디코더처럼, 선언한 필드의 타입이 틀리면 파일 전체를 못 읽은 것으로 본다.
-    if account
-        .get("hasExtraUsageEnabled")
-        .is_some_and(|f| !f.is_boolean() && !f.is_null())
-    {
-        return None;
-    }
-    match account.get("emailAddress") {
-        None | Some(Value::Null) => Some(String::new()),
-        Some(Value::String(email)) => Some(email.clone()),
-        Some(_) => None,
-    }
+    let extra_usage_enabled = match account.get("hasExtraUsageEnabled") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(on)) => Some(*on),
+        Some(_) => return None,
+    };
+    let email = match account.get("emailAddress") {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(email)) => email.clone(),
+        Some(_) => return None,
+    };
+    Some(AccountFile {
+        email,
+        extra_usage_enabled,
+    })
 }
 
 /// 캐시 루트 — `$XDG_CACHE_HOME`, 없으면 `~/.cache`.
@@ -91,6 +109,15 @@ pub fn cache_slot(cache_root: &Path, config_dir: &Path) -> PathBuf {
         .join("rocky")
         .join("statusline")
         .join(short_hash(&clean(config_dir).to_string_lossy()))
+}
+
+/// guard 를 잠시 끄는 `allow.json` — 계정과 상관없이 하나다. 막힌 세션과 다른 환경(다른 `CLAUDE_CONFIG_DIR`)의 터미널에서
+/// 불러도 풀려야 한다.
+pub fn allow_file(cache_root: &Path) -> PathBuf {
+    cache_root
+        .join("rocky")
+        .join("statusline")
+        .join("allow.json")
 }
 
 /// 한 계정의 캐시 — `state.json` · `usage.json` · `refresh.lock`. 이메일을 모르면(빈 값 포함) `_`.

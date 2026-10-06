@@ -22,7 +22,9 @@
   고정, 계정 배지 없음 — cc-usage 는 `CLAUDE_CONFIG_DIR`·`XDG_CACHE_HOME` 만으로도 쓴다) · 스키마가 막는 잘못된 `badges` 항목
   (`null`, 대소문자가 다른 키, 타입이 틀린 값)은 그 항목만 버린다(cc-usage 는 0값 배지로 받거나 설정 전체가 에러) ·
   `--source=none` 처럼 `=` 로 붙인 플래그는 받지 않는다(rocky CLI 파서의 계약 — `--source none`. cc-usage 처럼 무엇이 틀렸는지 `[rocky] …` 한 줄을 낸다) · source 환경 변수 이름은
-  `ROCKY_STATUSLINE_SOURCE`(cc-usage `CC_USAGE_SOURCE`).
+  `ROCKY_STATUSLINE_SOURCE`(cc-usage `CC_USAGE_SOURCE`) · guard·allow 는 `rocky statusline guard` · `rocky statusline allow`
+  (문구의 안내 명령도 그 이름) · `allow.json` 은 계정과 상관없이 하나다(cc-usage 는 캐시가 하나라 같았다 — rocky 는 캐시를
+  계정마다 나누지만 막힌 세션과 다른 환경의 터미널에서 불러도 풀리게 둔다) · guard 의 계정은 statusline 과 같은 규칙으로 정한다.
 - **미러 대상에서 뺀 것:** cc-usage 의 `update` · `config` · `version` — rocky 에 같은 일을 하는 명령(`rocky update` ·
   `rocky config`)이 있다. guard · agy 는 지금 쓰지 않아도 "기능 동일" 에 넣는다(조각 5).
 
