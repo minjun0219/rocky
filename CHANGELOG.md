@@ -1,5 +1,17 @@
 # @minjun0219/rocky
 
+## 0.45.0
+
+### Minor Changes
+
+- [#399](https://github.com/minjun0219/rocky/pull/399) [`91a5d75`](https://github.com/minjun0219/rocky/commit/91a5d75c280f32411e013bab58990d36b71b8080) Thanks [@minjun0219](https://github.com/minjun0219)! - 실험 기능 `lab` — Claude Code function hooks(early access) 모듈을 플러그인에 싣는다. 사용자 `rocky.json` 에 `"lab": {}` 를 두면(기본 꺼짐) 데몬이 받은편지함으로 보낸 PR·리뷰·수집함·핸드오프 메시지가 화면 toast 로도 뜨고, 프롬프트 위에 보드 요약 · PR 감시 · 받은편지함 등록 줄이, status 줄에 엔진이 주는 5h/7d·ctx 가 붙는다. `/rocky-lab` 이 세션 id(엔진 값과 env 값)·받은편지함·스위치를 진단한다. 칸마다 `toast`·`band`·`limits: false` 로 끈다.
+
+### Patch Changes
+
+- [#396](https://github.com/minjun0219/rocky/pull/396) [`d92021d`](https://github.com/minjun0219/rocky/commit/d92021d63167d517d3084d060725dd91a1266a4d) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 의 갱신이 `CLAUDE_CONFIG_DIR` 로 띄운 세션의 토큰도 keychain 에서 찾는다 — Claude Code 의 이름 규칙(`Claude Code-credentials-<sha256(그 값) 앞 8자리>`)을 따르므로 설정 없이 두 번째 계정의 크레딧·api 숫자가 나온다. keychain 토큰이 만료됐으면 유효한 `.credentials.json` 을 대신 쓴다. `rocky statusline doctor` 의 keychain 줄도 그 이름을 보인다.
+
+- [#397](https://github.com/minjun0219/rocky/pull/397) [`425dff0`](https://github.com/minjun0219/rocky/commit/425dff0314e4c83d71f49a7123046f813fd0dae0) Thanks [@minjun0219](https://github.com/minjun0219)! - statusline 보드 줄이 가끔(1~2%) 비던 것을 고친다. 데몬의 `/api/statusline` 이 세션 목록 캐시가 만료될 때마다 그 요청에서 `claude agents --json` 을 기다려 CLI 의 300ms 마감을 넘겼다 — 이제 낡은 값을 바로 내주고 뒤에서 새로 받으며(15초마다, 배경 부하는 그대로), 데몬이 뜰 때 미리 데운다.
+
 ## 0.44.0
 
 ### Minor Changes
