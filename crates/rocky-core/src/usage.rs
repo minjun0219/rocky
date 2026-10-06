@@ -137,7 +137,11 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     if segs.len() >= 4
         && matches!(
             (segs[1], segs[2]),
-            ("inbox", "sources") | ("tokens", "sessions") | ("rc", "servers") | ("rc", "handoffs")
+            ("inbox", "sources")
+                | ("tokens", "sessions")
+                | ("rc", "servers")
+                | ("rc", "handoffs")
+                | ("rc", "strays")
         )
     {
         segs[3] = ":ref";
@@ -325,6 +329,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/rc/nightly/preview"),
     (UsageSource::Rest, "POST /api/rc/nightly"),
     (UsageSource::Rest, "POST /api/rc/handoffs/:ref/stop"),
+    (UsageSource::Rest, "POST /api/rc/strays/:ref/stop"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
@@ -404,6 +409,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Web, "web:rc-start"),
     (UsageSource::Web, "web:rc-restart"),
     (UsageSource::Web, "web:handoff-close"),
+    (UsageSource::Web, "web:stray-close"),
     (UsageSource::Web, "web:agent-row"),
     (UsageSource::Web, "web:access-logout"),
     (UsageSource::Web, "web:note-pin"),

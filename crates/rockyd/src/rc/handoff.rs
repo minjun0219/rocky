@@ -385,6 +385,30 @@ impl RcController {
         Ok((record, down))
     }
 
+    /// 대상 밖 서버를 닫는다 — pid 나 라벨(폴더 이름)로 고르고, 캐시 없이 다시 재서 그 pid 가 지금 그 폴더의 rc 서버일 때만
+    /// pid 로 내린다(SIGTERM → 유예 → SIGKILL). 설정 대상은 여기서 내리지 않는다(대상 밖이 아니다). 프로브가 실패하면 손대지 않는다.
+    pub async fn stop_stray(&self, key: &str) -> Result<(rc::StrayRow, bool), RcRefusal> {
+        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        if let Some(err) = status.probe_error {
+            return Err(RcRefusal::Busy(format!(
+                "rc 현황을 못 읽어 닫지 않았다 — {err}"
+            )));
+        }
+        let stray = match rc::find_stray(&status.strays, key) {
+            Ok(s) => s.clone(),
+            Err(rc::StrayMiss::Ambiguous(e)) => return Err(RcRefusal::Ambiguous(e)),
+            Err(rc::StrayMiss::NotFound(e)) => return Err(RcRefusal::NotFound(e)),
+        };
+        let label = format!("stray-{}", stray.label);
+        let down = self.stop(&label, stray.pid).await;
+        self.event(
+            "stray-stop",
+            &label,
+            serde_json::json!({ "pid": stray.pid, "dir": stray.dir, "down": down }),
+        );
+        Ok((stray, down))
+    }
+
     /// 기동 err 로그의 마지막 줄 — 비었으면 로그 경로를 댄다.
     fn err_tail(&self, label: &str) -> String {
         let err = self.read_log(label, "err");

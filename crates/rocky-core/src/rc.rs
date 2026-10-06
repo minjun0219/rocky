@@ -1487,3 +1487,37 @@ pub fn resume_session(
         })
         .map(|(_, id)| id)
 }
+
+/// 대상 밖 서버를 못 고른 까닭.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StrayMiss {
+    NotFound(String),
+    /// 같은 라벨이 둘 이상 — pid 로 고르라고 한다.
+    Ambiguous(String),
+}
+
+/// 닫을 대상 밖 서버를 고른다 — pid(숫자)나 라벨(폴더 이름)로. 같은 라벨이 둘이면 pid 를 대라고 거절한다.
+pub fn find_stray<'a>(strays: &'a [StrayRow], key: &str) -> Result<&'a StrayRow, StrayMiss> {
+    if let Ok(pid) = key.parse::<u32>() {
+        return strays.iter().find(|s| s.pid == pid).ok_or_else(|| {
+            StrayMiss::NotFound(format!(
+                "대상 밖 서버 중 pid {pid} 가 없다 — rocky rc 로 본다"
+            ))
+        });
+    }
+    let found: Vec<&StrayRow> = strays.iter().filter(|s| s.label == key).collect();
+    match found.as_slice() {
+        [one] => Ok(one),
+        [] => Err(StrayMiss::NotFound(format!(
+            "대상 밖 서버 중 {key} 가 없다 — rocky rc 로 본다"
+        ))),
+        many => Err(StrayMiss::Ambiguous(format!(
+            "{key} 인 대상 밖 서버가 {}개다 — pid 로 고른다: {}",
+            many.len(),
+            many.iter()
+                .map(|s| s.pid.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}

@@ -9,7 +9,7 @@
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 //! - `rocky rc nightly [--dry-run]` — 야간 재시작을 지금 한 번 돌린다(데몬이 백그라운드로, 결과는 `rocky rc`).
 //!   `--dry-run` 은 리허설: 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다).
-//! - `rocky rc stop <할 일>` — 보드의 새 세션 띄우기가 띄운 핸드오프 서버를 닫는다(pid 로만, 워크트리는 남긴다).
+//! - `rocky rc stop <할 일 | 대상 밖 서버>` — 핸드오프 서버(새 세션 띄우기가 띄운 것)나 대상 밖 서버를 닫는다(pid 로만, 폴더는 남긴다).
 //! - `rocky rc report` — 마지막 야간 보고(서버마다 결과 · rocky · agy). 읽기만 해서 `nightly` 와 이름을 갈랐다 —
 //!   `permissions.ask` 의 `rocky rc nightly:*` 확인에 걸리지 않게.
 
@@ -23,7 +23,7 @@ use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run] | rocky rc report | rocky rc stop <할 일>";
+const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run] | rocky rc report | rocky rc stop <할 일 | 대상 밖 서버>";
 /// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// `--activity` 응답 한도 — 데몬이 대상마다 git 을 띄워 기다렸다 답한다.
@@ -112,15 +112,31 @@ pub fn cmd_rc(
             Ok(())
         }
         Some("stop") => {
-            // 핸드오프 서버 닫기 — 할 일 참조(`rocky-41`)나 라벨로. 설정 대상은 여기서 내리지 않는다(감시가 다시 띄운다).
-            let key = rest
-                .get(1)
-                .ok_or_else(|| format!("{USAGE} — 닫을 할 일(예: rocky-41)이 필요하다"))?;
-            refuse_own_handoff(ctx, key)?;
-            let path = format!("/api/rc/handoffs/{}/stop", encode_uri_component(key));
+            // 핸드오프 서버(할 일 참조 · 라벨)를 먼저, 없으면 대상 밖 서버(라벨 · pid). 설정 대상은 여기서 내리지 않는다(감시가
+            // 다시 띄운다). 고르는 것도 다시 재는 것도 데몬이 한다 — 여기서는 길만 고르고 자기 서버인지만 막는다.
+            let key = rest.get(1).ok_or_else(|| {
+                format!("{USAGE} — 닫을 할 일(예: rocky-41)이나 대상 밖 서버가 필요하다")
+            })?;
+            let status = request_value(ctx, "GET", "/api/rc/servers", None).ok();
+            let target = status
+                .as_ref()
+                .map(|raw| stop_target(raw, key))
+                .unwrap_or(StopTarget::Unknown);
+            if let StopTarget::Handoff(pid) | StopTarget::Stray(pid) = target {
+                refuse_own_pid(key, pid)?;
+            }
+            let path = match target {
+                StopTarget::Stray(_) => {
+                    format!("/api/rc/strays/{}/stop", encode_uri_component(key))
+                }
+                _ => format!("/api/rc/handoffs/{}/stop", encode_uri_component(key)),
+            };
             // SIGTERM 뒤 20초까지 기다렸다 답한다.
             let res = request_value_within(ctx, "POST", &path, None, STOP_LIMIT)?;
-            let name = str_of(&res, "name");
+            let name = res
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| str_of(&res, "label"));
             let pid = res.get("pid").and_then(Value::as_u64).unwrap_or(0);
             if res.get("down").and_then(Value::as_bool) != Some(true) {
                 return Err(format!(
@@ -129,7 +145,7 @@ pub fn cmd_rc(
             }
             printer.emit(&res, || {
                 format!(
-                    "✓ \"{name}\"(pid {pid}) 를 닫았다 — 워크트리는 남는다: {}",
+                    "✓ \"{name}\"(pid {pid}) 를 닫았다 — 폴더는 그대로다: {}",
                     str_of(&res, "dir")
                 )
             });
@@ -463,25 +479,52 @@ pub fn render_nightly(raw: &Value) -> String {
     out.join("\n")
 }
 
-/// 닫으려는 핸드오프 서버의 세션 안에서 이 CLI 가 돌고 있으면 거절한다 — 닫는 순간 이 턴이 끊긴다(재시작의
-/// `refuse_own_server` 와 같은 가드). 현황이나 `ps` 를 못 읽으면 막지 않는다(데몬이 pid · 폴더를 다시 본다).
-fn refuse_own_handoff(ctx: &CliContext, key: &str) -> Result<(), String> {
-    let Ok(raw) = request_value(ctx, "GET", "/api/rc/servers", None) else {
-        return Ok(());
+/// `rocky rc stop <key>` 이 닫을 것 — 현황에서 고른다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopTarget {
+    /// 핸드오프 서버(할 일 참조 · 라벨) — 그 pid.
+    Handoff(u32),
+    /// 대상 밖 서버(라벨 · pid) — 그 pid.
+    Stray(u32),
+    /// 현황에 없다 — 핸드오프 길로 보내 데몬이 사유를 낸다.
+    Unknown,
+}
+
+/// 현황(`GET /api/rc/servers`)에서 key 가 가리키는 서버 — 핸드오프 서버를 먼저 본다(대상 밖 서버로도 잡히는 같은 서버를
+/// 핸드오프 기록과 함께 닫게).
+pub fn stop_target(raw: &Value, key: &str) -> StopTarget {
+    let rows = |k: &str| {
+        raw.get(k)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
     };
-    let Some(pid) = raw
-        .get("handoffs")
-        .and_then(Value::as_array)
-        .and_then(|rows| {
-            rows.iter().find(|r| {
-                str_of(r, "label") == key || str_of(r, "todoRef").eq_ignore_ascii_case(key)
-            })
-        })
-        .and_then(|r| r.get("pid"))
-        .and_then(Value::as_u64)
-    else {
-        return Ok(());
-    };
+    let pid_of = |r: &Value| r.get("pid").and_then(Value::as_u64).map(|p| p as u32);
+    if let Some(pid) = rows("handoffs")
+        .iter()
+        .find(|r| str_of(r, "label") == key || str_of(r, "todoRef").eq_ignore_ascii_case(key))
+        .and_then(pid_of)
+    {
+        return StopTarget::Handoff(pid);
+    }
+    let strays = rows("strays");
+    let by_pid = key
+        .parse::<u32>()
+        .ok()
+        .and_then(|want| strays.iter().find(|r| pid_of(r) == Some(want)));
+    let by_label: Vec<&Value> = strays
+        .iter()
+        .filter(|r| str_of(r, "label") == key)
+        .collect();
+    // 같은 이름이 둘이면 데몬이 pid 를 대라고 거절한다 — 대상 밖 길로 보낸다(가드는 첫 pid 로).
+    let row = by_pid.or_else(|| by_label.first().copied());
+    row.and_then(pid_of)
+        .map_or(StopTarget::Unknown, StopTarget::Stray)
+}
+
+/// 닫으려는 서버의 세션 안에서 이 CLI 가 돌고 있으면 거절한다 — 닫는 순간 이 턴이 끊긴다(재시작의 `refuse_own_server` 와 같은
+/// 가드). `ps` 를 못 읽으면 막지 않는다(데몬이 pid · 폴더를 다시 본다).
+fn refuse_own_pid(key: &str, pid: u32) -> Result<(), String> {
     let Ok(out) = std::process::Command::new("ps")
         .args(["-axww", "-o", "pid=,ppid=,etime=,args="])
         .output()
@@ -489,9 +532,9 @@ fn refuse_own_handoff(ctx: &CliContext, key: &str) -> Result<(), String> {
         return Ok(());
     };
     let rows = rocky_core::rc::parse_ps(&String::from_utf8_lossy(&out.stdout));
-    if rocky_core::rc::ancestors(&rows, std::process::id()).contains(&(pid as u32)) {
+    if rocky_core::rc::ancestors(&rows, std::process::id()).contains(&pid) {
         return Err(format!(
-            "{key} 는 이 세션이 붙은 핸드오프 서버다 — 닫으면 이 턴이 끊긴다. 웹 원격 제어 탭이나 다른 세션에서 닫는다"
+            "{key} 는 이 세션이 붙은 서버다 — 닫으면 이 턴이 끊긴다. 웹 원격 제어 탭이나 다른 세션에서 닫는다"
         ));
     }
     Ok(())

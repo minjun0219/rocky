@@ -212,6 +212,8 @@ interface UiState {
   rcCommand: (label: string, verb: 'start' | 'restart', fresh?: boolean) => Promise<void>;
   /** 핸드오프 서버를 닫는다(pid 로만, 워크트리는 남는다). @throws 서버 거절 사유 그대로. */
   closeHandoff: (label: string) => Promise<void>;
+  /** 대상 밖 서버를 닫는다(pid 로만). @throws 서버 거절 사유 그대로. */
+  closeStray: (pid: number) => Promise<void>;
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
@@ -528,6 +530,23 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     } finally {
       // 이미 내려가 있다(404)·닫음 어느 쪽이든 줄을 새로 그린다.
+      await get().loadRc();
+    }
+  },
+  closeStray: async (pid) => {
+    logUsage('web:stray-close');
+    try {
+      const res = await api<{ down: boolean; label: string; pid: number }>(
+        `/api/rc/strays/${pid}/stop`,
+        get().actor,
+        { method: 'POST' },
+      );
+      if (!res.down) {
+        throw new Error(
+          `${res.label}(pid ${res.pid})이 내려가지 않았어요 — 원격 제어 탭을 다시 확인하세요`,
+        );
+      }
+    } finally {
       await get().loadRc();
     }
   },

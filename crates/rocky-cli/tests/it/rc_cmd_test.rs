@@ -1,6 +1,6 @@
 use rocky_cli::rc_cmd::{
     activity_summary, human_uptime, nightly_agy_line, nightly_line, render_nightly, render_result,
-    render_status, rocky_line, start_all_targets,
+    render_status, rocky_line, start_all_targets, stop_target, StopTarget,
 };
 use serde_json::json;
 
@@ -289,4 +289,32 @@ fn handoff_servers_get_their_own_section() {
         "{out}"
     );
     assert!(!out.contains("대상 밖"), "{out}");
+}
+
+#[test]
+fn stop_picks_a_handoff_first_then_a_stray() {
+    let raw = json!({
+        "configured": true,
+        "servers": [],
+        "handoffs": [{"label": "handoff-rocky-41", "name": "rocky-41: x", "todoRef": "rocky-41",
+                      "dir": "/w/r/.claude/worktrees/todo-41", "pid": 500, "sessions": 1}],
+        "strays": [{"label": "cc-usage", "dir": "/w/cc-usage", "pid": 72407, "sessions": 1},
+                   {"label": "dup", "dir": "/a/dup", "pid": 1, "sessions": 0},
+                   {"label": "dup", "dir": "/b/dup", "pid": 2, "sessions": 0}],
+        "auth": "in"
+    });
+    assert_eq!(stop_target(&raw, "ROCKY-41"), StopTarget::Handoff(500));
+    assert_eq!(
+        stop_target(&raw, "handoff-rocky-41"),
+        StopTarget::Handoff(500)
+    );
+    assert_eq!(stop_target(&raw, "cc-usage"), StopTarget::Stray(72407));
+    assert_eq!(stop_target(&raw, "72407"), StopTarget::Stray(72407));
+    assert_eq!(stop_target(&raw, "2"), StopTarget::Stray(2));
+    assert_eq!(
+        stop_target(&raw, "dup"),
+        StopTarget::Stray(1),
+        "겹치면 대상 밖 길로 — 데몬이 pid 를 대라고 거절한다"
+    );
+    assert_eq!(stop_target(&raw, "repo-a"), StopTarget::Unknown);
 }

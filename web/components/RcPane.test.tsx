@@ -322,7 +322,7 @@ describe('RcPane 핸드오프 서버', () => {
     expect(screen.getByText('rocky-41: 핸드오프 작업')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'rocky-41: 핸드오프 작업 닫기' }));
     expect(closeHandoff).not.toHaveBeenCalled();
-    expect(screen.getByText(/세션 1개가 끝나요 — 워크트리는 남아요/)).toBeTruthy();
+    expect(screen.getByText(/세션 1개가 끝나요 — 폴더는 그대로 남아요/)).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: '끝내고 닫기' }));
     expect(closeHandoff).toHaveBeenCalledWith('handoff-rocky-41');
   });
@@ -347,5 +347,28 @@ describe('RcPane 핸드오프 서버', () => {
 
   test('요약의 세션 수에 핸드오프 서버도 든다', () => {
     expect(rcCounts(status({ handoffs: [handoff] })).sessions).toBe(4);
+  });
+});
+
+describe('RcPane 대상 밖 서버 닫기', () => {
+  test('로컬 화면이면 닫기 — 한 번 더 묻고 pid 로 닫는다', async () => {
+    const closeStray = mock(async () => {});
+    renderWithStore(<RcPane />, { rc: status(), loadRc, closeStray, spawnAllowed: true });
+    await userEvent.click(screen.getByRole('button', { name: 'old 닫기' }));
+    expect(closeStray).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '끝내고 닫기' }));
+    expect(closeStray).toHaveBeenCalledWith(9);
+  });
+
+  test('노출된 화면이나 현황을 못 읽었으면 닫기가 없다', () => {
+    renderWithStore(<RcPane />, { rc: status(), loadRc, spawnAllowed: false });
+    expect(screen.queryByRole('button', { name: 'old 닫기' })).toBeNull();
+    cleanup();
+    renderWithStore(<RcPane />, {
+      rc: status({ probeError: 'ps 실패' }),
+      loadRc,
+      spawnAllowed: true,
+    });
+    expect(screen.queryByRole('button', { name: 'old 닫기' })).toBeNull();
   });
 });

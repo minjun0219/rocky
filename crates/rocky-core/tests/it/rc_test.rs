@@ -1343,3 +1343,29 @@ fn a_restart_resumes_the_session_that_was_talking_last() {
     );
     assert_eq!(resume_session(&rows, 999, &[]), None, "그 서버의 자식만");
 }
+
+#[test]
+fn a_stray_is_picked_by_pid_or_an_unambiguous_label() {
+    let stray = |label: &str, pid: u32| StrayRow {
+        label: label.into(),
+        dir: format!("/w/{label}"),
+        pid,
+        uptime_secs: None,
+        sessions: 0,
+    };
+    let strays = vec![stray("cc-usage", 72407), stray("dup", 1), stray("dup", 2)];
+    assert_eq!(find_stray(&strays, "cc-usage").map(|s| s.pid), Ok(72407));
+    assert_eq!(find_stray(&strays, "2").map(|s| s.pid), Ok(2));
+    match find_stray(&strays, "dup") {
+        Err(StrayMiss::Ambiguous(m)) => assert!(m.contains("1, 2"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        find_stray(&strays, "nope"),
+        Err(StrayMiss::NotFound(_))
+    ));
+    assert!(matches!(
+        find_stray(&strays, "9"),
+        Err(StrayMiss::NotFound(_))
+    ));
+}
