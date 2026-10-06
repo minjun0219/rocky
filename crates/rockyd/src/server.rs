@@ -380,7 +380,10 @@ impl ServerState {
     pub fn record_delivery(&self, delivery: rocky_core::peer_inbox::Delivery) {
         // 못 남겨도 메모리 기록은 그대로 — 전달 자체와는 무관하다.
         if let Err(e) = self.store.save_delivery(&delivery, DELIVERY_LOG_MAX) {
-            eprintln!("rocky: 전달 기록을 남기지 못했다 — {e}");
+            eprintln!(
+                "rocky: 전달 기록을 남기지 못했다 (kind={}, at={}, ok={}) — {e}",
+                delivery.kind, delivery.at, delivery.ok
+            );
         }
         let mut log = self.deliveries.lock().expect("deliveries poisoned");
         log.push_front(delivery);
