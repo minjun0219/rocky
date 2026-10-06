@@ -15,7 +15,7 @@ const blocked: SessionRow = {
   id: '0da6a98a',
   sessionId: '0da6a98a-full',
   name: 'rocky-25',
-  cwd: '/w/rocky/.claude/worktrees/todo-25',
+  cwd: '/w/rocky',
   status: 'idle',
   state: 'blocked',
   startedAt: Date.parse('2026-10-06T00:00:00Z'),

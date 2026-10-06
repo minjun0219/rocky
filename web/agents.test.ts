@@ -48,7 +48,8 @@ const dormant = (over: Partial<SessionRow> = {}): SessionRow =>
     id: '0da6a98a',
     sessionId: '0da6a98a-full',
     name: 'acorn-25',
-    cwd: '/w/acorn/.claude/worktrees/todo-25',
+    // 잠든 background 행의 cwd 는 워크트리가 아니라 레포 루트다(Claude Code 2.1.289).
+    cwd: '/w/acorn',
     state: 'blocked',
     ...over,
   });
