@@ -13,6 +13,11 @@
   `rocky config show` 와 같은 `setup::build_report` 를 쓴다(`config_cmd::gather` 공유) — 따로 계산하면 둘이 어긋난다.
 - 임계값: PR 감시 마지막 tick 15분(`PR_WATCH_STALE_SECS`, 감시 주기 3분의 5배), 세션 전달 실패 24시간(`DELIVERY_FAILURE_WINDOW_SECS`).
   PR 감시 주기를 바꾸면 앞의 것도 같이 본다.
+- **PR 감시의 "첫 바퀴 전" 은 멈춤이 아니다.** 데몬이 막 뜨면 `prWatch` 는 기본값(`available: false`, `lastTick`·`reason` 없음)이다. tick 은
+  실패해도 늘 `lastTick` 과 `reason` 을 함께 남기므로, 둘 다 없으면 첫 tick 전으로 보고 ✓(정보)로 낸다 — 재기동 직후 doctor 가 `gh auth
+  status` 를 안내하던 오탐(2026-10-06 실측: 기동 뒤 1분 반쯤 첫 tick).
+- **statusline 연결은 `rocky statusline`(·플래그) 직접 호출도 친다**(`setup::statusline_wired`) — 그 명령이 보드 줄을 그리므로 `/api/statusline`
+  조각을 또 붙이라고 하면 보드 줄이 두 번 나온다. `rocky statusline guard`·`doctor` 같은 하위 명령은 그리지 않아 치지 않는다.
 
 ## 코드
 
@@ -22,4 +27,5 @@
 | 재료 수집·CLI 입구 | `crates/rocky-cli/src/doctor_cmd.rs` |
 | 설치·설정 재료(`config show` 와 공유) | `crates/rocky-cli/src/config_cmd.rs`(`gather`) |
 
-테스트: `crates/rocky-core/tests/it/doctor_test.rs`(항목별 판정·건너뛰기·렌더).
+테스트: `crates/rocky-core/tests/it/doctor_test.rs`(항목별 판정·건너뛰기·렌더),
+`crates/rocky-core/tests/it/setup_test.rs`(`calling_rocky_statusline_directly_counts_as_wired`).

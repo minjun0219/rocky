@@ -68,6 +68,19 @@ fn db_and_pr_watch_problems_carry_a_fix() {
     );
     assert!(!find(&checks, "pr-watch").ok);
 
+    // 데몬이 막 떠 첫 tick 전(`lastTick`·`reason` 없음)은 멈춤이 아니다
+    let fresh = json!({ "dbIntegrity": "ok", "prWatch": { "available": false, "repos": [] } });
+    let checks = runtime_checks(
+        &RuntimeInput {
+            health: fresh,
+            ..Default::default()
+        },
+        now(),
+    );
+    let pr = find(&checks, "pr-watch");
+    assert!(pr.ok, "{pr:?}");
+    assert!(pr.detail.contains("첫 바퀴 전"));
+
     // 꺼 둔 감시·옛 데몬의 빈 칸은 문제가 아니다
     let off = json!({ "prWatch": null });
     let checks = runtime_checks(
