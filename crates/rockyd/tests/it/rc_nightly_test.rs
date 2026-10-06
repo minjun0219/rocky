@@ -651,3 +651,26 @@ async fn without_supervise_the_report_says_who_must_start_it() {
     assert!(note.contains("rocky rc start"), "{note}");
     assert!(f.banners.lock().unwrap()[0].contains("rocky rc start"));
 }
+
+#[tokio::test]
+async fn nothing_starts_once_the_last_wait_reaches_the_deadline() {
+    // 바쁜 서버가 06:58 에 — 마지막 대기가 07:00 에 닿은 뒤 쉬어졌어도 재시작하지 않는다(띄울 대본이 없다).
+    let w = world(at(6, 58), &["repo-b"], vec![]);
+    w.lock().unwrap().close_session_after = Some(("repo-b", 1));
+    let f = fixture(w, &[("repo-b", "2.1.200")]);
+    talk(&f, "repo-b");
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Skipped);
+    assert!(log(&f).is_empty(), "{:?}", log(&f));
+
+    // 06:59 에 못 뜬 서버 — 1분 쉬면 마감이라 회복으로 다시 띄우지 않는다.
+    let w = world(at(6, 59), &["repo-a"], vec![DIES]);
+    let f = fixture(w, &[("repo-a", "2.1.200")]);
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-a").0, NightlyOutcome::Down);
+    assert_eq!(
+        log(&f),
+        vec!["stop repo-a", "spawn repo-a"],
+        "한 번만 띄웠다"
+    );
+}

@@ -489,7 +489,8 @@ impl RcController {
             let left = (deadline - now).to_std().unwrap_or(Duration::ZERO);
             (self.ops.sleep)(rc::recovery_wait(attempt).min(left)).await;
             attempt += 1;
-            if !self.wait_online("recover").await {
+            // 마지막 대기가 마감에 닿았으면(네트워크 확인도 3분까지 걸린다) 마감 뒤에 띄우지 않는다.
+            if !self.wait_online("recover").await || (self.ops.now)() >= deadline {
                 continue;
             }
             let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
@@ -565,6 +566,10 @@ impl RcController {
             }
             let left = (deadline - now).to_std().unwrap_or(Duration::ZERO);
             (self.ops.sleep)(rc::NIGHTLY_BUSY_POLL.min(left)).await;
+            // 마지막 대기가 마감에 닿았으면 마감 뒤에 재시작하지 않는다 — 다음 날로.
+            if (self.ops.now)() >= deadline {
+                break;
+            }
             let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
             if rc::nightly_blocked(&status).is_some() {
                 continue;
