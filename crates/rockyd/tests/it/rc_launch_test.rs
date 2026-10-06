@@ -973,3 +973,35 @@ async fn restart_route_checks_the_session_id() {
         ]]
     );
 }
+
+#[tokio::test]
+async fn server_only_start_makes_no_session() {
+    // `rocky rc start --all` 이 보내는 것 — 세션 없이 서버만, 떠 있으면 그대로.
+    let f = fixture(false, false, vec![READY]);
+    let control = f.control.clone();
+    let fx_ = fx();
+    let state = rebuild(&fx_, move |o| o.rc_control = Some(control));
+    let (code, body) = post(
+        &state,
+        "/api/rc/servers/repo-b/start",
+        json!({"serverOnly": true}),
+    )
+    .await;
+    assert_eq!(code, 202, "{body}");
+    for _ in 0..200 {
+        if !f.world.lock().unwrap().spawns.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-b",
+            "--no-create-session-in-dir"
+        ]]
+    );
+}

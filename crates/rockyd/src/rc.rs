@@ -125,6 +125,54 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
     }
 }
 
+/// git 명령 하나의 한도 — 최근 활동은 사람이 부를 때만 재니 넉넉히.
+const GIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 대상 폴더의 git 사실(최근 활동). 실패한 명령은 빈 출력으로 읽는다 — 모르는 것은 활성으로 친다(`rc::is_active`).
+/// `--no-optional-locks` — `status` 가 index 잠금을 잡아 사람 · 에이전트의 동시 git 명령과 부딪히지 않게.
+pub async fn git_activity(runner: Runner, dir: String, now: i64) -> rc::Activity {
+    let git = |args: &[&str]| {
+        let mut v = vec!["git", "--no-optional-locks", "-C", dir.as_str()];
+        v.extend_from_slice(args);
+        runner(argv(&v), String::new(), GIT_TIMEOUT)
+    };
+    // 저장소인지는 출력이 아니라 종료 코드로 가른다.
+    if !git(&["rev-parse", "--git-dir"]).await.ok() {
+        return rc::parse_git_facts(false, "", "", "", "", now);
+    }
+    let (status, head, origin, log) = tokio::join!(
+        git(&["status", "--porcelain", "-uno"]),
+        git(&["symbolic-ref", "--quiet", "--short", "HEAD"]),
+        git(&[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD"
+        ]),
+        git(&["log", "-1", "--format=%ct%n%s"]),
+    );
+    let out = |o: CmdOutput| if o.ok() { o.stdout } else { String::new() };
+    // `origin/HEAD` 는 clone 할 때만 생긴다(`git init` 뒤 push 한 레포에는 없다) — 없으면 main, master 순으로 짐작한다.
+    let mut default_branch = out(origin);
+    if default_branch.trim().is_empty() {
+        for guess in ["main", "master"] {
+            let r = format!("refs/heads/{guess}");
+            if git(&["rev-parse", "--verify", "--quiet", &r]).await.ok() {
+                default_branch = guess.to_string();
+                break;
+            }
+        }
+    }
+    rc::parse_git_facts(
+        true,
+        &out(status),
+        &out(head),
+        &default_branch,
+        &out(log),
+        now,
+    )
+}
+
 /// `agy remote-control start|stop` 을 한 번 돌린다. 실패면 무엇을 돌렸고 어떻게 끝났는지를 낸다.
 pub async fn agy_control(runner: &Runner, action: AgyAction) -> Result<(), String> {
     let argv = action.argv();
@@ -427,6 +475,19 @@ impl RcController {
             last_tick: sup.last_tick.clone(),
             logged_out: mark.still_out(),
         });
+    }
+
+    /// 현황 행마다 최근 활동(git)을 싣는다 — 폴더끼리도 같이 돈다(명령마다 5초 한도라 하나가 멎어도 전체가 그만큼만 늦다).
+    pub async fn add_activity(&self, status: &mut RcStatus) {
+        let now = chrono::Utc::now().timestamp();
+        let handles: Vec<_> = status
+            .servers
+            .iter()
+            .map(|r| tokio::spawn(git_activity(self.runner.clone(), r.dir.clone(), now)))
+            .collect();
+        for (row, handle) in status.servers.iter_mut().zip(handles) {
+            row.activity = handle.await.ok();
+        }
     }
 
     /// 감시를 켠다(`rc.supervise`) — 현황에 감시 상태와 자격 의심이 실린다. 루프는 `spawn_rc_supervisor` 가 돈다.

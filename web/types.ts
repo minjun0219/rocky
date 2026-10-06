@@ -273,6 +273,16 @@ export interface RcServerRow {
   authSuspect?: boolean;
   /** 기동 버전 기록이 지금 설치 버전과 다르다 — 야간 재시작이 쉬는 때 다시 띄운다. */
   stale?: boolean;
+  /** 최근 활동(git) — `?activity=1` 로 부를 때만(로컬 전용). 웹은 아직 쓰지 않는다. */
+  activity?: {
+    repo: boolean;
+    dirty?: boolean;
+    branch?: string;
+    defaultBranch?: string;
+    commitAt?: number;
+    subject?: string;
+    active: boolean;
+  };
 }
 
 /** 야간 재시작 한 대상의 결과 — Rust `rocky_core::rc::NightlyItem`. */

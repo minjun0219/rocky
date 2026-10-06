@@ -126,6 +126,9 @@ pub struct ServerRow {
     /// 기동 버전 기록이 지금 설치 버전과 다르다 — 야간 재시작이 쉬는 때 다시 띄운다.
     #[serde(skip_serializing_if = "is_false")]
     pub stale: bool,
+    /// 그 폴더의 최근 활동(git) — 부를 때만 잰다(`?activity=1`). 5초 폴링 현황에는 없다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<Activity>,
 }
 
 /// 진행 중인 일.
@@ -427,6 +430,7 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
                 last_result: None,
                 auth_suspect: false,
                 stale: false,
+                activity: None,
             }
         })
         .collect();
@@ -1018,4 +1022,104 @@ pub struct NightlyInfo {
     pub running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last: Option<NightlyReport>,
+}
+
+// ── 최근 활동(옛 CLI `-s`) ──────────────────────────────────────────────────────
+// 꺼진 대상 중 "열 만한 후보" 를 가른다 — 기동 조건이 아니라 사람이 고를 때 보는 표시다. git 은 데몬이 부를 때만 돈다.
+
+/// 최근 활동으로 치는 마지막 커밋 나이(일).
+pub const ACTIVE_DAYS: i64 = 14;
+
+/// 대상 폴더의 git 사실.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    /// git 저장소인가.
+    pub repo: bool,
+    /// 추적 중인 파일에 커밋 안 된 변경이 있다(`status --porcelain -uno` — 추적 안 하는 파일은 치지 않는다).
+    #[serde(skip_serializing_if = "is_false")]
+    pub dirty: bool,
+    /// 지금 브랜치 — detached 면 None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// `origin/HEAD` 가 가리키는 기본 브랜치(`origin/` 뗀 것) — 모르면 None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<String>,
+    /// 마지막 커밋 시각(unix 초) · 제목 — 커밋이 없으면 None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    /// 활성인가(`is_active`) — 꺼진 대상이면 아니면 "정박" 이다.
+    pub active: bool,
+}
+
+impl Activity {
+    /// 기본 브랜치가 아닌 곳에 있다. 둘 중 하나라도 모르면 아니다.
+    pub fn on_side_branch(&self) -> bool {
+        matches!((&self.branch, &self.default_branch), (Some(b), Some(d)) if b != d)
+    }
+}
+
+/// git 출력을 사실로 — `rev-parse --git-dir` 의 성공 여부, `status --porcelain -uno`, `symbolic-ref --short HEAD`,
+/// `symbolic-ref --short refs/remotes/origin/HEAD`, `log -1 --format=%ct%n%s` 의 stdout(실패면 빈 문자열).
+pub fn parse_git_facts(
+    repo: bool,
+    status: &str,
+    head: &str,
+    origin_head: &str,
+    log: &str,
+    now: i64,
+) -> Activity {
+    if !repo {
+        return Activity {
+            active: true,
+            ..Activity::default()
+        };
+    }
+    let nonempty = |s: &str| Some(s.trim()).filter(|v| !v.is_empty()).map(str::to_string);
+    let mut lines = log.trim_end_matches('\n').splitn(2, '\n');
+    let commit_at = lines.next().and_then(|t| t.trim().parse::<i64>().ok());
+    let mut a = Activity {
+        repo: true,
+        dirty: status.lines().any(|l| !l.trim().is_empty()),
+        branch: nonempty(head),
+        default_branch: nonempty(origin_head).map(|b| b.trim_start_matches("origin/").to_string()),
+        commit_at,
+        subject: commit_at.and(lines.next().map(str::to_string)),
+        active: false,
+    };
+    a.active = is_active(&a, now, ACTIVE_DAYS);
+    a
+}
+
+/// 활성인가 — 작업 트리가 더럽거나, 곁가지 브랜치에 있거나, 마지막 커밋이 `days` 일 안이다. 판정 못 하면(git 아님 ·
+/// 커밋 없음) 활성이다 — 열 만한 후보에서 빼지 않는다. 미래 커밋(시계 어긋남)도 활성이다.
+pub fn is_active(a: &Activity, now: i64, days: i64) -> bool {
+    match a.commit_at {
+        _ if !a.repo || a.dirty || a.on_side_branch() => true,
+        None => true,
+        Some(t) => now.saturating_sub(t) / 86_400 <= days,
+    }
+}
+
+/// 커밋 나이 — 1시간 미만 `방금`, 하루 미만 `N시간 전`, 그 뒤 `N일 전`.
+pub fn activity_age(now: i64, at: i64) -> String {
+    let secs = now.saturating_sub(at).max(0);
+    match (secs / 3600, secs / 86_400) {
+        (0, _) => "방금".into(),
+        (h, 0) => format!("{h}시간 전"),
+        (_, d) => format!("{d}일 전"),
+    }
+}
+
+/// 커밋 제목을 38 **글자**로 자르고 `…` — 바이트로 자르면 한글이 깨진다.
+pub fn short_subject(subject: &str) -> String {
+    let mut chars = subject.chars();
+    let head: String = chars.by_ref().take(38).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
+    }
 }

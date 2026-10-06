@@ -1,4 +1,7 @@
-use rocky_cli::rc_cmd::{human_uptime, nightly_line, render_nightly, render_result, render_status};
+use rocky_cli::rc_cmd::{
+    activity_summary, human_uptime, nightly_line, render_nightly, render_result, render_status,
+    start_all_targets,
+};
 use serde_json::json;
 
 #[test]
@@ -180,4 +183,59 @@ fn waiting_rows_say_the_turn_is_still_going() {
         "auth": "in"
     });
     assert!(render_status(&raw).starts_with("● a  세션 1  대화가 끝나길 기다리는 중…\n"));
+}
+
+#[test]
+fn activity_reads_like_the_old_status() {
+    let now = 10_000_000;
+    let a = json!({"repo": true, "dirty": true, "branch": "feat/x", "defaultBranch": "main",
+                   "commitAt": now - 3 * 86_400, "subject": "고친다", "active": true});
+    assert_eq!(activity_summary(&a, now), "3일 전 고친다 *작업중 @feat/x");
+    let main = json!({"repo": true, "branch": "main", "defaultBranch": "main", "active": true});
+    assert_eq!(
+        activity_summary(&main, now),
+        "- (커밋 없음)",
+        "기본 브랜치면 @ 를 붙이지 않는다"
+    );
+    assert_eq!(
+        activity_summary(&json!({"repo": false, "active": true}), now),
+        "(git 아님)"
+    );
+
+    // 꺼졌고 활동이 없으면 정박.
+    let raw = json!({
+        "configured": true,
+        "servers": [{"label": "old", "dir": "/w/old", "pinned": false, "running": false, "sessions": 0,
+                     "activity": {"repo": true, "branch": "main", "defaultBranch": "main", "active": false}}],
+        "strays": [],
+        "auth": "in"
+    });
+    assert!(render_status(&raw).starts_with("○ old  정박  - (커밋 없음)\n"));
+    // 고정은 감시가 되살리니 정박이라 하지 않는다.
+    let pinned = json!({
+        "configured": true,
+        "servers": [{"label": "pin", "dir": "/w/pin", "pinned": true, "running": false, "sessions": 0,
+                     "activity": {"repo": true, "branch": "main", "defaultBranch": "main", "active": false}}],
+        "strays": [],
+        "auth": "in"
+    });
+    assert!(render_status(&pinned).starts_with("○ pin  고정  - (커밋 없음)\n"));
+}
+
+#[test]
+fn start_all_picks_down_targets_and_keeps_pinned_sessions() {
+    let raw = json!({
+        "configured": true,
+        "servers": [
+            {"label": "up", "pinned": false, "running": true},
+            {"label": "old", "pinned": false, "running": false},
+            {"label": "pin", "pinned": true, "running": false},
+            {"label": "unknown", "pinned": false}
+        ]
+    });
+    assert_eq!(
+        start_all_targets(&raw),
+        vec![("old".to_string(), true), ("pin".to_string(), false)],
+        "꺼짐이 확실한 것만 — 비고정은 서버만, 고정은 세션과 함께"
+    );
 }
