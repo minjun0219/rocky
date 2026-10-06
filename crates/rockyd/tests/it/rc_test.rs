@@ -359,3 +359,99 @@ async fn failed_agy_start_says_what_failed() {
         "{body}"
     );
 }
+
+// ── 최근 활동(`?activity=1`) ──
+
+/// 프로브와 git 에 답하는 러너 — repo-a 는 곁가지에서 작업 중이고 `origin/HEAD` 가 없다(main 이 있다), repo-b 는 git 이 아니다.
+fn activity_runner(now: i64) -> Runner {
+    Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
+        let ok = |stdout: String| CmdOutput {
+            code: 0,
+            stdout,
+            stderr: String::new(),
+        };
+        let joined = argv.join(" ");
+        let out = match argv[0].as_str() {
+            "ps" => ok("    1     0 30-00:00:00 /sbin/launchd\n".into()),
+            "claude" => ok(r#"{"loggedIn": true}"#.into()),
+            "git" if !joined.starts_with("git --no-optional-locks -C ") => {
+                CmdOutput::failure("잠금을 잡을 수 있는 git 호출")
+            }
+            "git" if joined.contains(" -C /w/repo-b ") => {
+                CmdOutput::failure("not a git repository")
+            }
+            "git" => match argv[4].as_str() {
+                "rev-parse" if joined.ends_with("--git-dir") => ok(".git\n".into()),
+                "rev-parse" if joined.ends_with("refs/heads/main") => ok("abc\n".into()),
+                "status" => ok(" M src/a.rs\n".into()),
+                "symbolic-ref" if joined.contains("origin") => {
+                    CmdOutput::failure("not a symbolic ref")
+                }
+                "symbolic-ref" => ok("feat/x\n".into()),
+                "log" => ok(format!("{}\n고친다\n", now - 3 * 86_400)),
+                _ => CmdOutput::failure("?"),
+            },
+            _ => CmdOutput::failure("없음"),
+        };
+        Box::pin(async move { out })
+    })
+}
+
+#[tokio::test]
+async fn activity_is_measured_only_when_asked_and_only_locally() {
+    let now = chrono::Utc::now().timestamp();
+    let runner = activity_runner(now);
+    let f = fx();
+    let control = Arc::new(rockyd::rc::RcController::new(
+        Some(config()),
+        "/home/u".into(),
+        f._dir.path().join("rc"),
+        runner.clone(),
+        rockyd::rc::default_ops(),
+    ));
+    let probe_runner = runner.clone();
+    let state = rebuild(&f, move |o| {
+        o.rc = Some(cached_rc(
+            probe_runner,
+            Some(config()),
+            "/home/u".into(),
+            Duration::ZERO,
+        ));
+        o.rc_control = Some(control);
+    });
+    let (_, plain) = get(&state, "/api/rc/servers").await;
+    assert!(
+        plain["servers"][0].get("activity").is_none(),
+        "폴링 현황에는 없다"
+    );
+
+    let (code, body) = get(&state, "/api/rc/servers?activity=1").await;
+    assert_eq!(code, 200, "{body}");
+    let a = &body["servers"][0]["activity"];
+    assert_eq!(a["branch"], "feat/x");
+    assert_eq!(
+        a["defaultBranch"], "main",
+        "origin/HEAD 가 없으면 main 으로 짐작한다"
+    );
+    assert_eq!(a["dirty"], true);
+    assert_eq!(a["subject"], "고친다");
+    assert_eq!(a["active"], true);
+    assert_eq!(
+        body["servers"][1]["activity"],
+        json!({"repo": false, "active": true}),
+        "git 이 아니면 활성(판정 못 한 것을 후보에서 빼지 않는다)"
+    );
+
+    let remote = ReqOptions {
+        peer: Some("100.64.0.1"),
+        ..Default::default()
+    };
+    let (code, _) = call(&state, "GET", "/api/rc/servers?activity=1", None, remote).await;
+    assert_eq!(code, 403, "git 을 띄우는 읽기는 로컬 전용");
+    let remote = ReqOptions {
+        peer: Some("100.64.0.1"),
+        ..Default::default()
+    };
+    let (code, _) = call(&state, "GET", "/api/rc/servers", None, remote).await;
+    assert_eq!(code, 200, "그냥 현황은 막지 않는다");
+}

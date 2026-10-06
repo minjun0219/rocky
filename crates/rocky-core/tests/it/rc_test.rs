@@ -471,6 +471,7 @@ fn row(label: &str, pinned: bool, running: bool) -> ServerRow {
         last_result: None,
         auth_suspect: false,
         stale: false,
+        activity: None,
     }
 }
 
@@ -1001,4 +1002,108 @@ fn ancestors_follow_ppid_up_to_launchd() {
     // 고리가 있어도 끝난다.
     let looped = vec![row(5, 6), row(6, 5)];
     assert_eq!(ancestors(&looped, 5).len(), 2);
+}
+
+#[test]
+fn activity_reads_git_like_the_old_status() {
+    const DAY: i64 = 86_400;
+    let now = 100 * DAY;
+    let a = parse_git_facts(
+        true,
+        "",
+        "main\n",
+        "origin/main\n",
+        &format!("{}\nfeat: 무엇을 했다\n", now - 3 * DAY),
+        now,
+    );
+    assert_eq!(a.branch.as_deref(), Some("main"));
+    assert_eq!(a.default_branch.as_deref(), Some("main"));
+    assert_eq!(a.subject.as_deref(), Some("feat: 무엇을 했다"));
+    assert!(a.active && !a.dirty && !a.on_side_branch());
+
+    // 기본 브랜치에서 15일 조용하면 정박.
+    let old = parse_git_facts(
+        true,
+        "",
+        "main",
+        "origin/main",
+        &format!("{}\nx", now - 15 * DAY),
+        now,
+    );
+    assert!(!old.active);
+    assert!(
+        parse_git_facts(
+            true,
+            "",
+            "main",
+            "origin/main",
+            &format!("{}\nx", now - 14 * DAY),
+            now
+        )
+        .active,
+        "14일 째는 아직 활성"
+    );
+    // 오래돼도 작업 중이거나 곁가지면 활성.
+    assert!(
+        parse_git_facts(
+            true,
+            " M src/a.rs\n",
+            "main",
+            "origin/main",
+            &format!("{}\nx", now - 90 * DAY),
+            now
+        )
+        .active
+    );
+    let side = parse_git_facts(
+        true,
+        "",
+        "feat/x",
+        "origin/main",
+        &format!("{}\nx", now - 90 * DAY),
+        now,
+    );
+    assert!(side.on_side_branch() && side.active);
+    // detached 이거나 기본 브랜치를 모르면 곁가지로 치지 않는다.
+    assert!(
+        !parse_git_facts(
+            true,
+            "",
+            "",
+            "origin/main",
+            &format!("{}\nx", now - 90 * DAY),
+            now
+        )
+        .active
+    );
+    // git 아님 · 커밋 없음 · 미래 커밋은 활성(판정 못 한 것을 후보에서 빼지 않는다).
+    assert!(parse_git_facts(false, "", "", "", "", now).active);
+    let empty = parse_git_facts(true, "", "main", "", "", now);
+    assert!(empty.active && empty.commit_at.is_none() && empty.subject.is_none());
+    assert!(
+        parse_git_facts(
+            true,
+            "",
+            "main",
+            "origin/main",
+            &format!("{}\nx", now + DAY),
+            now
+        )
+        .active
+    );
+}
+
+#[test]
+fn activity_age_and_subject_read_like_the_old_status() {
+    let now = 1_000_000;
+    assert_eq!(activity_age(now, now - 59 * 60), "방금");
+    assert_eq!(activity_age(now, now - 5 * 3600), "5시간 전");
+    assert_eq!(activity_age(now, now - 3 * 86_400), "3일 전");
+    let long = "가".repeat(40);
+    assert_eq!(
+        short_subject(&long),
+        format!("{}…", "가".repeat(38)),
+        "글자로 자른다"
+    );
+    assert_eq!(short_subject("짧다"), "짧다");
 }

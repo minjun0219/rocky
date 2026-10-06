@@ -99,6 +99,8 @@ rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으�
                                  # 막 대화하는 중이면 턴이 끝날 때까지(최대 10분) 기다렸다 내린다
                                  # 이 세션이 붙은 서버는 거절한다(재시작이 이 턴을 끊는다 — 웹이나 다른 세션에서)
 rocky rc restart repo-a --session cse_…  # 이어받을 세션을 claude.ai 쪽 id 로 못 박는다
+rocky rc --activity              # 대상마다 최근 활동(마지막 커밋 · *작업중 · @곁가지), 꺼진 비고정 중 오래 조용한 것은 정박
+rocky rc start --all             # 꺼진 대상 전부 — 비고정은 서버만(세션 없이), 고정은 세션과 함께 — 비상용
 rocky rc agy                     # Antigravity 원격 제어 상태 한 줄
 rocky rc agy stop                # agy remote-control stop(정지 + 등록 해제) — start 는 등록 + 기동
 rocky rc nightly --dry-run       # 야간 재시작 리허설 — 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다)
@@ -114,8 +116,8 @@ rocky rc nightly                 # 야간 재시작을 지금 한 번(백그라�
 
 | API | 내용 |
 | --- | --- |
-| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않고, `{"session": "cse_…"}` 는 그 세션으로 이어받는다(claude.ai 쪽 id 만 — 아니면 400). 막 대화하는 중이면 턴이 끝날 때까지 `waiting` 으로 기다린다 |
-| `GET /api/rc/servers` | 대상 행(`servers` — 기동 버전 기록이 설치 버전과 다르면 `stale`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 감시가 켜졌으면 `supervise`(마지막 바퀴 · 데몬 자격 끊김), 야간 재시작이 켜졌거나 돈 적이 있으면 `nightly`(시각 · 도는 중 · 마지막 결과). 5초 캐시 |
+| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, `start` 본문 `{"serverOnly": true}` 는 세션 없이 서버만(떠 있으면 그대로), 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않고, `{"session": "cse_…"}` 는 그 세션으로 이어받는다(claude.ai 쪽 id 만 — 아니면 400). 막 대화하는 중이면 턴이 끝날 때까지 `waiting` 으로 기다린다 |
+| `GET /api/rc/servers` | 대상 행(`servers` — 기동 버전 기록이 설치 버전과 다르면 `stale`), 목록에 없는 폴더에서 도는 서버(`strays`), `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 감시가 켜졌으면 `supervise`(마지막 바퀴 · 데몬 자격 끊김), 야간 재시작이 켜졌거나 돈 적이 있으면 `nightly`(시각 · 도는 중 · 마지막 결과). 5초 캐시. `?activity=1` 이면 행마다 최근 활동(`activity` — git 을 띄우므로 로컬 전용) |
 | `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 띄우므로 로컬 전용(403). rc 가 꺼진 기기면 404 |
 | `POST /api/rc/nightly` | 야간 재시작을 지금 한 번 — 로컬 전용(403, 서버를 내리고 띄운다). 바로 202, 결과는 현황의 `nightly.last`. 이미 도는 중이면 409, rc 가 꺼진 기기면 404. 배너를 띄우지 않고 일정의 날짜 기록도 건드리지 않는다 |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |

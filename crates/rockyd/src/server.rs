@@ -2050,9 +2050,20 @@ async fn dispatch(
 
     // ── rc 서버 현황(읽기 전용) — 설정의 대상과 떠 있는 `claude rc` 서버를 맞댄 것. 5초 캐시 ──
     if *method == Method::GET && path == "/api/rc/servers" {
+        // `activity=1` — 대상마다 git 을 몇 번씩 캐시 없이 띄운다(최근 활동). 그래서 그것만은 로컬 전용이다.
+        let activity = query.get("activity").is_some_and(|v| v == "1");
+        if activity && !local {
+            return Ok(error_response(
+                "최근 활동(activity=1)은 대상마다 git 을 띄우므로 로컬 요청만 받는다",
+                StatusCode::FORBIDDEN,
+            ));
+        }
         let mut status = (state.rc)().await;
         if let Some(control) = &state.rc_control {
             control.decorate(&mut status);
+            if activity {
+                control.add_activity(&mut status).await;
+            }
         }
         return Ok(json_response(&status, StatusCode::OK));
     }
@@ -2136,12 +2147,25 @@ async fn dispatch(
             .and_then(|rest| rest.split_once('/'))
         {
             if verb == "start" {
-                return Ok(rc_command_route(
-                    state,
-                    label,
-                    crate::rc::RcCommand::Start,
-                    local,
-                ));
+                // `serverOnly` — 세션 없이 서버만, 떠 있으면 그대로(`rocky rc start --all`, 옛 CLI `-a`). 본문보다 로컬부터.
+                if !local {
+                    return Ok(error_response(
+                        NON_LOCAL_SPAWN_MESSAGE,
+                        StatusCode::FORBIDDEN,
+                    ));
+                }
+                let body = read_optional_body(headers, body).await?;
+                let server_only = body
+                    .as_ref()
+                    .and_then(|b| b.get("serverOnly"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let command = if server_only {
+                    crate::rc::RcCommand::Revive(rocky_core::rc::LaunchMode::Server)
+                } else {
+                    crate::rc::RcCommand::Start
+                };
+                return Ok(rc_command_route(state, label, command, local));
             }
             if verb == "restart" {
                 if !local {

@@ -4,6 +4,8 @@
 //! - `rocky rc start <라벨> [--wait]` · `rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait]` — 데몬이 띄우거나
 //!   다시 띄운다. 재시작은 그 서버에 붙은 원격 세션을 끊는다(막 대화하는 중이면 턴이 끝날 때까지 기다린다). `--session` 은
 //!   이어받을 세션을 claude.ai 쪽 id 로 못 박는다. `--wait` 면 결과가 날 때까지 기다려 찍는다.
+//! - `rocky rc start --all` — 꺼진 대상 전부를 띄운다 — 비고정은 서버만(세션을 만들지 않는다), 고정은 세션과 함께. 비상용(옛 CLI `-a`).
+//! - `rocky rc --activity` — 현황에 대상마다 최근 활동(마지막 커밋 · 작업 중 · 곁가지 브랜치, 꺼진 것은 정박 여부).
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 //! - `rocky rc nightly [--dry-run]` — 야간 재시작을 지금 한 번 돌린다(데몬이 백그라운드로, 결과는 `rocky rc`).
 //!   `--dry-run` 은 리허설: 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다).
@@ -18,9 +20,11 @@ use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run]";
+const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run]";
 /// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
+/// `--activity` 응답 한도 — 데몬이 대상마다 git 을 띄워 기다렸다 답한다.
+const ACTIVITY_LIMIT: Duration = Duration::from_secs(60);
 /// 리허설 응답 한도 — 데몬의 `claude --version` 한도(40초)와 프로브를 덮는다.
 const PREVIEW_LIMIT: Duration = Duration::from_secs(90);
 
@@ -32,10 +36,23 @@ pub fn cmd_rc(
 ) -> Result<(), String> {
     match rest.first().map(String::as_str) {
         None | Some("status") => {
-            let raw = request_value(ctx, "GET", "/api/rc/servers", None)?;
+            // `--activity` — 대상마다 최근 활동(git). 데몬이 git 을 띄우니 그때만 붙인다.
+            // 대상마다 git 을 띄워 기다렸다 답한다 — 명령마다 5초 한도라 기본 30초보다 넉넉히.
+            let raw = if flags.bool_flag("activity") {
+                request_value_within(
+                    ctx,
+                    "GET",
+                    "/api/rc/servers?activity=1",
+                    None,
+                    ACTIVITY_LIMIT,
+                )?
+            } else {
+                request_value(ctx, "GET", "/api/rc/servers", None)?
+            };
             printer.emit(&raw, || render_status(&raw));
             Ok(())
         }
+        Some("start") if flags.bool_flag("all") => start_all(ctx, rest.get(1).map(String::as_str)),
         Some("agy") => {
             let raw = match rest.get(1).map(String::as_str) {
                 None => request_value(ctx, "GET", "/api/rc/servers", None)?,
@@ -174,6 +191,18 @@ fn line(v: &Value, running: bool) -> String {
     if v.get("pinned").and_then(Value::as_bool) == Some(true) {
         parts.push("고정".into());
     }
+    let activity = v.get("activity").filter(|a| !a.is_null());
+    // 꺼졌고 활동이 없는 비고정 대상 — 옛 CLI 의 "정박"(열 만한 후보가 아니다). 고정은 감시가 되살리니 붙이지 않는다.
+    let pinned = v.get("pinned").and_then(Value::as_bool) == Some(true);
+    if !running
+        && !pinned
+        && activity
+            .and_then(|a| a.get("active"))
+            .and_then(Value::as_bool)
+            == Some(false)
+    {
+        parts.push("정박".into());
+    }
     let sessions = v.get("sessions").and_then(Value::as_u64).unwrap_or(0);
     if sessions > 0 {
         parts.push(format!("세션 {sessions}"));
@@ -200,6 +229,9 @@ fn line(v: &Value, running: bool) -> String {
                 }
             }
         }
+    }
+    if let Some(a) = activity {
+        parts.push(activity_summary(a, chrono::Utc::now().timestamp()));
     }
     parts.join("  ")
 }
@@ -388,4 +420,85 @@ fn refuse_own_server(ctx: &CliContext, label: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// 꺼진 대상 전부를 띄운다 — 비고정은 서버만, 고정은 세션까지(감시가 되살리는 방식과 같게 · 옛 CLI `-a`). 받은 것과 거절된
+/// 것을 한 줄씩. 진행은 `rocky rc` 로 본다.
+/// `start --all` 이 띄울 것 — 꺼진 대상마다 `(라벨, serverOnly)`. 꺼짐이 확실한 행만(`running: false`) 고르고,
+/// 고정은 감시가 되살릴 때처럼 세션과 함께(`serverOnly: false`), 나머지는 서버만.
+pub fn start_all_targets(raw: &Value) -> Vec<(String, bool)> {
+    raw.get("servers")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter(|r| r.get("running").and_then(Value::as_bool) == Some(false))
+                .map(|r| {
+                    let pinned = r.get("pinned").and_then(Value::as_bool) == Some(true);
+                    (str_of(r, "label").to_string(), !pinned)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn start_all(ctx: &CliContext, extra: Option<&str>) -> Result<(), String> {
+    if let Some(label) = extra {
+        return Err(format!("--all 은 라벨을 받지 않는다: {label}"));
+    }
+    let raw = request_value(ctx, "GET", "/api/rc/servers", None)?;
+    if raw.get("configured").and_then(Value::as_bool) != Some(true) {
+        return Err("rc 가 꺼져 있다 — rocky rc 로 본다".into());
+    }
+    if let Some(err) = raw.get("probeError").and_then(Value::as_str) {
+        return Err(format!("현황을 못 읽어 띄우지 않는다 — {err}"));
+    }
+    let down = start_all_targets(&raw);
+    if down.is_empty() {
+        println!("꺼진 대상이 없다");
+        return Ok(());
+    }
+    for (label, server_only) in down {
+        let path = format!("/api/rc/servers/{}/start", encode_uri_component(&label));
+        let res = request_value(
+            ctx,
+            "POST",
+            &path,
+            Some(&json!({ "serverOnly": server_only })),
+        )?;
+        match res.get("error").and_then(Value::as_str) {
+            Some(err) => println!("✗ {label}: {err}"),
+            None if server_only => println!("… {label}: 서버만 띄우는 중"),
+            None => println!("… {label}: 고정 — 세션과 함께 띄우는 중"),
+        }
+    }
+    println!("진행은 `rocky rc` 로 본다");
+    Ok(())
+}
+
+/// 최근 활동 한 칸 — `3일 전 feat: 무엇… *작업중 @feat/x`. git 이 아니면 `(git 아님)`.
+pub fn activity_summary(a: &Value, now: i64) -> String {
+    if a.get("repo").and_then(Value::as_bool) != Some(true) {
+        return "(git 아님)".into();
+    }
+    let age = a
+        .get("commitAt")
+        .and_then(Value::as_i64)
+        .map_or_else(|| "-".to_string(), |t| rocky_core::rc::activity_age(now, t));
+    let subject = a
+        .get("subject")
+        .and_then(Value::as_str)
+        .map_or_else(|| "(커밋 없음)".to_string(), rocky_core::rc::short_subject);
+    let mut out = format!("{age} {subject}");
+    if a.get("dirty").and_then(Value::as_bool) == Some(true) {
+        out.push_str(" *작업중");
+    }
+    if let (Some(b), Some(d)) = (
+        a.get("branch").and_then(Value::as_str),
+        a.get("defaultBranch").and_then(Value::as_str),
+    ) {
+        if b != d {
+            out.push_str(&format!(" @{b}"));
+        }
+    }
+    out
 }
