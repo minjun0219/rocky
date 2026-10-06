@@ -1063,7 +1063,7 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
 `rocky.json`의 `todo.statusline.template`로 바꾼다. 기본값:
 
 ```
-[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  ✉ {inbox}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]
+[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  🤝 {inbox}][  ✅ {pr.ready}][  ⛔ {pr.conflict}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]
 ```
 
 문법은 둘뿐이다.
@@ -1076,7 +1076,10 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
 | --- | --- |
 | `{mine.ref}` / `{mine.title}` | **이 세션이** `doing`으로 잡은 항목 (제목은 30자에서 절단) |
 | `{mine.comments}` | 그 항목의 댓글 수 — 사람이 댓글을 달면 다음 갱신에 숫자가 올라간다 |
-| `{inbox}` | 이 세션 앞으로 대기 중인 핸드오프 수 |
+| `{inbox}` | 이 세션 앞으로 대기 중인 **핸드오프** 수 — 이름과 달리 받은편지함 메시지 수가 아니다(데몬은 메시지를 큐에 두지 않고 세션 소켓에 바로 쓴다) |
+| `{pr.ready}` | 이 세션이 구독한(`rocky pr subscribe`) 열린 PR 중 머지 후보 수 — 데몬 PR 감시의 판정 |
+| `{pr.conflict}` | 같은 PR 중 충돌(`mergeStateStatus` DIRTY) 수 |
+| `{due}` / `{collect}` | 이 보드의 오늘·지난 마감 미완료 수 / 수집함 미올림 수 |
 | `{stale}` | 이 보드에서 방치된 `doing` 수 (세션이 사라졌거나 턴이 끝났는데 완료가 없다) |
 | `{doing}` | 이 보드의 전체 `doing` 수 |
 
