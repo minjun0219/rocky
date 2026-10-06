@@ -1281,7 +1281,8 @@ async fn dispatch(
             ));
         }
         let message = rocky_core::peer_inbox::web_session_message(text);
-        let subject = format!("웹 메시지: {}", rocky_core::summary::one_line(text, 60));
+        // 본문은 전달 기록(SQLite·최근 알림 화면)에 남기지 않는다 — 비밀이 섞일 수 있어 길이만 적는다.
+        let subject = format!("웹 메시지 ({}자)", text.chars().count());
         return Ok(
             match wake_session(state, session_id, &message, subject, "message").await {
                 Ok(()) => ok_json(&json!({ "sent": true })),
