@@ -566,3 +566,161 @@ async fn a_recorded_group_whose_number_was_reused_is_left_alone_and_logged() {
     assert!(signals.contains("건너뜀(번호 재사용)"), "{signals}");
     assert!(!dir.join("running.pgid").exists());
 }
+
+/// 검증 결과 구독 — 구독한 세션 받은편지함에 끝난 실행마다(통과도) 한 줄, 전달 기록에 `verify-*`. 받을 등록이 없으면
+/// 사유만 남긴다. 구독 바꾸기는 로컬 전용이고 세션이 꼭 있어야 한다.
+#[tokio::test]
+async fn subscribed_session_hears_each_finished_run() {
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    f.store.ensure_board("proj", None, "t").unwrap();
+    f.store
+        .set_board_path("proj", work.to_str().unwrap(), "t")
+        .unwrap();
+    let root = tmp.path().join("verify");
+    let target = VerifyTarget {
+        board: "proj".into(),
+        branch: "main".into(),
+        steps: vec![step("has-ok", "test -f ok.txt", None)],
+    };
+    let runner = default_runner();
+    let (notifier, _) = capture();
+
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockyverify-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("800.sock");
+    let listener = Arc::new(UnixListener::bind(&sock).unwrap());
+    post(
+        &f.state,
+        "/api/sessions/inbox",
+        serde_json::json!({ "sessionId": "deployer", "socket": sock.to_str().unwrap(), "cwd": "/w/proj" }),
+    )
+    .await;
+    f.store
+        .subscribe_verify("proj", "main", "deployer")
+        .unwrap();
+    listener.set_nonblocking(true).unwrap();
+    // 10초 안에 안 오면 실패 — 알림이 빠져도 테스트가 멈춰 서지 않게.
+    let read_one = |l: Arc<UnixListener>| {
+        tokio::task::spawn_blocking(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let mut conn = loop {
+                match l.accept() {
+                    Ok((conn, _)) => break conn,
+                    Err(_) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(20))
+                    }
+                    Err(e) => panic!("받은편지함에 10초 안에 아무것도 안 왔다: {e}"),
+                }
+            };
+            conn.set_nonblocking(false).unwrap();
+            let mut text = String::new();
+            conn.read_to_string(&mut text).unwrap();
+            text
+        })
+    };
+
+    let first = read_one(listener.clone());
+    verify_target(&f.state, &runner, &notifier, &root, &target).await;
+    let line = first.await.unwrap();
+    assert!(
+        line.contains("proj main 검증") && line.contains("통과"),
+        "{line}"
+    );
+
+    commit(&work, "ok 를 지운다", |w| {
+        std::fs::remove_file(w.join("ok.txt")).unwrap()
+    });
+    let second = read_one(listener.clone());
+    verify_target(&f.state, &runner, &notifier, &root, &target).await;
+    let line = second.await.unwrap();
+    assert!(line.contains("실패(has-ok)"), "{line}");
+    let (_, deliveries) = get(&f.state, "/api/deliveries").await;
+    assert_eq!(deliveries["recent"][0]["kind"], "verify-failed");
+    assert_eq!(deliveries["recent"][1]["kind"], "verify-passed");
+
+    // 받을 등록이 없는 세션으로 넘어가면 — 사유만 남긴다
+    f.store.subscribe_verify("proj", "main", "gone").unwrap();
+    commit(&work, "ok 를 되살린다", |w| {
+        std::fs::write(w.join("ok.txt"), "1").unwrap()
+    });
+    verify_target(&f.state, &runner, &notifier, &root, &target).await;
+    let (_, deliveries) = get(&f.state, "/api/deliveries").await;
+    assert_eq!(deliveries["recent"][0]["ok"], false);
+    assert_eq!(deliveries["recent"][0]["reason"], "받을 세션 등록 없음");
+
+    // 라우트 — 세션 없는 구독·원격 요청은 거절, 원격 조회는 세션 id 를 가린다
+    let (code, _) = post(
+        &f.state,
+        "/api/verify/subscriptions",
+        serde_json::json!({ "board": "proj" }),
+    )
+    .await;
+    assert_eq!(code, 400);
+    let (code, _) = post(
+        &f.state,
+        "/api/verify/subscriptions",
+        serde_json::json!({ "board": "nope", "sessionId": "x" }),
+    )
+    .await;
+    assert_eq!(code, 404);
+    let (code, body) = post(
+        &f.state,
+        "/api/verify/subscriptions",
+        serde_json::json!({ "sessionId": "deployer" }),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["subscribed"][0]["sessionId"], "deployer");
+    // 다른 세션("gone")이 맡고 있던 것을 넘겨받았다고 알리고, 지금 결과를 같이 싣는다
+    assert_eq!(body["subscribed"][0]["previousSessionId"], "gone");
+    assert_eq!(body["subscribed"][0]["record"]["state"], "passed");
+    let remote = |method: &'static str, path: &'static str, body: Option<serde_json::Value>| {
+        call(
+            &f.state,
+            method,
+            path,
+            body,
+            ReqOptions {
+                peer: Some("100.64.0.1"),
+                ..ReqOptions::default()
+            },
+        )
+    };
+    let (code, _) = remote(
+        "POST",
+        "/api/verify/subscriptions",
+        Some(serde_json::json!({ "sessionId": "x" })),
+    )
+    .await;
+    assert_eq!(code, 403);
+    let (_, listed) = remote("GET", "/api/verify/subscriptions", None).await;
+    assert_eq!(listed[0]["board"], "proj");
+    assert!(listed[0].get("sessionId").is_none());
+    // 세션 범위 해지는 남의 구독을 걷지 않는다
+    let (_, body) = call(
+        &f.state,
+        "DELETE",
+        "/api/verify/subscriptions?sessionId=someone-else",
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(body["removed"], 0);
+    let (code, body) = call(
+        &f.state,
+        "DELETE",
+        "/api/verify/subscriptions?board=proj",
+        None,
+        ReqOptions::default(),
+    )
+    .await;
+    assert_eq!(code, 200);
+    assert_eq!(body["removed"], 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

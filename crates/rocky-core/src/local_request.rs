@@ -155,6 +155,9 @@ pub const NON_LOCAL_VERIFY_RERUN_MESSAGE: &str =
 pub const NON_LOCAL_AGY_MESSAGE: &str =
     "Antigravity 원격 제어 켜기·끄기는 로컬(루프백) 요청만 할 수 있다 — 이 기계의 원격 접속 데몬을 바꾸기 때문에 노출된 표면으로는 허용하지 않는다";
 
+pub const NON_LOCAL_VERIFY_SUBSCRIPTION_MESSAGE: &str =
+    "검증 결과 구독은 로컬(루프백) 요청만 바꿀 수 있다 — 어느 세션을 깨울지 정하는 설정이라 노출된 표면으로는 허용하지 않는다";
+
 pub const NON_LOCAL_SESSION_MESSAGE: &str =
     "세션에 메시지 보내기는 로컬(루프백) 요청만 할 수 있다 — 쉬고 있는 세션의 턴을 열어 움직이게 하기 때문에 노출된 표면으로는 허용하지 않는다";
 

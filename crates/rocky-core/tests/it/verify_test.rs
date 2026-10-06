@@ -1,8 +1,8 @@
 //! 기본 브랜치 검증의 순수 판정 — 설정 모양, 원격 커밋 읽기, 다시 돌지, 알릴지.
 
 use rocky_core::verify::{
-    dir_name, is_branch_name, load_verify_block, notification, parse_ls_remote, should_run,
-    VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState,
+    dir_name, is_branch_name, load_verify_block, notification, parse_ls_remote, session_notice,
+    should_run, VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState,
 };
 
 fn config(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -193,4 +193,30 @@ fn run_lines_name_the_outcome_and_stay_flat_for_errors() {
     );
     let back: VerifyRun = serde_json::from_value(line).unwrap();
     assert_eq!(back, failed);
+}
+
+#[test]
+fn subscribed_sessions_hear_every_finished_run_once_per_commit() {
+    let passed = record("aaaaaaa111", VerifyState::Passed);
+    // 첫 판정 — 배너와 달리 통과도 보낸다(배포를 맡은 세션이 기다린다)
+    let (kind, text) = session_notice(None, &passed).unwrap();
+    assert_eq!(kind, "verify-passed");
+    assert!(
+        text.contains("rocky main 검증 aaaaaaa 통과 · feat: x"),
+        "{text}"
+    );
+    assert!(text.contains("사용자가 직접 쓴 것이 아니다"));
+    // 같은 커밋·같은 결과(다시 돌렸는데 그대로)는 보내지 않는다
+    assert!(session_notice(Some(&passed), &passed).is_none());
+    // 다시 돌려 결과가 바뀌면 보낸다
+    let failed_same = record("aaaaaaa111", VerifyState::Failed);
+    let (kind, text) = session_notice(Some(&passed), &failed_same).unwrap();
+    assert_eq!(kind, "verify-failed");
+    assert!(text.contains("실패(cargo-test) — 종료 코드 101"), "{text}");
+    assert!(text.contains("/tmp/x.log"), "실패면 로그 자리를 싣는다");
+    // 새 커밋은 결과가 같아도 보낸다
+    let next = record("bbbbbbb222", VerifyState::Passed);
+    assert!(session_notice(Some(&passed), &next).is_some());
+    // 도는 중은 판정이 아니다
+    assert!(session_notice(None, &record("c", VerifyState::Running)).is_none());
 }

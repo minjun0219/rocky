@@ -616,6 +616,12 @@ pub async fn verify_target(
     note_run(&dir, &VerifyRun::of(iso_now(), record.clone()));
     prune_logs(&dir);
     report(Some(record.clone()), None);
+    // 구독한 세션에는 끝난 실행마다(통과도) — 배포를 맡은 세션이 폴링하지 않고 이것으로 움직인다.
+    if let Some((kind, text)) =
+        rocky_core::verify::session_notice(finished_before.as_ref(), &record)
+    {
+        crate::server::notify_verify_subscriber(state, &record, kind, &text).await;
+    }
     if let Some((title, body)) = notification(finished_before.as_ref(), &record) {
         // 제목이 이미 `rocky:` 로 시작한다.
         println!("{title} — {body}");

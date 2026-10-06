@@ -169,6 +169,56 @@ impl VerifyRun {
     }
 }
 
+/// 기본 브랜치 검증 대상을 맡은 세션 — 끝난 실행마다 그 세션 받은편지함으로 결과 한 줄(`session_notice`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifySubscription {
+    pub board: String,
+    pub branch: String,
+    pub session_id: String,
+    pub created_at: String,
+}
+
+/// 구독한 세션에 보낼 것 — 배너와 달리 **끝난 실행마다**(통과도) 보낸다: 배포를 맡은 세션이 통과를 기다린다. 같은 커밋은
+/// 한 번 — 직전 판정과 커밋이 같고 결과도 같으면(다시 돌렸는데 그대로) 보내지 않는다. (전달 기록 종류, 본문)
+pub fn session_notice(
+    prev: Option<&VerifyRecord>,
+    now: &VerifyRecord,
+) -> Option<(&'static str, String)> {
+    if now.state == VerifyState::Running {
+        return None;
+    }
+    if prev.is_some_and(|p| p.sha == now.sha && p.state == now.state) {
+        return None;
+    }
+    let short = &now.sha[..now.sha.len().min(7)];
+    let subject = now.subject.as_deref().unwrap_or("");
+    let (kind, head, next) = if now.state == VerifyState::Passed {
+        (
+            "verify-passed",
+            format!("{short} 통과 · {subject}"),
+            "배포를 맡은 세션이면 이 커밋으로 배포한다.".to_string(),
+        )
+    } else {
+        (
+            "verify-failed",
+            format!(
+                "{short} 실패({}) — {} · {subject}",
+                now.failed_step.as_deref().unwrap_or("?"),
+                now.reason.as_deref().unwrap_or("실패"),
+            ),
+            format!("배포하지 않는다. 로그: {}", now.log),
+        )
+    };
+    Some((
+        kind,
+        format!(
+            "rocky: {} {} 검증 {head}\n\n{next} 다시 돌리려면 `rocky verify --rerun {}`.\n(rocky 데몬의 기본 브랜치 검증이 보낸 메시지다 — 사용자가 직접 쓴 것이 아니다.)",
+            now.board, now.branch, now.board
+        ),
+    ))
+}
+
 /// 사람에게 알릴 것 — 실패는 늘, 통과는 직전이 실패였을 때만(복구). 통과가 이어지면 조용하다. (제목, 본문)
 pub fn notification(prev: Option<&VerifyRecord>, now: &VerifyRecord) -> Option<(String, String)> {
     let short = &now.sha[..now.sha.len().min(7)];

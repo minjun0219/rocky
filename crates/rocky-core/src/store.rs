@@ -150,6 +150,13 @@ CREATE TABLE IF NOT EXISTS deliveries (
   ok INTEGER NOT NULL,
   reason TEXT
 );
+CREATE TABLE IF NOT EXISTS verify_subscriptions (
+  board TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (board, branch)
+);
 CREATE TABLE IF NOT EXISTS cleared_sessions (
   session_id TEXT PRIMARY KEY,
   successor_id TEXT NOT NULL,
@@ -800,6 +807,62 @@ impl TodoStore {
             params![repo, number],
         )?;
         Ok(n > 0)
+    }
+
+    /// 기본 브랜치 검증 대상(보드·브랜치)을 구독한다 — 대상 하나에 세션 하나, 이미 있으면 맡은 세션만 바꾼다(넘겨받기).
+    /// 세션이 없으면 보낼 곳이 없으니 세션 id 는 꼭 있어야 한다.
+    pub fn subscribe_verify(
+        &self,
+        board: &str,
+        branch: &str,
+        session_id: &str,
+    ) -> StoreResult<crate::verify::VerifySubscription> {
+        let (board, branch, session_id) = (board.trim(), branch.trim(), session_id.trim());
+        if board.is_empty() || branch.is_empty() || session_id.is_empty() {
+            return Err(StoreError::new(format!(
+                "검증 구독에는 보드·브랜치·세션이 필요하다: board={board:?} branch={branch:?}"
+            )));
+        }
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO verify_subscriptions (board, branch, session_id, created_at) VALUES (?1, ?2, ?3, ?4)\n\
+             ON CONFLICT (board, branch) DO UPDATE SET session_id = excluded.session_id",
+            params![board, branch, session_id, now_iso()],
+        )?;
+        get_verify_subscription_conn(&conn, board, branch)?.ok_or_else(|| {
+            StoreError::new(format!(
+                "검증 구독을 넣었는데 다시 읽지 못했다: {board} {branch}"
+            ))
+        })
+    }
+
+    pub fn unsubscribe_verify(&self, board: &str, branch: &str) -> StoreResult<bool> {
+        let conn = self.lock();
+        let n = conn.execute(
+            "DELETE FROM verify_subscriptions WHERE board = ?1 AND branch = ?2",
+            params![board, branch],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn verify_subscriptions(&self) -> StoreResult<Vec<crate::verify::VerifySubscription>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT board, branch, session_id, created_at FROM verify_subscriptions ORDER BY board, branch",
+        )?;
+        let rows = stmt
+            .query_map([], verify_subscription_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn verify_subscription(
+        &self,
+        board: &str,
+        branch: &str,
+    ) -> StoreResult<Option<crate::verify::VerifySubscription>> {
+        let conn = self.lock();
+        get_verify_subscription_conn(&conn, board, branch)
     }
 
     pub fn pr_subscriptions(&self) -> StoreResult<Vec<PrSubscription>> {
@@ -2558,7 +2621,8 @@ impl TodoStore {
             let has_subscriptions: bool = conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM pr_subscriptions WHERE session_id = ?1) \
                    OR EXISTS(SELECT 1 FROM pr_filter_subscriptions WHERE session_id = ?1) \
-                   OR EXISTS(SELECT 1 FROM inbox_subscriptions WHERE session_id = ?1)",
+                   OR EXISTS(SELECT 1 FROM inbox_subscriptions WHERE session_id = ?1) \
+                   OR EXISTS(SELECT 1 FROM verify_subscriptions WHERE session_id = ?1)",
                 params![from],
                 |r| r.get(0),
             )?;
@@ -2618,7 +2682,11 @@ impl TodoStore {
                 "SELECT source FROM inbox_subscriptions WHERE session_id = ?1 ORDER BY source",
                 &session_id,
             )?;
-            if prs.is_empty() && filters.is_empty() && inbox.is_empty() {
+            let verify = list(
+                "SELECT board || ' ' || branch FROM verify_subscriptions WHERE session_id = ?1 ORDER BY board, branch",
+                &session_id,
+            )?;
+            if prs.is_empty() && filters.is_empty() && inbox.is_empty() && verify.is_empty() {
                 conn.execute(
                     "DELETE FROM cleared_sessions WHERE session_id = ?1",
                     params![session_id],
@@ -2633,13 +2701,14 @@ impl TodoStore {
                 prs,
                 filters,
                 inbox,
+                verify,
             });
         }
         Ok(out)
     }
 
     /// `/clear` 된 세션의 구독을 정한다(웹의 세 버튼) — 넘기기는 후계 세션으로(`hand_over_conn`), 지켜보기는 PR·필터
-    /// 구독의 세션만 떼고 수집함 구독은 지우고, 해지는 전부 지운다. 기록도 지운다. 한 트랜잭션. 바뀐 구독 수 —
+    /// 구독의 세션만 떼고 수집함·검증 구독은 지우고(세션 없이는 보낼 곳이 없다), 해지는 전부 지운다. 기록도 지운다. 한 트랜잭션. 바뀐 구독 수 —
     /// 기록이 없으면 None(이미 정했거나 모르는 세션). 넘기기면 후계 세션 id 도 돌려준다("보내지 않기" 를 옮기라고).
     pub fn resolve_cleared_session(
         &self,
@@ -2671,6 +2740,8 @@ impl TodoStore {
                         "UPDATE pr_filter_subscriptions SET session_id = NULL WHERE session_id = ?1",
                         params![session_id],
                     )?;
+                    // 검증 구독은 세션 없이는 보낼 곳이 없다 — 지켜보기만도 걷는다(수집함과 같다).
+                    n += drop_verify_subscriptions_conn(&conn, session_id)?;
                     n + drop_inbox_subscriptions_conn(&conn, session_id)?
                 }
                 ClearedAction::Unsubscribe => {
@@ -2682,6 +2753,7 @@ impl TodoStore {
                         "DELETE FROM pr_filter_subscriptions WHERE session_id = ?1",
                         params![session_id],
                     )?;
+                    n += drop_verify_subscriptions_conn(&conn, session_id)?;
                     n + drop_inbox_subscriptions_conn(&conn, session_id)?
                 }
             };
@@ -3609,6 +3681,10 @@ fn hand_over_conn(conn: &Connection, from: &str, to: &str) -> StoreResult<usize>
         "UPDATE OR IGNORE inbox_subscriptions SET session_id = ?2 WHERE session_id = ?1",
         params![from, to],
     )?;
+    moved += conn.execute(
+        "UPDATE verify_subscriptions SET session_id = ?2 WHERE session_id = ?1",
+        params![from, to],
+    )?;
     conn.execute(
         "UPDATE OR IGNORE inbox_seen SET session_id = ?2 WHERE session_id = ?1",
         params![from, to],
@@ -3620,6 +3696,39 @@ fn hand_over_conn(conn: &Connection, from: &str, to: &str) -> StoreResult<usize>
         )?;
     }
     Ok(moved)
+}
+
+/// 이 세션의 검증 구독을 지운다 — 호출자의 트랜잭션 안에서. 지운 구독 수.
+fn drop_verify_subscriptions_conn(conn: &Connection, session_id: &str) -> StoreResult<usize> {
+    Ok(conn.execute(
+        "DELETE FROM verify_subscriptions WHERE session_id = ?1",
+        params![session_id],
+    )?)
+}
+
+fn get_verify_subscription_conn(
+    conn: &Connection,
+    board: &str,
+    branch: &str,
+) -> StoreResult<Option<crate::verify::VerifySubscription>> {
+    Ok(conn
+        .query_row(
+            "SELECT board, branch, session_id, created_at FROM verify_subscriptions WHERE board = ?1 AND branch = ?2",
+            params![board, branch],
+            verify_subscription_from_row,
+        )
+        .optional()?)
+}
+
+fn verify_subscription_from_row(
+    r: &rusqlite::Row<'_>,
+) -> rusqlite::Result<crate::verify::VerifySubscription> {
+    Ok(crate::verify::VerifySubscription {
+        board: r.get(0)?,
+        branch: r.get(1)?,
+        session_id: r.get(2)?,
+        created_at: r.get(3)?,
+    })
 }
 
 /// 이 세션의 수집함 구독과 본 항목을 지운다 — 호출자의 트랜잭션 안에서. 지운 구독 수.

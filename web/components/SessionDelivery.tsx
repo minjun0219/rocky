@@ -17,6 +17,7 @@ function clearedSummary(c: ClearedSession): string {
     ...c.prs.map((pr) => `PR ${pr}`),
     ...c.filters.map((f) => `필터 ${f}`),
     ...c.inbox.map((s) => `수집함 ${s}`),
+    ...(c.verify ?? []).map((v) => `검증 ${v}`),
   ].join(' · ');
 }
 
@@ -30,6 +31,8 @@ const KIND: Record<string, string> = {
   inbox: '수집함',
   handoff: '핸드오프',
   message: '웹 메시지',
+  'verify-passed': '검증 통과',
+  'verify-failed': '검증 실패',
 };
 
 /** 세션 이름 — 작업 폴더 이름 + id 앞 8자. 세션 id 만으로는 어느 세션인지 모른다. */
