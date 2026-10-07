@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 설계 문서: `docs/superpowers/specs/2026-07-26-todo-comments-design.md` (승인됨). 이탈 시 문서를 먼저 고친다.
+- 설계 문서: `docs/design/specs/2026-07-26-todo-comments-design.md` (승인됨). 이탈 시 문서를 먼저 고친다.
 - import 는 전부 상대경로, 확장자 없음. `__dirname` 금지 — `import.meta.dir`/`import.meta.url`.
 - 새 런타임 의존성 추가 금지.
 - **삭제는 없다** — 아카이브만 존재한다. 댓글도 같다.

@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript(ESM) · Bun(`bun:sqlite`, `bun:test`, `Bun.spawnSync`) · React + zustand(웹 UI) · Biome.
 
-설계 문서: `docs/superpowers/specs/2026-07-27-background-session-spawn-design.md`
+설계 문서: `docs/design/specs/2026-07-27-background-session-spawn-design.md`
 
 ## Global Constraints
 

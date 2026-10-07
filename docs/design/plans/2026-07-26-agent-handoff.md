@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (`type: module`), Bun 런타임, `bun:sqlite`, `bun:test`, React + zustand(웹 UI), Biome.
 
-설계 문서: `docs/superpowers/specs/2026-07-26-agent-handoff-design.md`
+설계 문서: `docs/design/specs/2026-07-26-agent-handoff-design.md`
 
 ## Global Constraints
 

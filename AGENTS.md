@@ -88,7 +88,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── rocky.schema.json           `rocky.json` JSON Schema — crates/rocky-core/src/config.rs 와 함께 움직인다
 ├── biome.json                  린트·포맷(.sisyphus, .claude 제외)
 ├── docs/                       features/(기능별 개발 문서), architecture, daemon(데몬 모델의 근거), codex, opencode, antigravity, hosts, backlog, board, rewrite/(포팅 기록)
-│   └── design/{specs,plans}/   설계·계획 산출물(구 docs/superpowers/) — 과거분은 그대로 보존
+│   └── design/{specs,plans}/   설계·계획 산출물 — rocky-todo 시절(구 docs/superpowers/)도 여기로 합쳤다. 대부분 기록, 머리의 "현행 여부" 줄 참고
 └── scripts/                    Bun 개발 스크립트 — release-github, sync-plugin-version, check-changesets, bootstrap.test
 ```
 

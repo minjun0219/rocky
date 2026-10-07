@@ -225,7 +225,7 @@ claude plugin install rocky@rocky-marketplace
 | [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스: 호스트별 확장 방식과 rocky 표면 커버 현황(실측) |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그: 보류 항목과 다시 넣을 후보 |
 | [`docs/board.md`](./docs/board.md) | 사람 | 보드 데몬: 설치·기동·CLI·설정·핸드오프·세션 띄우기 |
-| [`docs/rewrite/`](./docs/rewrite/) | 에이전트 | TS → Rust 포팅 기록: `contract.md`(외부 표면 계약, 정본) · `decisions.md` · `rust-notes.md` |
+| [`docs/rewrite/`](./docs/rewrite/) | 에이전트 | TS → Rust 포팅 기록: `contract.md`(외부 표면 계약, 정본) · `decisions.md` · `rust-notes.md` · 흡수 전 `rocky-todo-CHANGELOG.md` |
 | [`docs/design/`](./docs/design/) | 에이전트 | 설계(`specs/`)·계획(`plans/`) 산출물. 대부분 기록이고, 문서 머리의 상태 줄이 현행 여부를 말한다 |
 | [`web/DESIGN.md`](./web/DESIGN.md) | 에이전트 | 웹 UI 의 토큰·정보 우선순위·좁은 패널 규칙 정본 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 호스트에서 MCP 서버를 쓰고 싶을 때 |

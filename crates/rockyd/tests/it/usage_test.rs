@@ -111,3 +111,43 @@ async fn every_known_rest_surface_is_a_real_route() {
         );
     }
 }
+
+/// 반대 방향 — `dispatch` 에 글자 그대로 적힌 라우트(`path == "/api/…"`)는 `KNOWN_SURFACES` 에 있거나
+/// 기록 제외(`normalize_route` 가 None)여야 한다. 새 라우트를 만들고 목록에 안 넣으면 `rocky usage` 가 그
+/// 표면을 "안 쓴 것" 으로도 못 보여 준다. 접두어로 고르는 라우트(`/api/todos/:ref/…`)는 소스에서 뽑을 수
+/// 없어 여기서는 못 본다.
+#[test]
+fn every_literal_route_is_known_or_skipped() {
+    let source = include_str!("../../src/server.rs");
+    let known: Vec<&str> = rocky_core::usage::KNOWN_SURFACES
+        .iter()
+        .filter(|(s, _)| *s == UsageSource::Rest)
+        .filter_map(|(_, name)| name.split_once(' ').map(|(_, path)| path))
+        .collect();
+    let needle = "path == \"";
+    let mut missing = Vec::new();
+    let mut seen = 0;
+    for (at, _) in source.match_indices(needle) {
+        let rest = &source[at + needle.len()..];
+        let Some(end) = rest.find('"') else { continue };
+        let path = &rest[..end];
+        if !path.starts_with("/api/") {
+            continue;
+        }
+        seen += 1;
+        let skipped = rocky_core::usage::normalize_route("GET", path).is_none();
+        if !skipped && !known.contains(&path) {
+            missing.push(path.to_string());
+        }
+    }
+    assert!(
+        seen > 20,
+        "server.rs 에서 라우트를 거의 못 찾았다({seen}) — 매칭 모양이 바뀌었나"
+    );
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "KNOWN_SURFACES(crates/rocky-core/src/usage.rs)에 없는 라우트: {missing:?}"
+    );
+}
