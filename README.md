@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-black)](https://www.rust-lang.org)
 
-에이전트를 부리는 데 필요한 기능을 한곳에 모아 두는 개인 툴킷이다. 작업 보드와 하네스에서 시작했고, 에이전트 운용에 쓰이는 기능이면 무엇이든 받는다. 다만 다른 곳에 있는 기능을 한꺼번에 옮겨 오지는 않고, 소유자가 하나씩 정해서 들인다. 지금 본체는 **Rust 상주 데몬(공유 todo 보드와 MCP)과 CLI**이고, 그 위에 얇은 Claude Code 플러그인이 워크로그(기록과 정리)와 PR 워크플로 커맨드를 얹는다. 이름은 *Project Hail Mary*의 Rocky에서 따왔다. 2026-09에 별도 레포였던 rocky-todo를 흡수했다. 화면은 브라우저용 웹 UI 하나이고, 데몬이 `http://127.0.0.1:8636/`에서 서빙한다.
+한 기기에서 여러 에이전트 세션을 부리는 개인 툴킷이다. 하는 일은 넷이다 — 세션에 **일을 맡기고**(보드 · 핸드오프 · 새 세션 띄우기), 머지까지 **결과를 받아 오고**(PR 감시 · 기본 브랜치 검증 · 리뷰 반영), 폰에서든 데스크에서든 **지켜보고 조종하며**(웹 UI · 원격 제어 · statusline), 그 모든 것을 **기록한다**(워크로그 · 토큰 · 사용 로그). 넷 중 어디에도 붙지 않는 기능은 들이지 않고, 다른 곳에 있는 기능을 한꺼번에 옮겨 오지도 않는다 — 소유자가 하나씩 정해서 들인다. 본체는 **Rust 상주 데몬(`rockyd`)과 CLI(`rocky`)**이고, 그 위에 얇은 Claude Code 플러그인이 훅 · 슬래시 커맨드 · 스킬을 얹는다. 화면은 데몬이 `http://127.0.0.1:8636/`에서 서빙하는 웹 UI 하나다. 이름은 *Project Hail Mary*의 Rocky에서 따왔다. 2026-09에 별도 레포였던 rocky-todo를 흡수했다.
 
 > **v0.23에서 걷어낸 것**: `openapi_*` 7종, `seo_validate`, `notion_*` 4종과 단독 CLI `openapi-mcp`. 39개 레포 5,216턴의 워크로그를 세어 보니 호출이 0회였다. 전부 git 히스토리에 있으니 필요해지면 거기서 꺼낸다.
 
@@ -16,7 +16,7 @@ MCP 서버는 둘이다. 데몬의 streamable HTTP(`127.0.0.1:8636/mcp`, 보드 
 
 stdio 서버는 **rocky 채널**도 겸해, 데몬이 본 PR 전이(머지 후보·충돌)를 그 PR을 구독한 세션에 알린다. 채널 알림은 `claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`로 띄운 세션만 받는다([`docs/board.md`](./docs/board.md) "PR 감시").
 
-Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 서버를 붙이고, Codex와 opencode는 직접 등록해서 쓴다. Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install`로 깔아 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md)에 있다.
+Claude Code 플러그인은 `plugin/.claude-plugin/plugin.json`의 `mcpServers`로 두 서버를 붙이고, Codex와 opencode는 직접 등록해서 쓴다. Antigravity(`agy`)는 레포의 `antigravity/` 번들을 `agy plugin install`로 깔아 쓴다. 보드 데몬의 설치·CLI·설정·핸드오프는 [`docs/board.md`](./docs/board.md)에 있다.
 
 ### MCP 도구 표면
 
@@ -32,7 +32,7 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
 
 아래는 Claude Code 플러그인으로 설치했을 때만 붙는다.
 
-- **슬래시 커맨드** (`commands/`)
+- **슬래시 커맨드** (`plugin/commands/`)
   - `/rocky:next`: 보드에서 다음 작업을 골라 착수한다.
   - `/rocky:brainstorm`: 아이디어를 설계로 다듬는다. 게이트가 아니라 필요할 때 부르는 도구다.
   - `/rocky:review-request`: 게이트 → 커밋 → 푸시 → PR 생성까지 한다.
@@ -41,12 +41,12 @@ Claude Code 플러그인은 `.claude-plugin/plugin.json`의 `mcpServers`로 두 
   - `/rocky:config`: 설치·설정을 점검하고 빠진 것을 하나씩 물어 채운다.
   - `/rocky:usage`: 사용 로그를 읽고 뺄 것·손볼 것·더 쓸 것을 제안한다. 판단은 사람이 한다.
   - `/rocky:recall`: 워크로그를 다이제스트(`kind:"digest"`)로 증분 정리한다. 기록의 짝인 **정리(整理)** 레이어다.
-- **웹 UI** (`http://127.0.0.1:8636/`): 피드·보드·항목 상세(마크다운·댓글·타임라인)·노트·작업로그·GitHub·에이전트 탭. 에이전트 탭은 `claude agents`가 보는 세션을 사람 답을 기다리는 것(background `blocked`, Claude가 남긴 "기다리는 것" 한 줄과 함께) → 실행 중 → 쉬는 중으로 보이고, 끝나지 않은 세션에는 로컬 화면에서 한 줄 **메시지**를 보낼 수 있다(받은편지함으로 — 받는 쪽에는 다른 세션의 메시지로 보인다). 살아 있는 background 세션은 **멈추기**(로컬 화면만, `claude stop` — 대화는 남는다), background 행에는 `claude attach <id>` 복사 버튼이 있다. 보던 탭은 주소(`?view=`)에 남아 새로고침해도 유지된다. 늘 곁에 둘 노트는 `rocky note pin REF`나 웹의 📌로 고정한다. `web/`의 React 앱을 릴리스 때 `dist/`로 번들해 tarball에 넣고 데몬이 서빙한다. 자세한 내용은 [`docs/board.md`](./docs/board.md) "웹 UI".
+- **웹 UI** (`http://127.0.0.1:8636/`): 피드·보드·항목 상세(마크다운·댓글·타임라인)·노트·작업로그·GitHub·에이전트·원격 제어 탭. 에이전트 탭은 `claude agents`가 보는 세션을 사람 답을 기다리는 것(background `blocked`, Claude가 남긴 "기다리는 것" 한 줄과 함께) → 실행 중 → 쉬는 중으로 보이고, 끝나지 않은 세션에는 로컬 화면에서 한 줄 **메시지**를 보낼 수 있다(받은편지함으로 — 받는 쪽에는 다른 세션의 메시지로 보인다). 살아 있는 background 세션은 **멈추기**(로컬 화면만, `claude stop` — 대화는 남는다), background 행에는 `claude attach <id>` 복사 버튼이 있다. 보던 탭은 주소(`?view=`)에 남아 새로고침해도 유지된다. 늘 곁에 둘 노트는 `rocky note pin REF`나 웹의 📌로 고정한다. `web/`의 React 앱을 릴리스 때 `dist/`로 번들해 tarball에 넣고 데몬이 서빙한다. 자세한 내용은 [`docs/board.md`](./docs/board.md) "웹 UI".
 - **업데이트**: `rocky update`가 마켓플레이스 갱신 → 플러그인 → 데몬 교체를 한 번에 한다(`--check`는 버전 비교만). statusline에는 `rocky statusline` 한 줄로 끼운다([`docs/board.md`](./docs/board.md) "statusline에 얹기"). `rocky statusline --full`은 cc-usage 와 같은 경로·git·모델·한도 줄까지 그린다.
 - **수집함 CLI**: `rocky inbox [--json]`이 소스별 항목을 보여 준다(✓는 이미 어느 보드든 올라간 것). `rocky today`와 세션 시작 요약은 아직 안 올린 항목을 최대 3개 싣는다. 세션에 "gh-bugs 구독해"라고 하면(`rocky inbox subscribe`) 그 뒤 새 항목을 데몬이 그 세션에 알린다. 착수는 사람이 정한다([`docs/board.md`](./docs/board.md) "요약").
-- **훅** (`hooks/hooks.json`): `SessionStart`가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit`이 사람이 보드에서 바꾼 것을 세션에 알리고, `PostToolUse`가 세션이 `todo_status` 로 스스로 시작한 할 일에 그 세션을 귀속시키고(statusline ⏺·턴 태그용 — Stop 의 "닫았나?" 확인은 핸드오프로 받은 것에만), `Stop`이 핸드오프를 집은 뒤 턴을 워크로그에 자동으로 남긴다(`kind:"turn"`, LLM을 쓰지 않는다, `worklog.autoCapture`로 끈다). 모든 훅은 실패해도 세션을 막지 않는다.
-- **스킬** (`skills/`): rocky 를 **쓰는** 에이전트가 상황에 맞을 때 읽는 문서다(평소엔 컨텍스트를 쓰지 않는다). `pull-request`는 PR 구독과 받은편지함 메시지별 할 일, `token-usage`는 모델·effort 고르기, `branch-verify`는 기본 브랜치 검증 결과 읽기, `handoff`는 보드에서 넘겨받은 일의 start→done, `worklog`는 무엇을 언제 기록하나를 다룬다. rocky 를 **고치는** 에이전트용 기능 문서는 레포의 `docs/features/`에 따로 있다. `board`는 보드 에티켓(start→done, 링크 첨부, 보관만)과 MCP·CLI 폴백을, `writing-cc-plugin`은 Claude Code 플러그인 작성 가이드와 매니페스트·컴포넌트·배포 레퍼런스를 담는다.
-- **서브에이전트** (`agents/`): `reviewer`는 새 컨텍스트에서 **diff와 요구사항만** 받아 검토하는 읽기 전용 리뷰어다. `/rocky:spec-check`이 요구사항 대비 점검으로 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘"처럼 직접 부를 수도 있다. 돌려 본 것만 통과라고 쓰고, 통과처럼 보이는 실패(false pass)를 따로 챙기며, 파일을 고치거나 머지하지 않는다.
+- **훅** (`plugin/hooks/hooks.json`): `SessionStart`가 데몬을 띄우고(버전이 다르면 재기동), `UserPromptSubmit`이 사람이 보드에서 바꾼 것을 세션에 알리고, `PostToolUse`가 세션이 `todo_status` 로 스스로 시작한 할 일에 그 세션을 귀속시키고(statusline ⏺·턴 태그용 — Stop 의 "닫았나?" 확인은 핸드오프로 받은 것에만), `Stop`이 핸드오프를 집은 뒤 턴을 워크로그에 자동으로 남긴다(`kind:"turn"`, LLM을 쓰지 않는다, `worklog.autoCapture`로 끈다). 모든 훅은 실패해도 세션을 막지 않는다.
+- **스킬** (`plugin/skills/`): rocky 를 **쓰는** 에이전트가 상황에 맞을 때 읽는 문서다(평소엔 컨텍스트를 쓰지 않는다). `pull-request`는 PR 구독과 받은편지함 메시지별 할 일, `token-usage`는 모델·effort 고르기, `branch-verify`는 기본 브랜치 검증 결과 읽기, `handoff`는 보드에서 넘겨받은 일의 start→done, `worklog`는 무엇을 언제 기록하나를 다룬다. rocky 를 **고치는** 에이전트용 기능 문서는 레포의 `docs/features/`에 따로 있다. `board`는 보드 에티켓(start→done, 링크 첨부, 보관만)과 MCP·CLI 폴백을, `writing-cc-plugin`은 Claude Code 플러그인 작성 가이드와 매니페스트·컴포넌트·배포 레퍼런스를 담는다.
+- **서브에이전트** (`plugin/agents/`): `reviewer`는 새 컨텍스트에서 **diff와 요구사항만** 받아 검토하는 읽기 전용 리뷰어다. `/rocky:spec-check`이 요구사항 대비 점검으로 띄우고(버그 찾기는 기본 `/code-review`), "리뷰해줘"처럼 직접 부를 수도 있다. 돌려 본 것만 통과라고 쓰고, 통과처럼 보이는 실패(false pass)를 따로 챙기며, 파일을 고치거나 머지하지 않는다.
   `quick-fix`(Sonnet)와 `merge-cleanup`(Haiku)은 `/rocky:review-fix`의 기계적인 단계 — 충돌 해소·판단이 필요 없는 리뷰 수정·CI 실패, 머지 뒤 정리 — 를 가벼운 모델과 **새 맥락**에서 맡는다. 긴 세션이 몇 줄짜리 손질을 위해 대화 전체를 요청마다 다시 읽지 않게 하려는 것이다. 둘 다 강제 푸시·`-D`·코멘트·resolve·머지를 하지 않고, 판단이 필요한 건은 메인 세션에 돌려준다.
 
 ### 토큰 사용 — 모델·effort 고르기
@@ -132,7 +132,7 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 
 **새 세션 띄우기**(`rocky spawn REF`, 웹은 할 일 상세의 "에이전트에게 보내기" 패널 첫 대상 "새 세션", 로컬 전용): rc 가 켜진 기기에서는 데몬이 그 할 일의 워크트리(`<보드 경로>/.claude/worktrees/todo-<번호>`, 없으면 `origin` 기본 브랜치에서 딴다)에 **단일 세션 rc 서버**(`<보드>-<번호>: <제목 앞부분>`)를 띄우고, 그 세션에 핸드오프를 넣어 깨운다 — 폰 · 웹의 원격 제어 목록에서 그 이름으로 이어 본다. 할 일당 서버 하나이고, **서버는 저절로 내려가지 않는다** — 세션이 끝났다고 알리면 사람이 닫는다(`rocky rc stop <할 일>`, 감시 · 야간도 건드리지 않는다). `rocky rc` 에는 "핸드오프:" 로 따로 보인다(띄울 때 남긴 기록 `rc/handoff/<라벨>.json` 과 pid · 폴더가 맞는 서버). rc 가 꺼진 기기는 `claude --bg` 로 띄우는데, 그 세션은 로그인 세션 밖에서 돌아 ssh · 자격이 끊길 수 있어 응답에 경고가 붙는다. 자세한 규칙은 [`docs/board.md`](./docs/board.md)의 spawn 절.
 
-**에이전트가 부를 때의 확인**: 서버를 바꾸는 명령은 사용자 설정(`~/.claude/settings.json`)의 `permissions.ask` 로 사람 확인을 받는다 — `"Bash(rocky rc start:*)"`, `"Bash(rocky rc restart:*)"`, `"Bash(rocky rc nightly:*)"`, `"Bash(rocky rc agy start:*)"`, `"Bash(rocky rc agy stop:*)"`, `"Bash(rocky rc stop:*)"`. `sh -c` 같은 래퍼나 `curl` 로는 비켜 가지만, 데몬 라우트가 로컬 전용이라 노출된 화면에서는 막힌다.
+**에이전트가 부를 때의 확인**: 서버를 바꾸는 명령은 사용자 설정(`~/.claude/settings.json`)의 `permissions.ask` 로 사람 확인을 받는다 — `"Bash(rocky rc start:*)"`, `"Bash(rocky rc restart:*)"`, `"Bash(rocky rc nightly:*)"`, `"Bash(rocky rc agy start:*)"`, `"Bash(rocky rc agy stop:*)"`, `"Bash(rocky rc stop:*)"`. `sh -c` 같은 래퍼나 `curl` 로는 비켜 가지만, 데몬 라우트가 로컬 전용이라 노출된 화면에서는 막힌다(위 `access` 블록을 켠 경우의 원격 제어 탭만 예외).
 
 
 | API | 내용 |
@@ -147,7 +147,7 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
 
-> **v0.19에서 걷어낸 것**: 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅, opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다. 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json`의 `soul` / `callsign` / `opencode` 키도 함께 없어져 이제 거부되니, 예전 설정 파일에 남아 있으면 지운다.
+> **v0.19에서 걷어낸 것**: 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅(지금의 `rocky statusline` 은 데몬이 그리는 다른 것이다 — [`docs/features/statusline.md`](./docs/features/statusline.md)), opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다. 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json`의 `soul` / `callsign` / `opencode` 키도 함께 없어져 이제 거부되니, 예전 설정 파일에 남아 있으면 지운다.
 
 ## 시작하기
 
@@ -214,16 +214,20 @@ claude plugin install rocky@rocky-marketplace
 
 ## 문서 맵
 
-이 README가 사람용 진입점이고, 더 깊은 문서는 아래가 전부다. 도구 하나하나의 입출력은 문서가 아니라 **도구 정의 자체**(`crates/*/src/*mcp*.rs`의 `#[tool]`)에 있다. 에이전트는 그걸 직접 읽는다.
+이 README가 사람용 진입점이고, 더 깊은 문서는 아래에 있다. 도구 하나하나의 입출력은 문서가 아니라 **도구 정의 자체**(`crates/*/src/*mcp*.rs`의 `#[tool]`)에 있다. 에이전트는 그걸 직접 읽는다.
 
 | 문서 | 대상 | 내용 |
 | --- | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | 에이전트 | **단일 기준 문서**: 레이아웃·범위·코딩 규칙·변경 체크리스트·리뷰 기준 |
 | [`docs/architecture.md`](./docs/architecture.md) | 에이전트 (영문) | 코드만 봐서는 알 수 없는 설계 근거. 필요할 때만 읽는 심화 레퍼런스 |
+| [`docs/features/`](./docs/features/) | 에이전트 | 기능별 개발 문서: 지킬 규칙·코드 위치·불변식·고정하는 테스트·함정. 그 기능을 고치기 전에 연다 |
+| [`docs/daemon.md`](./docs/daemon.md) | 에이전트 | 데몬 모델의 근거(왜 이렇게 했나)와 사고 경위 |
 | [`docs/hosts.md`](./docs/hosts.md) | 사람 | 호스트 지원 매트릭스: 호스트별 확장 방식과 rocky 표면 커버 현황(실측) |
 | [`docs/backlog.md`](./docs/backlog.md) | 사람 | 백로그: 보류 항목과 다시 넣을 후보 |
 | [`docs/board.md`](./docs/board.md) | 사람 | 보드 데몬: 설치·기동·CLI·설정·핸드오프·세션 띄우기 |
 | [`docs/rewrite/`](./docs/rewrite/) | 에이전트 | TS → Rust 포팅 기록: `contract.md`(외부 표면 계약, 정본) · `decisions.md` · `rust-notes.md` |
+| [`docs/design/`](./docs/design/) | 에이전트 | 설계(`specs/`)·계획(`plans/`) 산출물. 대부분 기록이고, 문서 머리의 상태 줄이 현행 여부를 말한다 |
+| [`web/DESIGN.md`](./web/DESIGN.md) | 에이전트 | 웹 UI 의 토큰·정보 우선순위·좁은 패널 규칙 정본 |
 | [`docs/codex.md`](./docs/codex.md) / [`docs/opencode.md`](./docs/opencode.md) | 사람 | 다른 호스트에서 MCP 서버를 쓰고 싶을 때 |
 | [`docs/antigravity.md`](./docs/antigravity.md) | 사람 | Antigravity에 작업(주로 디자인)을 넘길 때 — 번들 설치와 넘기기 흐름 |
 

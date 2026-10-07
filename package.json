@@ -41,7 +41,7 @@
     "yjs": "^13.6.33",
     "zustand": "^5.0.14"
   },
-  "description": "rocky (named after Project Hail Mary) — the owner's personal agent tool. A Rust daemon (shared todo board + MCP) and CLI under crates/, a thin Claude Code plugin under plugin/, and the board web UI under web/ (built to dist/ at release, served by the daemon). This package holds the Bun dev tooling and the UI build — there is no TypeScript server code.",
+  "description": "rocky (named after Project Hail Mary) — the owner's personal agent toolkit. Run many agent sessions from one machine: hand work out (board, handoffs, spawn), bring results back to merge (PR watch, default-branch verify, review-fix), watch and steer from anywhere (web UI, remote control, statusline), and record it all (worklog, token and usage logs). A Rust daemon and CLI under crates/, a thin Claude Code plugin under plugin/, and the web UI under web/ (built to dist/ at release, served by the daemon). This package holds the Bun dev tooling and the UI build — there is no TypeScript server code.",
   "engines": {
     "bun": ">=1.0.0"
   },
