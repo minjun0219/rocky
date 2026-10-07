@@ -5,7 +5,8 @@
 //! stdin/stdout 배선만 담당한다.
 //!
 //! 커서는 세션별 — `<dir>/hook-cursors.json` 에 `{ sessionId: { lastId, at } }` 로
-//! 저장하고 최근 100 세션만 유지한다 (무한 성장 방지).
+//! 저장하고 최근 100 세션만 유지한다 (무한 성장 방지). Antigravity 의 `PreInvocation` 훅
+//! (`hook notify-todo agy`)은 같은 모양을 `<dir>/hook-cursors-agy.json` 에 대화(`conversationId`)별로 쓴다.
 
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -13,7 +14,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::actors::is_agent_actor;
+use crate::actors::{is_agent_actor, ANTIGRAVITY_ACTOR};
 use crate::prwatch::PrSubscription;
 use crate::types::{ChangeFeedEntry, ChangesSince, HistoryEntity};
 
@@ -26,6 +27,16 @@ pub fn filter_human_changes(entries: Vec<ChangeFeedEntry>) -> Vec<ChangeFeedEntr
     entries
         .into_iter()
         .filter(|e| !is_agent_actor(&e.history.actor))
+        .collect()
+}
+
+/// Antigravity 대화에 넣을 변경 — 사람의 변경에서 agy 자신이 한 것을 뺀다. `antigravity` 는 넘긴 작업의 댓글·완료가
+/// Claude Code 로 돌아가도록 에이전트 목록 밖에 있어서(`actors`), [`filter_human_changes`] 만으로는 agy 가 방금 한
+/// start·댓글이 다음 모델 호출에 "호출자의 보드 변경"으로 되돌아온다.
+pub fn filter_changes_for_antigravity(entries: Vec<ChangeFeedEntry>) -> Vec<ChangeFeedEntry> {
+    filter_human_changes(entries)
+        .into_iter()
+        .filter(|e| e.history.actor != ANTIGRAVITY_ACTOR)
         .collect()
 }
 

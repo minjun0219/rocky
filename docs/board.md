@@ -964,7 +964,7 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 | env | 의미 |
 | --- | --- |
 | `ROCKY_TODO_PORT` | 데몬 포트 (기본 8636 — 키패드 "todo") |
-| `ROCKY_TODO_DIR` | 데이터 디렉터리 (todo.db / daemon.pid / daemon.log / hook-cursors.json) |
+| `ROCKY_TODO_DIR` | 데이터 디렉터리 (todo.db / daemon.pid / daemon.log / hook-cursors.json / hook-cursors-agy.json) |
 | `ROCKY_TODO_ACTOR` | CLI actor 이름 강제 |
 | `ROCKY_TODO_WATCH` | 보드 변경 주입 훅 on/off (기본 on) |
 | `ROCKY_TODO_EXPOSE` | 노출 채널 강제 (`lan,tailscale-serve` / `off`) — 설정 시 config 무시 |

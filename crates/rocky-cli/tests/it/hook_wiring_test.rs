@@ -10,7 +10,7 @@ use std::thread;
 
 use rocky_cli::channel::{read_page, Page};
 use rocky_cli::client::build_context;
-use rocky_cli::hooks::notify_todo_context;
+use rocky_cli::hooks::{notify_agy_context, notify_todo_context};
 use rocky_core::notify::read_cursor;
 use serde_json::{json, Value};
 
@@ -311,4 +311,127 @@ fn a_full_page_advances_only_to_the_last_received_entry() {
         Some(250),
         "다 받았으면 lastId 로 맞춘다"
     );
+}
+
+/// 보드 항목에 actor 가 한 일 한 건.
+fn entry_by(id: i64, actor: &str, action: &str) -> Value {
+    json!({
+        "id": id, "entity": "todo", "entityId": format!("t{id}"), "actor": actor, "action": action,
+        "at": "2026-10-05T10:00:00.000Z", "title": format!("할 일 {id}"), "boardKey": "rocky"
+    })
+}
+
+/// agy 대화도 첫 호출은 워터마크만 적고, 다음 호출부터 사람의 변경만 싣는다 — agy 자신(`antigravity`)과 다른 에이전트의
+/// 변경은 빠진다. 커서는 Claude Code 세션의 파일과 따로 둔다.
+#[test]
+fn agy_gets_only_human_changes_keyed_by_conversation() {
+    let fake = FakeDaemon::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = build_context(fake.port, dir.path(), "test");
+    let cursors = dir.path().join("hook-cursors-agy.json");
+    let input = json!({ "conversationId": "conv-1", "invocationNum": 0, "workspacePaths": ["/w"] });
+
+    fake.set("/api/changes", 200, feed(10, vec![]));
+    assert_eq!(
+        notify_agy_context(&ctx, &input),
+        None,
+        "첫 호출은 과거를 싣지 않는다"
+    );
+    assert_eq!(read_cursor(&cursors, "conv-1"), Some(10));
+    assert!(
+        !dir.path().join("hook-cursors.json").exists(),
+        "Claude Code 세션의 커서 파일을 건드리지 않는다"
+    );
+
+    fake.set(
+        "/api/changes",
+        200,
+        feed(
+            13,
+            vec![
+                entry_by(11, "antigravity", "start"),
+                entry_by(12, "logan", "comment"),
+                entry_by(13, "claude-code", "update"),
+            ],
+        ),
+    );
+    let text = notify_agy_context(&ctx, &input).expect("사람의 댓글은 실린다");
+    assert!(
+        text.contains("logan") && text.contains("할 일 12"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("할 일 11") && !text.contains("할 일 13"),
+        "agy 자신과 에이전트의 변경은 빠진다 — {text}"
+    );
+    assert_eq!(read_cursor(&cursors, "conv-1"), Some(13));
+
+    // 커서 13 뒤로는 새 변경이 없다(가짜 데몬은 sinceId 를 보지 않으니 빈 피드를 직접 준다).
+    fake.set("/api/changes", 200, feed(13, vec![]));
+    assert_eq!(
+        notify_agy_context(&ctx, &input),
+        None,
+        "같은 변경을 다음 모델 호출에 다시 싣지 않는다"
+    );
+    assert_eq!(
+        notify_agy_context(&ctx, &json!({ "session_id": "conv-1" })),
+        None,
+        "conversationId 가 없으면 아무것도 하지 않는다"
+    );
+}
+
+/// 바이너리 입구 — `rocky hook notify-todo agy` 는 agy 가 읽는 모양(`injectSteps[].ephemeralMessage`)을 내고, 실을 게
+/// 없으면 `{}` 를 낸다.
+#[test]
+fn the_agy_entry_prints_inject_steps_json() {
+    use std::process::{Command, Stdio};
+    let fake = FakeDaemon::start();
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("rocky.json");
+    let todo_dir = dir.path().join("todo");
+    std::fs::write(
+        &config,
+        json!({ "todo": { "port": fake.port, "dir": todo_dir, "expose": "off" } }).to_string(),
+    )
+    .unwrap();
+    let run = || -> Value {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rocky"))
+            .args(["hook", "notify-todo", "agy"])
+            .env("HOME", dir.path())
+            .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
+            .env("ROCKY_CONFIG", &config)
+            .env_remove("ROCKY_TODO_WATCH")
+            .env_remove("ROCKY_TODO_PORT")
+            .env_remove("ROCKY_TODO_DIR")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                json!({ "conversationId": "conv-9", "invocationNum": 0 })
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success());
+        serde_json::from_slice(&out.stdout).expect("stdout 은 JSON 하나다")
+    };
+
+    fake.set("/api/changes", 200, feed(10, vec![]));
+    assert_eq!(run(), json!({}));
+    fake.set(
+        "/api/changes",
+        200,
+        feed(11, vec![entry_by(11, "logan", "comment")]),
+    );
+    let out = run();
+    let message = out["injectSteps"][0]["ephemeralMessage"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{out}"));
+    assert!(message.contains("호출자의 보드 변경"), "{message}");
 }

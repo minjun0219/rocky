@@ -30,6 +30,7 @@ Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만
 | `/rocky:review-fix` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | — | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
 | 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | ◐ `Stop` 훅 — 포맷 상이 | `crates/rocky-core/src/transcript.rs`를 호스트별 재작성해야 (실제 비용) |
+| 보드 변경 주입 (사람의 편집 → 세션) | ✅ `UserPromptSubmit` | 미구현 — 작업 전에 `todo_list` | 미구현 — 작업 전에 `todo_list` | ✅ `PreInvocation` 훅 | agy 는 모델 호출마다 돌고 커서가 대화별이다 |
 | skill `board` | ✅ | ◐ 스펙 호환 | ◐ 스펙 호환 | ✅ 번들 `skills/board` | 넘기기 흐름(*Antigravity 로 넘기기*)이 여기 있다 |
 | skill `writing-cc-plugin` | ✅ | ◐ 스펙 호환하나 내용이 CC 전용 | ✅ `.claude/skills/` 자동 발견 | — | 메커니즘은 커버, 내용 가치는 CC 한정 |
 | 단일 설치 유닛 | ✅ `.claude-plugin/` + `rocky-marketplace` | ◐ `.codex-plugin/plugin.json`로 번들화 가능 (`codex plugin` 서브커맨드 실재) | ✗ 우산 없음 → config 트리 / npm plugin | ✅ `antigravity/` 번들 | Codex가 새로 연 길 |
