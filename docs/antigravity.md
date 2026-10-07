@@ -47,8 +47,11 @@ Claude Code의 `UserPromptSubmit` 훅처럼, 마지막 확인 이후 **사람이
   `hook-cursors.json`과 나눠, 호출이 잦은 이 훅이 그쪽 최근 100칸을 밀어내지 않게 했다. 첫 호출은 위치만 적는다.
 - **agy 자신의 변경은 뺀다.** `antigravity`는 에이전트 목록 밖이라(아래 *넘기기 흐름* 3) 사람 필터만으로는 agy가 방금 한
   `start`·댓글이 자기에게 돌아온다. Claude Code 등 다른 에이전트의 변경도 Claude Code 쪽과 같이 빠진다.
-- **`ephemeralMessage`로 넣는다.** 이름과 달리 대화에 남는다 — 트랜스크립트에 `EPHEMERAL_MESSAGE` 단계로 기록되고, 다음
-  턴의 모델도 그 내용을 인용했다(실측). `userMessage`는 사용자가 한 말로 보여 쓰지 않는다.
+- **`ephemeralMessage`로 넣는다 — 다음 턴에는 남지 않는다.** 트랜스크립트에는 `EPHEMERAL_MESSAGE` 단계로 기록되지만,
+  다음 턴에 도구를 못 쓰게 하고 물으면 모델은 그 내용을 모른다(실측). 그래서 사람의 변경은 그 모델 호출에서 한 번 보이고
+  끝난다. `userMessage`는 다음 턴까지 남지만 `<USER_REQUEST>`로 감싸여 사용자가 한 요청으로 들어가므로 쓰지 않는다 —
+  웹에서 나중에 하려고 만든 할 일이 지금 하라는 요청으로 읽힌다. (도구를 열어 두면 모델이 트랜스크립트 파일을 직접 읽어
+  찾아내므로, 남는지 잴 때는 도구를 막아야 한다.)
 - 핸드오프·PR 전이·받은편지함·데몬 업그레이드는 하지 않는다 — Claude Code 세션의 것이다. 끄기는 Claude Code와 같다
   (`todo.watch: false` 또는 `ROCKY_TODO_WATCH=0`).
 
