@@ -112,32 +112,62 @@ async fn every_known_rest_surface_is_a_real_route() {
     }
 }
 
-/// 반대 방향 — `dispatch` 에 글자 그대로 적힌 라우트(`path == "/api/…"`)는 `KNOWN_SURFACES` 에 있거나
-/// 기록 제외(`normalize_route` 가 None)여야 한다. 새 라우트를 만들고 목록에 안 넣으면 `rocky usage` 가 그
-/// 표면을 "안 쓴 것" 으로도 못 보여 준다. 접두어로 고르는 라우트(`/api/todos/:ref/…`)는 소스에서 뽑을 수
-/// 없어 여기서는 못 본다.
+/// 반대 방향 — `dispatch` 에 글자 그대로 적힌 라우트(`path == "/api/…"`)는 메서드까지 `KNOWN_SURFACES` 에
+/// 있거나 기록 제외(`normalize_route` 가 None)여야 한다. 새 라우트를 만들고 목록에 안 넣으면 `rocky usage` 가
+/// 그 표면을 "안 쓴 것" 으로도 못 보여 준다. 메서드는 같은 줄의 `Method::X` 에서, 없으면(경로로 먼저 고르고
+/// 안에서 메서드를 나누는 블록) 다음 라우트 줄 전까지에서 모은다. 접두어로 고르는 라우트(`/api/todos/:ref/…`)는
+/// 소스에서 뽑을 수 없어 여기서는 못 본다.
 #[test]
 fn every_literal_route_is_known_or_skipped() {
     let source = include_str!("../../src/server.rs");
-    let known: Vec<&str> = rocky_core::usage::KNOWN_SURFACES
-        .iter()
-        .filter(|(s, _)| *s == UsageSource::Rest)
-        .filter_map(|(_, name)| name.split_once(' ').map(|(_, path)| path))
-        .collect();
+    let lines: Vec<&str> = source.lines().collect();
+    let methods_in = |line: &str| -> Vec<String> {
+        line.match_indices("Method::")
+            .map(|(at, _)| {
+                line[at + "Method::".len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_uppercase())
+                    .collect::<String>()
+            })
+            .filter(|m| !m.is_empty())
+            .collect()
+    };
     let needle = "path == \"";
     let mut missing = Vec::new();
     let mut seen = 0;
-    for (at, _) in source.match_indices(needle) {
-        let rest = &source[at + needle.len()..];
-        let Some(end) = rest.find('"') else { continue };
-        let path = &rest[..end];
-        if !path.starts_with("/api/") {
-            continue;
-        }
-        seen += 1;
-        let skipped = rocky_core::usage::normalize_route("GET", path).is_none();
-        if !skipped && !known.contains(&path) {
-            missing.push(path.to_string());
+    for (i, line) in lines.iter().enumerate() {
+        for (at, _) in line.match_indices(needle) {
+            let rest = &line[at + needle.len()..];
+            let Some(end) = rest.find('"') else { continue };
+            let path = &rest[..end];
+            if !path.starts_with("/api/") {
+                continue;
+            }
+            seen += 1;
+            if rocky_core::usage::normalize_route("GET", path).is_none() {
+                continue;
+            }
+            let mut methods = methods_in(line);
+            if methods.is_empty() {
+                for next in &lines[i + 1..] {
+                    if next.contains(needle) {
+                        break;
+                    }
+                    methods.extend(methods_in(next));
+                }
+            }
+            assert!(!methods.is_empty(), "{path} 의 메서드를 못 찾았다");
+            for method in methods {
+                let Some(name) = rocky_core::usage::normalize_route(&method, path) else {
+                    continue;
+                };
+                let known = rocky_core::usage::KNOWN_SURFACES
+                    .iter()
+                    .any(|(s, n)| *s == UsageSource::Rest && *n == name);
+                if !known {
+                    missing.push(name);
+                }
+            }
         }
     }
     assert!(
