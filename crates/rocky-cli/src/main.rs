@@ -191,22 +191,30 @@ fn run(argv: &[String]) -> Result<(), String> {
         "hook" => {
             use rocky_cli::hooks;
             let hook = rest.first().map(String::as_str).unwrap_or("");
-            match hook {
-                "ensure-daemon" => hooks::hook_ensure_daemon(&ctx, todo_config.session_summary),
-                "notify-todo" => hooks::hook_notify_todo(&ctx, todo_config.watch),
-                "handoff-stop" => hooks::hook_handoff_stop(&ctx),
-                "log-turn" => hooks::hook_log_turn(&ctx),
-                "claim-doing" => hooks::hook_claim_doing(&ctx),
+            // 호스트 인자 — Antigravity 번들(`antigravity/hooks.json`)은 `notify-todo agy` 로 부른다.
+            let host = rest.get(1).map(String::as_str);
+            match (hook, host) {
+                ("ensure-daemon", _) => {
+                    hooks::hook_ensure_daemon(&ctx, todo_config.session_summary)
+                }
+                ("notify-todo", Some("agy")) => hooks::hook_notify_todo_agy(&ctx, todo_config.watch),
+                ("notify-todo", _) => hooks::hook_notify_todo(&ctx, todo_config.watch),
+                ("handoff-stop", _) => hooks::hook_handoff_stop(&ctx),
+                ("log-turn", _) => hooks::hook_log_turn(&ctx),
+                ("claim-doing", _) => hooks::hook_claim_doing(&ctx),
                 _ => {
                     return Err(
-                        "usage: rocky hook ensure-daemon|notify-todo|handoff-stop|log-turn|claim-doing"
+                        "usage: rocky hook ensure-daemon|notify-todo [agy]|handoff-stop|log-turn|claim-doing"
                             .into(),
                     )
                 }
             }
             rocky_cli::usage_cmd::record(
                 rocky_core::usage::UsageSource::Hook,
-                &format!("hook {hook}"),
+                &match (hook, host) {
+                    ("notify-todo", Some("agy")) => "hook notify-todo agy".to_string(),
+                    _ => format!("hook {hook}"),
+                },
                 true,
                 Some(started),
                 None,

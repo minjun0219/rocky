@@ -341,6 +341,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Mcp, "worklog_status"),
     (UsageSource::Hook, "hook ensure-daemon"),
     (UsageSource::Hook, "hook notify-todo"),
+    (UsageSource::Hook, "hook notify-todo agy"),
     (UsageSource::Hook, "hook handoff-stop"),
     (UsageSource::Hook, "hook log-turn"),
     (UsageSource::Hook, "hook claim-doing"),

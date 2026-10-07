@@ -6,6 +6,10 @@
 /// 에이전트로 간주하는 actor 이름.
 pub const AGENT_ACTORS: [&str; 5] = ["claude-code", "codex", "opencode", "agent", "rocky"];
 
+/// Antigravity(`agy`)가 보드 도구에 넣는 actor — `antigravity/rules/AGENTS.md` 가 정한다. 에이전트 목록에는 일부러 없다
+/// (아래 테스트).
+pub const ANTIGRAVITY_ACTOR: &str = "antigravity";
+
 /// 이 actor 가 에이전트인가. 모르는 이름은 사람으로 본다.
 pub fn is_agent_actor(actor: &str) -> bool {
     AGENT_ACTORS.contains(&actor)
@@ -31,6 +35,6 @@ mod tests {
     /// 넘긴 세션이 이어받는다 — 에이전트 목록에 넣으면 그 돌아오는 길이 끊긴다(`docs/antigravity.md`).
     #[test]
     fn antigravity_stays_out_of_agents() {
-        assert!(!is_agent_actor("antigravity"));
+        assert!(!is_agent_actor(ANTIGRAVITY_ACTOR));
     }
 }

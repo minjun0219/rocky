@@ -1,10 +1,10 @@
 //! TS `src/notify.test.ts` 포팅.
 
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, drop_absorbed, filter_human_changes, hold_cursor,
-    merge_context, page_cursor, peer_messages, pr_channel_events, pr_entries_for_board,
-    pr_entries_for_session, read_cursor, subscribed_pr_entries, write_cursor, BoardLookup,
-    PeerMessage,
+    build_notify_context, build_pr_context, drop_absorbed, filter_changes_for_antigravity,
+    filter_human_changes, hold_cursor, merge_context, page_cursor, peer_messages,
+    pr_channel_events, pr_entries_for_board, pr_entries_for_session, read_cursor,
+    subscribed_pr_entries, write_cursor, BoardLookup, PeerMessage,
 };
 use rocky_core::peer_inbox::pr_session_message;
 use rocky_core::prwatch::{PrEvent, PrEventKind, PrSubscription};
@@ -44,6 +44,22 @@ fn drops_agent_actors_keeps_human_actors() {
         entry(4, "web", "update"),
     ];
     let kept: Vec<i64> = filter_human_changes(entries)
+        .iter()
+        .map(|e| e.history.id)
+        .collect();
+    assert_eq!(kept, vec![2, 4]);
+}
+
+/// agy 대화에는 agy 자신(`antigravity`)의 변경을 되돌려 보내지 않는다 — 에이전트도 그대로 빠지고 사람은 남는다.
+#[test]
+fn antigravity_does_not_hear_its_own_changes() {
+    let entries = vec![
+        entry(1, "antigravity", "start"),
+        entry(2, "logan", "comment"),
+        entry(3, "claude-code", "update"),
+        entry(4, "web", "update"),
+    ];
+    let kept: Vec<i64> = filter_changes_for_antigravity(entries)
         .iter()
         .map(|e| e.history.id)
         .collect();

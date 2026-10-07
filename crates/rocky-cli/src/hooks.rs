@@ -11,9 +11,9 @@ use std::time::Duration;
 use rocky_core::config::{load_worklog_config, user_config_path};
 use rocky_core::handoff::build_handoff_prompt;
 use rocky_core::notify::{
-    build_notify_context, build_pr_context, drop_absorbed, filter_human_changes, hold_cursor,
-    merge_context, page_cursor, peer_messages, pr_entries_for_session, read_cursor, write_cursor,
-    BoardLookup,
+    build_notify_context, build_pr_context, drop_absorbed, filter_changes_for_antigravity,
+    filter_human_changes, hold_cursor, merge_context, page_cursor, peer_messages,
+    pr_entries_for_session, read_cursor, write_cursor, BoardLookup,
 };
 use rocky_core::prwatch::PrSubscription;
 use rocky_core::transcript::{
@@ -566,6 +566,54 @@ pub fn notify_todo_context(ctx: &CliContext, input: &serde_json::Value) -> Optio
     let claimed = claim_thread.join().unwrap_or(None);
     let handoff_context = claimed.as_ref().map(build_handoff_prompt);
     merge_context(&[change_context, pr_context, backlog_note, handoff_context])
+}
+
+/// Antigravity `PreInvocation`(`rocky hook notify-todo agy`): 마지막 확인 이후 사람이 보드에서 바꾼 내용을
+/// `ephemeralMessage` 로 넣는다 — `hook_notify_todo` 에서 보드 변경만 옮긴 것. 핸드오프·PR 전이·받은편지함·데몬
+/// 업그레이드는 Claude Code 세션의 것이라 하지 않는다.
+///
+/// agy 는 모델을 부를 때마다(한 턴에 도구 호출 수 + 1번) 이 훅을 부른다. 커서가 대화별이라 같은 변경은 한 번만 실리고,
+/// 턴 중간에 사람이 단 댓글은 다음 모델 호출에 들어간다. 실을 게 없어도 `{}` 를 낸다 — agy 는 stdout 을 JSON 으로 읽는다.
+pub fn hook_notify_todo_agy(ctx: &CliContext, watch_config: Option<bool>) {
+    let input = read_stdin_json();
+    let context = if watch_enabled(watch_config) {
+        notify_agy_context(ctx, &input)
+    } else {
+        None
+    };
+    let output = match context {
+        Some(message) => json!({ "injectSteps": [{ "ephemeralMessage": message }] }),
+        None => json!({}),
+    };
+    println!("{output}");
+}
+
+/// `hook_notify_todo_agy` 의 본체 — 커서는 `ctx.dir` 의 `hook-cursors-agy.json` 에 `conversationId` 별로. Claude Code
+/// 세션의 커서와 파일을 나눠, 모델 호출마다 도는 이 훅이 그쪽 100칸을 밀어내거나 같은 파일을 두고 겨루지 않게 한다.
+/// 첫 호출은 워터마크만 적는다(과거 히스토리를 싣지 않는다). `conversationId` 가 없으면 None.
+pub fn notify_agy_context(ctx: &CliContext, input: &serde_json::Value) -> Option<String> {
+    let conversation_id = input
+        .get("conversationId")
+        .and_then(|v| v.as_str())
+        .filter(|id| !id.is_empty())?;
+    let cursor_file = ctx.dir.join("hook-cursors-agy.json");
+    let Some(cursor) = read_cursor(&cursor_file, conversation_id) else {
+        if let Some(feed) = fetch_changes(&ctx.base_url, 0, 1) {
+            write_cursor(&cursor_file, conversation_id, feed.last_id);
+        }
+        return None;
+    };
+    let feed = fetch_changes(&ctx.base_url, cursor, FEED_PAGE as i64)?;
+    let (next, more) = page_cursor(&feed, FEED_PAGE);
+    if next != cursor {
+        write_cursor(&cursor_file, conversation_id, next);
+    }
+    let backlog_note =
+        more.then(|| "(밀린 변경이 더 있다 — 다음 모델 호출에 이어서 싣는다)".to_string());
+    merge_context(&[
+        build_notify_context(&filter_changes_for_antigravity(feed.entries)),
+        backlog_note,
+    ])
 }
 
 /// UserPromptSubmit 의 additionalContext 출력 — 실을 게 없으면 아무것도 내지 않는다.
