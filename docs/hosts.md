@@ -29,7 +29,7 @@ Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만
 | `/rocky:review-request` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:review-fix` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | — | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
-| 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | ◐ `Stop` 훅 — 포맷 상이 | `crates/rocky-core/src/transcript.rs`를 호스트별 재작성해야 (실제 비용) |
+| 턴 자동 기록 (Stop hook → worklog) | ✅ | ◐ Stop hook / notify — **트랜스크립트 포맷 상이** | ◐ plugin `session.idle` — **SDK client 접근, 포맷 상이** | ✅ `Stop` 훅 — 파서 `transcript::agy` | `crates/rocky-core/src/transcript.rs`를 호스트별 재작성해야 (실제 비용) — agy 는 했다 |
 | 보드 변경 주입 (사람의 편집 → 세션) | ✅ `UserPromptSubmit` | 미구현 — 작업 전에 `todo_list` | 미구현 — 작업 전에 `todo_list` | ✅ `PreInvocation` 훅 | agy 는 모델 호출마다 돌고 커서가 대화별이다 |
 | skill `board` | ✅ | ◐ 스펙 호환 | ◐ 스펙 호환 | ✅ 번들 `skills/board` | 넘기기 흐름(*Antigravity 로 넘기기*)이 여기 있다 |
 | skill `writing-cc-plugin` | ✅ | ◐ 스펙 호환하나 내용이 CC 전용 | ✅ `.claude/skills/` 자동 발견 | — | 메커니즘은 커버, 내용 가치는 CC 한정 |
@@ -42,7 +42,7 @@ Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만
 
 - **이미 완결**: MCP 코어 — 세 호스트 동등.
 - **정적으로 쉬운 커버**: 소울 / 규칙을 AGENTS.md 정적 병합으로. 스킬은 opencode가 `.claude/skills/`를 이미 자동 발견한다.
-- **훅 필요(품이 듦)**: 턴 자동 기록 — 호스트별 트랜스크립트 파서 재작성이 실제 비용.
+- **훅 필요(품이 듦)**: 턴 자동 기록 — 호스트별 트랜스크립트 파서 재작성이 실제 비용(Antigravity 는 `transcript::agy` 로 했다).
 - **새로 열린 길**: Codex를 `.codex-plugin/plugin.json` 번들 플러그인으로 (MCP + skills + hooks 한 번에). opencode는 우산 매니페스트가 없어 config 트리 / npm plugin로 나눠 배포.
 
 > **신뢰도 캐비앗**: Codex 확장 스택(hooks · plugins · 마켓플레이스)은 2026 초 신규 + 일부 실험적이다 — hooks 기본 off · no Windows, custom prompts deprecated(→ skills), skills 경로 `.agents/skills` vs `.codex/skills` 유동. 설치본 `codex-cli 0.144.5` 기준으로 `codex plugin` 서브커맨드와 `~/.codex/{skills,plugins}` 존재는 실측 확인했으나, 세부 스펙은 이식 직전에 그때의 `codex --version`으로 재확인할 것. opencode(실측 `1.18.4`)의 `.opencode/command|agent|plugin`은 단수 디렉터리명이 정식이다(복수형도 허용).

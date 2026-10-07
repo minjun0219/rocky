@@ -4,6 +4,8 @@
 
 use serde_json::Value;
 
+pub mod agy;
+
 /// 한 턴의 재료 — 사용자 요청, 쓰인 도구(횟수 접미), 마지막 어시스턴트 텍스트.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TurnParts {
@@ -88,6 +90,15 @@ pub const TAIL_WINDOW: u64 = 256 * 1024;
 /// 마지막 프롬프트부터 끝까지라, 끝의 창만 읽고 프롬프트가 없으면 창을 두 배로 넓힌다. 창의 첫 줄은 잘렸을 수 있어
 /// 버린다(파일 맨 앞까지 읽은 경우만 그대로). 결과는 파일 전체를 [`extract_turn`] 한 것과 같다.
 pub fn extract_turn_from_tail(path: &std::path::Path, first_window: u64) -> Option<TurnParts> {
+    tail_search(path, first_window, extract_turn_found)
+}
+
+/// [`extract_turn_from_tail`] 의 창 넓히기 — `found` 가 바깥 `None`(프롬프트가 없다)을 내면 창을 두 배로. agy 파서도 쓴다.
+fn tail_search(
+    path: &std::path::Path,
+    first_window: u64,
+    found: impl Fn(&str) -> Option<Option<TurnParts>>,
+) -> Option<TurnParts> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
@@ -103,8 +114,8 @@ pub fn extract_turn_from_tail(path: &std::path::Path, first_window: u64) -> Opti
         } else {
             text.split_once('\n').map_or("", |(_, rest)| rest)
         };
-        if let Some(found) = extract_turn_found(text) {
-            return found;
+        if let Some(turn) = found(text) {
+            return turn;
         }
         if start == 0 {
             return None;
@@ -117,9 +128,7 @@ fn turn_from(entries: &[Value], start: usize) -> Option<TurnParts> {
     let req = label_injected(text_of(
         entries[start].get("message").and_then(|m| m.get("content")),
     ));
-    // 도구 이름은 첫 등장 순서를 유지하면서 횟수를 센다 (JS Map 의 삽입 순서).
-    let mut tool_names: Vec<String> = Vec::new();
-    let mut tool_counts: Vec<usize> = Vec::new();
+    let mut tools = ToolTally::default();
     let mut did = String::new();
     for entry in &entries[start + 1..] {
         let Some(msg) = entry.get("message") else {
@@ -132,13 +141,7 @@ fn turn_from(entries: &[Value], start: usize) -> Option<TurnParts> {
             for b in blocks {
                 if b.get("type").and_then(Value::as_str) == Some("tool_use") {
                     if let Some(name) = b.get("name").and_then(Value::as_str) {
-                        match tool_names.iter().position(|n| n == name) {
-                            Some(i) => tool_counts[i] += 1,
-                            None => {
-                                tool_names.push(name.to_string());
-                                tool_counts.push(1);
-                            }
-                        }
+                        tools.add(name);
                     }
                 }
             }
@@ -148,17 +151,45 @@ fn turn_from(entries: &[Value], start: usize) -> Option<TurnParts> {
             did = txt;
         }
     }
-    let tools: Vec<String> = tool_names
-        .iter()
-        .zip(tool_counts.iter())
-        .map(|(name, n)| {
-            if *n > 1 {
-                format!("{name}(×{n})")
-            } else {
-                name.clone()
+    finish_turn(req, tools, did)
+}
+
+/// 도구 이름을 첫 등장 순서대로 세어 `이름(×n)` 으로 낸다 (JS Map 의 삽입 순서).
+#[derive(Default)]
+struct ToolTally {
+    names: Vec<String>,
+    counts: Vec<usize>,
+}
+
+impl ToolTally {
+    fn add(&mut self, name: &str) {
+        match self.names.iter().position(|n| n == name) {
+            Some(i) => self.counts[i] += 1,
+            None => {
+                self.names.push(name.to_string());
+                self.counts.push(1);
             }
-        })
-        .collect();
+        }
+    }
+
+    fn finish(self) -> Vec<String> {
+        self.names
+            .into_iter()
+            .zip(self.counts)
+            .map(|(name, n)| {
+                if n > 1 {
+                    format!("{name}(×{n})")
+                } else {
+                    name
+                }
+            })
+            .collect()
+    }
+}
+
+/// 셋 다 비면 남길 게 없다(`None`).
+fn finish_turn(req: String, tools: ToolTally, did: String) -> Option<TurnParts> {
+    let tools = tools.finish();
     if req.is_empty() && did.is_empty() && tools.is_empty() {
         return None;
     }

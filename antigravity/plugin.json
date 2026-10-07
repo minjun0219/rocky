@@ -1,5 +1,5 @@
 {
   "name": "rocky",
   "displayName": "rocky",
-  "description": "rocky 보드(todo · note)와 워크로그를 Antigravity 에서 쓴다 — 데몬 MCP(127.0.0.1:8636/mcp) + worklog stdio MCP + board 스킬 + 사람의 보드 변경을 넣는 PreInvocation 훅. 데몬은 따로 떠 있어야 한다(launchd 상주 또는 Claude Code 세션)."
+  "description": "rocky 보드(todo · note)와 워크로그를 Antigravity 에서 쓴다 — 데몬 MCP(127.0.0.1:8636/mcp) + worklog stdio MCP + board 스킬 + 사람의 보드 변경을 넣는 PreInvocation 훅 + 턴을 워크로그에 남기는 Stop 훅. 데몬은 따로 떠 있어야 한다(launchd 상주 또는 Claude Code 세션)."
 }

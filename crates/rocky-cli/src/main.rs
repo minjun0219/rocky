@@ -191,7 +191,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "hook" => {
             use rocky_cli::hooks;
             let hook = rest.first().map(String::as_str).unwrap_or("");
-            // 호스트 인자 — Antigravity 번들(`antigravity/hooks.json`)은 `notify-todo agy` 로 부른다.
+            // 호스트 인자 — Antigravity 번들(`antigravity/hooks.json`)은 `notify-todo agy` · `log-turn agy` 로 부른다.
             let host = rest.get(1).map(String::as_str);
             match (hook, host) {
                 ("ensure-daemon", _) => {
@@ -200,11 +200,12 @@ fn run(argv: &[String]) -> Result<(), String> {
                 ("notify-todo", Some("agy")) => hooks::hook_notify_todo_agy(&ctx, todo_config.watch),
                 ("notify-todo", _) => hooks::hook_notify_todo(&ctx, todo_config.watch),
                 ("handoff-stop", _) => hooks::hook_handoff_stop(&ctx),
+                ("log-turn", Some("agy")) => hooks::hook_log_turn_agy(),
                 ("log-turn", _) => hooks::hook_log_turn(&ctx),
                 ("claim-doing", _) => hooks::hook_claim_doing(&ctx),
                 _ => {
                     return Err(
-                        "usage: rocky hook ensure-daemon|notify-todo [agy]|handoff-stop|log-turn|claim-doing"
+                        "usage: rocky hook ensure-daemon|notify-todo [agy]|handoff-stop|log-turn [agy]|claim-doing"
                             .into(),
                     )
                 }
@@ -212,7 +213,7 @@ fn run(argv: &[String]) -> Result<(), String> {
             rocky_cli::usage_cmd::record(
                 rocky_core::usage::UsageSource::Hook,
                 &match (hook, host) {
-                    ("notify-todo", Some("agy")) => "hook notify-todo agy".to_string(),
+                    ("notify-todo" | "log-turn", Some("agy")) => format!("hook {hook} agy"),
                     _ => format!("hook {hook}"),
                 },
                 true,
