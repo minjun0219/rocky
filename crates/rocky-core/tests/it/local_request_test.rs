@@ -193,3 +193,59 @@ fn access_user_email_reads_the_access_header() {
         None
     );
 }
+
+#[test]
+fn same_origin_is_narrower_than_not_cross_site() {
+    use rocky_core::local_request::is_same_origin_request;
+    let headers = |pairs: Vec<(&'static str, &'static str)>| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string())
+        }
+    };
+    let host = "rocky.example.com";
+    assert!(is_same_origin_request(
+        headers(vec![("sec-fetch-site", "same-origin")]),
+        host
+    ));
+    assert!(!is_same_origin_request(
+        headers(vec![("sec-fetch-site", "same-site")]),
+        host
+    ));
+    assert!(!is_same_origin_request(
+        headers(vec![("sec-fetch-site", "cross-site")]),
+        host
+    ));
+    assert!(!is_same_origin_request(
+        headers(vec![("sec-fetch-site", "none")]),
+        host
+    ));
+    // Sec-Fetch-Site 가 없으면 Origin 의 authority 를 Host 와 맞댄다.
+    assert!(is_same_origin_request(
+        headers(vec![("origin", "https://rocky.example.com")]),
+        host
+    ));
+    assert!(!is_same_origin_request(
+        headers(vec![("origin", "https://evil.example.com")]),
+        host
+    ));
+    assert!(!is_same_origin_request(
+        headers(vec![("origin", "https://rocky.example.com:8443")]),
+        host
+    ));
+    assert!(!is_same_origin_request(
+        headers(vec![("origin", "null")]),
+        host
+    ));
+    assert!(is_same_origin_request(
+        headers(vec![
+            ("origin", "https://rocky.example.com"),
+            ("x-forwarded-host", "rocky.example.com")
+        ]),
+        "127.0.0.1:8636"
+    ));
+    // 둘 다 없으면 비브라우저 클라이언트.
+    assert!(is_same_origin_request(headers(vec![]), host));
+}

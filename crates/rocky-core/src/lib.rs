@@ -2,6 +2,7 @@
 //!
 //! TS 원본(`src/*.ts`)과의 동작 동일성이 계약이다 — `docs/rewrite/contract.md` 참고.
 
+pub mod access;
 pub mod actor;
 pub mod actors;
 pub mod claude_account;

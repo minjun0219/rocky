@@ -1,6 +1,7 @@
 //! 통합 테스트 — 크레이트당 실행 파일 하나. 파일마다 실행 파일이 따로면 링크와 macOS 의 새 실행 파일 검사
 //! (`syspolicyd`)가 파일 수만큼 돌아 테스트가 20~30분 걸렸다(2026-10-02). 새 테스트 파일은 여기 `mod` 로 단다.
 
+mod access_test;
 mod actor_test;
 mod cc_usage_parity_test;
 mod claude_account_test;

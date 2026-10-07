@@ -596,6 +596,48 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
     })
 }
 
+/// `rocky.json` 의 `access` 블록 — Cloudflare Access 로 들어온 사람에게 원격 제어를 여는 설정. 데몬은 사용자 설정만
+/// 읽으므로 레포의 프로젝트 설정이 권한을 넓힐 수 없다. 파일 없음 / 파싱 실패 / 블록 없음 / `team` · `aud` · `emails`
+/// 중 하나라도 비었으면 None(꺼짐, fail-closed — 반쯤 채운 설정으로는 아무것도 열지 않는다).
+pub fn load_access_block(config_path: &Path) -> Option<crate::access::AccessConfig> {
+    let raw = std::fs::read_to_string(config_path).ok()?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    let block = parsed.get("access")?.as_object()?;
+    let list = |key: &str| -> Vec<String> {
+        let one = block.get(key).and_then(|v| v.as_str()).map(|s| vec![s]);
+        let many = block
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>());
+        one.or(many)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let team = block
+        .get("team")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        // 팀 이름은 호스트 이름 한 조각이다 — 점·슬래시가 섞이면 공개키를 엉뚱한 곳에서 받는다.
+        .filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))?
+        // 발급자(`iss`)는 소문자 호스트로 온다.
+        .to_ascii_lowercase();
+    let aud = list("aud");
+    let emails = list("emails");
+    if aud.is_empty() || emails.is_empty() {
+        return None;
+    }
+    Some(crate::access::AccessConfig {
+        team,
+        aud,
+        emails,
+        remote_control: block.get("remoteControl").and_then(|v| v.as_bool()) == Some(true),
+    })
+}
+
 /// `rocky.json` 의 `usage` 블록 — 사용 로그(`rocky_core::usage`). 기본 켜짐, `~/.config/rocky/usage`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UsageConfig {
