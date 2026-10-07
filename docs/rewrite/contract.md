@@ -6,6 +6,13 @@ TS 원본(`src/*.ts`)에서 추출한 외부 표면 계약. 재작성의 성공 
 
 추출 시점: v0.14.0 (2026-08-31). 원본 근거는 각 절에 표기.
 
+> **읽는 법(2026-10).** 본문은 v0.14 TS 기준으로 동결한 호환 계약이다. 지금도 지키는 것은 **모양**(REST 응답,
+> 보드 MCP 도구 5개, CLI 컴팩트 출력, 워크로그 JSONL)이고, 개수·목록은 그 시점 값이다. 그 뒤로 달라진 것:
+> CLI 의 할 일 수정은 `update` → `edit`(옛 이름은 안내만 한다), 훅은 `rocky hook <name>` 5종(`claim-doing` ·
+> `log-turn` 추가 — `plugin/hooks/hooks.json`), 스키마 버전과 테이블은 `crates/rocky-core/src/migrations.rs` 가
+> 정본. 포팅 뒤 생긴 라우트(`/api/rc` · `/api/tokens` · `/api/usage` · `/api/deliveries` · `/api/verify`)는 이 계약
+> 밖이고, 각 `docs/features/` 문서가 정본이다.
+
 ## 공통 규약
 
 - **포트 8636 고정** — `plugin.json`의 `mcpServers.url`(`http://127.0.0.1:8636/mcp`)이

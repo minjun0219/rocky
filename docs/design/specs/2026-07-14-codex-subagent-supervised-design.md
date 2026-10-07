@@ -1,5 +1,7 @@
 # Codex 서브에이전트 (감시형 위임) + 첫 실사용으로 codex-plugin 구현 (design)
 
+> **현행 여부(2026-10-07)**: `/rocky:codex` 는 v0.19 에서 제거했다(Codex 위임은 공식 `openai/codex-plugin-cc`) — 기록으로만 둔다.
+
 - 날짜: 2026-07-14
 - 브랜치: `minjun0219/codex-plugin`
 - 한 줄: rocky 에 **Codex 를 구현자 서브에이전트로 위임하고 Claude 가 감독하는 `/codex` 슬래시 커맨드**를 만들고, 그 첫 실사용으로 **"rocky 를 Codex 에서 쓰게 하는 문서"를 Codex 가 직접 구현**하게 한 뒤 Claude 가 검증한다.

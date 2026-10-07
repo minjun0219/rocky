@@ -1,5 +1,7 @@
 # `/rocky:review-pr` — PR 리뷰 대응 루프 커맨드 설계
 
+> **현행 여부(2026-10-07)**: 커맨드 이름이 `resolve-reviews`(2026-07-30)를 거쳐 `/rocky:review-fix`(2026-09-29)가 됐다. 지금 동작의 정본은 `plugin/commands/review-fix.md`.
+
 - 날짜: 2026-07-25
 - 대상: rocky 레포에 슬래시 커맨드 `commands/review-pr.md` 신설 + `commands/finish.md` 연계 수정
 - 상태: 설계 협의 완료 (Logan 승인 방향), 계획 대기

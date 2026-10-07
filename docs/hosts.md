@@ -1,10 +1,10 @@
 # 호스트 지원 매트릭스
 
 rocky 표면이 Claude Code / Codex CLI / opencode / Antigravity에서 각각 어디까지 커버되는지, 그리고 각 호스트가
-확장 메커니즘을 네이티브로 어디까지 지원하는지 정리한 실측 자료. 2026-07 기준(Antigravity 열은 2026-10 `agy 1.2.14`).
+확장 메커니즘을 네이티브로 어디까지 지원하는지 정리한 실측 자료. 호스트 메커니즘(표 A)은 2026-07 기준(Antigravity 열은 2026-10 `agy 1.2.14`), rocky 표면(표 B)은 2026-10 기준.
 Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만 붙였다 — [`docs/antigravity.md`](./antigravity.md).
 
-> rocky는 세 full-surface 호스트(Claude Code plugin / Codex CLI / opencode)에서 **오늘 기준 MCP 도구만** 공유한다. 슬래시 커맨드·`Stop` 훅·스킬은 Claude Code plugin 에만 배포돼 있다 (소울·statusline은 v0.19에서 제거). **단, 이는 "다른 호스트가 그 확장을 못 한다"는 뜻이 아니다** — Codex와 opencode도 2026 기준 커맨드 / 훅 / 스킬 / 서브에이전트 / 번들 플러그인을 네이티브로 지원한다. rocky가 아직 그 호스트용 버전을 만들지 않았을 뿐이라 대부분 이식 가능하다. 아래 두 표가 (A) 호스트가 네이티브로 뭘 지원하는지 와 (B) rocky 표면이 각 호스트에서 어디까지 커버되는지 를 나눠 보여준다.
+> rocky는 세 full-surface 호스트(Claude Code plugin / Codex CLI / opencode)에서 **오늘 기준 MCP 도구만** 공유한다. 슬래시 커맨드·훅·스킬·서브에이전트는 Claude Code plugin 에만 배포돼 있고, Antigravity 는 그중 일부(board·worklog 스킬, 훅 둘)를 번들로 받는다. **단, 이는 "다른 호스트가 그 확장을 못 한다"는 뜻이 아니다** — Codex와 opencode도 2026 기준 커맨드 / 훅 / 스킬 / 서브에이전트 / 번들 플러그인을 네이티브로 지원한다. rocky가 아직 그 호스트용 버전을 만들지 않았을 뿐이라 대부분 이식 가능하다. 아래 두 표가 (A) 호스트가 네이티브로 뭘 지원하는지 와 (B) rocky 표면이 각 호스트에서 어디까지 커버되는지 를 나눠 보여준다.
 
 ### A. 호스트 확장 메커니즘 (네이티브 지원)
 
@@ -25,7 +25,7 @@ Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만
 
 | rocky 표면 | Claude Code | Codex | opencode | Antigravity | 메모 |
 | --- | --- | --- | --- | --- | --- |
-| MCP 도구 (worklog 4) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | ✅ `--roots` | 공유 코어. agy 는 서버를 플러그인 폴더에서 띄우므로 프로젝트를 MCP `roots` 로 정한다 |
+| MCP 도구 (보드·토큰 + worklog — 목록은 `#[tool]` 정의) | ✅ 배포됨 | ✅ 배포됨 | ✅ 배포됨 | ✅ `--roots` | 공유 코어. agy 는 서버를 플러그인 폴더에서 띄우므로 프로젝트를 MCP `roots` 로 정한다 |
 | `/rocky:review-request` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:review-fix` | ✅ | ◐ 커버 가능 (skill) | ◐ 커버 가능 (command) | — | `gh` CLI 의존, 로직은 호스트 중립 |
 | `/rocky:recall` | ✅ | ◐ 커버 가능 | ◐ 커버 가능 | — | 정리는 host-LLM 몫 → 호스트별 모델(Haiku↔Sonnet 상당) 매핑 필요 |
@@ -37,6 +37,8 @@ Antigravity는 넘겨받은 작업을 처리하는 보조 호스트라 보드만
 | 보드 데몬 MCP (`rockyd`, `/mcp`) | ✅ plugin.json의 http 서버 | ◐ HTTP 라 등록만 하면 됨 | ◐ 동일 | ✅ 번들의 `serverUrl` | 데몬은 호스트 무관, 플러그인 배선과 훅만 CC 전용 |
 
 범례: ✅ rocky가 이미 배포 · ◐ 호스트는 지원, rocky 미구현(커버 가능) · ✗ 등가물 없음 · — 무의미.
+
+표에 없는 커맨드(`/rocky:next` · `brainstorm` · `spec-check` · `config` · `usage`)·스킬(`pull-request` · `token-usage` · `branch-verify` · `handoff`)·서브에이전트(`reviewer` · `quick-fix` · `merge-cleanup`)는 지금 Claude Code 에만 있다 — 다른 호스트로의 이식 가능성은 위 `review-request` 줄과 같다.
 
 ### 요약
 

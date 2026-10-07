@@ -4,25 +4,23 @@
 
 ## 도메인 재추가 후보 (구 ROADMAP)
 
-각 도메인은 별도 PR. 재추가 시점에 다음 둘 중 하나의 shape를 정한다:
+각 도메인은 별도 PR. 절차(어느 크레이트에 둘지 · 옛 TS 는 다시 구현할 스펙으로 읽는다 · 도구 목록 고정 테스트)는
+[`docs/architecture.md`](./architecture.md)의 *Reintroduction strategy*. 들이기 전에 `AGENTS.md` 영역 지도의 어느 줄에
+붙는지 정한다.
 
-- **(a) plugin 직접 합류** — 도메인 코드를 `src/core/`에 두고, 전체 표면 서버 진입점 (`src/index.ts`)의 surface에 도구를 등록한다. 별도 CLI 진입점은 만들지 않음.
-- **(b) 별도 CLI 진입점 분리** — `bin/<domain>-mcp` + `src/<domain>.ts` standalone 진입점을 추가한다 (v0.23에 제거된 `openapi-mcp`가 이 모양이었다). 도메인이 plugin 외 host (Cursor / Continue / Claude Desktop) 에서도 자주 쓰일 때.
-
-결정 기준은 활용 패턴 — host 독립성이 높으면 (b), plugin 안에서만 쓰이면 (a).
-
-| 도메인 | archive 위치 (v0.2 경로) | 후보 shape | 비고 |
+| 도메인 | archive 위치 (v0.2 경로) | 후보 자리 | 비고 |
 | --- | --- | --- | --- |
-| `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | (b) 별도 CLI 진입점 강력 후보 — DB inspector는 host 독립적. | `mysql2` prod-dep 부활. `rocky.json`의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
-| `spec-pact` (DRAFT / VERIFY / DRIFT-CHECK / AMEND lifecycle) | `lib/spec-pact-fragments.ts` + 1 tool (`spec_pact_fragment`) + `skills/spec-pact/` + `agents/grace.md` | (a) plugin 합류. fragment loader 자체는 가벼움. | INDEX / SPEC 파일 lifecycle은 `grace` sub-agent 책임. |
-| `pr-review-watch` (polling-only, worklog-backed) | `lib/pr-watch.ts` + 6 tool (`pr_*`) + `skills/pr-review-watch/` + `agents/mindy.md` | (a) plugin 합류. 외부 GitHub MCP 의존. | worklog 재추가 완료 — worklog-backed 이벤트 로그를 얹을 수 있다. 다만 Claude Code 빌트인 `/autofix-pr`가 같은 자리를 차지해 우선순위 낮음. |
+| `mysql` (read-only inspection) | `lib/mysql-*.ts` + 5 tool (`mysql_*`) + `skills/mysql-query/` | 판정은 `rocky-core`, 연결은 호출자 레포의 설정을 읽으므로 `rocky-cli` stdio 쪽이 후보 | 새 런타임 의존(MySQL 드라이버)은 별도 범위 논의. `rocky.json`의 `mysql.connections` 키 + `passwordEnv` / `dsnEnv` 정책. |
+| `spec-pact` (DRAFT / VERIFY / DRIFT-CHECK / AMEND lifecycle) | `lib/spec-pact-fragments.ts` + 1 tool (`spec_pact_fragment`) + `skills/spec-pact/` + `agents/grace.md` | 대부분 대체됨 — VERIFY 는 `/rocky:spec-check`, DRAFT 는 `/rocky:brainstorm`(`docs/design/specs/`) | 남은 것은 DRIFT-CHECK / AMEND(스펙과 코드가 벌어졌는지 · 스펙 고치기)뿐. 필요가 생기면 그 둘만. |
+
+`pr-review-watch` 는 다른 모양으로 들어왔다 — 데몬 PR 감시(`docs/features/pr-watch.md`, 2026-09-28)와 `/rocky:review-fix`.
 
 ## docs-lifecycle 스킬 (보류, 2026-07-15)
 
 에이전트 생성 작업 문서(설계/조사/플랜)가 대상 레포의 공식 문서와 섞이지 않도록 안내하는 **repo 문서 3단계 lifecycle (draft → accepted → archive)** 번들 스킬.
 
 - **경위**: PR [#85](https://github.com/minjun0219/rocky/pull/85)에서 `skills/docs-lifecycle/SKILL.md`로 구현 완료(봇 리뷰 5건 반영)했으나, 오너 판단으로 스킬 출하는 보류 — rocky에 적용하기엔 과함. 당시 구현 diff는 PR #85의 force-push 이전 타임라인에 남아 있고, 아래 완성본이 그 최종본에 후속 오너 피드백까지 반영한 결정판이다.
-- **부활 방법**: 아래 완성본을 `skills/docs-lifecycle/SKILL.md`로 옮기고 문서 동기화 3곳 — `README.md` 스킬 bullet / `AGENTS.md` Layout + *What rocky is* / `.claude-plugin/plugin.json` description — 을 갱신하면 된다 (스킬은 자동 발견, `.claude-plugin/plugin.json`에 skills 필드 없음).
+- **부활 방법**: 아래 완성본을 `plugin/skills/docs-lifecycle/SKILL.md`로 옮기고 문서 동기화 3곳 — `README.md` 스킬 bullet / `AGENTS.md` Layout + *rocky가 무엇인가* 영역 지도 / `plugin/.claude-plugin/plugin.json` description — 을 갱신하면 된다 (스킬은 자동 발견, `plugin.json`에 skills 필드 없음). 이 레포는 그 사이 `docs/design/{specs,plans}/` 관례가 생겼으니, 되살릴 때 이 관례와 겹치는 부분부터 정리한다.
 - **수용 기준 (원 요청)**: ① 3단계 분류·라우팅·승격·위생 규칙을 표/목록으로 정리 ② repo 구조 하드코딩 금지 (디렉터리 이름은 관례 기본값 + 대상 repo 기존 구조 존중) ③ 사용자 확인 없는 승격 경로 금지.
 - **반영된 오너 피드백 (PR #85 이후)**: ① 디렉토리 사전 스캐폴딩 제거 — 첫 문서 작성 직전 `mkdir -p` 지연 생성 ② draft는 기본값일 뿐 강제 아님 — 이미 사용자와 합의된 내용은 accepted 직행 허용 (게이트의 본질은 사용자 확인이지 draft 경유가 아님) ③ ignore 규칙 위치 자유 — 루트 `.gitignore` (`docs/.draft/`) 또는 `docs/.gitignore` (`.draft/`), 레포 기존 관례 우선.
 
@@ -140,11 +138,3 @@ lands on its own line.
 - **Never** impose this skill's default paths over an existing repo convention — defaults yield to
   the target repo's structure.
 ````
-
-## 비전 메모 (구 ROADMAP)
-
-작업 컨텍스트를 들고 코드까지 굴리는 에이전트 오케스트레이션 toolkit. 세 갈래 방향 — 도메인이 다시 모인 뒤 본격 추진:
-
-1. **업무 / 코딩 파트너로 단독 충분한 토대** — agent / skill / command / MCP / tool 다섯 종 primitive을 적재적소에 섞어 쓰는 composition foundation.
-2. **외부 primary 와의 시너지** — OmO Sisyphus / Superpowers 같은 외부 primary agent가 동일 host에 있을 때 description-driven routing이 깨지지 않고 자연스럽게 위임이 흐른다.
-3. **조직 맞춤 툴킷의 base** — plugin (현재 형태) + library (`src/core/` exports) 두 형태로 패키징해 의존성으로 가져다 쓰는 토대.
