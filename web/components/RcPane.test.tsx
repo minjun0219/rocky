@@ -184,10 +184,28 @@ describe('원격 제어 — 띄우기 · 재시작', () => {
     expect(rcCommand).toHaveBeenLastCalledWith('repo-a', 'restart');
   });
 
+  test('Access 로 허용된 화면은 띄우기·재시작이 되고 Antigravity 끄기는 없다', () => {
+    // health 가 spawnAllowed false · rcControlAllowed true — Access JWT 가 검증된 허용 이메일.
+    renderWithStore(<RcPane />, {
+      rc: status(),
+      loadRc,
+      spawnAllowed: false,
+      rcControlAllowed: true,
+    });
+    expect(screen.getAllByRole('button', { name: '띄우기' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '재시작' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '끄기' })).toBeNull();
+  });
+
   test('대상 밖 서버 · 원격 화면 · 프로브 실패에는 버튼이 없다', () => {
-    renderWithStore(<RcPane />, { rc: status(), loadRc, spawnAllowed: false });
+    renderWithStore(<RcPane />, {
+      rc: status(),
+      loadRc,
+      spawnAllowed: false,
+      rcControlAllowed: false,
+    });
     expect(screen.queryByRole('button', { name: /띄우기|재시작/ })).toBeNull();
-    expect(screen.getByText(/로컬\(루프백\) 주소로 연 화면에서만/)).toBeTruthy();
+    expect(screen.getByText(/로컬\(루프백\) 화면이나 허용된 Access 로그인에서만/)).toBeTruthy();
     cleanup();
     renderWithStore(<RcPane />, {
       rc: status({ probeError: 'ps 실패' }),
@@ -332,6 +350,7 @@ describe('RcPane 핸드오프 서버', () => {
       rc: status({ handoffs: [handoff] }),
       loadRc,
       spawnAllowed: false,
+      rcControlAllowed: false,
     });
     expect(screen.queryByRole('button', { name: /닫기/ })).toBeNull();
   });
@@ -361,7 +380,12 @@ describe('RcPane 대상 밖 서버 닫기', () => {
   });
 
   test('노출된 화면이나 현황을 못 읽었으면 닫기가 없다', () => {
-    renderWithStore(<RcPane />, { rc: status(), loadRc, spawnAllowed: false });
+    renderWithStore(<RcPane />, {
+      rc: status(),
+      loadRc,
+      spawnAllowed: false,
+      rcControlAllowed: false,
+    });
     expect(screen.queryByRole('button', { name: 'old 닫기' })).toBeNull();
     cleanup();
     renderWithStore(<RcPane />, {

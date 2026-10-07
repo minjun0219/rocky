@@ -5,7 +5,8 @@
 ## 규칙
 
 - `rc` 블록(사용자 설정만)의 폴더와 떠 있는 `claude rc` 서버를 맞대 `GET /api/rc/servers`·`rocky rc` 로 낸다. 사람이 부르면
-  띄우거나 다시 띄운다(`POST /api/rc/servers/:label/{start,restart}` — 로컬 전용, `rocky rc start|restart`). 꺼진 고정
+  띄우거나 다시 띄운다(`POST /api/rc/servers/:label/{start,restart}` — 로컬 전용, `rocky rc start|restart`). 원격 제어 탭의 동작(띄우기 · 재시작 ·
+  닫기 · 야간)은 `access.remoteControl` 이면 검증된 Access 로그인에게도 열린다 — 판정은 [security](security.md)의 예외 절. 꺼진 고정
   서버는 감시가 되살린다(아래).
 - **서버 판정은 argv 구조**(`claude` + `rc`/`remote-control` + `--name`). 자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로.
 - **맞대기는 cwd 문자열**이라 정규화하지 않는다.

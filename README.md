@@ -119,6 +119,17 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 
 **야간 재시작**(`"nightly": {}` — 블록이 있으면 켜진다, 기본 꺼짐): 매일 `at`(기본 04:30, 이 기기 현지 시각)에 `claude update` 를 돌리고, 기동 때 남긴 버전(`rc/<라벨>.version`)이 설치 버전과 다르면서 쉬는 서버만 다시 띄운다. 쉬는 서버는 열린 세션이 없거나 그 폴더 대화 기록이 `quietMinutes`(기본 60분) 넘게 안 바뀐 것이다. 고정 하나를 먼저 내려 띄워 보고, 뜬 뒤에야 나머지를 내린다. 내리기 직전마다 네트워크를 확인한다. 바쁜 서버는 `busyUntil`(기본 07:00)까지 5분마다 다시 본다. 내렸는데 못 띄운 것은 그때까지 다시 띄워 보고, 그래도 안 되면 되살림 표식(`rc/<라벨>.revive`)을 남겨 감시가 서버 모드로 띄운다 — **감시와 함께 켠다**. 맥이 그 시각에 자고 있었으면 깬 뒤 한 번 돈다(`rc/nightly.json`). 처음 켠 날 낮에는 돌지 않는다. 못 띄운 서버가 있을 때만 배너를 띄운다. 보고에는 rocky 세 층(플러그인 · CLI · 데몬)의 버전과 최신 릴리스 태그, agy 버전과 원격 제어 데몬(상태 · pid · 기동 시각, 업데이트 전 바이너리로 도는지)도 남는다 — 설치 · 재시작은 하지 않는다(rocky 를 올리는 건 `rocky update`). 기록은 todo 폴더의 `rc/events.jsonl`(`nightly-*` 이벤트)과 `rc/nightly.json`(마지막 보고).
 
+**Cloudflare Access 로 원격 제어**(`access` 블록 — 기본 꺼짐): 원격 제어 탭의 서버 띄우기 · 재시작 · 닫기 · 야간 실행은 로컬 요청 전용이지만, 사용자 `rocky.json` 에 아래를 두면 Access 로 로그인한 허용 이메일에게도 열린다. 데몬이 `Cf-Access-Jwt-Assertion` 을 팀 공개키(`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, 1시간 캐시)로 검증하고 `aud` · 발급자 · 만료 · 이메일을 모두 맞춰 본 요청만 받는다 — 헤더 이름만으로는 믿지 않는다. 이슈 만들기 · 새 세션 띄우기 · Antigravity 켜기 · 끄기 같은 다른 로컬 전용 동작은 그대로 로컬만이다. 데몬을 다시 띄워야 적용된다. 터널 설정은 [`docs/board.md`](./docs/board.md)의 "밖에서 닿기".
+
+```jsonc
+"access": {
+  "team": "<팀 이름>",            // <team>.cloudflareaccess.com
+  "aud": "<Access 앱의 AUD 태그>",
+  "emails": ["you@example.com"],  // 비면 아무도 열리지 않는다
+  "remoteControl": true
+}
+```
+
 **새 세션 띄우기**(`rocky spawn REF`, 웹은 할 일 상세의 "에이전트에게 보내기" 패널 첫 대상 "새 세션", 로컬 전용): rc 가 켜진 기기에서는 데몬이 그 할 일의 워크트리(`<보드 경로>/.claude/worktrees/todo-<번호>`, 없으면 `origin` 기본 브랜치에서 딴다)에 **단일 세션 rc 서버**(`<보드>-<번호>: <제목 앞부분>`)를 띄우고, 그 세션에 핸드오프를 넣어 깨운다 — 폰 · 웹의 원격 제어 목록에서 그 이름으로 이어 본다. 할 일당 서버 하나이고, **서버는 저절로 내려가지 않는다** — 세션이 끝났다고 알리면 사람이 닫는다(`rocky rc stop <할 일>`, 감시 · 야간도 건드리지 않는다). `rocky rc` 에는 "핸드오프:" 로 따로 보인다(띄울 때 남긴 기록 `rc/handoff/<라벨>.json` 과 pid · 폴더가 맞는 서버). rc 가 꺼진 기기는 `claude --bg` 로 띄우는데, 그 세션은 로그인 세션 밖에서 돌아 ssh · 자격이 끊길 수 있어 응답에 경고가 붙는다. 자세한 규칙은 [`docs/board.md`](./docs/board.md)의 spawn 절.
 
 **에이전트가 부를 때의 확인**: 서버를 바꾸는 명령은 사용자 설정(`~/.claude/settings.json`)의 `permissions.ask` 로 사람 확인을 받는다 — `"Bash(rocky rc start:*)"`, `"Bash(rocky rc restart:*)"`, `"Bash(rocky rc nightly:*)"`, `"Bash(rocky rc agy start:*)"`, `"Bash(rocky rc agy stop:*)"`, `"Bash(rocky rc stop:*)"`. `sh -c` 같은 래퍼나 `curl` 로는 비켜 가지만, 데몬 라우트가 로컬 전용이라 노출된 화면에서는 막힌다.
@@ -126,12 +137,12 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 
 | API | 내용 |
 | --- | --- |
-| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다). 바로 202, `start` 본문 `{"serverOnly": true}` 는 세션 없이 서버만(떠 있으면 그대로), 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않고, `{"session": "cse_…"}` 는 그 세션으로 이어받는다(claude.ai 쪽 id 만 — 아니면 400). 막 대화하는 중이면 턴이 끝날 때까지 `waiting` 으로 기다린다 |
+| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다 — `access.remoteControl` 이면 검증된 Access 로그인도). 바로 202, `start` 본문 `{"serverOnly": true}` 는 세션 없이 서버만(떠 있으면 그대로), 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않고, `{"session": "cse_…"}` 는 그 세션으로 이어받는다(claude.ai 쪽 id 만 — 아니면 400). 막 대화하는 중이면 턴이 끝날 때까지 `waiting` 으로 기다린다 |
 | `GET /api/rc/servers` | 대상 행(`servers` — 기동 버전 기록이 설치 버전과 다르면 `stale`), 목록에 없는 폴더에서 도는 서버(`strays`) — 그중 데몬이 띄운 핸드오프 서버는 `handoffs`(이름 · 할 일 참조) 로 따로, `claude auth status` 결과(`auth`), `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 감시가 켜졌으면 `supervise`(마지막 바퀴 · 데몬 자격 끊김), 야간 재시작이 켜졌거나 돈 적이 있으면 `nightly`(시각 · 도는 중 · 마지막 결과). 5초 캐시. `?activity=1` 이면 행마다 최근 활동(`activity` — git 을 띄우므로 로컬 전용) |
 | `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 띄우므로 로컬 전용(403). rc 가 꺼진 기기면 404 |
-| `POST /api/rc/nightly` | 야간 재시작을 지금 한 번 — 로컬 전용(403, 서버를 내리고 띄운다). 바로 202, 결과는 현황의 `nightly.last`. 이미 도는 중이면 409, rc 가 꺼진 기기면 404. 배너를 띄우지 않고 일정의 날짜 기록도 건드리지 않는다 |
-| `POST /api/rc/handoffs/:ref/stop` | 핸드오프 서버 닫기 — 할 일 참조(`rocky-41`)나 라벨로 고르고, 지금 그 폴더에서 그 pid 로 도는 rc 서버일 때만 pid 로 내린다(SIGTERM → 20초 → SIGKILL, 다 기다렸다 답한다). 로컬 전용(403). 기록이 없으면 404, 이미 내려가 있으면 기록을 지우고 404, 현황을 못 읽으면 손대지 않고 409. 워크트리는 남긴다 |
-| `POST /api/rc/strays/:ref/stop` | 대상 밖 서버 닫기 — 폴더 이름(라벨)이나 pid 로 고르고(같은 이름이 둘이면 409 로 pid 를 대라고 한다), 캐시 없이 다시 재서 그 pid 가 지금 그 폴더의 rc 서버일 때만 pid 로 내린다. 설정 대상은 고를 수 없다. 로컬 전용(403), 현황을 못 읽으면 손대지 않고 409 |
+| `POST /api/rc/nightly` | 야간 재시작을 지금 한 번 — 로컬 전용(403, 서버를 내리고 띄운다 — Access 원격 제어는 허용). 바로 202, 결과는 현황의 `nightly.last`. 이미 도는 중이면 409, rc 가 꺼진 기기면 404. 배너를 띄우지 않고 일정의 날짜 기록도 건드리지 않는다 |
+| `POST /api/rc/handoffs/:ref/stop` | 핸드오프 서버 닫기 — 할 일 참조(`rocky-41`)나 라벨로 고르고, 지금 그 폴더에서 그 pid 로 도는 rc 서버일 때만 pid 로 내린다(SIGTERM → 20초 → SIGKILL, 다 기다렸다 답한다). 로컬 전용(403, Access 원격 제어는 허용). 기록이 없으면 404, 이미 내려가 있으면 기록을 지우고 404, 현황을 못 읽으면 손대지 않고 409. 워크트리는 남긴다 |
+| `POST /api/rc/strays/:ref/stop` | 대상 밖 서버 닫기 — 폴더 이름(라벨)이나 pid 로 고르고(같은 이름이 둘이면 409 로 pid 를 대라고 한다), 캐시 없이 다시 재서 그 pid 가 지금 그 폴더의 rc 서버일 때만 pid 로 내린다. 설정 대상은 고를 수 없다. 로컬 전용(403, Access 원격 제어는 허용), 현황을 못 읽으면 손대지 않고 409 |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.

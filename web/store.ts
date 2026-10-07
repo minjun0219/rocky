@@ -181,6 +181,11 @@ interface UiState {
   /** `/api/health` 가 알려주는 힌트 — 이 출처에서 세션을 띄울 수 있는가. */
   spawnAllowed: boolean;
   /**
+   * `/api/health` 의 `rcControlAllowed` — 이 화면에서 원격 제어 탭의 서버 띄우기·재시작·닫기를 할 수 있는가. 로컬이거나
+   * Cloudflare Access 로 들어온 허용 이메일(`rocky.json` 의 `access.remoteControl`)이면 true. 구버전 데몬이면 `spawnAllowed` 와 같다.
+   */
+  rcControlAllowed: boolean;
+  /**
    * Cloudflare Access 로 들어온 화면이면 로그인한 이메일(`/api/health` 의 `accessUser`) — ⋯ 메뉴에 로그아웃을 그린다.
    * 로컬·테일넷 화면이거나 아직 모르면 null.
    */
@@ -425,6 +430,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   collectSeen: readCollectSeen(localStorage),
   issueCreateAllowed: true,
   spawnAllowed: true,
+  rcControlAllowed: true,
   accessUser: null,
   daemonVersion: null,
   daemonVersionChanged: false,
@@ -1113,6 +1119,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       const health = await api<{
         issueCreateAllowed?: boolean;
         spawnAllowed?: boolean;
+        rcControlAllowed?: boolean;
         accessUser?: string | null;
         version?: string;
       }>('/api/health', get().actor);
@@ -1122,6 +1129,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({
         issueCreateAllowed: health.issueCreateAllowed ?? true,
         spawnAllowed: health.spawnAllowed ?? true,
+        rcControlAllowed: health.rcControlAllowed ?? health.spawnAllowed ?? true,
         accessUser: health.accessUser ?? null,
         daemonVersion: version,
         // 한 번 바뀌었으면 새로고침 전까지 켜 둔다 — 되돌아가도 번들은 이미 첫 버전의 것이다.

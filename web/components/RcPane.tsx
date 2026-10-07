@@ -551,7 +551,7 @@ function AgyItem({ agy, first }: { agy: NonNullable<RcStatus['antigravity']>; fi
  */
 export function RcPane() {
   const rc = useRcPolling();
-  const spawnAllowed = useUiStore((s) => s.spawnAllowed);
+  const controlAllowed = useUiStore((s) => s.rcControlAllowed);
   if (!rc) {
     return <p className="px-4 py-6 text-chip text-faint">원격 제어 현황을 읽는 중…</p>;
   }
@@ -570,7 +570,7 @@ export function RcPane() {
     );
   }
   // 프로브가 실패한 현황으로는 띄우지 않는다 — 떠 있는 서버를 하나 더 띄운다(데몬도 같은 이유로 거절한다).
-  const actionable = spawnAllowed && !rc.probeError;
+  const actionable = controlAllowed && !rc.probeError;
   const pinned = rc.servers.filter((s) => s.pinned);
   const others = rc.servers
     .filter((s) => !s.pinned)
@@ -663,7 +663,9 @@ export function RcPane() {
       </Card>
       <p className="mt-3 text-chip text-faint">
         목록은 rocky.json 의 rc 블록에서 고친다
-        {spawnAllowed ? '' : ' · 띄우기·재시작은 로컬(루프백) 주소로 연 화면에서만'}
+        {controlAllowed
+          ? ''
+          : ' · 띄우기·재시작은 로컬(루프백) 화면이나 허용된 Access 로그인에서만'}
       </p>
     </main>
   );

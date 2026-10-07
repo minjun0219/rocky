@@ -798,13 +798,13 @@ MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가
   `cf-access-jwt-assertion`·`cf-access-authenticated-user-email`을 붙인다. 전부 중계 헤더 목록에 있어
   터널 경유 요청은 **원격**으로 분류된다 — 이슈 생성·새 세션(spawn)·claim은 막히고(의도), 나머지
   보드 기능은 된다. 웹 UI는 `/api/health`의 `issueCreateAllowed`/`spawnAllowed`로 그 버튼을 이유와
-  함께 비활성으로 그린다.
+  함께 비활성으로 그린다. 원격 제어 탭은 `rcControlAllowed` 를 본다 — `access.remoteControl` 이면 검증된 Access 로그인에게 열린다.
 - **cross-site 가드** — 브라우저는 `https://board.<도메인>`을 같은 출처로 보므로(`Sec-Fetch-Site:
   same-origin`) 변경 요청이 막히지 않는다. 데몬이 `Host` 를 보지 않는 이유가 이것이다.
 - **한계** — 맥이 자면 안 보인다(테일넷과 같음). 맥이 자도 보여야 하면 워커 미러(스펙의 "CF Worker
   중계")가 다음 단계다. Access JWT 는 연결기(`originRequest.access`)가 검증하고 **데몬은 하지 않는다** — 원본(127.0.0.1)은
   터널 말고는 닿을 길이 없다(단 `todo.expose` 의 `lan`·`tailscale-serve` 는 터널을 거치지 않으니 Access 와 무관하게 무인증이다).
-  Access 이메일로 권한을 나누게 되면(원격에서 세션 띄우기 등) 그때 데몬도 JWT 를 검증해야 한다. 터널 자격 파일은 홈에 남는 평문이라 "홈에 평문 토큰을 두지 않는다" 원칙과
+  Access 로 원격 제어 탭을 열면(`access` 블록) 그 판정만은 데몬도 JWT 를 검증한다 — [security](./features/security.md)의 예외 절. 터널 자격 파일은 홈에 남는 평문이라 "홈에 평문 토큰을 두지 않는다" 원칙과
   같은 취급(600, 백업 제외).
 - `todo.expose` 채널은 건드리지 않는다 — 터널은 데몬 밖 프로세스라 데몬 설정이 필요 없다.
 - **로그아웃** — Access 로 들어온 화면의 `⋯` 메뉴 맨 아래(로그인한 이메일 옆). `/cdn-cgi/access/logout` 으로 가며 Access
