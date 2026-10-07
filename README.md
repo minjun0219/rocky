@@ -198,7 +198,7 @@ claude plugin install rocky@rocky-marketplace
 
 ### 환경 변수
 
-`ROCKY_WORKLOG_AUTO_CAPTURE`는 서버가 아니라 `Stop` 훅이 읽으므로 Claude Code에서만 쓰인다.
+`ROCKY_WORKLOG_AUTO_CAPTURE`는 서버가 아니라 `Stop` 훅이 읽으므로 Claude Code와 Antigravity(`rocky hook log-turn agy`)에서만 쓰인다.
 
 | 변수 | 기본값 | 영향 |
 | --- | --- | --- |

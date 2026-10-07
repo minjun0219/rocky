@@ -716,35 +716,78 @@ pub fn hook_log_turn(ctx: &CliContext) {
     let Some(cwd) = cwd else {
         return;
     };
+    let Some(path) = input.get("transcript_path").and_then(|v| v.as_str()) else {
+        return;
+    };
+    append_turn(
+        cwd,
+        // 끝에서부터 — 트랜스크립트는 수십 MB 까지 자라는데 턴마다 통째로 읽으면 Stop 이 그만큼 느려진다.
+        || extract_turn_from_tail(std::path::Path::new(path), TAIL_WINDOW),
+        || {
+            // 이 세션이 든 진행 중 할 일을 태그로 — 보드의 할 일 상세가 그 작업 흐름을 이 태그로 모은다(로그 색인).
+            // 데몬이 없으면 태그 없이 남긴다(fail-open).
+            let mut tags = vec!["turn".to_string()];
+            if let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) {
+                tags.extend(
+                    held_todos(&ctx.base_url, session_id)
+                        .into_iter()
+                        .map(|t| format!("todo:{}", t.todo_ref)),
+                );
+            }
+            tags
+        },
+    );
+}
+
+/// Antigravity `Stop`(`rocky hook log-turn agy`): agy 트랜스크립트에서 이번 턴을 뽑아 `kind:"turn"` 한 줄을 남긴다 —
+/// `hook_log_turn` 의 agy 판. 프로젝트는 `workspacePaths[0]` 이다 — 훅 cwd 는 `hooks.json` 이 있는 플러그인 폴더라 쓸 수
+/// 없고, `rocky mcp worklog --roots` 도 agy 가 `roots` 로 주는 같은 폴더를 쓰므로 둘이 한 칸에 쌓인다. 태그는 `turn`·`agy` —
+/// agy 의 착수는 세션에 귀속되지 않아 `todo:` 태그는 없다. stdout 은 늘 `{}` 다(멈춤을 막지 않는다).
+pub fn hook_log_turn_agy() {
+    let input = read_stdin_json();
+    let workspace = input
+        .get("workspacePaths")
+        .and_then(|v| v.get(0))
+        .and_then(|v| v.as_str())
+        .filter(|p| !p.is_empty());
+    let path = input.get("transcriptPath").and_then(|v| v.as_str());
+    if let (Some(workspace), Some(path)) = (workspace, path) {
+        append_turn(
+            std::path::PathBuf::from(workspace),
+            || {
+                rocky_core::transcript::agy::extract_turn_from_tail(
+                    std::path::Path::new(path),
+                    TAIL_WINDOW,
+                )
+            },
+            || vec!["turn".to_string(), "agy".to_string()],
+        );
+    }
+    println!("{}", json!({}));
+}
+
+/// 자동 기록이 켜졌으면 `extract` 로 뽑은 턴을 `cwd` 프로젝트의 워크로그에 `kind:"turn"` 으로 남긴다. 꺼졌거나 뽑을 게
+/// 없으면 아무것도 하지 않는다 — 꺼졌으면 트랜스크립트도 읽지 않는다. `tags` 는 남길 때만 부른다(데몬을 부를 수 있다).
+fn append_turn(
+    cwd: std::path::PathBuf,
+    extract: impl FnOnce() -> Option<rocky_core::transcript::TurnParts>,
+    tags: impl FnOnce() -> Vec<String>,
+) {
     let config = load_worklog_config(&user_config_path(), &cwd);
     let env_toggle = std::env::var("ROCKY_WORKLOG_AUTO_CAPTURE").ok();
     if !should_capture(env_toggle.as_deref(), config.auto_capture) {
         return;
     }
-    let Some(path) = input.get("transcript_path").and_then(|v| v.as_str()) else {
-        return;
-    };
-    // 끝에서부터 — 트랜스크립트는 수십 MB 까지 자라는데 턴마다 통째로 읽으면 Stop 이 그만큼 느려진다.
-    let Some(parts) = extract_turn_from_tail(std::path::Path::new(path), TAIL_WINDOW) else {
+    let Some(parts) = extract() else {
         return;
     };
     let content = build_turn_content(&parts, config.capture_max_chars.unwrap_or(800));
     let env_dir = std::env::var("ROCKY_WORKLOG_DIR").ok();
     let worklog = Worklog::from_env(env_dir.as_deref(), config.dir.as_deref(), Some(cwd));
-    // 이 세션이 든 진행 중 할 일을 태그로 — 보드의 할 일 상세가 그 작업 흐름을 이 태그로 모은다(로그 색인).
-    // 데몬이 없으면 태그 없이 남긴다(fail-open).
-    let mut tags = vec!["turn".to_string()];
-    if let Some(session_id) = input.get("session_id").and_then(|v| v.as_str()) {
-        tags.extend(
-            held_todos(&ctx.base_url, session_id)
-                .into_iter()
-                .map(|t| format!("todo:{}", t.todo_ref)),
-        );
-    }
     let _ = worklog.append(&WorklogAppendInput {
         content,
         kind: Some("turn".into()),
-        tags: Some(tags),
+        tags: Some(tags()),
         page_id: None,
     });
 }

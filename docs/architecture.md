@@ -68,8 +68,9 @@ Digests live **inside** the worklog as `kind:"digest"` entries linking back to s
 not in an external wiki. `wikiDir` was removed in v0.9 when `/curate` became `/rocky:recall`.
 
 The `Stop` hook (`rocky hook log-turn`, `crates/rocky-cli/src/hooks.rs`) auto-appends a `kind:"turn"` entry per turn, deterministically.
-Auto-capture is Claude Code-only because rocky ships no Codex/opencode hooks — but the `worklog_*`
-tools themselves work on all three hosts.
+Antigravity gets the same entry from its own `Stop` hook (`rocky hook log-turn agy`, parser `rocky_core::transcript::agy`).
+Codex and opencode have no auto-capture because rocky ships no hooks for them — but the `worklog_*` tools themselves work on
+every host.
 
 ## openapi / seo / notion (removed in v0.23)
 

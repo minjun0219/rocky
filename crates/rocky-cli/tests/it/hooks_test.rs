@@ -587,3 +587,76 @@ fn claim_doing_hook_posts_the_started_todo_for_this_session() {
         serde_json::json!({"sessionId": "sess-1", "todoId": "abc123", "doingSince": "2026-10-06T00:00:00.000Z"})
     );
 }
+
+/// agy `Stop` 입구 — `workspacePaths[0]` 의 프로젝트 워크로그에 `turn`·`agy` 태그로 한 줄을 남기고(훅 cwd 가 아니라),
+/// stdout 은 늘 `{}` 다. 자동 기록을 끄면 아무것도 쓰지 않는다.
+#[test]
+fn log_turn_agy_appends_to_the_workspace_worklog() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().join("ws");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let transcript = dir.path().join("transcript_full.jsonl");
+    std::fs::write(
+        &transcript,
+        [
+            serde_json::json!({"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_REQUEST>\n시안 다듬기\n</USER_REQUEST>"}),
+            serde_json::json!({"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"view_file","args":{}}]}),
+            serde_json::json!({"source":"MODEL","type":"PLANNER_RESPONSE","content":"다듬었다"}),
+        ]
+        .map(|v| v.to_string())
+        .join("\n"),
+    )
+    .unwrap();
+    let run = |capture: &str| -> String {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rocky"))
+            .args(["hook", "log-turn", "agy"])
+            .current_dir(dir.path())
+            .env("HOME", dir.path())
+            .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
+            .env("ROCKY_CONFIG", dir.path().join("rocky.json"))
+            .env_remove("ROCKY_WORKLOG_DIR")
+            .env("ROCKY_WORKLOG_AUTO_CAPTURE", capture)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = serde_json::json!({
+            "conversationId": "conv-1", "executionNum": 0, "terminationReason": "NO_TOOL_CALL",
+            "workspacePaths": [workspace], "transcriptPath": transcript,
+        });
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // 프로세스 cwd 는 `dir` 이고 워크스페이스는 그 아래 `ws` 다 — 기본 경로(`~/.config/rocky/worklog/<프로젝트 키>/`)가
+    // 워크스페이스의 키로 갈려야 한다.
+    let key = rocky_core::worklog::Worklog::from_env(None, None, Some(workspace.clone()))
+        .project_key()
+        .to_string();
+    let journal = dir
+        .path()
+        .join(".config/rocky/worklog")
+        .join(&key)
+        .join("worklog.jsonl");
+
+    assert_eq!(run("0").trim(), "{}");
+    assert!(!journal.exists(), "자동 기록을 끄면 쓰지 않는다");
+
+    assert_eq!(run("1").trim(), "{}");
+    let line = std::fs::read_to_string(&journal).expect("워크스페이스 프로젝트 칸에 쌓인다");
+    let entry: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(entry["kind"], "turn");
+    assert_eq!(entry["tags"], serde_json::json!(["turn", "agy"]));
+    assert_eq!(
+        entry["content"],
+        "req: 시안 다듬기 | tools: view_file | did: 다듬었다"
+    );
+}

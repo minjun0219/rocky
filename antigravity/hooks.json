@@ -6,6 +6,13 @@
         "command": "exec \"$HOME/.local/share/rocky/current/rocky\" hook notify-todo agy",
         "timeout": 5
       }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "exec \"$HOME/.local/share/rocky/current/rocky\" hook log-turn agy",
+        "timeout": 10
+      }
     ]
   }
 }
