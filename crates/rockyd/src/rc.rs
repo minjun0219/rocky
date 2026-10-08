@@ -1225,7 +1225,6 @@ impl RcController {
 
     /// `<todo dir>/rc/events.jsonl` 에 한 줄 — 옛 CLI 결과와 맞대는 기록이다. 쓰기 실패는 삼킨다(기록이 동작을 막지 않게).
     fn event(&self, event: &str, label: &str, fields: serde_json::Value) {
-        use std::io::Write;
         let line = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "event": event,
@@ -1233,14 +1232,22 @@ impl RcController {
             "fields": fields,
         });
         let _ = std::fs::create_dir_all(&self.log_dir);
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.log_dir.join("events.jsonl"))
-        {
-            let _ = writeln!(f, "{line}");
-        }
+        let _ = append_jsonl(&self.log_dir.join("events.jsonl"), &line);
     }
+}
+
+/// JSONL 에 한 줄을 **한 번의 write** 로 덧붙인다. `writeln!(file, "{value}")` 은 Display 조각마다 write(2) 를 해서,
+/// 여러 대상을 함께 내리고 띄우는 야간 재시작처럼 스레드 둘이 동시에 쓰면 O_APPEND 라도 조각이 글자 단위로 섞였다
+/// (2026-10-08 야간, 17줄). 줄 전체를 버퍼에 만든 뒤 `write_all` 한 번으로 쓴다.
+pub fn append_jsonl(path: &std::path::Path, value: &serde_json::Value) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut buf = serde_json::to_vec(value)?;
+    buf.push(b'\n');
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?
+        .write_all(&buf)
 }
 
 /// 감시 루프 — `first` 뒤 처음, 그 뒤 바퀴가 끝날 때마다 `every` 쉬고 다시(바퀴가 겹치지 않는다).

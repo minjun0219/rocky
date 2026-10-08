@@ -110,3 +110,37 @@ fn a_trimmed_log_starts_over_instead_of_leaving_a_hole() {
         "앞이 0 으로 채워지지 않는다"
     );
 }
+
+/// 여러 스레드가 같은 `events.jsonl` 에 동시에 써도 줄이 섞이지 않는다 — 야간 재시작이 대상 여럿을 함께 내리고
+/// 띄우며 이벤트를 남기는 모양. 줄마다 따로 JSON 으로 읽혀야 하고 개수가 맞아야 한다.
+#[test]
+fn concurrent_event_lines_do_not_interleave() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.jsonl");
+    let threads: Vec<_> = (0..8)
+        .map(|t| {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                for i in 0..200 {
+                    let value = serde_json::json!({
+                        "ts": "2026-10-08T00:00:00+00:00",
+                        "event": "start",
+                        "label": format!("target-{t}"),
+                        "fields": { "i": i, "message": "떴다 — 그 세션 이어받기(--session-id)" },
+                    });
+                    rockyd::rc::append_jsonl(&path, &value).unwrap();
+                }
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let text = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 8 * 200);
+    for line in lines {
+        serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|e| panic!("섞인 줄: {e}: {line}"));
+    }
+}
