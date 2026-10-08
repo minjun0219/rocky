@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **설계 스펙**: `docs/superpowers/specs/2026-07-28-task-id-notation-design.md`. 충돌하면 스펙이 이긴다.
+- **설계 스펙**: `docs/design/specs/2026-07-28-task-id-notation-design.md`. 충돌하면 스펙이 이긴다.
 - **게이트**: 모든 태스크의 마지막은 `bun run check` · `bun run typecheck` · `bun run test` 통과다. `bun test` 를 맨손으로 부르지 않는다 — 단일 파일 실행은 아래 각 스텝의 명령을 그대로 쓴다.
 - **Import 규칙**: 전부 상대경로, 확장자 없음(`./refs`). `__dirname` 금지 — `import.meta.dir`.
 - **신규 런타임 dependency 금지.** 이 플랜은 dependency 를 추가하지 않는다.
@@ -900,7 +900,7 @@ git commit -m "docs(skill): 새 참조 표기와 레포 기재 금지 지침을 
 - [ ] **Step 1: 남은 옛 표기를 찾는다**
 
 Run: `rg -n 'rocky#|board#|#12|#3(?![0-9])' FEATURES.md README.md docs/rocky-todo.md`
-Expected: 몇 줄이 나온다. `docs/superpowers/` 아래는 **건드리지 않는다** — 그 시점의 기록이다.
+Expected: 몇 줄이 나온다. `docs/design/` 아래는 **건드리지 않는다** — 그 시점의 기록이다.
 
 - [ ] **Step 2: 세 문서를 고친다**
 

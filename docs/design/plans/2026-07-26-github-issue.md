@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 설계 문서: `docs/superpowers/specs/2026-07-26-github-issue-design.md` (승인됨). 이탈 시 문서를 먼저 고친다.
+- 설계 문서: `docs/design/specs/2026-07-26-github-issue-design.md` (승인됨). 이탈 시 문서를 먼저 고친다.
 - import 는 전부 상대경로, 확장자 없음(`@modelcontextprotocol/sdk/...js` 는 예외). `__dirname` 금지 — `import.meta.dir`/`import.meta.url`.
 - **새 런타임 의존성 추가 금지.** 테스트용 dep 도 금지 — 이 레포에는 React 컴포넌트 테스트 하네스가 없다.
 - **삭제는 없다** — 아카이브만 존재한다.

@@ -107,7 +107,7 @@ export function boardCommand(ref: string): string // → `/rocky-todo:board rock
 ### 문서 동기화
 
 `FEATURES.md`(사람) · `AGENTS.md`(에이전트) · `README.md`(진입) · `docs/rocky-todo.md`(운영)
-의 `#` 참조 표기를 갱신한다. `docs/superpowers/` 아래의 과거 스펙·플랜 문서는 그 시점의
+의 `#` 참조 표기를 갱신한다. `docs/design/` 아래의 과거 스펙·플랜 문서는 그 시점의
 기록이므로 손대지 않는다.
 
 ## 테스트

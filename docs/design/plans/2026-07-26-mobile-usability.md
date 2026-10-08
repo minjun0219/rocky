@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 설계 문서: `docs/superpowers/specs/2026-07-26-mobile-usability-design.md` (승인됨). 이탈 시 문서를 먼저 고친다.
+- 설계 문서: `docs/design/specs/2026-07-26-mobile-usability-design.md` (승인됨). 이탈 시 문서를 먼저 고친다.
 - import 는 전부 상대경로, 확장자 없음. `__dirname` 금지.
 - **새 런타임 의존성 추가 금지.** 테스트용 dep 도 금지 — 이 레포에는 React 컴포넌트 테스트 하네스가 없다.
 - **새 CSS 변수를 만들지 않는다.** 기존 것만 쓴다(`--bg` `--surface` `--line` `--text` `--muted` `--faint` `--warm` `--cool` `--p1`~`--p3` `--ok` 등).
