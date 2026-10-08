@@ -88,7 +88,8 @@ fn split_url(url: &str) -> Option<(String, String)> {
     Some((host, path))
 }
 
-/// 링크 URL → 짧은 출처 라벨 (`repo#12`, `owner/repo`, `todoist`, 호스트명).
+/// 링크 URL → 짧은 출처 라벨 (`repo#12`, `owner/repo`, 호스트명 — 앞의 `www.`·`app.` 은 벗긴다).
+/// 서비스 이름을 따로 알아보지 않는다 — `crates/` 에 외부 서비스 이름을 두지 않는 규칙.
 pub fn link_label(url: &str) -> String {
     let Some((host, path)) = split_url(url) else {
         return url.to_string();
@@ -109,10 +110,8 @@ pub fn link_label(url: &str) -> String {
         let joined = format!("{owner}/{repo}");
         return joined.trim_end_matches('/').to_string();
     }
-    if host.contains("todoist") {
-        return "todoist".to_string();
-    }
-    host.strip_prefix("www.").unwrap_or(&host).to_string()
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    host.strip_prefix("app.").unwrap_or(host).to_string()
 }
 
 // ── todo 렌더 ────────────────────────────────────────────────────────────────
