@@ -15,8 +15,8 @@
 - **`rocky update [--check]`** 는 마켓플레이스 갱신 → `claude plugin update` → **새 버전 폴더의 부트스트랩**
   (`<cache>/rocky/<최신>/bin/rocky hook ensure-daemon`)으로 데몬 교체를 한 번에 한다 — 지금 도는 `rocky` 는 옛 바이너리라 자기
   자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. 할 일 수정은 `rocky edit`(예전 이름이 `update` —
-  REF·수정 플래그가 붙은 `rocky update` 는 업데이트를 돌리지 않고 `edit` 으로 안내한다). 0.36.0 의 `rocky upgrade` 는 한 릴리스
-  동안 숨은 별칭 — 다음 릴리스에서 걷는다.
+  REF·수정 플래그가 붙은 `rocky update` 는 업데이트를 돌리지 않고 `edit` 으로 안내한다). 0.36.0 의 `rocky upgrade` 는 숨은 별칭으로
+  아직 남아 있다("한 릴리스만" 이라던 것 — 걷는 일은 보드 할 일).
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 **정확한 문자열**로 비교해 낡은 데몬을
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가

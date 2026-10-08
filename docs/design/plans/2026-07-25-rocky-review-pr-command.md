@@ -1,5 +1,7 @@
 # `/rocky:review-pr` 커맨드 구현 계획
 
+> **현행 여부(2026-10-07)**: 커맨드 이름이 `resolve-reviews`(2026-07-30)를 거쳐 `/rocky:review-fix`(2026-09-29)가 됐다. 지금 동작의 정본은 `plugin/commands/review-fix.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** PR 에 붙은 리뷰(Copilot / Codex / 사람)를 미해결 0 까지 자동 처리하고, 반론은 모아 마지막에 상의하며, 머지 가능해지면 알림을 보내는 슬래시 커맨드를 rocky 에 추가한다.

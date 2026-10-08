@@ -569,7 +569,7 @@ MCP `todo_write { id, createIssue: true }`
   안 그러면 그 `start` 가 그 배달을 수락해 진행중이 엉뚱한 세션에 귀속된다. 10분 안의 첫 배달은 보지 않는다(막
   뜬 세션이 목록에 늦게 잡힌다). 아무도 착수하지 않는 동안엔 취소하지 않는다 — 위의 "착수하지 않았다" 알림이 남아야
   해서다. 살아 있는 다른 세션이 받아 둔 배달을 엉뚱한 세션이 착수하는 경우는 여전히 그 받은 세션에 귀속된다.
-- MCP 도구는 늘지 않았다 — 여전히 5개(`todo_list` / `todo_write` / `todo_status` /
+- 보드 MCP 도구는 늘지 않았다 — 여전히 5개(`todo_list` / `todo_write` / `todo_status` /
   `note_list` / `note_write`). 핸드오프는 사람이 세션에 넘기는 경로이지, 에이전트가 호출하는
   도구가 아니다.
 
@@ -723,7 +723,7 @@ Claude Code 받은편지함 모양만 받는다. 라우트: `GET/POST/DELETE /ap
 실행되는 명령은 요청이 아니라 설정에서 오므로 원격 요청으로 임의 명령을 돌릴 길은 없다. 다만
 **실패 사유의 상세(stderr 첫 줄·출력 조각)는 로컬 요청에만** 낸다 — 어댑터가 찍은 토큰·인증 URL이
 섞일 수 있어서다. 원격(`isLocalRequest` 아님 — tailscale serve 경유 포함)에는 `exit N`만 간다.
-MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가 생기면 `/rocky:next`가 REST로 읽는다.
+보드 MCP 도구는 늘리지 않았다(5개 유지) — 에이전트가 볼 필요가 생기면 `/rocky:next`가 REST로 읽는다.
 보드로 올리는 건 클라이언트(웹)가 `POST /api/todos`에 `links: [{ url, title: "<name>: <title>" }]`
 를 붙여 한다 — 중복 판정도 클라이언트가 현재 보드 todos의 `links[].url`로 한다.
 
@@ -927,7 +927,7 @@ REF는 id 대신 사람이 읽을 수 있는 참조를 받는다: `rocky-12`(보
 rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.23에 도구 12개를 걷어낼 때는
 39개 레포의 워크로그를 손으로 뒤져 "0건" 을 셌는데, 그 셈을 명령 하나로 만든 것이다.
 
-- **무엇을**: 데몬 REST 라우트(웹·CLI가 다 지나간다) · MCP 도구(보드 5 + worklog 4) ·
+- **무엇을**: 데몬 REST 라우트(웹·CLI가 다 지나간다) · MCP 도구(보드 5 + 토큰 2 + worklog 4) ·
   `rocky <cmd>` · 훅 4개 · 웹 UI의 이름 붙인 이벤트(`web:now-row` 등). 한 줄 = 이름 · 누가
   (`x-rocky-actor`) · 클라이언트(`x-rocky-client`: web/cli/mcp) · 성공 여부 · 걸린 시간.
   **내용은 싣지 않는다** — 제목·본문·id 없이 `GET /api/todos/:ref`처럼 모양만.

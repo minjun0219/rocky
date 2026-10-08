@@ -58,8 +58,8 @@
   함께 머지돼도 완료는 한 번. 링크는 `/rocky:review-request` 가 세션이 든 할 일에 붙인다.
 
 ### 예산
-- GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 **요청한** 노드 수다. 레포당 `PR_LIST_QUERY`(상태 조각) 한 번 + 실제로 열린 PR
-  에만 `detail_query`. 잔여가 `RATE_LIMIT_FLOOR`(1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). **주기를 바꾸기 전에
+- GraphQL 비용은 돌려받은 노드가 아니라 `first:` 로 **요청한** 노드 수다. 레포마다 구독한 PR 번호만 모아 `detail_query` 한 번(목록 쿼리
+  `PR_LIST_QUERY` 는 주기적으로 돌리지 않는다 — 레포 전체를 훑던 옛 방식의 흔적). 잔여가 `RATE_LIMIT_FLOOR`(1,000) 밑이거나 한도 에러면 리셋까지 쉰다(`pause_for`). **주기를 바꾸기 전에
   `rateLimit { cost }` 를 잰다.** *EN: the budget is shared with every session's `gh`.*
 
 ## 코드

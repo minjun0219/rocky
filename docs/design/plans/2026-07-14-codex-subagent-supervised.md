@@ -1,5 +1,7 @@
 # Codex 감시형 위임 서브에이전트(/codex) Implementation Plan
 
+> **현행 여부(2026-10-07)**: `/rocky:codex` 는 v0.19 에서 제거했다(Codex 위임은 공식 `openai/codex-plugin-cc`) — 기록으로만 둔다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** rocky 에 `/codex <task>` 슬래시 커맨드(Codex 를 격리 worktree 에서 구현자 서브에이전트로 위임하고 Claude 가 게이트·MCP 표면·diff 스코프를 감시)를 추가하고, 그 첫 실사용으로 "rocky 를 Codex 에서 쓰게 하는 문서"를 Codex 가 구현하게 한 뒤 Claude 가 검증·병합한다.

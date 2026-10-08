@@ -10,7 +10,8 @@ Claude Code's [Tool Search](https://code.claude.com/docs/ko/mcp#scale-with-mcp-t
 default**: at session start only tool *names* and server instructions load; a tool's full definition
 enters context when the model calls `ToolSearch` for it. At the time this was measured rocky shipped
 16 tools (~9,000 characters of definitions) and the standing cost was 16 names — roughly 200 tokens.
-Since v0.23 it is 4 names.
+Today's count is whatever the `#[tool]` definitions say (board + token tools in `crates/rockyd/src/mcp.rs`,
+`worklog_*` in `crates/rocky-cli/src/worklog_mcp.rs`) — about a dozen names, the same order of cost.
 
 This was measured the hard way in 2026-07: a slimming pass got as far as deleting the entire MCP
 surface on the premise that it cost ~2,900 tokens per session, then reverted. If you propose removing
@@ -18,10 +19,13 @@ tools, the argument must be **maintenance cost or absence of real use** — neve
 (Tool Search is off under a non-first-party `ANTHROPIC_BASE_URL`, on Bedrock / Vertex / Foundry, or
 with `ENABLE_TOOL_SEARCH=false`. rocky's owner runs none of those.)
 
-As of v0.19 the plugin puts **nothing** in session context: souls were the only `SessionStart`
-injection (1,310 chars, compressed to 605, then removed with the feature). The `Stop` hook writes to
-disk and returns nothing to the model. So the standing cost of installing rocky is the tool names
-and nothing else.
+Since v0.19 nothing is injected **unconditionally**: souls were the only fixed `SessionStart`
+injection (1,310 chars, compressed to 605, then removed with the feature). What rocky adds now is
+event-driven and empty when nothing happened — `SessionStart` (`hook ensure-daemon`) a short board
+summary, `UserPromptSubmit` (`hook notify-todo`) only what changed since the last turn (human board
+edits, subscribed PR transitions, inbox deliveries), and `Stop` (`hook handoff-stop`) a handoff prompt
+only when this session claims one. `hook log-turn` writes to disk and returns nothing. So the standing
+cost of installing rocky is still the tool names; the rest is paid per event.
 
 ### The Sentry-style `search_*` / `execute_*` meta-tool pair is not worth adding either
 
@@ -45,8 +49,10 @@ loses Tool Search, or rocky ships as a remote server for other people.
 
 ## Host support: what is a rocky choice vs a host limitation
 
-rocky exposes the full MCP tool surface to all three hosts (Claude Code / Codex CLI / opencode), but
-ships slash commands, the `Stop` hook, and skills **only for Claude Code**.
+rocky exposes the full MCP tool surface to every host (Claude Code / Codex CLI / opencode /
+Antigravity). Slash commands, hooks, skills and subagents ship **for Claude Code**; Antigravity gets a
+smaller bundle (`antigravity/`: board · worklog skills, `PreInvocation` and `Stop` hooks); Codex and
+opencode get MCP registration only.
 
 This is a rocky wiring choice, not a host limitation. As of 2026 both Codex and opencode natively
 support commands / hooks / skills / subagents (Codex also has `.codex-plugin/plugin.json` bundles and
@@ -85,11 +91,17 @@ tools registered only when `ntn` was detected at startup, and tests injected a f
 `buildServer({ notionCli })`. Any future auth-bearing domain should copy that, the same way the
 `gh`-based slash commands already do.
 
-## souls & statusline (removed in v0.19)
+## souls & the statusline templates (removed in v0.19)
 
 Both are gone — `souls/*.md` + `soul.ts` + the `inject-soul` hook + `rocky.json`'s `soul`/`callsign`,
 and `statusline/*.sh` + `statusline.ts` + `sync-statusline`. They were personality and chrome, not
 load-bearing, and the soul was the one thing rocky injected into every session.
+
+Today's `rocky statusline` is **not** those templates coming back: it is a CLI subcommand that prints
+the daemon's board segment, and with `--full` the path · git · model · limit lines moved in from the
+owner's separate statusline tool on 2026-10-05 (`docs/features/statusline.md`). It is called as `rocky statusline` on
+`PATH` (the `~/.local/bin/rocky` link), never through the per-version plugin cache path — which is how
+the stable-path constraint below is met.
 
 Two constraints worth keeping if either ever returns: a soul must be a *layer over* AGENTS.md's gates
 and safety rules, never an override (fail-open, no injection by default); and the statusline must be
@@ -104,25 +116,25 @@ The former native opencode plugin used to sit in-tree at `.archive/agent-toolkit
 been removed and lives only in git history now. It was an in-process `@opencode-ai/plugin` surface,
 **not** the ancestor of current opencode support, which is plain stdio MCP registration.
 
-Re-adding a domain is **always a separate PR** following this template:
+Re-adding a domain is **always a separate PR** following this template. The archive is TypeScript and
+the core is Rust now (AGENTS.md language boundary), so archived code is a **spec to re-implement**, not
+files to check out.
 
-1. **Decision**: (a) join the plugin directly (`src/core/` code + `src/index.ts` registration) or
-   (b) a separate stdio entry (`bin/<domain>-mcp` + `src/<domain>.ts`, when host independence is
-   high — the shape the removed `openapi-mcp` CLI had). Record the decision in one line in the PR
-   description.
-2. **Port from archive**: `git checkout archive/pre-openapi-only-slim -- <files>`. Old `lib/<domain>.ts`
-   becomes `src/core/<domain>.ts`.
-3. **Shared handler**: put the domain handler in `src/core/<domain>-handlers.ts` (as
-   `worklog-handlers.ts`) — the entry point registers only.
-4. **Config shape**: if `rocky.json` gains a domain key, update `src/core/rocky-config.ts` and
+1. **Decision**: where it lives — pure judgment in `crates/rocky-core`, wiring in `crates/rockyd` when
+   it is machine-wide (daemon route / MCP tool), or `crates/rocky-cli` when it needs the caller's cwd
+   (the reason `worklog_*` is a stdio server). Which row of the AGENTS.md area map it hangs on. Record
+   both in one line in the PR description.
+2. **Read the old shape**: `git show archive/pre-openapi-only-slim:<path>` for behavior and tests.
+3. **Config shape**: if `rocky.json` gains a key, update `crates/rocky-core/src/config.rs` and
    `rocky.schema.json` in lockstep.
-5. **Surface**: register tools in `src/index.ts` and update the `REMOVED_TOOLS` leak guard in
-   `src/index.test.ts`.
-6. **Docs**: `README.md` surface / config / env tables, `AGENTS.md` Layout + scope.
+4. **Surface**: tools go in the `#[tool]` definitions, and the pinned tool lists in
+   `crates/rockyd/tests/it/mcp_test.rs` (`TOOLS`) / `crates/rocky-cli/tests/it/worklog_mcp_test.rs` must
+   change with them; new CLI commands and routes go in `KNOWN_SURFACES` (`crates/rocky-core/src/usage.rs`).
+5. **Docs**: `README.md` surface / config / env tables, the `AGENTS.md` area map and Layout, and a
+   `docs/features/<feature>.md`.
 
-Reference shape still in tree: **journal** (v0.6, plugin-bound, always-on — the memory-shaped
-template; renamed `worklog` in v0.9). The auth-bearing template (**notion**, v0.5 → removed v0.23) is
-in git history.
+Reference shape still in tree: **worklog** (`crates/rocky-cli/src/worklog_mcp.rs` — per-project, always
+on). The auth-bearing template (**notion**, v0.5 → removed v0.23, CLI-delegated) is in git history.
 
 ## Version history (why things look the way they do)
 
@@ -140,6 +152,23 @@ in git history.
   value there is worktree isolation + the plugin-surface integrity check.
 - **v0.17** — opencode delegation runtime (companion CLI + job store + session hooks). **Removed in
   v0.19** — 1,737 LOC that ran a single job across its whole life.
+- **v0.23** — `openapi_*` / `seo_validate` / `notion_*` and the `openapi-mcp` CLI removed (zero usage
+  measured from the worklog; 4,145 LOC, six runtime deps). At that point the MCP surface was
+  `worklog_*` only; the board tools came back with rocky-todo on 2026-09-22.
+
+Dated entries, oldest first:
+
+- **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
+  2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
+  todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.
+  `rocky.json` still **tolerates** a `todo` block (rocky ignores it; the rocky daemon consumes it)
+  because the file is shared across the ecosystem.
+- **2026-07-30** — `/rocky:review-pr` renamed to `/rocky:resolve-reviews`. The old name parsed as
+  verb + object ("review the PR" — which is what the built-in `/review` does), so it kept getting
+  confused with `/rocky:review`. The new name says what it does to what: it resolves review threads.
+- **2026-09-22** — rocky-todo absorbed back into this repo with both histories kept: the Rust daemon,
+  the web UI and the board tools return, and the `todo` block is read again. The rocky-todo repo was
+  archived read-only on 2026-09-28.
 - **2026-09-29** — `/rocky:finish` → `/rocky:review-request`, `/rocky:resolve-reviews` → `/rocky:review-fix`.
   `finish` did not say what it finished (it stops at opening the PR), and `resolve-reviews` said the one
   thing it never does — it leaves resolving threads to the owner. The pair now reads as the PR's two sides:
@@ -153,13 +182,3 @@ in git history.
   the session paraphrasing the requirements into one paragraph: sources go to the `reviewer` verbatim, because a
   paraphrase written by the implementer carries the very reading the fresh context exists to avoid. `reviewer` is
   unchanged (still reachable directly for a general review); spec-check scopes it to requirements only.
-- **2026-07-30** — `/rocky:review-pr` renamed to `/rocky:resolve-reviews`. The old name parsed as
-  verb + object ("review the PR" — which is what the built-in `/review` does), so it kept getting
-  confused with `/rocky:review`. The new name says what it does to what: it resolves review threads.
-- **v0.23** — `openapi_*` / `seo_validate` / `notion_*` and the `openapi-mcp` CLI removed (zero usage
-  measured from the worklog; 4,145 LOC, six runtime deps). The MCP surface is `worklog_*` only.
-- **2026-07-25** — rocky-todo extracted to its own repo/plugin `minjun0219/rocky-todo`, served as the
-  2nd entry of the same rocky marketplace (github source, `dependencies:["rocky"]`). rocky dropped all
-  todo code, the daemon, the web UI, the `notify-todo` hook, and its react/react-dom/zustand deps.
-  `rocky.json` still **tolerates** a `todo` block (rocky ignores it; the rocky daemon consumes it)
-  because the file is shared across the ecosystem.

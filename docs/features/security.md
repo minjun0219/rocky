@@ -5,7 +5,7 @@
 ## 규칙
 
 - **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 검증 다시 돌리기, 보드의 `path` / `repo` / `reviewFix` / `prAuthors` 변경, 보드 수집함 설정
-  (`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다), PR 구독 쓰기, 전달 조회·"보내지 않기", 세션에 메시지 보내기(`POST /api/sessions/message`)·세션 멈추기(`POST /api/sessions/stop`)는 `is_local_request` 가
+  (`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다), PR·수집함·검증 구독 쓰기(`/api/inbox/subscriptions`·`/api/verify/subscriptions` 의 POST·DELETE), 세션 등록 쓰기(`POST /api/sessions/inbox`·`/doing` — 원격에는 404 로 존재를 숨긴다 —, `/api/sessions/cleared`), 전달 조회·"보내지 않기", 세션에 메시지 보내기(`POST /api/sessions/message`)·세션 멈추기(`POST /api/sessions/stop`)는 `is_local_request` 가
   필요하다: 루프백 peer **이고** 프록시 헤더(`x-forwarded-*`, `forwarded`, `tailscale-user-*`, `cf-*`)가 없어야 한다. peer 주소가
   없으면 거부(fail-closed). *EN: Anything that writes to GitHub, spawns processes or steers sessions is local-only: loopback peer
   and no proxy headers; fail closed.*

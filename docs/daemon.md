@@ -157,7 +157,7 @@
   전역 `/api/events` 에는 싣지 않는다(그 채널의 구독자는 전부 refetch 한다). 웹 편집의 히스토리는 같은 actor 60초 창으로 **묶는다**
   (`NOTE_EDIT_COALESCE_SECS`; 글자마다 한 줄이면 `/api/changes` → 세션 주입까지 잡음이 된다).
   사용 로그는 여는 `GET …/doc`만 남기고 편집·프레즌스·스트림은 모양으로 거른다(`SKIPPED_SHAPES`).
-  제목은 CRDT가 아니다(`PATCH` 그대로). MCP 도구 수는 그대로 5.
+  제목은 CRDT가 아니다(`PATCH` 그대로). 보드 MCP 도구 수는 그대로 5.
   웹 쪽은 `web/notedoc.ts`(`NoteSync`: 열기·150ms 배치 전송·구독·재접속 시 sv 차분·프레즌스) 아래에 길
   (`NoteTransport`)이 둘 — `WsTransport`(탭에 하나, `sharedNoteTransport`; 한 번도 못 붙으면 HTTP로) ·
   `HttpTransport`(폴백·`fetch`/`EventSource` 주입 테스트). 편집기는 `web/codemirror-editor.ts`
@@ -200,7 +200,7 @@
   CLI가 없으면 이 기능만 비활성되고(`available: false` + `reason`) 보드 나머지는 정상이다.
   대상은 보드 key ↔ 세션 cwd **경로 세그먼트** 매칭 — 후보가 정확히 1개일 때만 자동으로
   보내고 아니면 사용자가 고른다. 대기 중인 요청에 TTL은 없다 — 대상 세션이 사라지면
-  "세션 없음"(stale)으로 표시만 하고 큐에는 남는다. **MCP 도구는 늘리지 않았다(5개 유지)**
+  "세션 없음"(stale)으로 표시만 하고 큐에는 남는다. **보드 MCP 도구는 늘리지 않았다(5개 유지)**
   — 사람이 에이전트에게 넘기는 기능이지 에이전트끼리 일을 미루는 경로가 아니다.
 - **핸드오프 라이프사이클 + doing의 세션 귀속**(user_version 5): 배달(`delivered`)은
   "집어갔다"까지만 말한다. 그 세션이 실제로 착수했는지·끝냈는지는 `set_todo_status`가
@@ -319,4 +319,4 @@
   `kill_on_drop`이라 핸들러가 취소돼도 자식이 남지 않는다.
   `--permission-mode`는 넘기지 않는다(사용자 기본 설정).
   **이슈 생성과 같은 로컬 요청 전용**(`is_local_request`, 403) — 보드 쓰기 권한이 프로세스를
-  띄우는 권한으로 확대되는 지점이다. MCP 도구는 여전히 5개다.
+  띄우는 권한으로 확대되는 지점이다. 보드 MCP 도구는 여전히 5개다.

@@ -1,5 +1,7 @@
 # 로키 소울 (Rocky Souls) Implementation Plan
 
+> **현행 여부(2026-10-07)**: 소울은 v0.19 에서 제거했다 — 기록으로만 둔다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** rocky 플러그인 사용 시 "소울"(말투/성격 + 작업 방식 페르소나)을 프리셋/커스텀으로 고르고, `rocky.json` 에 고정 + `SessionStart` 훅으로 매 세션 자동 주입한다.

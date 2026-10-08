@@ -1,5 +1,7 @@
 # 로키 소울 (Rocky Souls) — 설계
 
+> **현행 여부(2026-10-07)**: 소울은 v0.19 에서 제거했다 — 기록으로만 둔다.
+
 > 상태: 승인됨 (2026-07-15) · 다음 단계: 구현 플랜 작성
 > 관련: [[AGENTS.md]] · `hooks/hooks.json` · `src/core/rocky-config.ts`
 
