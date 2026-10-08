@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**이 레포에서** 일하는 AI 코딩 에이전트(Claude Code, opencode, codex)를 위한 안내.
+**이 레포에서** 일하는 AI 코딩 에이전트(Claude Code, opencode, codex, Antigravity)를 위한 안내.
 
 > **어디에 무엇이 있나.** 사람은 [`README.md`](./README.md)(표면·설정·환경 변수·빠른 시작)를, 에이전트는
 > 이 파일(레이아웃·범위·규칙·체크리스트·리뷰 기준)을 읽고, 기능을 고칠 땐 그 기능의 [`docs/features/`](./docs/features/)
@@ -12,9 +12,23 @@
 
 ## rocky가 무엇인가
 
-**rocky**(프로젝트 헤일메리의 로키에서 딴 이름) — 오너의 **에이전트 운용 툴킷**이다. 보드·하네스·워크로그에서
-시작해, 에이전트를 부리는 데 쓰이는 기능이면 무엇이든 받는다(들이는 방식은 *범위* 참고). 지금 형태는 Rust 데몬 +
-CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
+**rocky**(프로젝트 헤일메리의 로키에서 딴 이름) — **한 기기에서 여러 에이전트 세션을 부리는 오너의 툴킷**이다.
+세션에 일을 맡기고, 머지까지 결과를 받아 오고, 어디서든 지켜보고 조종하며, 그 모든 것을 기록한다. 지금 형태는 Rust
+데몬 + CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
+*EN: One owner, one machine, many agent sessions — hand work out, bring results back to merge, watch and steer from anywhere, record it all.*
+
+| 하는 일 | 기능 | 개발 문서(`docs/features/`) |
+| --- | --- | --- |
+| **맡긴다** | 보드(할 일 · 노트 · 섹션), 핸드오프와 doing 귀속, 새 세션 띄우기, 수집함(외부 앱은 읽기만), `/rocky:next` | board-model · handoff · spawn · inbox |
+| **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
+| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), rc 서버(감시 · 야간), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor (화면은 `web/DESIGN.md`) |
+| **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
+| 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity) | daemon-lifecycle |
+
+**새 기능은 이 네 줄 중 하나에 붙는다.** 요청받지 않은 기능이 어디에도 붙지 않으면 범위 밖이다. 오너가 요청한 기능이
+어디에도 붙지 않으면 만들기 전에 이 표에 줄을 더할지(목표를 넓힐지) 오너에게 묻는다.
+
+### 구성
 
 - **데몬 `rockyd`**(`crates/rockyd`) — 머신 전체에 하나, `127.0.0.1:8636`, SQLite는 `~/.config/rocky/todo/`.
   보드 REST + SSE, `todo_list` / `todo_write` / `todo_status` / `note_list` / `note_write`와 토큰 색인을 읽는
@@ -43,6 +57,7 @@ CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` �
 **Claude Code 전용 표면**(MCP 도구가 아니라 Codex/opencode 에는 안 보인다): `plugin/commands/`의 슬래시
 커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · PostToolUse · Stop), `plugin/skills/`의 번들
 스킬, `plugin/agents/`의 서브에이전트. 호스트의 한계가 아니라 연결 방식의 선택이다 — `docs/architecture.md`.
+Antigravity 는 `antigravity/` 번들이 그중 일부(board · worklog 스킬, 훅 둘)를 따로 싣는다 — `docs/antigravity.md`.
 
 > **범위 판단 전에 먼저 읽을 것.** rocky는 지금 가진 도구로 범위가 정해진 제품이 아니라 개인 플러그인이다.
 > 지금 표면은 오늘의 기준선이지 **천장이 아니다**. 오너가 어떤 영역이나 기능을 요청하면 **만든다**. 아래
@@ -59,7 +74,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
 │   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
-│   └── scripts/permalink.ts    /rocky:review-request 가 쓴다 — 설치 후에도 있으려면 플러그인 안에 있어야 한다
+│   └── scripts/                permalink.ts(/rocky:review-request) · pr-threads.ts(/rocky:review-fix) — 설치 후에도 있으려면 플러그인 안에 있어야 한다
 ├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli
 ├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
@@ -72,14 +87,14 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── crates/                     ★ 데몬·CLI(worklog MCP + 훅 포함)·코어(docs/rewrite/ 참고)
 ├── rocky.schema.json           `rocky.json` JSON Schema — crates/rocky-core/src/config.rs 와 함께 움직인다
 ├── biome.json                  린트·포맷(.sisyphus, .claude 제외)
-├── docs/                       architecture, daemon(데몬 모델의 근거), codex, opencode, antigravity, hosts, backlog, board, rewrite/(포팅 기록)
+├── docs/                       features/(기능별 개발 문서), architecture, daemon(데몬 모델의 근거), codex, opencode, antigravity, hosts, backlog, board, rewrite/(포팅 기록)
 │   └── design/{specs,plans}/   설계·계획 산출물(구 docs/superpowers/) — 과거분은 그대로 보존
 └── scripts/                    Bun 개발 스크립트 — release-github, sync-plugin-version, check-changesets, bootstrap.test
 ```
 
 ## 범위 (선 지키기)
 
-**안** — 위 *rocky가 무엇인가*의 전부, 설정 표면(`rocky.json`, 프로젝트 > 사용자), Claude Code 전용 표면.
+**안** — 위 *rocky가 무엇인가* 표의 네 줄에 붙는 것, 설정 표면(`rocky.json`, 프로젝트 > 사용자), Claude Code 전용 표면.
 표면 세부는 `README.md`, 근거는 `docs/architecture.md`.
 
 **들이는 방식** — 다른 곳(다른 레포·플러그인·스크립트)에 있는 기능을 일괄로 옮기지 않는다. 하나씩, 오너가 정한
@@ -98,14 +113,16 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 - `/rocky:opencode` 위임 런타임(`opencode-companion.ts`, `opencode-{jobs,cli,runner,render}.ts`,
   `session-jobs` 훅, `opencode` 설정 블록). v0.19에서 제거 — 잡을 한 번 돌린 1,737 LOC. 제 몫을 할 때만
   git 히스토리에서 되살린다.
-- 소울(`souls/`, `soul.ts`, `inject-soul` 훅, `rocky.json`의 `soul` / `callsign`)과 statusline(`statusline/`,
-  `statusline.ts`, `sync-statusline`) — v0.19에서 제거. 재미는 있었지만 필수는 아니었다; 소울은 rocky가
-  세션 컨텍스트에 넣던 유일한 것이었다(압축 후 605자, 그 뒤 통째로 뺐다).
+- 소울(`souls/`, `soul.ts`, `inject-soul` 훅, `rocky.json`의 `soul` / `callsign`)과 옛 statusline 템플릿(`statusline/`,
+  `statusline.ts`, `sync-statusline`, `~/.config/rocky/statusline.sh` 설치) — v0.19에서 제거. 재미는 있었지만 필수는
+  아니었다. (지금의 `rocky statusline` 은 데몬이 그리는 다른 것이다 — *기능별 개발 문서*의 statusline.)
+- 실험 기능 `lab`(Claude Code function hooks 모듈, `rocky.json` 의 `lab` 블록) — 0.45 에 넣고 0.46 에서 뺐다(사용 0회).
+  오너가 다시 꺼내기 전까지 제안하지 않는다.
 - `/rocky:codex`와 `/rocky:issue` — v0.19에서 제거. Codex 위임은 공식 `openai/codex-plugin-cc`가 맡는다.
 - rocky-todo의 **Tauri 앱**(`app/`, 그 루트 `DESIGN.md`) — 레포를 흡수할 때 rocky-todo 히스토리에 남겼다.
   (`web/DESIGN.md`는 웹 UI의 다른 현행 문서다.) (**웹 UI**는 2026-09-28 오너 요청으로 `web/`에 되살렸다 —
-  데몬의 클라이언트이지 런타임이 아니고, 테일넷 없이 Cloudflare Tunnel + Access로 보드에 닿는 것이
-  목적이며 그게 다음 조각이다.)
+  데몬의 클라이언트이지 런타임이 아니다. Cloudflare Tunnel + Access 로 밖에서 닿는다 — 원격 제어 탭만 데몬이
+  Access JWT 를 검증했을 때 열리고, 나머지 쓰기는 여전히 로컬 전용이다.)
 - 데몬의 TypeScript 참조 구현(rocky-todo의 `src/*.ts`) — Rust 크레이트가 구현이고 계약은
   `docs/rewrite/contract.md`.
 - **데몬·CLI·훅·스킬·MCP 도구 안의 외부 태스크 서비스 연동.** 오너의 할 일 목록은 rocky 보드이고 기록은

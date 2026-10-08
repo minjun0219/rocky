@@ -12,7 +12,7 @@
       "author": {
         "name": "Minjun Kim"
       },
-      "description": "Rust board daemon (todo_* / note_* via streamable HTTP MCP) + worklog_* (append-only JSONL, auto turn capture via Stop hook). Slash commands: /rocky:next, /rocky:brainstorm, /rocky:review-request, /rocky:spec-check, /rocky:review-fix, /rocky:recall. Skills: board, writing-cc-plugin. Subagent: reviewer."
+      "description": "Personal agent toolkit. Run many agent sessions from one machine: hand work out (board, handoffs, spawn), bring results back to merge (PR watch, default-branch verify, review-fix), watch and steer from anywhere (web UI, remote control, statusline), and record it all (worklog, token and usage logs). Rust daemon + CLI with a thin Claude Code plugin."
     }
   ]
 }
