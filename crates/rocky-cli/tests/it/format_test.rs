@@ -74,7 +74,7 @@ fn link_label_shortens_github_issue_and_pull() {
 fn link_label_falls_back_to_owner_repo_then_hostname() {
     assert_eq!(link_label("https://github.com/o/r"), "o/r");
     assert_eq!(link_label("https://github.com/o"), "o");
-    assert_eq!(link_label("https://app.todoist.com/app/task/1"), "todoist");
+    assert_eq!(link_label("https://app.example.com/x"), "example.com");
     assert_eq!(link_label("https://www.example.com/x"), "example.com");
 }
 
@@ -483,7 +483,9 @@ fn link_label_matches_the_ts_oracle() {
         ("https://github.com/o/r/pull/9", "r#9"),
         ("https://github.com/o/r", "o/r"),
         ("https://github.com/o", "o"),
-        ("https://app.todoist.com/app/task/1", "todoist"),
+        // TS 와 갈라진 곳 — TS 는 `www.` 만 벗기고 서비스 이름 하나를 따로 줄였다. 그 분기를 빼고
+        // `app.` 도 벗긴다(2026-10-08 오너 결정).
+        ("https://app.example.com/task/1", "example.com"),
         ("https://www.example.com/x", "example.com"),
         ("not a url", "not a url"),
         // issues/pull 이 아닌 경로는 owner/repo 로 떨어진다.

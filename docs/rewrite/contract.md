@@ -255,6 +255,8 @@ tailscale on/off/status
 - ref는 인자 그대로 서버에 전달, cwd로 유추한 `?board=`를 단건 라우트에 항상 부착
 - actor 우선순위: `--actor` > `ROCKY_TODO_ACTOR` > 자동 감지(`detectActor`)
 - 보드 key 유추: git remote > toplevel > cwd (`boardKeyFrom`)
+- 링크 라벨은 TS 와 다르다(2026-10-08): 외부 할 일 앱 하나를 서비스 이름으로 줄이던 분기를 빼고, 앞의 `www.` 에 더해
+  `app.` 도 벗긴다 — `app.<host>` 꼴은 모두 TS 보다 짧아진다(`app.example.com` → `example.com`).
 
 ## 훅 3종 (hooks/)
 
