@@ -1,5 +1,29 @@
 # @minjun0219/rocky
 
+## 0.49.0
+
+### Minor Changes
+
+- [#435](https://github.com/minjun0219/rocky/pull/435) [`a5f4048`](https://github.com/minjun0219/rocky/commit/a5f40481ed982290f092d5a3e2cc4bfab64dd343) Thanks [@minjun0219](https://github.com/minjun0219)! - Cloudflare Access 로 들어온 허용 이메일에게 원격 제어 탭(rc 서버 띄우기·재시작·닫기·야간 실행)을 연다 — 사용자 `rocky.json` 의 `access` 블록(`team`·`aud`·`emails`·`remoteControl`). 데몬이 `Cf-Access-Jwt-Assertion` 을 팀 공개키로 검증한다. `/api/health` 에 `rcControlAllowed` 가 생긴다.
+
+- [#439](https://github.com/minjun0219/rocky/pull/439) [`eddd8a5`](https://github.com/minjun0219/rocky/commit/eddd8a5c47bc5e0d3c25ec552ae8b02e432e32fb) Thanks [@minjun0219](https://github.com/minjun0219)! - Antigravity(`agy`)의 턴도 워크로그에 저절로 남긴다. 번들 `hooks.json` 의 `Stop` 이 `rocky hook log-turn agy` 를 불러, agy 트랜스크립트에서 이번 턴(요청 · 쓴 도구 · 마지막 답)을 뽑아 Claude Code 와 같은 `kind: "turn"` 한 줄로 쓴다. 프로젝트는 agy 의 작업 폴더(`workspacePaths[0]`)라 워크로그 MCP(`--roots`)와 같은 칸에 쌓이고, 태그는 `turn` · `agy` 다. MCP 도구는 `mcp__<서버>__<도구>` 로 적는다. 이미 번들을 깐 기기는 `agy plugin install <rocky 레포>/antigravity` 를 다시 돌려야 훅이 들어간다.
+
+- [#437](https://github.com/minjun0219/rocky/pull/437) [`c90b689`](https://github.com/minjun0219/rocky/commit/c90b689a3c6d1533e14259dd0342bcfa9adadc83) Thanks [@minjun0219](https://github.com/minjun0219)! - Antigravity(`agy`)에도 사람의 보드 변경을 자동으로 넣는다. 번들에 `hooks.json` 을 더해 `PreInvocation` 마다 `rocky hook notify-todo agy` 가 마지막 확인 이후 사람이 웹에서 바꾼 것을 `ephemeralMessage` 로 싣는다 — Claude Code 의 `UserPromptSubmit` 주입과 같은 블록이다. 커서는 대화(`conversationId`)별로 `hook-cursors-agy.json` 에 따로 두고, agy 자신(`antigravity`)과 다른 에이전트의 변경은 뺀다. 이미 번들을 깐 기기는 `agy plugin install <rocky 레포>/antigravity` 를 다시 돌려야 훅이 들어간다.
+
+### Patch Changes
+
+- [#444](https://github.com/minjun0219/rocky/pull/444) [`17f7b1f`](https://github.com/minjun0219/rocky/commit/17f7b1f77efdb59e0dc5d82c120b7307b7303ffd) Thanks [@minjun0219](https://github.com/minjun0219)! - CLI 의 링크 라벨이 외부 할 일 앱을 서비스 이름으로 줄이지 않는다 — `app.todoist.com` 링크는 `todoist` 대신 호스트명 `todoist.com` 으로 보인다(앞의 `www.`·`app.` 은 벗긴다).
+
+- [#428](https://github.com/minjun0219/rocky/pull/428) [`ced09d2`](https://github.com/minjun0219/rocky/commit/ced09d248b9e7f54120a17b5ad5f7360714361a5) Thanks [@minjun0219](https://github.com/minjun0219)! - `/rocky:review-request` 가 PR 본문 첫 줄에 `할 일: <ref>` 를 쓰지 않는다. 할 일과 PR 은 할 일의 `links` 로만 잇는다 — 데몬은 그 링크로 머지 뒤 완료를 판정하고 본문 줄은 읽지 않았다. 보드 번호를 레포에 남기지 않는다는 board 스킬 규칙과 어긋나던 것을 맞췄다.
+
+- [#445](https://github.com/minjun0219/rocky/pull/445) [`44214be`](https://github.com/minjun0219/rocky/commit/44214be505ccc371b3c5555e7f83c6d99f39185f) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 이벤트 기록(`<todo dir>/rc/events.jsonl`)이 야간 재시작처럼 여러 서버를 함께 내리고 띄울 때 줄이 섞이던 것을 고친다 — 한 줄을 한 번에 쓴다.
+
+- [#429](https://github.com/minjun0219/rocky/pull/429) [`832be7a`](https://github.com/minjun0219/rocky/commit/832be7a96500fa24d83f5938607589c60813a165) Thanks [@minjun0219](https://github.com/minjun0219)! - `claude rc` 야간 재시작의 회복을 고친다. (1) 못 뜬 서버를 다시 띄울 때 처음에 못 박은 세션(`--session-id`)으로 다시 띄운다 — 전에는 실패 원인과 무관하게 새 세션으로 띄워, 네트워크 순간 장애에도 열린 대화를 버렸다. 마감 전 마지막 시도만 새로 띄운다. (2) canary 가 처음엔 못 뜨다가 회복되면 건너뛰던 나머지도 그 밤 마감 안에 이어서 다시 띄운다. (3) 보고서는 판정 때 정한 방식이 아니라 실제로 뜬 방식을 적는다.
+
+- [#431](https://github.com/minjun0219/rocky/pull/431) [`58f036f`](https://github.com/minjun0219/rocky/commit/58f036f5405335481d82fc2122800b73343cb0fe) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬이 띄운 `claude rc` 서버의 기동 로그(`rc/<라벨>.out` · `.err`)가 끝없이 자라지 않게 한다. 세션이 붙은 서버는 화면을 다시 그릴 때마다 덧붙여 분당 수십 KB 씩 커졌다(실측: 2시간 40분에 4.25MB). 이제 로그를 append 로 열고, 데몬이 10분마다 1MiB 를 넘은 로그를 비운다 — 감시 · 야간 설정과 상관없이.
+
+- [#432](https://github.com/minjun0219/rocky/pull/432) [`361283f`](https://github.com/minjun0219/rocky/commit/361283f4e2ff8ba53a31b1853dfedd5cc7214627) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky usage` 가 `POST /api/verify/rerun` · `POST /api/rc/handoffs/:ref/stop` · `POST /api/rc/strays/:ref/stop` 를 쓰여도 늘 "안 쓴 표면" 으로 보이던 것을 고친다 — 기록 이름이 `:ref` 로 접혀 표면 목록의 이름과 달랐다. 훅이 부르는 `POST /api/sessions/doing` 도 표면 목록에 넣는다.
+
 ## 0.48.0
 
 ### Minor Changes

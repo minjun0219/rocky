@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "rocky-cli"
-version = "0.48.0"
+version = "0.49.0"
 dependencies = [
  "chrono",
  "libc",
@@ -1240,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "rocky-core"
-version = "0.48.0"
+version = "0.49.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "rockyd"
-version = "0.48.0"
+version = "0.49.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
