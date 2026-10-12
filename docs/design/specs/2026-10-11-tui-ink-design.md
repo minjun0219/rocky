@@ -72,9 +72,10 @@ scripts/build-tui.ts  Bun.build + react-devtools-core 빈 모듈 플러그인 �
 
 ## 데이터 흐름
 
-1. 시작 — `GET /api/boards` · `/api/todos` · `/api/sections` 를 받는다.
+1. 시작 — `GET /api/boards` · `/api/todos` · `/api/handoffs?open=true` 와 보고 있는 보드의 `/api/sections?board=<key>`
+   를 받는다(`board` 가 없으면 데몬이 400). 보드를 바꾸면(`[`·`]`) 그 보드의 섹션만 다시 받는다.
 2. 갱신 — `/api/events` 를 fetch 스트림으로 연다. 이벤트를 150ms 창으로 묶어 `slicesFor` 가 고른 묶음 중
-   이 화면이 쓰는 것(`boards`·`todos`·`sections`)만 다시 받는다. 웹 `main.tsx` 와 같은 규칙.
+   이 화면이 쓰는 것(`boards`·`todos`·`handoffs`·`sections`)만 다시 받는다. 웹 `main.tsx` 와 같은 규칙.
 3. 쓰기 — 상태 변경·추가는 REST 로 보내고 화면은 SSE 갱신을 기다린다(낙관적 갱신 없음 — 첫 조각에서는 단순하게).
 4. 모든 요청에 `x-rocky-actor`(CLI 와 같은 actor)와 `x-rocky-client: tui` 를 붙인다.
 
