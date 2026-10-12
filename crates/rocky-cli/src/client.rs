@@ -48,6 +48,9 @@ pub struct DaemonHealth {
     pub name: Option<String>,
     #[serde(default)]
     pub version: Option<String>,
+    /// 데몬을 빌드한 커밋 — 표시와 `daemon restart` 확인용(훅의 교체 판단엔 안 쓴다). 구버전·dev 빌드면 None.
+    #[serde(default)]
+    pub commit: Option<String>,
     #[serde(default)]
     pub pid: Option<u32>,
     /// 이 요청과 같은 출처에서 GitHub 이슈를 만들 수 있는지 — 웹 UI 가 누를 수 없는

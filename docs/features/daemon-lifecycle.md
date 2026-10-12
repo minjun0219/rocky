@@ -21,6 +21,13 @@
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가
   세션끼리 뒤집히지 않고 올린다.
+  - **`/api/health` 의 `commit`(빌드한 커밋의 짧은 해시)은 훅의 교체 판단에 넣지 않는다** — main 빌드끼리는 버전이 같아 커밋으로
+    비교하면 훅이 세션마다 서로 다른 빌드를 번갈아 올린다. 웹 하단·`rocky version`·`daemon status` 가 버전 오른쪽 괄호에 붙이고,
+    커밋까지 보는 곳은 둘뿐이다: `daemon restart` 의 "내 빌드가 떴나" 확인(`version::same_build`, 둘 다 알 때만)과 웹의 새로고침
+    권유(화면 번들이 바뀌니까).
+  - **해시는 release 빌드에만 굽는다**(`crates/rocky-core/build.rs`). rocky-core 는 모든 크레이트의 바닥이라 해시가 바뀌면 워크스페이스
+    전체가 다시 컴파일된다 — dev 빌드(테스트·clippy·pre-push·`rocky verify`)까지 구우면 Rust 를 안 고친 커밋 뒤에도 매번 통째로
+    빌드한다. 설치되는 바이너리(릴리스 tarball·main 빌드)는 모두 release 다.
   - **옛 데몬을 못 내리면 재기동하지 않는다** — 구버전 보드가 보드 없음보다 낫다. *EN: an old board beats no board.*
   - 교체의 각 단계는 실패를 삼키지 않고 보고한다. 데몬이 사라지고 말았으면 launchd 밖에서라도 띄우고 `⚠ rocky 데몬: …` 경고를 주입한다.
 - **launchd 밖의 고아를 만들지도 두지도 않는다.** job 이 로드돼 있으면 CLI·훅은 따로 띄우지 않고 `launchctl kickstart` 로 맡긴다.

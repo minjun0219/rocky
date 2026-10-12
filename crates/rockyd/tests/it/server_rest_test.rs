@@ -22,6 +22,13 @@ async fn health_reports_running_version() {
     assert_eq!(body["name"], "rocky");
     let version = body["version"].as_str().unwrap();
     assert!(version.split('.').count() >= 3, "{version}");
+    // 빌드한 커밋 — 표시용. git 안에서 빌드했으면 짧은 해시, 밖이면 null(키는 늘 있다).
+    assert_eq!(
+        body["commit"].as_str(),
+        rocky_core::version::GIT_COMMIT,
+        "{body}"
+    );
+    assert!(body.as_object().unwrap().contains_key("commit"), "{body}");
 }
 
 // ── todos REST ──

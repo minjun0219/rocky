@@ -20,6 +20,7 @@ fn input() -> SetupInput {
         install_current: Some("v0.26.1".into()),
         daemon: Some(DaemonState {
             version: Some("0.26.1".into()),
+            commit: None,
             pid: Some(42),
         }),
         launchd_registered: true,
@@ -121,6 +122,7 @@ fn daemon_version_mismatch_is_flagged_with_restart() {
     let mut i = input();
     i.daemon = Some(DaemonState {
         version: Some("0.25.0".into()),
+        commit: None,
         pid: Some(7),
     });
     let r = build_report(&i);
@@ -234,4 +236,23 @@ fn report_json_shape() {
     assert_eq!(v["checks"][0]["kind"], "optional");
     assert!(v["checks"][0].get("fix").is_none());
     assert_eq!(v["nextSteps"], serde_json::json!([]));
+}
+
+#[test]
+fn daemon_line_puts_the_build_commit_right_of_the_version() {
+    let mut i = input();
+    i.daemon = Some(DaemonState {
+        version: Some("0.26.1".into()),
+        commit: Some("abc1234".into()),
+        pid: Some(42),
+    });
+    let r = build_report(&i);
+    let c = r.check("daemon").unwrap();
+    // 커밋은 표시만 한다 — 같은 버전이면 커밋과 상관없이 통과(훅의 교체 판단과 같다)
+    assert!(c.ok);
+    assert!(
+        c.detail.contains("v0.26.1 (abc1234), pid 42"),
+        "{}",
+        c.detail
+    );
 }

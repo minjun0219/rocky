@@ -192,9 +192,12 @@ interface UiState {
   accessUser: string | null;
   /** 지금 도는 데몬의 버전(`/api/health`). 아직 모르거나 구버전 데몬이면 null. */
   daemonVersion: string | null;
+  /** 그 데몬을 빌드한 커밋의 짧은 해시 — 표시용. 구버전 데몬이거나 git 밖에서 빌드했으면 null. */
+  daemonCommit: string | null;
   /**
-   * 이 화면을 연 뒤 데몬 버전이 바뀌었는가. 화면의 번들은 데몬이 서빙한 것이라, 데몬이
-   * 새 버전으로 재시작되면 열려 있던 화면은 옛 코드로 남는다 — 새로고침하라는 신호다.
+   * 이 화면을 연 뒤 데몬 버전이나 커밋이 바뀌었는가. 화면의 번들은 데몬이 서빙한 것이라, 데몬이
+   * 새 빌드로 재시작되면 열려 있던 화면은 옛 코드로 남는다 — 새로고침하라는 신호다. main 빌드끼리는
+   * 버전이 같으니 커밋도 본다.
    */
   daemonVersionChanged: boolean;
   /** 현재 보드의 아직 안 끝난 핸드오프(대기 중 + 배달됐지만 미완료) — refetch 가 함께 갱신한다. */
@@ -433,6 +436,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   rcControlAllowed: true,
   accessUser: null,
   daemonVersion: null,
+  daemonCommit: null,
   daemonVersionChanged: false,
   handoffs: [],
   sessions: { available: true, list: [] },
@@ -1122,9 +1126,12 @@ export const useUiStore = create<UiState>((set, get) => ({
         rcControlAllowed?: boolean;
         accessUser?: string | null;
         version?: string;
+        commit?: string | null;
       }>('/api/health', get().actor);
       const previous = get().daemonVersion;
+      const previousCommit = get().daemonCommit;
       const version = health.version ?? null;
+      const commit = health.commit ?? null;
       // 필드가 없는 구버전 데몬이면 낙관적으로 둔다 — 그 데몬에는 애초에 이 가드가 없다.
       set({
         issueCreateAllowed: health.issueCreateAllowed ?? true,
@@ -1132,10 +1139,13 @@ export const useUiStore = create<UiState>((set, get) => ({
         rcControlAllowed: health.rcControlAllowed ?? health.spawnAllowed ?? true,
         accessUser: health.accessUser ?? null,
         daemonVersion: version,
+        daemonCommit: commit,
         // 한 번 바뀌었으면 새로고침 전까지 켜 둔다 — 되돌아가도 번들은 이미 첫 버전의 것이다.
         daemonVersionChanged:
           get().daemonVersionChanged ||
-          (previous !== null && version !== null && previous !== version),
+          (previous !== null &&
+            version !== null &&
+            (previous !== version || previousCommit !== commit)),
       });
     } catch {
       // 힌트를 못 얻는 것으로 화면이 망가지면 안 된다. 강제는 서버 몫이다.

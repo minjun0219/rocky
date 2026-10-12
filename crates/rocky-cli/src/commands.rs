@@ -1416,10 +1416,16 @@ pub fn cmd_daemon(
                 }
                 std::thread::sleep(std::time::Duration::from_millis(150));
             }
+            // 커밋도 같이 적는다 — main 빌드끼리는 버전이 같아서 커밋으로만 바뀐 게 보인다.
             let version = |h: &Option<crate::client::DaemonHealth>| {
                 h.as_ref()
-                    .and_then(|h| h.version.clone())
-                    .map(|v| format!("v{v}"))
+                    .and_then(|h| {
+                        let v = h.version.as_deref()?;
+                        Some(format!(
+                            "v{}",
+                            rocky_core::version::label(v, h.commit.as_deref())
+                        ))
+                    })
                     .unwrap_or_else(|| "?".into())
             };
             let pid = after
@@ -1427,12 +1433,20 @@ pub fn cmd_daemon(
                 .and_then(|h| h.pid)
                 .map(|p| format!(", pid {p}"))
                 .unwrap_or_default();
-            // 목표는 이 CLI 의 버전이다 — 다른 버전이 응답하면(launchd 밖의 고아가 포트를 쥔 채 남는 등)
-            // 재시작했다고 말하지 않는다.
-            let here = env!("CARGO_PKG_VERSION");
-            if after.as_ref().and_then(|h| h.version.as_deref()) != Some(here) {
+            // 목표는 이 CLI 의 빌드다 — 다른 버전이(main 빌드끼리는 다른 커밋이) 응답하면(launchd 밖의 고아가
+            // 포트를 쥔 채 남는 등) 재시작했다고 말하지 않는다.
+            let same = after.as_ref().is_some_and(|h| {
+                rocky_core::version::same_build(
+                    h.version.as_deref(),
+                    h.commit.as_deref(),
+                    env!("CARGO_PKG_VERSION"),
+                    rocky_core::version::GIT_COMMIT,
+                )
+            });
+            if !same {
                 return Err(format!(
-                    "daemon 재시작 실패 — 목표 v{here}, 포트의 데몬은 {}{pid}. `rocky daemon status` 로 확인하라",
+                    "daemon 재시작 실패 — 목표 v{}, 포트의 데몬은 {}{pid}. `rocky daemon status` 로 확인하라",
+                    rocky_core::version::build_label(),
                     version(&after)
                 ));
             }
@@ -1463,9 +1477,15 @@ pub fn cmd_daemon(
                     "{} running on {}{}",
                     if warning.is_some() { "⚠" } else { "✓" },
                     ctx.base_url,
-                    match (h.version.as_deref(), h.pid) {
-                        (Some(v), Some(p)) => format!(" (v{v}, pid {p})"),
-                        (Some(v), None) => format!(" (v{v})"),
+                    match (
+                        h.version
+                            .as_deref()
+                            .map(|v| rocky_core::version::label(v, h.commit.as_deref())),
+                        h.pid
+                    ) {
+                        // 버전 칸이 커밋 괄호를 달고 오므로 괄호로 한 번 더 싸지 않는다.
+                        (Some(v), Some(p)) => format!(" — v{v}, pid {p}"),
+                        (Some(v), None) => format!(" — v{v}"),
                         _ => String::new(),
                     }
                 ),

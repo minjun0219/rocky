@@ -139,6 +139,7 @@ pub(crate) fn gather(ctx: &CliContext, todo: &TodoConfig) -> SetupInput {
     let config = config_file_state(&config_path);
     let daemon = daemon_health(&ctx.base_url).map(|h| DaemonState {
         version: h.version,
+        commit: h.commit,
         pid: h.pid,
     });
     let (statusline_command, statusline_script) = claude_statusline();

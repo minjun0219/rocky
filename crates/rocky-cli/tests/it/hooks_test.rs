@@ -10,6 +10,7 @@ fn health(version: Option<&str>, pid: u32) -> DaemonHealth {
         ok: true,
         name: Some("rocky".into()),
         version: version.map(str::to_string),
+        commit: None,
         pid: Some(pid),
         issue_create_allowed: None,
     }

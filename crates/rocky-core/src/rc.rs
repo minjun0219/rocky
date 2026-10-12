@@ -1188,10 +1188,16 @@ pub fn parse_plugin_version(json: &str, id: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// `rocky 0.42.0` 같은 출력의 첫 줄 마지막 칸(`v` 는 뗀다).
+/// `rocky 0.42.0 (abc1234)` 같은 출력의 첫 줄에서 `X.Y.Z` 꼴인 첫 칸(`v` 는 뗀다) — 이름 뒤에 붙는 커밋
+/// 해시 괄호나 숫자로 시작하는 다른 칸(빌드 번호 등)은 건너뛴다.
 pub fn parse_tool_version(out: &str) -> Option<String> {
-    let last = out.trim().lines().next()?.split_whitespace().last()?;
-    Some(last.trim_start_matches('v').to_string())
+    out.trim()
+        .lines()
+        .next()?
+        .split_whitespace()
+        .map(|t| t.trim_start_matches('v'))
+        .find(|t| crate::version::parse_version(t).is_some())
+        .map(str::to_string)
 }
 
 /// `git ls-remote --tags --refs <repo> 'v*'` 에서 가장 높은 정식 릴리스(`vX.Y.Z`, `v` 뗀 것). 사전 릴리스(`-rc.1`)는 뺀다 —
