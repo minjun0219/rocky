@@ -1802,8 +1802,9 @@ const RELEASE_REPO: &str = "minjun0219/rocky";
 
 /// `update` 에 할 일 수정의 흔적(REF·수정 플래그)이 있나 — 예전 `rocky update REF --title …` 을 습관대로 부르면
 /// 업데이트를 돌리지 않고 `edit` 으로 안내한다(플러그인을 올리고 데몬을 교체하는 일은 되돌리기 어렵다).
+/// `--main` 의 위치 인자는 빌드할 커밋(`rocky update --main <SHA>`)이라 REF 로 보지 않는다.
 pub fn looks_like_todo_edit(rest: &[String], flags: &ParsedFlags) -> bool {
-    !rest.is_empty()
+    (!rest.is_empty() && !flags.bool_flag("main"))
         || [
             "title", "desc", "section", "parent", "priority", "due", "label", "link",
         ]
@@ -1901,7 +1902,7 @@ fn plugin_cache_dir() -> std::path::PathBuf {
 }
 
 /// `claude <args>` — 출력은 그대로 사용자에게. 없거나 실패하면 무엇을 못 했는지 한 줄로.
-fn run_claude(args: &[&str]) -> Result<(), String> {
+pub(crate) fn run_claude(args: &[&str]) -> Result<(), String> {
     let status = std::process::Command::new("claude")
         .args(args)
         .status()

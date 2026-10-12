@@ -65,3 +65,23 @@ fn returns_none_for_messages_that_are_not_that_error() {
 fn returns_none_when_the_prefix_matches_but_the_separator_is_missing() {
     assert!(board_key_from_missing_repo_error("board has no GitHub repo: rocky").is_none());
 }
+
+#[test]
+fn update_main_takes_a_commit_positional_but_a_bare_ref_is_still_a_todo_edit() {
+    use rocky_cli::commands::looks_like_todo_edit;
+    use rocky_cli::flags::parse_flags;
+    let parse = |items: &[&str]| {
+        let argv: Vec<String> = items.iter().map(|s| s.to_string()).collect();
+        let parsed = parse_flags(&argv).unwrap();
+        let rest: Vec<String> = parsed.positionals.iter().skip(1).cloned().collect();
+        (rest, parsed)
+    };
+    // `rocky update --main <SHA>` — 위치 인자는 빌드할 커밋이다
+    let (rest, flags) = parse(&["update", "--main", "40da51e"]);
+    assert!(!looks_like_todo_edit(&rest, &flags));
+    // 예전 습관 `rocky update REF --title …` 는 여전히 edit 으로 안내한다
+    let (rest, flags) = parse(&["update", "rocky-12"]);
+    assert!(looks_like_todo_edit(&rest, &flags));
+    let (rest, flags) = parse(&["update", "--main", "--title", "x"]);
+    assert!(looks_like_todo_edit(&rest, &flags));
+}

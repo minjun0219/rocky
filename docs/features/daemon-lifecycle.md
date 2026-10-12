@@ -21,6 +21,15 @@
   `main/rocky`(그 기기에서 GitHub main 을 release 빌드한 것)를 실행하고, 링크를 버전으로 되돌리지 않는다. `ROCKY_BIN` 이 먼저고,
   `main/rocky` 가 없으면(교체 중·지워짐) 그 한 번은 릴리스 경로로 떨어지지만 링크는 그대로 둔다 — 모드는 링크로만 바뀐다.
   이 링크가 곧 모드다 — 릴리스 모드면 `current` → `v<version>`.
+- **`rocky update --main [SHA]`** 가 기기를 main 빌드 모드로 바꾸고 올린다. 자리는 `$XDG_DATA_HOME/rocky/` 의 `main-src/`(전용
+  clone — `rocky-marketplace` 가 가리키는 폴더 마켓플레이스)와 `main/`(`rocky`·`rockyd`·`dist/`·`.sha`). 처음이면 마켓플레이스를
+  GitHub 에서 그 폴더로 바꾸는데, 마켓플레이스를 빼면 그 플러그인의 저장된 옵션·데이터가 지워지므로 몇 분짜리 빌드 **전에** 확인을
+  받는다(`--yes` 로 건너뛰고, 터미널이 아니면 멈춘다). 다른 폴더·원천을 가리키면(개발용 연결) 손대지 않는다. 버전 문자열이 같아도
+  커밋이 다르면 빌드하고, 훅은 버전이 같아 교체하지 않으므로 새 빌드로 `daemon restart` 를 직접 부른다(재시작이 커밋까지 확인한다).
+  빌드 뒤 단계(재시작·플러그인)가 실패하면 끝까지 갔다는 표식(`main/.finished`)이 안 남아, 다음 실행은 빌드 없이 그 단계만
+  마저 한다(`main_build::plan`). 이 모드에서 `rocky update` 는 main 최신으로 올린다 — 습관대로 불러도 릴리스로 되돌리지 않는다.
+  `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다. 잠금은 `main-sync.lock` — 같은 일을 하던 기기별 스크립트와 서로 막고, 안에
+  pid 를 남겨 Ctrl-C 로 끊긴 빌드의 잠금은 넘겨받는다.
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 **정확한 문자열**로 비교해 낡은 데몬을
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가
@@ -50,6 +59,7 @@
 | --- | --- |
 | 훅 입구(`ensure-daemon`·`notify-todo`의 재기동 검사, `RestartPolicy`) | `crates/rocky-cli/src/hooks.rs` |
 | `daemon install/restart/status`, `update` | `crates/rocky-cli/src/commands.rs`, `crates/rocky-cli/src/launchd.rs` |
+| main 빌드 모드(`update --main`) | `crates/rocky-cli/src/update_main.rs`, 판정은 `crates/rocky-core/src/main_build.rs` |
 | 링크·설정 점검(`config show/link`) | `crates/rocky-cli/src/config_cmd.rs`, `crates/rocky-core/src/setup.rs` |
 | 기동 순서(포트 → 옛 데몬 대기 → DB), `dbIntegrity` | `crates/rockyd/src/daemon.rs` |
 | 부트스트랩(sh) | `plugin/bin/rocky` |
@@ -64,4 +74,6 @@
   옛 데몬이 끝난 뒤 DB".
 - **개발·데모 데몬**은 `ROCKY_CONFIG=<전용 파일> cargo run -p rockyd`(자기 포트·`dir`·`expose: "off"`) — 전역 `expose` 를 물려받지
   않게. launchd 동작 재현은 `ROCKY_LAUNCHD_LABEL` + 전용 `ROCKY_CONFIG`(기본 포트면 `rocky daemon` 이 거부한다).
+- **폴더 마켓플레이스도 설치 때 캐시로 복사한다(2026-10-03 실측)** — 버전이 같으면 `claude plugin update` 가 "이미 최신" 이라 새
+  커밋을 안 가져온다. 그래서 main 빌드는 플러그인을 빼고 다시 깐다.
 - 프로세스는 **pid 로만** 내린다 — 패턴(`pkill -f`)은 다른 세션·서버를 같이 죽인 적이 있다.
