@@ -34,15 +34,18 @@ pub enum BuildPlan {
 }
 
 /// `have` 는 `main/.sha`(깔린 빌드의 커밋), `finished` 는 `main/.finished`(지난 실행이 끝까지 간 커밋).
+/// `bundle_missing` 은 원하는 커밋에 TUI 번들 스크립트가 있는데 깔린 `main/` 에 `tui.js` 가 없다는 뜻이다 — TUI 를 모르던
+/// 옛 rocky 가 그 커밋을 빌드해 번들 없이 깔았다. 커밋이 같아도 다시 빌드한다(안 그러면 다음 커밋까지 `rocky tui` 가 못 뜬다).
 pub fn plan(
     want: &str,
     have: Option<&str>,
     finished: Option<&str>,
     force: bool,
     main_mode: bool,
+    bundle_missing: bool,
 ) -> BuildPlan {
     let is_want = |s: Option<&str>| s.map(str::trim) == Some(want.trim());
-    if force || !is_want(have) {
+    if force || bundle_missing || !is_want(have) {
         BuildPlan::Build
     } else if main_mode && is_want(finished) {
         BuildPlan::Skip
