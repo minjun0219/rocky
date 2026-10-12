@@ -299,6 +299,11 @@
           "type": "boolean",
           "description": "맨 아래에 보드 줄(todo.statusline 템플릿 — 내 차례·핸드오프·머지 후보 등)을 붙인다. 끄면 데몬에 묻지도 않는다. 기본 false."
         },
+        "dirLink": {
+          "type": "string",
+          "minLength": 1,
+          "description": "경로 줄의 경로를 링크로 감싼다(OSC 8 — 터미널에서 Cmd+클릭). {{cwd}} 자리에 퍼센트 인코딩한 경로가 들어간다. 예: vscode://file{{cwd}}, cursor://file{{cwd}}. {{cwd}} 가 없거나 결과가 공백·제어 문자·ASCII 밖 글자를 담으면 링크를 걸지 않는다. 기본 없음."
+        },
         "keychainService": {
           "type": "string",
           "minLength": 1,

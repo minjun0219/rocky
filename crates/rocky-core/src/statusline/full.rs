@@ -180,6 +180,8 @@ pub struct View<'a> {
     pub credit_glow: Option<f64>,
     /// `~` 로 줄일 홈 디렉터리.
     pub home: Option<&'a str>,
+    /// 경로를 감쌀 링크 템플릿(`statusline.dirLink`) — `None` 이면 링크 없이 cc-usage 와 같은 바이트.
+    pub dir_link: Option<&'a str>,
     pub now: DateTime<Utc>,
 }
 
@@ -419,13 +421,41 @@ fn dir_line(v: &View, s: &Style) -> String {
     if v.dir.is_empty() {
         return String::new();
     }
-    let mut t = s.c(CYAN, &abbrev_home(v.dir, v.home));
+    let path = s.c(CYAN, &abbrev_home(v.dir, v.home));
+    let mut t = match v.dir_link.and_then(|tpl| dir_link_url(tpl, v.dir)) {
+        // OSC 8 — Claude Code 가 그대로 넘기고, 터미널이 Cmd+클릭으로 연다. 색은 링크 안에 둔다.
+        Some(url) => format!("\x1b]8;;{url}\x07{path}\x1b]8;;\x07"),
+        None => path,
+    };
     let branch = branch_text(v.git, s);
     if !branch.is_empty() {
         t += &s.c(DIM, " · ");
         t += &branch;
     }
     t
+}
+
+/// 경로 링크 — 템플릿의 `{{cwd}}` 자리에 퍼센트 인코딩한 경로(`/` 는 그대로)를 넣는다. `{{cwd}}` 가 없으면(오타) `None` —
+/// 모든 세션이 같은 엉뚱한 주소로 열린다. 결과가 공백·제어 문자·ASCII 밖의 글자를 담아도 `None` — OSC 8 의 URI 는 출력
+/// 가능한 ASCII 여야 하고, 섞이면 줄 전체가 깨진다.
+pub fn dir_link_url(template: &str, dir: &str) -> Option<String> {
+    use std::fmt::Write;
+    if !template.contains("{{cwd}}") {
+        return None;
+    }
+    let mut path = String::with_capacity(dir.len());
+    for b in dir.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                path.push(b as char)
+            }
+            _ => {
+                let _ = write!(path, "%{b:02X}");
+            }
+        }
+    }
+    let url = template.replace("{{cwd}}", &path);
+    url.bytes().all(|b| b.is_ascii_graphic()).then_some(url)
 }
 
 /// `⎇ main =1 +3 !5 ⇡1⇣2` — 충돌·staged·unstaged·ahead/behind. detached 면 `@<7자리>`.

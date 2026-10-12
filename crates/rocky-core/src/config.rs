@@ -736,6 +736,8 @@ pub struct StatuslineConfig {
     pub badges: std::collections::HashMap<String, crate::statusline::full::Badge>,
     /// 맨 아래에 보드 줄(`todo.statusline` 템플릿)을 붙이나(`board`). 기본 끔 — 끄면 데몬에 묻지도 않는다.
     pub board: bool,
+    /// 경로를 Cmd+클릭으로 여는 링크 템플릿(`dirLink`, 예: `vscode://file{{cwd}}`). 없으면 링크 없음.
+    pub dir_link: Option<String>,
 }
 
 /// 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open). `extraCommands` 에서 모양이 틀린 항목(`command` 가
@@ -770,6 +772,7 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
     cfg.keychain_service = text("keychainService");
     cfg.credentials_file = text("credentialsFile");
     cfg.token_env = text("tokenEnv");
+    cfg.dir_link = text("dirLink");
     cfg.limits.currency = text("currency");
     cfg.limits.credit_divisor = block.get("creditDivisor").and_then(|v| v.as_f64());
     cfg.limits.poll_seconds = block.get("pollSeconds").and_then(|v| v.as_u64());
