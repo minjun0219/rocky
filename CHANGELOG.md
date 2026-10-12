@@ -1,5 +1,19 @@
 # @minjun0219/rocky
 
+## 0.50.0
+
+### Minor Changes
+
+- [#449](https://github.com/minjun0219/rocky/pull/449) [`62bf619`](https://github.com/minjun0219/rocky/commit/62bf619cef43e0bb721aabe1e2d5b975d39c8612) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky update --main [SHA]` — 릴리스 대신 GitHub main 을 이 기기에서 release 빌드해 쓴다(main 빌드 모드). 처음이면 main 전용 clone 을 받고, 플러그인 마켓플레이스를 그 폴더로 바꿔도 될지 빌드 전에 묻는다(`--yes`). 그 뒤 `rocky update` 는 main 최신으로 올리고, `--check` 는 설치 커밋과 origin/main 을 비교한다. 버전이 같아도 커밋이 다르면 빌드하고 새 빌드로 데몬을 재시작한다.
+
+- [#450](https://github.com/minjun0219/rocky/pull/450) [`beb17ee`](https://github.com/minjun0219/rocky/commit/beb17ee23ba0fb6d70af502997a82211541f6f34) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky update --release` — main 빌드 모드에서 릴리스로 돌아간다. 마켓플레이스를 GitHub 로 되돌려 플러그인을 다시 깔고(빌드 전과 같은 확인, `--yes`), 최신 릴리스 바이너리로 데몬을 바꾼다. main 빌드(`main/`·`main-src/`)는 남겨 둬 `--main` 으로 다시 올 수 있다.
+
+### Patch Changes
+
+- [#448](https://github.com/minjun0219/rocky/pull/448) [`ed79baa`](https://github.com/minjun0219/rocky/commit/ed79baa9ebf6742b3d0b7a319321394892f65085) Thanks [@minjun0219](https://github.com/minjun0219)! - 부트스트랩이 main 빌드 모드를 따른다 — `$XDG_DATA_HOME/rocky/current` 가 `main` 을 가리키면 릴리스를 받지 않고 그 기기에서 빌드한 `main/rocky` 를 실행한다(`ROCKY_BIN` 이 먼저). main 빌드로 갈아 끼우는 기기가 `settings.json` 의 `ROCKY_BIN` 없이도 돈다.
+
+- [#446](https://github.com/minjun0219/rocky/pull/446) [`9d1c99f`](https://github.com/minjun0219/rocky/commit/9d1c99fb8588c7a8cf680fd161d2cfb63286b244) Thanks [@minjun0219](https://github.com/minjun0219)! - 버전 오른쪽 괄호에 빌드한 커밋의 짧은 해시를 붙인다 — 웹 하단(`rocky v0.49.0 (abc1234)`), `rocky version`, `rocky daemon status`·`restart`. 해시는 release 빌드(릴리스 tarball·main 빌드)에만 굽는다. `/api/health` 에 `commit` 필드가 생긴다(훅의 데몬 교체 판단은 지금처럼 버전으로). `daemon restart` 는 버전이 같아도 커밋이 다르면 재시작 실패로 알리고, 웹의 새로고침 권유는 커밋이 바뀌어도 뜬다.
+
 ## 0.49.0
 
 ### Minor Changes
