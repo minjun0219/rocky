@@ -1047,6 +1047,8 @@ async fn dispatch(
             "ok": true,
             "name": "rocky",
             "version": env!("CARGO_PKG_VERSION"),
+            // 빌드한 커밋 — 표시용(훅의 교체 판단은 version 으로만). release 빌드에만 있고 dev 빌드·git 밖이면 null.
+            "commit": rocky_core::version::GIT_COMMIT,
             "pid": std::process::id(),
             "issueCreateAllowed": local,
             "spawnAllowed": local,

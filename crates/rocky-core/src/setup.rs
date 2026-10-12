@@ -74,6 +74,8 @@ pub struct ConfigFileState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonState {
     pub version: Option<String>,
+    /// 빌드한 커밋 — 표시용(버전 오른쪽 괄호). 판정은 버전만 본다(훅과 같다).
+    pub commit: Option<String>,
     pub pid: Option<u32>,
 }
 
@@ -223,7 +225,9 @@ pub fn build_report(input: &SetupInput) -> SetupReport {
                 CheckKind::Required,
                 same,
                 format!(
-                    "실행 중 — v{version} (pid {}){}",
+                    // 버전 칸이 커밋 괄호를 달고 오므로 pid 는 괄호 대신 쉼표로 잇는다(`daemon status` 와 같은 모양).
+                    "실행 중 — v{}, pid {}{}",
+                    crate::version::label(&version, d.commit.as_deref()),
                     d.pid.map(|p| p.to_string()).unwrap_or_else(|| "?".into()),
                     if same {
                         String::new()

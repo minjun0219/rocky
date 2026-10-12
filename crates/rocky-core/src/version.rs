@@ -79,3 +79,36 @@ pub fn is_older(running: &str, mine: &str) -> bool {
         _ => false,
     }
 }
+
+/// 이 바이너리를 빌드한 커밋의 짧은 해시 — `build.rs` 가 **release 빌드에만** 굽는다. dev 빌드·git 밖이면 None.
+/// 훅의 데몬 교체 판단에는 쓰지 않는다 — 그건 지금처럼 semver 문자열(`CARGO_PKG_VERSION`)로만 한다.
+pub const GIT_COMMIT: Option<&str> = option_env!("ROCKY_GIT_COMMIT");
+
+/// 사람에게 보이는 버전 — `0.49.0 (abc1234)`. 커밋을 모르면(빈 값 포함) `0.49.0`.
+pub fn label(version: &str, commit: Option<&str>) -> String {
+    match commit.filter(|c| !c.is_empty()) {
+        Some(c) => format!("{version} ({c})"),
+        None => version.to_string(),
+    }
+}
+
+/// 이 바이너리 자신의 [`label`].
+pub fn build_label() -> String {
+    label(env!("CARGO_PKG_VERSION"), GIT_COMMIT)
+}
+
+/// 포트의 데몬이 이 바이너리와 같은 빌드인가 — `daemon restart` 의 확인용. 버전은 정확히 같아야 하고, 커밋은
+/// **둘 다 알 때만** 비교한다(main 빌드끼리는 버전이 같아 커밋으로만 갈린다). 한쪽이 dev 빌드·구버전이라
+/// 커밋을 모르면 버전만 본다.
+pub fn same_build(
+    running: Option<&str>,
+    running_commit: Option<&str>,
+    mine: &str,
+    mine_commit: Option<&str>,
+) -> bool {
+    running == Some(mine)
+        && match (running_commit, mine_commit) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        }
+}

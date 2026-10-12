@@ -1123,8 +1123,19 @@ fn rocky_versions_are_read_like_the_old_nightly() {
         parse_tool_version("rocky 0.42.0\n").as_deref(),
         Some("0.42.0")
     );
+    // `rocky --version` 은 버전 뒤에 커밋 해시를 괄호로 붙인다 — 마지막 칸이 아니라 버전 칸을 읽는다.
+    assert_eq!(
+        parse_tool_version("rocky 0.49.0 (abc1234)\n").as_deref(),
+        Some("0.49.0")
+    );
     assert_eq!(parse_tool_version("v1.2.3").as_deref(), Some("1.2.3"));
+    assert_eq!(parse_tool_version("1.3.0\n").as_deref(), Some("1.3.0"));
+    assert_eq!(
+        parse_tool_version("agy 20261001-build 1.3.0").as_deref(),
+        Some("1.3.0")
+    );
     assert_eq!(parse_tool_version(""), None);
+    assert_eq!(parse_tool_version("rocky dev"), None);
     let tags = "a\trefs/tags/v0.9.0\nb\trefs/tags/v0.42.0\nc\trefs/tags/v0.41.10\nd\trefs/tags/v0.43.0-rc.1\ne\trefs/tags/vX\n";
     assert_eq!(
         latest_tag(tags).as_deref(),

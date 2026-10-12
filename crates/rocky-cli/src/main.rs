@@ -39,7 +39,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     // `version` 은 데몬을 건드리지 않는다. 두 형태(`version` / `--version`)를 한 표면
     // `rocky version` 으로 남긴다 — 표면 판단은 사용 로그의 숫자로 한다(KNOWN_SURFACES).
     if command == "version" || parsed.bool_flag("version") {
-        println!("rocky {}", env!("CARGO_PKG_VERSION"));
+        println!("rocky {}", rocky_core::version::build_label());
         rocky_cli::usage_cmd::record(
             rocky_core::usage::UsageSource::Cli,
             "rocky version",
