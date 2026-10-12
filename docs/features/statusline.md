@@ -50,10 +50,13 @@
   같은 바이트다. `{{cwd}}` 는 퍼센트 인코딩(`/` 는 그대로)하고, 템플릿에 `{{cwd}}` 가 없거나 결과가 출력 가능한 ASCII 가 아니면
   링크를 빼고 경로만 낸다 — 섞인 제어 문자가 줄 전체를 깨뜨린다. 경로 줄은 폭 판단(`credit_standalone`)에 들지 않아
   `display_width` 는 OSC 를 모른다 — 링크를 상태 줄에 걸게 되면 그때 OSC 를 0칸으로 세야 한다.
-  누가 링크를 여는지는 Claude Code 화면 모드에 따라 다르다(2.1.295 실측). fullscreen(`tui: "fullscreen"`)이면 Cmd+클릭을 Claude Code 가
-  받아 직접 `open` 하고, 허용 스킴(`vscode:`·`cursor:`·`zed:`·`windsurf:`·`idea:`·`jetbrains:`·`http(s):` 등) 밖이면 열지 않는다 —
-  템플릿 예시는 이 안에서 고른다. 그 밖에서는 터미널이 연다. 그때 글자만 보이고 안 눌리면 Claude Code 가 터미널의 링크 지원을 못
-  알아챈 것이다(`TERM_PROGRAM` 으로 판정 — `ghostty`·`iTerm.app`·`WezTerm` 등은 된다, 아니면 `FORCE_HYPERLINK=1`).
+  링크가 살아남는지는 Claude Code 가 정한다(2.1.295·2.1.296 실측). 터미널이 링크를 지원한다고 판정하지 못하면 statusline 출력의
+  OSC 8 을 지우고 글자만 그린다 — 판정은 `TERM_PROGRAM`(`ghostty`·`iTerm.app`·`WezTerm` 등)이고 `TERM`(`xterm-ghostty`)은 보지
+  않는다. tmux 흉내 환경이 여기 걸린다: cmux 의 Claude teams 세션은 `TMUX` 를 걸고 `TERM=screen-256color` 에 `TERM_PROGRAM`
+  없이 Claude Code 를 띄워 링크가 지워지고, 남은 경로 글자를 cmux 가 스스로 알아봐 Finder 로 연다. 이때는 `FORCE_HYPERLINK=1`
+  (셸 또는 Claude Code `settings.json` 의 `env` — 둘 다 실측으로 된다). 링크가 살아 있으면 fullscreen(`tui: "fullscreen"`)에서는
+  Claude Code 가 클릭을 받아 직접 `open` 하고, 허용 스킴(`vscode:`·`cursor:`·`zed:`·`windsurf:`·`idea:`·`jetbrains:`·`http(s):`
+  등) 밖이면 열지 않는다 — 템플릿 예시는 이 안에서 고른다. 그 밖에서는 터미널이 연다.
 
 - **크레딧 페이드는 rocky 만의 표시다**(cc-usage 아카이브 뒤 첫 갈래). 안 쓸 때 금액 색을 회색 쪽으로 반 섞고, 쓰기 시작하면
   그 시각(`state.json` 의 `credits_spending_at`)부터 3초에 걸쳐 원래 색으로 — 다시 안 쓰면 바로 옅게. 색을 섞을 수 없는 터미널은
