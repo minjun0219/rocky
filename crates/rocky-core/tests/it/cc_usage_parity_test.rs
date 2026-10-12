@@ -469,4 +469,14 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
         "\x1b[36m~/dev/rocky/crates\x1b[0m"
     );
     assert!(!dir_row_in("/home/me/dev/rocky", "", Some("vscode://file{{cwd}}")).contains('↗'));
+    // 지금 폴더가 곧 프로젝트면 이름이 앞 경로와 겹치므로 글리프만 — 누를 자리는 그대로다.
+    assert_eq!(
+        dir_row_in(
+            "/home/me/dev/rocky",
+            "/home/me/dev/rocky",
+            Some("vscode://file{{cwd}}")
+        ),
+        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07  \
+         \x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[90m↗\x1b[0m\x1b]8;;\x07"
+    );
 }

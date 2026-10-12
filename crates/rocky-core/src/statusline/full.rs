@@ -439,11 +439,17 @@ fn dir_line(v: &View, s: &Style) -> String {
         .filter(|_| !v.project_dir.is_empty())
         .and_then(|tpl| dir_link_url(tpl, v.project_dir));
     if let Some(url) = button {
-        let name = std::path::Path::new(v.project_dir)
-            .file_name()
-            .map_or(v.project_dir.into(), |n| n.to_string_lossy());
+        // 지금 폴더가 곧 프로젝트면 이름은 바로 앞 경로와 겹친다 — 자리만 남기고 글리프만 그린다.
+        let label = if v.project_dir == v.dir {
+            s.c(DIM, "↗")
+        } else {
+            let name = std::path::Path::new(v.project_dir)
+                .file_name()
+                .map_or(v.project_dir.into(), |n| n.to_string_lossy());
+            format!("{} {}", s.c(DIM, "↗"), s.c(CYAN, &name))
+        };
         t += "  ";
-        t += &hyperlink(&url, &format!("{} {}", s.c(DIM, "↗"), s.c(CYAN, &name)));
+        t += &hyperlink(&url, &label);
     }
     t
 }
