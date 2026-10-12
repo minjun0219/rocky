@@ -24,6 +24,7 @@ pub mod statusline_guard;
 pub mod statusline_refresh;
 pub mod system;
 pub mod tokens_cmd;
+pub mod update_main;
 pub mod usage_cmd;
 pub mod verify_cmd;
 pub mod worklog_mcp;
@@ -64,7 +65,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky open                              접속 주소 출력 (로컬/내부망/테일넷 — 링크 클릭으로 열기)
   rocky daemon run|start|stop|restart|status|install|uninstall   restart 는 버전과 상관없이 지금 설치본으로 교체, status 는 launchd 로드 여부와 고치는 명령까지
   rocky version | --version               설치된 CLI 버전
-  rocky update [--check]                  플러그인·데몬을 최신 릴리스로 (--check 는 버전 비교만)
+  rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main
+  rocky update --main [SHA] [--force] [--yes]   GitHub main 을 이 기기에서 release 빌드해 쓴다(처음이면 main 빌드 모드로)
   rocky statusline [--cwd P] [--session S]  rocky 한 줄 — 없으면 stdin 의 Claude Code 입력을 읽는다
   rocky statusline --full [--source S]      경로·git·모델·한도 줄(cc-usage 와 같은 출력) + 보드 줄 — stdin 을 읽는다.
                                             S = auto|stdin|api|none(이 실행에서만). agy 의 statusLine 에도 같은 명령

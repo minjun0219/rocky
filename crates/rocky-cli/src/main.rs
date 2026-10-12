@@ -129,6 +129,26 @@ fn run(argv: &[String]) -> Result<(), String> {
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
+        // 릴리스 모드면 최신 릴리스로, main 빌드 모드(`current` → `main`)면 main 최신으로 — 모드는 `--main` 으로만
+        // 바뀐다. main 빌드 기기에서 습관대로 `rocky update` 를 불러도 릴리스로 되돌리지 않는다.
+        // `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다 — 먼저 받는다.
+        "update"
+            if parsed.bool_flag("check")
+                && (parsed.bool_flag("main") || rocky_cli::update_main::is_main_mode()) =>
+        {
+            rocky_cli::update_main::check_main(&ctx)
+        }
+        "update" if parsed.bool_flag("main") || rocky_cli::update_main::is_main_mode() => {
+            if !parsed.bool_flag("main") {
+                println!("이 기기는 main 빌드 모드다 — main 최신으로 올린다");
+            }
+            rocky_cli::update_main::update_main(
+                &ctx,
+                rest.first().map(String::as_str),
+                parsed.bool_flag("force"),
+                parsed.bool_flag("yes"),
+            )
+        }
         "update" => commands::cmd_update(&ctx, parsed.bool_flag("check")),
         // 0.36.0 에 `upgrade` 로 나갔다 — 한 릴리스 동안 숨은 별칭으로 받는다(도움말에 없다). 0.36.0 에서
         // 올리는 사람은 옛 바이너리의 `upgrade` 를 부르므로, 올린 뒤의 손버릇만 받아 주면 된다.

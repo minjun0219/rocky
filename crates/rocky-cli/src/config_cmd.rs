@@ -97,7 +97,7 @@ pub fn link_cli(bin_dir: &Path, target: &Path) -> Result<String, String> {
 }
 
 /// 부트스트랩과 같은 규칙의 데이터 홈 — `$XDG_DATA_HOME` > `~/.local/share`.
-fn data_home() -> PathBuf {
+pub(crate) fn data_home() -> PathBuf {
     std::env::var("XDG_DATA_HOME")
         .ok()
         .map(|s| s.trim().to_string())
