@@ -17,6 +17,10 @@
   자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. 할 일 수정은 `rocky edit`(예전 이름이 `update` —
   REF·수정 플래그가 붙은 `rocky update` 는 업데이트를 돌리지 않고 `edit` 으로 안내한다). 0.36.0 의 `rocky upgrade` 는 숨은 별칭으로
   아직 남아 있다("한 릴리스만" 이라던 것 — 걷는 일은 보드 할 일).
+- **main 빌드 모드 — 부트스트랩.** `$XDG_DATA_HOME/rocky/current` 가 `main` 을 가리키면 부트스트랩은 플러그인 버전과 상관없이
+  `main/rocky`(그 기기에서 GitHub main 을 release 빌드한 것)를 실행하고, 링크를 버전으로 되돌리지 않는다. `ROCKY_BIN` 이 먼저고,
+  `main/rocky` 가 없으면(교체 중·지워짐) 그 한 번은 릴리스 경로로 떨어지지만 링크는 그대로 둔다 — 모드는 링크로만 바뀐다.
+  이 링크가 곧 모드다 — 릴리스 모드면 `current` → `v<version>`.
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 **정확한 문자열**로 비교해 낡은 데몬을
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가
@@ -51,7 +55,8 @@
 | 부트스트랩(sh) | `plugin/bin/rocky` |
 
 테스트: `crates/rocky-cli/tests/it/{hooks_test,launchd_test}.rs`, `crates/rocky-core/tests/it/setup_test.rs`,
-`crates/rockyd/tests/it/shutdown_test.rs`, `scripts/bootstrap.test.ts`(부트스트랩·`current` 링크).
+`crates/rockyd/tests/it/shutdown_test.rs`, `scripts/bootstrap.test.ts`(부트스트랩·`current` 링크·main 빌드 모드),
+`crates/rocky-core/tests/it/main_build_test.rs`(모드·다시 빌드할지·마켓플레이스 판정).
 
 ## 함정
 

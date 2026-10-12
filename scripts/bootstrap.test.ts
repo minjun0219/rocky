@@ -149,6 +149,49 @@ describe('bin/rocky bootstrap', () => {
     expect(r.code).toBe(0);
   });
 
+  describe('main 빌드 모드 (current → main)', () => {
+    function mainMode(): string {
+      const rockyDir = join(dir, 'data', 'rocky');
+      mkdirSync(join(rockyDir, 'main'), { recursive: true });
+      fakeExec(join(rockyDir, 'main', 'rocky'), '#!/bin/sh\necho "main:$*"\n');
+      symlinkSync('main', join(rockyDir, 'current'));
+      return rockyDir;
+    }
+    function pluginWithInstalled(version: string): string {
+      const root = join(dir, `plugin-${version}`);
+      mkdirSync(join(root, '.claude-plugin'), { recursive: true });
+      writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ version }));
+      const installed = join(dir, 'data', 'rocky', `v${version}`);
+      mkdirSync(installed, { recursive: true });
+      fakeExec(join(installed, 'rocky'), `#!/bin/sh\necho "${version}:$*"\n`);
+      return root;
+    }
+
+    test('플러그인 버전의 설치본이 있어도 main 빌드를 실행하고, SessionStart 가 링크를 되돌리지 않는다', () => {
+      const rockyDir = mainMode();
+      const root = pluginWithInstalled('1.0.0');
+      const r = run(['hook', 'ensure-daemon'], { CLAUDE_PLUGIN_ROOT: root });
+      expect(r.out).toBe('main:hook ensure-daemon\n');
+      expect(readlinkSync(join(rockyDir, 'current'))).toBe('main');
+    });
+
+    test('main 빌드가 없으면 릴리스 경로로 떨어지되, SessionStart 가 모드(current → main)를 끝내지 않는다', () => {
+      const rockyDir = mainMode();
+      rmSync(join(rockyDir, 'main'), { recursive: true });
+      const r = run(['hook', 'ensure-daemon'], {
+        CLAUDE_PLUGIN_ROOT: pluginWithInstalled('1.0.0'),
+      });
+      expect(r.out).toBe('1.0.0:hook ensure-daemon\n');
+      expect(readlinkSync(join(rockyDir, 'current'))).toBe('main');
+    });
+
+    test('ROCKY_BIN 이 main 모드보다 먼저다', () => {
+      mainMode();
+      const r = run(['ls'], { ROCKY_BIN: fakeBinary() });
+      expect(r.out).toBe('fake:ls\n');
+    });
+  });
+
   describe('current 링크', () => {
     function pluginRoot(version: string): string {
       const root = join(dir, `plugin-${version}`);

@@ -25,6 +25,15 @@ if [ -n "${ROCKY_BIN:-}" ]; then
   exec "$ROCKY_BIN" "$@"
 fi
 
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+# main 빌드 모드 — `rocky update --main` 이 `current` 를 `main` 으로 걸어 둔 기기는 플러그인 버전과 상관없이
+# 그 빌드(`main/rocky`, GitHub main 을 이 기기에서 release 빌드한 것)를 쓴다. 릴리스를 받지도, `current` 를
+# 버전으로 되돌리지도 않는다. 빌드가 없으면(지워졌으면) 아래 릴리스 경로로 떨어진다.
+if [ "$(readlink "$data_home/rocky/current" 2>/dev/null || true)" = main ] && [ -x "$data_home/rocky/main/rocky" ]; then
+  exec "$data_home/rocky/main/rocky" "$@"
+fi
+
 # 플러그인 루트 — 훅은 CLAUDE_PLUGIN_ROOT 를 받고, 직접 실행은 자기 위치에서 거슬러 간다.
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   root="$CLAUDE_PLUGIN_ROOT"
@@ -56,7 +65,6 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
-data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 install_dir="$data_home/rocky/v$version"
 bin="$install_dir/rocky"
 
@@ -75,6 +83,9 @@ if [ "$is_hook" = 1 ] && [ "${2:-}" = "ensure-daemon" ]; then is_session_start=1
 # 링크가 없는 순간을 보지 않게 한다. 실패해도 훅을 막지 않는다.
 link_current() {
   link="$data_home/rocky/current"
+  # main 빌드 모드는 건드리지 않는다 — `main/rocky` 가 잠깐 없어서(교체 중·지워짐) 이 경로로 떨어졌을 때 링크를 버전으로
+  # 바꾸면 모드가 조용히 끝난다. 모드는 `rocky update --main`·`--release` 만 바꾼다.
+  [ "$(readlink "$link" 2>/dev/null || true)" = main ] && { link_cli; return 0; }
   if [ "$(readlink "$link" 2>/dev/null || true)" != "v$version" ]; then
     ln -s "v$version" "$link.$$" 2>/dev/null || return 0
     # `-h`(BSD/macOS) · `-T`(GNU) — 둘 다 "링크가 가리키는 디렉터리 안으로 옮기지 말라"
