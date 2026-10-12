@@ -453,30 +453,31 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
     assert_eq!(dir_row(None), "\x1b[36m~/dev/rocky\x1b[0m");
     assert_eq!(dir_row(Some("bad {{cwd}}")), "\x1b[36m~/dev/rocky\x1b[0m");
 
-    // 세션이 하위 폴더로 옮겨 가도 끝의 버튼은 세션을 띄운 프로젝트를 연다 — 버튼 글자가 그 이름이다.
+    const TPL: Option<&str> = Some("vscode://file{{cwd}}");
+    // 프로젝트 안의 하위 폴더면 경로를 둘로 나눠 건다 — 앞부분은 프로젝트를, 뒤의 하위 경로는 지금 폴더를 연다.
     assert_eq!(
-        dir_row_in(
-            "/home/me/dev/rocky/crates",
-            "/home/me/dev/rocky",
-            Some("vscode://file{{cwd}}")
-        ),
-        "\x1b]8;;vscode://file/home/me/dev/rocky/crates\x07\x1b[36m~/dev/rocky/crates\x1b[0m\x1b]8;;\x07  \
+        dir_row_in("/home/me/dev/rocky/crates", "/home/me/dev/rocky", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07\
+         \x1b]8;;vscode://file/home/me/dev/rocky/crates\x07\x1b[36m/crates\x1b[0m\x1b]8;;\x07"
+    );
+    // 지금 폴더가 곧 프로젝트면 링크 하나 — 버튼도, 겹치는 이름도 없다.
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky", "/home/me/dev/rocky", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07"
+    );
+    // 프로젝트 밖(이름만 앞이 같은 형제 워크트리 포함)이면 경로는 지금 폴더를, 끝의 `↗ 이름` 버튼은 프로젝트를 연다.
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky-wt", "/home/me/dev/rocky", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky-wt\x07\x1b[36m~/dev/rocky-wt\x1b[0m\x1b]8;;\x07  \
          \x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[90m↗\x1b[0m \x1b[36mrocky\x1b[0m\x1b]8;;\x07"
     );
-    // 템플릿이 없거나 프로젝트를 모르면 버튼도 없다.
+    // 템플릿이 없으면 나누지 않고 cc-usage 와 같은 바이트, 프로젝트를 모르면 경로 전체가 지금 폴더를 연다.
     assert_eq!(
         dir_row_in("/home/me/dev/rocky/crates", "/home/me/dev/rocky", None),
         "\x1b[36m~/dev/rocky/crates\x1b[0m"
     );
-    assert!(!dir_row_in("/home/me/dev/rocky", "", Some("vscode://file{{cwd}}")).contains('↗'));
-    // 지금 폴더가 곧 프로젝트면 이름이 앞 경로와 겹치므로 글리프만 — 누를 자리는 그대로다.
     assert_eq!(
-        dir_row_in(
-            "/home/me/dev/rocky",
-            "/home/me/dev/rocky",
-            Some("vscode://file{{cwd}}")
-        ),
-        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07  \
-         \x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[90m↗\x1b[0m\x1b]8;;\x07"
+        dir_row_in("/home/me/dev/rocky/crates", "", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky/crates\x07\x1b[36m~/dev/rocky/crates\x1b[0m\x1b]8;;\x07"
     );
 }
