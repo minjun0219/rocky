@@ -33,8 +33,9 @@
 - **`rocky update --release`** 가 릴리스로 돌아간다. 마켓플레이스 판정(`main_build::release_step`)과 최신 릴리스 조회를 먼저 끝내고
   확인을 받은 뒤 마켓플레이스를 GitHub 로 되돌려(이미 GitHub 면 갱신만) 플러그인을 다시 깐다. **`current` 는 그다음에 푼다** — 새
   플러그인의 부트스트랩이 main 빌드를 놓고 릴리스를 받게. 받지 못하면 `current` 를 `main` 으로 되돌려 둔다(앞 단계에서 실패해도
-  main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 데몬이 최신 릴리스 버전을
-  보고하는지 확인한다. 다른 폴더 마켓플레이스(개발용)는 건드리지 않는다. `main/`·`main-src/` 는 남긴다.
+  main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 재시작이 성공했는지와 데몬이
+  최신 릴리스 버전을 보고하는지를 같이 확인한다. `--main` 과 같은 잠금을 잡는다.
+  다른 폴더 마켓플레이스(개발용)는 건드리지 않는다. `main/`·`main-src/` 는 남긴다.
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 **정확한 문자열**로 비교해 낡은 데몬을
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가

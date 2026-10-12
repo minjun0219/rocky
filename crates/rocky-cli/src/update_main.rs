@@ -483,6 +483,8 @@ pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
     if !is_main_mode() {
         return Err("이 기기는 이미 릴리스 모드다 — 올리기는 `rocky update`".into());
     }
+    // `--main` 과 같은 잠금 — 몇 분짜리 main 빌드와 동시에 돌면 서로 링크·마켓플레이스를 덮어 요청한 모드와 어긋난다.
+    let _lock = Lock::take(&p.root)?;
     let src = p
         .src
         .canonicalize()
@@ -533,15 +535,17 @@ pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
     relink(&p.current, &format!("v{latest}"))?;
 
     // 데몬 — 버전 문자열이 main 빌드와 같으면 훅이 바꾸지 않으므로 받은 바이너리로 직접 재시작하고, 최신 릴리스가
-    // 떴는지 확인한다.
-    let _ = command(
+    // 떴는지 확인한다. 버전만 보면 재시작이 실패해 같은 버전의 main 빌드 데몬이 남아도 통과하므로, 재시작의 성패
+    // (그 안에서 커밋까지 같은 빌드인지 본다)를 같이 본다.
+    let restarted = command(
         &release.join("rocky").to_string_lossy(),
         &["daemon", "restart"],
         None,
     )
-    .status();
+    .status()
+    .is_ok_and(|s| s.success());
     let after = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
-    if after.as_deref() != Some(latest.as_str()) {
+    if !restarted || after.as_deref() != Some(latest.as_str()) {
         return Err(format!(
             "데몬이 v{latest} 로 바뀌지 않았다 — 지금 {}. `rocky daemon status` 로 확인한 뒤 `rocky daemon restart`",
             daemon_label(ctx)
