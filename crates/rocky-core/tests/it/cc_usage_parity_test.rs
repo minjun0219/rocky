@@ -94,6 +94,7 @@ fn render(case: &Value) -> String {
         badge: badge.as_ref(),
         credit_glow: None,
         home: Some(HOME),
+        dir_link: None,
         now,
     };
     // cc-usage 는 fmt.Println 으로 줄들을 한 번에 낸다.
@@ -292,6 +293,7 @@ fn credit_amount_fades_from_pale_to_its_usage_color() {
             },
             currency: "$",
             home: None,
+            dir_link: None,
             now,
             badge: None,
             credit_glow: glow,
@@ -391,4 +393,59 @@ fn extra_describe_matches_cc_usage_wording() {
         ),
         Err(Some("{{cwd}}"))
     );
+}
+
+/// 경로 링크(`statusline.dirLink`)는 rocky 만의 표시다 — 경로는 퍼센트 인코딩해 템플릿에 넣는다.
+#[test]
+fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
+    use rocky_core::statusline::full::dir_link_url;
+    assert_eq!(
+        dir_link_url("vscode://file{{cwd}}", "/Users/me/dev/한 글"),
+        Some("vscode://file/Users/me/dev/%ED%95%9C%20%EA%B8%80".to_string())
+    );
+    // 템플릿 자체에 공백·제어 문자·ASCII 밖 글자가 있으면 링크를 걸지 않는다(줄이 깨진다). `{{cwd}}` 가 없는
+    // 템플릿(오타)도 — 모든 세션이 같은 주소로 열린다.
+    for bad in [
+        "vscode://file {{cwd}}",
+        "x\x07{{cwd}}",
+        "편집기://{{cwd}}",
+        "vscode://file{cwd}",
+    ] {
+        assert_eq!(dir_link_url(bad, "/a"), None, "{bad:?}");
+    }
+
+    let now = DateTime::parse_from_rfc3339("2026-10-12T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let dir_row = |dir_link| {
+        let view = View {
+            dir: "/home/me/dev/rocky",
+            git: None,
+            model: "",
+            effort: "",
+            context_pct: None,
+            limits: Default::default(),
+            usage: None,
+            alert: Default::default(),
+            credits: Default::default(),
+            currency: "$",
+            badge: None,
+            credit_glow: None,
+            home: Some("/home/me"),
+            dir_link,
+            now,
+        };
+        let style = Style {
+            color: true,
+            ..Default::default()
+        };
+        lines(&view, &style, &chrono::Utc)[0].clone()
+    };
+    assert_eq!(
+        dir_row(Some("vscode://file{{cwd}}")),
+        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07"
+    );
+    // 설정이 없거나 쓸 수 없는 템플릿이면 cc-usage 와 같은 바이트.
+    assert_eq!(dir_row(None), "\x1b[36m~/dev/rocky\x1b[0m");
+    assert_eq!(dir_row(Some("bad {{cwd}}")), "\x1b[36m~/dev/rocky\x1b[0m");
 }

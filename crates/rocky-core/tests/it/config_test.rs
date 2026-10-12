@@ -609,3 +609,19 @@ fn access_block_needs_team_aud_and_emails() {
     let (_dir, path) = write_config(r#"{"access":{"team":"t","aud":"tag","emails":["a@b.c"]}}"#);
     assert!(!load_access_block(&path).unwrap().remote_control);
 }
+
+#[test]
+fn statusline_block_reads_dir_link() {
+    let (_dir, path) = write_config(r#"{ "statusline": { "dirLink": "vscode://file{{cwd}}" } }"#);
+    assert_eq!(
+        load_statusline_block(&path).dir_link.as_deref(),
+        Some("vscode://file{{cwd}}")
+    );
+    for raw in [
+        r#"{ "statusline": {} }"#,
+        r#"{ "statusline": { "dirLink": "" } }"#,
+    ] {
+        let (_dir, path) = write_config(raw);
+        assert_eq!(load_statusline_block(&path).dir_link, None, "{raw}");
+    }
+}
