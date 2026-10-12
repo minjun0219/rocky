@@ -76,6 +76,8 @@
     "prepare": "husky",
     "check:changesets": "bun scripts/check-changesets.ts",
     "build:ui": "bun scripts/build-ui.ts",
+    "build:tui": "bun scripts/build-tui.ts",
+    "tui": "bun tui/main.tsx",
     "e2e": "playwright test",
     "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./bridges ./web",
     "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web",

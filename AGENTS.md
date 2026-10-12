@@ -50,7 +50,8 @@
   찾는다; env의 `CLAUDE_CODE_SESSION_ID`는 `/clear` 뒤 낡는다).
 - **TypeScript 서버 코드는 없다.** `package.json` 에는 개발 도구(biome, changesets, `scripts/`·`plugin/scripts/`
   의 릴리스·부트스트랩·permalink 스크립트)와 `web/`의 **브라우저 번들 빌드**(React + zustand + Tailwind v4,
-  `bun run build:ui` → `dist/`)만 있다. 머신에서 도는 것은 전부 Rust이고, UI는 데몬이 서빙하는 정적 번들이다.
+  `bun run build:ui` → `dist/`)와 `tui/`의 **터미널 화면 번들**(Ink, `bun run build:tui` → `tui/dist/tui.js`)만 있다.
+  상주하는 것은 전부 Rust이고, 두 화면은 데몬 REST/SSE 의 클라이언트다.
 
 > **v0.23에서 제거**: `openapi_*`(7), `seo_validate`, `notion_*`(4), 독립 CLI `openapi-mcp`. 39개 레포 ·
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
@@ -80,6 +81,8 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
+├── tui/                        보드 터미널 화면(Ink 8 · zustand) — cmux 에서 웹 패널 대신. `bun run build:tui` → tui/dist/tui.js.
+│                                 web/ 의 types.ts·lib.ts(순수)만 가져다 쓴다. `bun run tui` 로 개발 실행
 ├── antigravity/                Antigravity(`agy`) 플러그인 번들 — 보드·워크로그(`--roots`) MCP + board·worklog 스킬(plugin/ 의 링크)
 │                                 + 규칙 + 훅(`PreInvocation` → `rocky hook notify-todo agy`, `Stop` → `hook log-turn agy`).
 │                                 `agy plugin install` 이 복사한다(링크는 풀림). 근거는 docs/antigravity.md
@@ -139,8 +142,9 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   5,216 턴) 결과 호출 0이라 제거. 4,145 LOC와 런타임 의존성 6개(`swagger-parser`, `swagger2openapi`,
   `js-yaml`, `openapi-types`, `pino`, `ogpeek`)가 같이 빠졌다. git 히스토리에서 되살리고, `ntn` CLI 위임
   형태는 `docs/architecture.md`에 적혀 있다.
-- **TUI `rocky-tui`** — 2026-10-02 제거(90일 사용 0회, 오너 결정 "웹 UI에 몰빵"). 보드 화면은 웹 UI 하나다;
-  git 히스토리에만 있다. `ratatui`/`crossterm`도 같이 빠졌다.
+- **ratatui TUI `rocky-tui`** — 2026-10-02 제거(90일 사용 0회, 오너 결정 "웹 UI에 몰빵"). git 히스토리에만 있다.
+  (지금의 `tui/` 는 2026-10-11 오너 요청으로 Ink 로 다시 만든 다른 것이다 — cmux 에서 웹 패널을 오가는 멈칫을 없애려고.
+  웹 UI 는 폰·원격용으로 그대로다. 30일 동안 `tui` 클라이언트 사용이 0이면 다시 걷는다.)
 - npm publish 자동화(GitHub Release ≠ npm publish).
 
 ## 자주 쓰는 명령
@@ -150,10 +154,12 @@ bun install         # 의존성 설치
 bun run check       # Biome 검증(쓰기 없음)
 bun run fix         # Biome 안전 수정 + 포맷
 bun run typecheck   # tsc --noEmit
-bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload).
+bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload)
+                    # + test:tui(tui/ — Ink 화면은 가짜 터미널로).
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
+bun run build:tui   # tui/ → tui/dist/tui.js(번들 한 파일). 개발은 `bun run tui -- --port N`
 bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e/*.spec.ts) — globalSetup 이 빌드 후 임시 폴더의
                     # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱(Chromium)과 cmux-webkit(cmux 웹뷰 = Safari
                     # 엔진, `bunx playwright install webkit`) 네 프로젝트가 병렬로 돈다. 화면 점검 발견은
@@ -197,7 +203,7 @@ typecheck or tests — pre-push and CI already cover it.*
 ## 코딩 규칙
 
 - **언어 경계(2026-10-02 오너 확인)**: 가운데는 Rust — 데몬·CLI·훅·MCP·저장소(`crates/`, edition 2021,
-  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
+  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), TUI(`tui/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
   JSON 규약), 로그 분석(`logs.db`를 읽기만), 개발·릴리스 스크립트(Bun). 데몬을 다른 언어로 옮기지 않는다: core와 FFI
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
