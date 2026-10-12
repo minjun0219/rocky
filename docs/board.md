@@ -997,11 +997,11 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   ```
 
 - **`rocky statusline --full`** — cc-usage 를 대신해 statusline 전체를 그린다: 경로·git 줄, 모델·effort·ctx·5h/7d
-  줄, 한도가 소진되면 크레딧 줄, 그 아래 보드 줄. 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 같은
+  줄, 한도가 소진되면 크레딧 줄, `statusline.board: true` 면 그 아래 보드 줄(기본 끔). 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 같은
   입력에서 cc-usage 와 바이트 단위로 같다(골든 `crates/rocky-core/tests/fixtures/cc-usage/`). 한도 설정은 `rocky.json`
   최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
   세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
-  300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄은 맨 아래다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
+  300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄(켰을 때)은 맨 아래다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
   읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 한도가
   임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
   표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
@@ -1009,7 +1009,7 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
 
   `--source auto|stdin|api|none` 은 설정의 `source` 를 이 실행에서만 바꾼다(환경 변수 `ROCKY_STATUSLINE_SOURCE` 도 같고
-  플래그가 이긴다). `none` 은 토큰·API·캐시를 일절 보지 않고 경로 줄과 모델 · ctx 만 그린다(`extraCommands` 와 보드 줄은
+  플래그가 이긴다). `none` 은 토큰·API·캐시를 일절 보지 않고 경로 줄과 모델 · ctx 만 그린다(`extraCommands` 와 켜 둔 보드 줄은
   그대로 붙는다).
 
   **Antigravity(`agy`)에서도 같은 명령을 건다** — stdin 의 `product: "antigravity"` 로 알아본다. 이때는 `source` 와 무관하게
@@ -1050,7 +1050,7 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   같이 쓰므로, 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰으로 남의 숫자를 그린다.
 
   cc-usage 의 `extra_commands` 를 그대로 옮기면 된다(키만 `timeout_ms` → `timeoutMs`). rocky 보드 줄을 붙이던 `curl`
-  항목은 빼도 된다 — `--full` 이 직접 붙인다.
+  항목은 빼고 `statusline.board: true` 로 켠다 — `--full` 이 직접 붙인다.
 
   `~/.config/rocky/rocky.json`:
 

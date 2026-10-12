@@ -561,6 +561,14 @@ fn statusline_block_reads_credit_fade_defaulting_on() {
 }
 
 #[test]
+fn statusline_block_reads_board_defaulting_off() {
+    let (_dir, path) = write_config(r#"{ "statusline": { "board": true } }"#);
+    assert!(load_statusline_block(&path).board);
+    let (_dir, path) = write_config(r#"{ "statusline": {} }"#);
+    assert!(!load_statusline_block(&path).board);
+}
+
+#[test]
 fn statusline_block_reads_guard_defaulting_off() {
     let (_dir, path) = write_config(r#"{ "statusline": { "guard": true } }"#);
     assert!(load_statusline_block(&path).limits.guard);
