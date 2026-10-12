@@ -182,7 +182,7 @@ pub struct View<'a> {
     pub home: Option<&'a str>,
     /// 경로를 감쌀 링크 템플릿(`statusline.dirLink`) — `None` 이면 링크 없이 cc-usage 와 같은 바이트.
     pub dir_link: Option<&'a str>,
-    /// 세션을 띄운 프로젝트 — `dir_link` 가 있으면 경로 줄 끝에 이 폴더를 여는 `⧉ 이름` 버튼을 단다. 비면 버튼 없음.
+    /// 세션을 띄운 프로젝트 — `dir_link` 가 있으면 경로 줄 끝에 이 폴더를 여는 `↗ 이름` 버튼을 단다. 비면 버튼 없음.
     pub project_dir: &'a str,
     pub now: DateTime<Utc>,
 }
@@ -443,7 +443,7 @@ fn dir_line(v: &View, s: &Style) -> String {
             .file_name()
             .map_or(v.project_dir.into(), |n| n.to_string_lossy());
         t += "  ";
-        t += &hyperlink(&url, &format!("{} {}", s.c(DIM, "⧉"), s.c(CYAN, &name)));
+        t += &hyperlink(&url, &format!("{} {}", s.c(DIM, "↗"), s.c(CYAN, &name)));
     }
     t
 }

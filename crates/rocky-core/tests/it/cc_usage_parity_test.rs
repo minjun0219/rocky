@@ -461,12 +461,12 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
             Some("vscode://file{{cwd}}")
         ),
         "\x1b]8;;vscode://file/home/me/dev/rocky/crates\x07\x1b[36m~/dev/rocky/crates\x1b[0m\x1b]8;;\x07  \
-         \x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[90m⧉\x1b[0m \x1b[36mrocky\x1b[0m\x1b]8;;\x07"
+         \x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[90m↗\x1b[0m \x1b[36mrocky\x1b[0m\x1b]8;;\x07"
     );
     // 템플릿이 없거나 프로젝트를 모르면 버튼도 없다.
     assert_eq!(
         dir_row_in("/home/me/dev/rocky/crates", "/home/me/dev/rocky", None),
         "\x1b[36m~/dev/rocky/crates\x1b[0m"
     );
-    assert!(!dir_row_in("/home/me/dev/rocky", "", Some("vscode://file{{cwd}}")).contains('⧉'));
+    assert!(!dir_row_in("/home/me/dev/rocky", "", Some("vscode://file{{cwd}}")).contains('↗'));
 }
