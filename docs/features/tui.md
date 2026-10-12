@@ -38,7 +38,8 @@
 - **`rocky tui` 는 exec 한다** — 이 프로세스가 bun 으로 바뀌므로 사용 로그(`rocky tui`)는 exec 전에 남기고, exec 자체가 실패하면 그 자리에서
   알리고 끝낸다(호출자가 실패로 한 번 더 남기지 않게). `tui.js` 는 실행 파일(링크면
   실제 파일) 옆에서 찾는다 — 릴리스 tarball 과 `rocky update --main` 이 함께 깐다. `update --main` 은 빌드 전에 지난 번들을 지운다(`reset --hard` 가
-  gitignore 된 `tui/dist/` 를 남겨, TUI 가 없던 커밋을 고정해 빌드하면 다른 버전의 번들이 깔린다).
+  gitignore 된 `tui/dist/` 를 남겨, TUI 가 없던 커밋을 고정해 빌드하면 다른 버전의 번들이 깔린다). 같은 커밋이 이미 깔려 있어도
+  번들이 빠졌으면 다시 빌드한다 — TUI 를 모르던 옛 rocky 가 TUI 가 든 커밋을 처음 빌드하면 번들 없이 깔리기 때문이다.
 
 ## 코드
 

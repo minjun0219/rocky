@@ -308,12 +308,24 @@ pub fn update_main(
     let want = resolve_want(&p.src, pin)?;
     let have = std::fs::read_to_string(p.out.join(".sha")).ok();
     let finished = std::fs::read_to_string(p.out.join(".finished")).ok();
+    // TUI 를 모르던 옛 rocky 가 이 커밋을 빌드했으면 `tui.js` 없이 깔려 있다 — 원하는 커밋에 번들 스크립트가 있는데
+    // 깔린 쪽에 번들이 없으면 다시 빌드한다(`main_build::plan`).
+    let bundle_missing = !p.out.join(crate::tui_cmd::TUI_SCRIPT).is_file()
+        && command(
+            "git",
+            &["cat-file", "-e", &format!("{want}:scripts/build-tui.ts")],
+            Some(&p.src),
+        )
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
     let plan = main_build::plan(
         &want,
         have.as_deref(),
         finished.as_deref(),
         force,
         is_main_mode(),
+        bundle_missing,
     );
     if plan == BuildPlan::Skip {
         println!("✓ 이미 main {} 빌드를 쓰고 있다", short(&want));
