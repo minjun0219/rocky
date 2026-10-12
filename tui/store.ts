@@ -4,8 +4,8 @@
  */
 import { createStore } from 'zustand/vanilla';
 import { ALL_SLICES, type Slice, slicesFor } from '../web/lib';
-import type { Board, HandoffView, Section, TodoView } from '../web/types';
-import type { Api } from './api';
+import type { Board, HandoffView, Section, StatusAction, TodoView } from '../web/types';
+import type { Api, TodoDetail } from './api';
 
 /** 실패가 어디서 났나 — 읽기 실패는 다음 읽기 성공이 지우고, 동작 실패는 다음 키가 지운다(관계없는 갱신이 지우지 않게). */
 export type ErrorFrom = 'load' | 'action';
@@ -31,6 +31,15 @@ export interface TuiState {
   cursorKey?: string;
   /** 커서가 마지막으로 있던 줄 위치 — 그 줄이 사라지면(완료로 트리에서 빠짐) 맨 위가 아니라 이 근처로 간다. */
   cursorIndex: number;
+  /** 상세 — 넓은 화면은 커서를 따라가고, 좁은 화면은 Enter 로 연 것. */
+  detail?: TodoDetail;
+  detailId?: string;
+  /** 좁은 화면에서 상세를 목록 대신 띄웠나. */
+  detailOpen: boolean;
+  /** 빠른 추가 입력 중이면 그 글자. 입력 중이 아니면 undefined. */
+  draft?: string;
+  /** 방금 한 일의 한 줄(상태 줄) — 다음 키에서 지운다. */
+  notice?: string;
 
   load: (slices?: ReadonlySet<Slice>) => Promise<void>;
   /** SSE 이벤트 — 150ms 창으로 모아 이벤트가 건드린 묶음만 다시 받는다(웹 `main.tsx` 와 같은 규칙). */
@@ -40,7 +49,25 @@ export interface TuiState {
   shiftBoard: (delta: number) => void;
   setCursor: (key: string | undefined, index: number) => void;
   setError: (error: string | undefined, from?: ErrorFrom) => void;
+  setNotice: (notice: string | undefined) => void;
+  /** 그 할 일의 상세를 받는다 — 늦게 온 응답(그 사이 다른 항목으로 옮김)은 버린다. */
+  showDetail: (id: string | undefined) => Promise<void>;
+  setDetailOpen: (open: boolean) => void;
+  /** 상태 변경 — 화면은 SSE 갱신으로 바뀐다(낙관적 갱신 없음). */
+  act: (todo: TodoView, action: StatusAction) => Promise<void>;
+  setDraft: (draft: string | undefined) => void;
+  /** 보고 있는 보드에 `draft` 를 제목으로 더한다. */
+  submitDraft: () => Promise<void>;
 }
+
+const ACTION_LABEL: Record<StatusAction, string> = {
+  start: '착수',
+  stop: '멈춤',
+  done: '완료',
+  reopen: '다시 열기',
+  archive: '보관',
+  unarchive: '보관 풀기',
+};
 
 const DEBOUNCE_MS = 150;
 
@@ -63,6 +90,7 @@ export function createTuiStore(api: Api, initialBoard?: string) {
       connected: false,
       ready: false,
       cursorIndex: 0,
+      detailOpen: false,
 
       load: async (slices = new Set(ALL_SLICES)) => {
         const want = (slice: Slice) => slices.has(slice);
@@ -92,6 +120,11 @@ export function createTuiStore(api: Api, initialBoard?: string) {
             ready: true,
             ...(get().errorFrom === 'load' ? { error: undefined, errorFrom: undefined } : {}),
           });
+          // 보고 있던 상세도 새로 — 상태·댓글이 바뀌었을 수 있다.
+          const { detailId } = get();
+          if (todos && detailId) {
+            void get().showDetail(detailId);
+          }
         } catch (e) {
           fail(e, 'load');
         }
@@ -136,6 +169,50 @@ export function createTuiStore(api: Api, initialBoard?: string) {
 
       setCursor: (cursorKey, cursorIndex) => set({ cursorKey, cursorIndex }),
       setError: (error, from = 'action') => set({ error, errorFrom: error ? from : undefined }),
+      setNotice: (notice) => set({ notice }),
+
+      showDetail: async (id) => {
+        set({ detailId: id, ...(id === get().detail?.todo.id ? {} : { detail: undefined }) });
+        if (!id) {
+          return;
+        }
+        try {
+          const detail = await api.todo(id);
+          if (get().detailId === id) {
+            set({ detail });
+          }
+        } catch (e) {
+          fail(e, 'load');
+        }
+      },
+
+      setDetailOpen: (detailOpen) => set({ detailOpen }),
+
+      act: async (todo, action) => {
+        try {
+          await api.setStatus(todo.id, action);
+          set({ notice: `#${todo.number} ${ACTION_LABEL[action]}` });
+        } catch (e) {
+          fail(e, 'action');
+        }
+      },
+
+      setDraft: (draft) => set({ draft }),
+
+      submitDraft: async () => {
+        const { draft, boardKey } = get();
+        const title = draft?.trim();
+        set({ draft: undefined });
+        if (!title || !boardKey) {
+          return;
+        }
+        try {
+          const added = await api.add(boardKey, title);
+          set({ notice: `#${added.number} 추가` });
+        } catch (e) {
+          fail(e, 'action');
+        }
+      },
     };
   });
 }

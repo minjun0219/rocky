@@ -97,3 +97,39 @@ test('동작 실패는 관계없는 읽기가 지우지 않는다 — 읽기 실
   store.getState().setError(undefined);
   expect(store.getState().error).toBeUndefined();
 });
+
+test('상태 변경은 API 로 보내고 상태 줄에 한 줄 — 화면은 SSE 로 바뀐다', async () => {
+  const api = fakeApi({ boards });
+  const store = createTuiStore(api);
+  await store.getState().act(todoFixture({ id: 't9', number: 9 }), 'done');
+  expect(api.calls).toEqual(['status t9 done']);
+  expect(store.getState().notice).toBe('#9 완료');
+});
+
+test('빠른 추가는 보고 있는 보드에, 빈 제목은 보내지 않는다', async () => {
+  const api = fakeApi({ boards });
+  const store = createTuiStore(api);
+  await store.getState().load();
+  store.getState().setDraft('   ');
+  await store.getState().submitDraft();
+  store.getState().setDraft(' 배포 확인 ');
+  await store.getState().submitDraft();
+  expect(api.calls.filter((c) => c.startsWith('add'))).toEqual(['add rocky 배포 확인']);
+  expect(store.getState().draft).toBeUndefined();
+});
+
+test('상세는 늦게 온 응답을 버린다 — 그 사이 다른 항목으로 옮겼으면', async () => {
+  const api = fakeApi({ todos: [todoFixture({ id: 'a' }), todoFixture({ id: 'b' })] });
+  const slow = api.todo;
+  api.todo = async (id: string) => {
+    if (id === 'a') {
+      await Bun.sleep(30);
+    }
+    return slow(id);
+  };
+  const store = createTuiStore(api);
+  const first = store.getState().showDetail('a');
+  await store.getState().showDetail('b');
+  await first;
+  expect(store.getState().detail?.todo.id).toBe('b');
+});
