@@ -295,6 +295,10 @@
           "type": "boolean",
           "description": "크레딧이 0 이어도 줄을 낸다. stdin 모드에서는 한도 전에도 usage API 를 부르게 된다. 기본 false."
         },
+        "board": {
+          "type": "boolean",
+          "description": "맨 아래에 보드 줄(todo.statusline 템플릿 — 내 차례·핸드오프·머지 후보 등)을 붙인다. 끄면 데몬에 묻지도 않는다. 기본 false."
+        },
         "keychainService": {
           "type": "string",
           "minLength": 1,

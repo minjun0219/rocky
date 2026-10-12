@@ -828,3 +828,56 @@ fn refresh_with_source_none_from_the_parent_is_a_noop() {
         tree(&home.join(".cache"))
     );
 }
+
+/// 보드 줄만 돌려주는 가짜 데몬 — 받은 요청 수를 센다.
+fn fake_board_daemon() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::io::Read;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let seen = hits.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 4096];
+            let mut head = Vec::new();
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(&buf[..n]),
+                }
+            }
+            seen.fetch_add(1, Ordering::SeqCst);
+            let body = "BOARD-LINE";
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(reply.as_bytes());
+        }
+    });
+    (port, hits)
+}
+
+/// 보드 줄은 `statusline.board: true` 일 때만 붙는다 — 기본은 끔이고, 꺼져 있으면 데몬에 묻지도 않는다.
+#[test]
+fn full_adds_the_board_line_only_when_turned_on() {
+    use std::sync::atomic::Ordering;
+    let (port, hits) = fake_board_daemon();
+    let stdin = r#"{"session_id":"s1","workspace":{"current_dir":"/tmp"},"model":{"display_name":"Opus 5"}}"#;
+    let config = |board: &str| {
+        format!(
+            r#"{{"todo":{{"port":{port},"dir":"/nonexistent","expose":"off"}},"statusline":{{"source":"none"{board}}}}}"#
+        )
+    };
+
+    let home = tempfile::tempdir().unwrap();
+    let off = full_once(home.path(), &[], &config(""), stdin);
+    assert!(!off.contains("BOARD-LINE"), "{off:?}");
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "꺼져 있는데 데몬에 물었다");
+
+    let on = full_once(home.path(), &[], &config(r#","board":true"#), stdin);
+    assert!(on.ends_with("BOARD-LINE\n"), "{on:?}");
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}

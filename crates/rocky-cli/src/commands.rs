@@ -1635,8 +1635,8 @@ fn this_session() -> Result<(String, String), String> {
 /// `["rocky","statusline","--cwd","{{cwd}}","--session","{{session_id}}"]` 로 넣는다. 보여줄 게 없거나 데몬이
 /// 없으면 아무것도 출력하지 않고 성공으로 끝난다 — statusline 이 에러 줄을 띄우지 않게.
 ///
-/// `--full` 이면 cc-usage 와 같은 경로·git·모델·한도 줄을 CLI 가 직접 그리고 그 아래에 보드 줄을 붙인다
-/// (`statusline_full`).
+/// `--full` 이면 cc-usage 와 같은 경로·git·모델·한도 줄을 CLI 가 직접 그리고, `statusline.board` 가 켜져 있으면 그 아래에
+/// 보드 줄을 붙인다(`statusline_full`).
 pub fn cmd_statusline(
     ctx: &CliContext,
     cwd: Option<&str>,
@@ -1682,7 +1682,7 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
 
 /// `statusline --full` — cc-usage statusline 과 같은 바이트를 낸다(설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`).
 /// 렌더는 CLI 가 하므로 데몬이 없어도 경로·모델·한도 줄은 남는다. 그 아래로 `extraCommands` 의 줄(설정 순서), 맨 아래
-/// 보드 줄 — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
+/// 보드 줄(`statusline.board` 가 켜져 있을 때만 — 기본 끔) — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
 /// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
 ///
 /// `source` 는 이번 실행에서만 설정의 `source` 를 바꾼다(`--source`, 환경 변수 `ROCKY_STATUSLINE_SOURCE` 보다 이긴다).
@@ -1710,7 +1710,9 @@ fn statusline_full(ctx: &CliContext, source: Option<&str>) {
         cwd: input.dir(),
     };
     let out = std::thread::scope(|scope| {
-        let board = scope.spawn(|| board_line(ctx, Some(input.dir()), Some(&input.session_id)));
+        let board = cfg
+            .board
+            .then(|| scope.spawn(|| board_line(ctx, Some(input.dir()), Some(&input.session_id))));
         let extras: Vec<_> = cfg
             .extra_commands
             .iter()
@@ -1764,7 +1766,11 @@ fn statusline_full(ctx: &CliContext, source: Option<&str>) {
         for extra in extras {
             out.extend(extra.join().unwrap_or_default());
         }
-        out.extend(board.join().ok().flatten().map(String::into_bytes));
+        out.extend(
+            board
+                .and_then(|b| b.join().ok().flatten())
+                .map(String::into_bytes),
+        );
         out
     });
     let mut bytes = out.join(&b'\n');

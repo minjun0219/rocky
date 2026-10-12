@@ -734,6 +734,8 @@ pub struct StatuslineConfig {
     pub token_env: Option<String>,
     /// 로그인된 계정(이메일)별 표시(`badges`) — 목록에 없는 계정은 아무것도 붙지 않는다.
     pub badges: std::collections::HashMap<String, crate::statusline::full::Badge>,
+    /// 맨 아래에 보드 줄(`todo.statusline` 템플릿)을 붙이나(`board`). 기본 끔 — 끄면 데몬에 묻지도 않는다.
+    pub board: bool,
 }
 
 /// 파일 없음 / 파싱 실패 / 블록 없음 / 모르는 값은 기본값(fail-open). `extraCommands` 에서 모양이 틀린 항목(`command` 가
@@ -802,6 +804,10 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
         .unwrap_or(false);
     cfg.limits.guard = block
         .get("guard")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    cfg.board = block
+        .get("board")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let extras = block.get("extraCommands").and_then(|v| v.as_array());
