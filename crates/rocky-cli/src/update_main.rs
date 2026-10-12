@@ -1,5 +1,5 @@
-//! `rocky update --main [SHA]` — 이 기기를 릴리스 대신 GitHub main 을 직접 빌드해 쓰는 **main 빌드 모드**로 바꾸고
-//! 올린다. 순수 판정은 `rocky_core::main_build`, 여기는 git·cargo·bun·claude·agy 를
+//! `rocky update --main [SHA]` · `rocky update --release` — 이 기기를 릴리스 대신 GitHub main 을 직접 빌드해 쓰는
+//! **main 빌드 모드**로 바꾸고 올리거나, 릴리스로 되돌린다. 순수 판정은 `rocky_core::main_build`, 여기는 git·cargo·bun·claude·agy 를
 //! 부르는 배선이다.
 //!
 //! main 빌드 순서: 잠금 → `main-src` clone(처음만)·fetch → 원하는 커밋 → (마켓플레이스를 바꿔야 하면 확인) →
@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use rocky_core::main_build::{
-    self, BuildPlan, MarketplaceSource, PluginStep, CLONE_URL, MARKETPLACE, PLUGIN,
+    self, BuildPlan, MarketplaceSource, PluginStep, ReleaseStep, CLONE_URL, MARKETPLACE, PLUGIN,
 };
 
 use crate::client::CliContext;
@@ -472,5 +472,86 @@ pub fn check_main(ctx: &CliContext) -> Result<(), String> {
     if !have.is_empty() && have == latest {
         println!("✓ 이미 최신이다");
     }
+    Ok(())
+}
+
+/// `rocky update --release [--yes]` — main 빌드 모드에서 릴리스로 돌아간다. 실패할 수 있는 단계(판정·조회·마켓플레이스·
+/// 설치)를 다 끝낸 뒤에야 `current` 를 풀고, 릴리스를 못 받으면 `main` 으로 되돌려 둔다 — 중간에 멈춰도 main 빌드는
+/// 계속 돈다. `main/`·`main-src/` 는 남겨 둔다(다시 `--main` 으로 오면 빌드 없이 링크만 건다).
+pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
+    let p = Paths::new();
+    if !is_main_mode() {
+        return Err("이 기기는 이미 릴리스 모드다 — 올리기는 `rocky update`".into());
+    }
+    let src = p
+        .src
+        .canonicalize()
+        .unwrap_or_else(|_| p.src.clone())
+        .to_string_lossy()
+        .to_string();
+    let step = main_build::release_step(&marketplace_source()?, &src);
+    if let ReleaseStep::Leave(why) = &step {
+        return Err(why.clone());
+    }
+    let latest = crate::commands::latest_release()?;
+    let question = format!(
+        "릴리스 v{latest} 로 돌아간다 — 마켓플레이스 {MARKETPLACE} 를 GitHub 로 되돌려 플러그인을 다시 깔고(그 플러그인의 \
+         저장된 옵션·데이터는 지워진다), 릴리스 바이너리로 데몬을 바꾼다. 진행할까?"
+    );
+    if !confirm(&question, yes)? {
+        return Err("중단 — 아무것도 바꾸지 않았다".into());
+    }
+    let before = daemon_label(ctx);
+    // 마켓플레이스를 빼면 그 플러그인도 같이 빠진다 — 다시 깔기 전에 빼는 건 GitHub 그대로일 때만.
+    match step {
+        ReleaseStep::FromFolder => {
+            run_claude(&["plugin", "marketplace", "remove", MARKETPLACE])?;
+            run_claude(&["plugin", "marketplace", "add", "minjun0219/rocky"])?;
+        }
+        ReleaseStep::Add => run_claude(&["plugin", "marketplace", "add", "minjun0219/rocky"])?,
+        ReleaseStep::Refresh => {
+            run_claude(&["plugin", "marketplace", "update", MARKETPLACE])?;
+            let _ = run_claude(&["plugin", "uninstall", PLUGIN]);
+        }
+        ReleaseStep::Leave(_) => unreachable!("위에서 멈췄다"),
+    }
+    run_claude(&["plugin", "install", PLUGIN])?;
+    let bootstrap = crate::commands::bootstrap_of(&latest)?;
+
+    // 이제 `current` 를 푼다 — 그래야 새 플러그인의 부트스트랩이 main 빌드를 놓고 릴리스를 받는다(받으면 `current` 를
+    // 그 버전으로 건다). 못 받았으면 main 으로 되돌려 두어 이 기기가 rocky 없이 남지 않게 한다.
+    let _ = std::fs::remove_file(&p.current);
+    let fetched = crate::commands::run_bootstrap(&bootstrap);
+    let release = p.root.join(format!("v{latest}"));
+    if fetched.is_err() || !release.join("rocky").is_file() {
+        let _ = relink(&p.current, "main");
+        return Err(format!(
+            "릴리스 v{latest} 바이너리를 받지 못했다 — main 빌드로 되돌려 두었다(플러그인은 GitHub 마켓에서 깔렸다){}",
+            fetched.err().map(|e| format!(": {e}")).unwrap_or_default()
+        ));
+    }
+    relink(&p.current, &format!("v{latest}"))?;
+
+    // 데몬 — 버전 문자열이 main 빌드와 같으면 훅이 바꾸지 않으므로 받은 바이너리로 직접 재시작하고, 최신 릴리스가
+    // 떴는지 확인한다.
+    let _ = command(
+        &release.join("rocky").to_string_lossy(),
+        &["daemon", "restart"],
+        None,
+    )
+    .status();
+    let after = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
+    if after.as_deref() != Some(latest.as_str()) {
+        return Err(format!(
+            "데몬이 v{latest} 로 바뀌지 않았다 — 지금 {}. `rocky daemon status` 로 확인한 뒤 `rocky daemon restart`",
+            daemon_label(ctx)
+        ));
+    }
+    println!("✓ 릴리스 v{latest} — 데몬 {before} → {}", daemon_label(ctx));
+    println!(
+        "  main 빌드({})는 남겨 두었다 — 다시 쓰려면 `rocky update --main`.",
+        p.out.display()
+    );
+    println!("  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 훅·커맨드가 적용된다.");
     Ok(())
 }

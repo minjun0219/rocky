@@ -27,9 +27,14 @@
   받는다(`--yes` 로 건너뛰고, 터미널이 아니면 멈춘다). 다른 폴더·원천을 가리키면(개발용 연결) 손대지 않는다. 버전 문자열이 같아도
   커밋이 다르면 빌드하고, 훅은 버전이 같아 교체하지 않으므로 새 빌드로 `daemon restart` 를 직접 부른다(재시작이 커밋까지 확인한다).
   빌드 뒤 단계(재시작·플러그인)가 실패하면 끝까지 갔다는 표식(`main/.finished`)이 안 남아, 다음 실행은 빌드 없이 그 단계만
-  마저 한다(`main_build::plan`). 이 모드에서 `rocky update` 는 main 최신으로 올린다 — 습관대로 불러도 릴리스로 되돌리지 않는다.
-  `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다. 잠금은 `main-sync.lock` — 같은 일을 하던 기기별 스크립트와 서로 막고, 안에
-  pid 를 남겨 Ctrl-C 로 끊긴 빌드의 잠금은 넘겨받는다.
+  마저 한다(`main_build::plan`). 이 모드에서 `rocky update` 는 main 최신으로 올린다 — 습관대로 불러도 릴리스로 되돌리지 않는다(모드는
+  `--main`·`--release` 로만 바뀐다). `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다. 잠금은 `main-sync.lock` — 같은 일을 하던
+  기기별 스크립트와 서로 막고, 안에 pid 를 남겨 Ctrl-C 로 끊긴 빌드의 잠금은 넘겨받는다.
+- **`rocky update --release`** 가 릴리스로 돌아간다. 마켓플레이스 판정(`main_build::release_step`)과 최신 릴리스 조회를 먼저 끝내고
+  확인을 받은 뒤 마켓플레이스를 GitHub 로 되돌려(이미 GitHub 면 갱신만) 플러그인을 다시 깐다. **`current` 는 그다음에 푼다** — 새
+  플러그인의 부트스트랩이 main 빌드를 놓고 릴리스를 받게. 받지 못하면 `current` 를 `main` 으로 되돌려 둔다(앞 단계에서 실패해도
+  main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 데몬이 최신 릴리스 버전을
+  보고하는지 확인한다. 다른 폴더 마켓플레이스(개발용)는 건드리지 않는다. `main/`·`main-src/` 는 남긴다.
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 **정확한 문자열**로 비교해 낡은 데몬을
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가
@@ -59,7 +64,7 @@
 | --- | --- |
 | 훅 입구(`ensure-daemon`·`notify-todo`의 재기동 검사, `RestartPolicy`) | `crates/rocky-cli/src/hooks.rs` |
 | `daemon install/restart/status`, `update` | `crates/rocky-cli/src/commands.rs`, `crates/rocky-cli/src/launchd.rs` |
-| main 빌드 모드(`update --main`) | `crates/rocky-cli/src/update_main.rs`, 판정은 `crates/rocky-core/src/main_build.rs` |
+| main 빌드 모드(`update --main`·`--release`) | `crates/rocky-cli/src/update_main.rs`, 판정은 `crates/rocky-core/src/main_build.rs` |
 | 링크·설정 점검(`config show/link`) | `crates/rocky-cli/src/config_cmd.rs`, `crates/rocky-core/src/setup.rs` |
 | 기동 순서(포트 → 옛 데몬 대기 → DB), `dbIntegrity` | `crates/rockyd/src/daemon.rs` |
 | 부트스트랩(sh) | `plugin/bin/rocky` |

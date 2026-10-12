@@ -129,8 +129,11 @@ fn run(argv: &[String]) -> Result<(), String> {
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
-        // 릴리스 모드면 최신 릴리스로, main 빌드 모드(`current` → `main`)면 main 최신으로 — 모드는 `--main` 으로만
-        // 바뀐다. main 빌드 기기에서 습관대로 `rocky update` 를 불러도 릴리스로 되돌리지 않는다.
+        // 릴리스 모드면 최신 릴리스로, main 빌드 모드(`current` → `main`)면 main 최신으로 — 모드는 `--main` /
+        // `--release` 로만 바뀐다. main 빌드 기기에서 습관대로 `rocky update` 를 불러도 릴리스로 되돌리지 않는다.
+        "update" if parsed.bool_flag("main") && parsed.bool_flag("release") => {
+            Err("--main 과 --release 는 같이 쓰지 않는다".into())
+        }
         // `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다 — 먼저 받는다.
         "update"
             if parsed.bool_flag("check")
@@ -138,9 +141,12 @@ fn run(argv: &[String]) -> Result<(), String> {
         {
             rocky_cli::update_main::check_main(&ctx)
         }
+        "update" if parsed.bool_flag("release") && !parsed.bool_flag("check") => {
+            rocky_cli::update_main::update_release(&ctx, parsed.bool_flag("yes"))
+        }
         "update" if parsed.bool_flag("main") || rocky_cli::update_main::is_main_mode() => {
             if !parsed.bool_flag("main") {
-                println!("이 기기는 main 빌드 모드다 — main 최신으로 올린다");
+                println!("이 기기는 main 빌드 모드다 — main 최신으로 올린다(릴리스로 돌아가기: rocky update --release)");
             }
             rocky_cli::update_main::update_main(
                 &ctx,

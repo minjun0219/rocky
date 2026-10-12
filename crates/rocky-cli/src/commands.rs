@@ -1833,24 +1833,7 @@ pub fn cmd_update(ctx: &CliContext, check: bool) -> Result<(), String> {
     run_claude(&["plugin", "update", "rocky@rocky-marketplace"])?;
     // 지금 도는 이 rocky 는 옛 바이너리다 — 새 버전 폴더의 부트스트랩이 새 바이너리를 받아 데몬을 교체하고
     // `~/.local/bin/rocky` 링크도 새 버전으로 옮긴다.
-    let bootstrap = plugin_cache_dir().join(&latest).join("bin/rocky");
-    if !bootstrap.is_file() {
-        return Err(format!(
-            "플러그인은 올렸는데 새 버전 폴더가 없다 — {} (claude plugin list 로 확인)",
-            bootstrap.display()
-        ));
-    }
-    let mut child = std::process::Command::new(&bootstrap)
-        .args(["hook", "ensure-daemon"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("{} 를 실행하지 못했다: {e}", bootstrap.display()))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        let _ = stdin.write_all(b"{}");
-    }
-    let _ = child.wait();
+    run_bootstrap(&bootstrap_of(&latest)?)?;
     let after = crate::client::daemon_health(&ctx.base_url).and_then(|h| h.version);
     // 바이너리를 못 받았거나(릴리스 산출물이 아직 없음) launchd 밖의 옛 데몬이 포트를 쥔 채 남으면 데몬은
     // 그대로다 — 그때 ✓ 를 찍으면 업데이트된 줄 안다.
@@ -1874,8 +1857,38 @@ pub fn cmd_update(ctx: &CliContext, check: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 그 버전 플러그인 폴더의 부트스트랩 — 플러그인을 올린 뒤 그 폴더가 없으면 무엇이 없는지.
+pub(crate) fn bootstrap_of(version: &str) -> Result<std::path::PathBuf, String> {
+    let bootstrap = plugin_cache_dir().join(version).join("bin/rocky");
+    if bootstrap.is_file() {
+        Ok(bootstrap)
+    } else {
+        Err(format!(
+            "플러그인은 올렸는데 새 버전 폴더가 없다 — {} (claude plugin list 로 확인)",
+            bootstrap.display()
+        ))
+    }
+}
+
+/// 부트스트랩의 SessionStart 경로(`hook ensure-daemon`)를 한 번 돈다 — 그 버전 바이너리를 받고, `current` 를 걸고,
+/// 버전이 다르면 데몬을 교체한다. 훅이라 실패해도 0 으로 끝나므로 결과는 호출자가 데몬·설치 폴더로 확인한다.
+pub(crate) fn run_bootstrap(bootstrap: &std::path::Path) -> Result<(), String> {
+    let mut child = std::process::Command::new(bootstrap)
+        .args(["hook", "ensure-daemon"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("{} 를 실행하지 못했다: {e}", bootstrap.display()))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(b"{}");
+    }
+    let _ = child.wait();
+    Ok(())
+}
+
 /// GitHub 의 최신 릴리스 버전(`v` 뺀 것).
-fn latest_release() -> Result<String, String> {
+pub(crate) fn latest_release() -> Result<String, String> {
     let url = format!("https://api.github.com/repos/{RELEASE_REPO}/releases/latest");
     let mut response = ureq::get(&url)
         .header("user-agent", "rocky-cli")
