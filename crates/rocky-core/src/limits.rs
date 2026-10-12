@@ -166,6 +166,8 @@ pub struct Input {
     pub session_id: String,
     pub cwd: String,
     pub current_dir: String,
+    /// `workspace.project_dir` — 세션을 띄운 프로젝트. 세션이 다른 폴더로 옮겨 가도 그대로다.
+    pub project_dir: String,
     pub model: String,
     /// `effort.level` — 모델이 effort 를 지원할 때만 온다.
     pub effort: String,
@@ -194,6 +196,7 @@ impl Input {
             session_id: text("/session_id"),
             cwd: text("/cwd"),
             current_dir: text("/workspace/current_dir"),
+            project_dir: text("/workspace/project_dir"),
             model: text("/model/display_name"),
             effort: text("/effort/level"),
             context_pct: v

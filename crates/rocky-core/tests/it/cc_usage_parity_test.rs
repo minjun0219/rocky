@@ -95,6 +95,7 @@ fn render(case: &Value) -> String {
         credit_glow: None,
         home: Some(HOME),
         dir_link: None,
+        project_dir: "",
         now,
     };
     // cc-usage 는 fmt.Println 으로 줄들을 한 번에 낸다.
@@ -294,6 +295,7 @@ fn credit_amount_fades_from_pale_to_its_usage_color() {
             currency: "$",
             home: None,
             dir_link: None,
+            project_dir: "",
             now,
             badge: None,
             credit_glow: glow,
@@ -417,9 +419,9 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
     let now = DateTime::parse_from_rfc3339("2026-10-12T00:00:00Z")
         .unwrap()
         .with_timezone(&Utc);
-    let dir_row = |dir_link| {
+    let dir_row_in = |dir: &str, project_dir: &str, dir_link| {
         let view = View {
-            dir: "/home/me/dev/rocky",
+            dir,
             git: None,
             model: "",
             effort: "",
@@ -433,6 +435,7 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
             credit_glow: None,
             home: Some("/home/me"),
             dir_link,
+            project_dir,
             now,
         };
         let style = Style {
@@ -441,6 +444,7 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
         };
         lines(&view, &style, &chrono::Utc)[0].clone()
     };
+    let dir_row = |dir_link| dir_row_in("/home/me/dev/rocky", "", dir_link);
     assert_eq!(
         dir_row(Some("vscode://file{{cwd}}")),
         "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07"
@@ -448,4 +452,32 @@ fn dir_link_wraps_the_path_in_an_osc8_hyperlink() {
     // 설정이 없거나 쓸 수 없는 템플릿이면 cc-usage 와 같은 바이트.
     assert_eq!(dir_row(None), "\x1b[36m~/dev/rocky\x1b[0m");
     assert_eq!(dir_row(Some("bad {{cwd}}")), "\x1b[36m~/dev/rocky\x1b[0m");
+
+    const TPL: Option<&str> = Some("vscode://file{{cwd}}");
+    // 프로젝트 안의 하위 폴더면 경로를 둘로 나눠 건다 — 앞부분은 프로젝트를, 뒤의 하위 경로는 지금 폴더를 연다.
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky/crates", "/home/me/dev/rocky", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07\
+         \x1b]8;;vscode://file/home/me/dev/rocky/crates\x07\x1b[36m/crates\x1b[0m\x1b]8;;\x07"
+    );
+    // 지금 폴더가 곧 프로젝트면 링크 하나 — 버튼도, 겹치는 이름도 없다.
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky", "/home/me/dev/rocky", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[36m~/dev/rocky\x1b[0m\x1b]8;;\x07"
+    );
+    // 프로젝트 밖(이름만 앞이 같은 형제 워크트리 포함)이면 경로는 지금 폴더를, 끝의 `↗ 이름` 버튼은 프로젝트를 연다.
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky-wt", "/home/me/dev/rocky", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky-wt\x07\x1b[36m~/dev/rocky-wt\x1b[0m\x1b]8;;\x07  \
+         \x1b]8;;vscode://file/home/me/dev/rocky\x07\x1b[90m↗\x1b[0m \x1b[36mrocky\x1b[0m\x1b]8;;\x07"
+    );
+    // 템플릿이 없으면 나누지 않고 cc-usage 와 같은 바이트, 프로젝트를 모르면 경로 전체가 지금 폴더를 연다.
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky/crates", "/home/me/dev/rocky", None),
+        "\x1b[36m~/dev/rocky/crates\x1b[0m"
+    );
+    assert_eq!(
+        dir_row_in("/home/me/dev/rocky/crates", "", TPL),
+        "\x1b]8;;vscode://file/home/me/dev/rocky/crates\x07\x1b[36m~/dev/rocky/crates\x1b[0m\x1b]8;;\x07"
+    );
 }

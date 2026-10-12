@@ -182,6 +182,9 @@ pub struct View<'a> {
     pub home: Option<&'a str>,
     /// 경로를 감쌀 링크 템플릿(`statusline.dirLink`) — `None` 이면 링크 없이 cc-usage 와 같은 바이트.
     pub dir_link: Option<&'a str>,
+    /// 세션을 띄운 프로젝트 — `dir_link` 가 있으면 경로의 프로젝트 부분이 이 폴더를 열고, 지금 폴더가 프로젝트 밖이면
+    /// 줄 끝에 `↗ 이름` 버튼을 단다. 비면 경로 전체가 지금 폴더를 연다.
+    pub project_dir: &'a str,
     pub now: DateTime<Utc>,
 }
 
@@ -421,18 +424,55 @@ fn dir_line(v: &View, s: &Style) -> String {
     if v.dir.is_empty() {
         return String::new();
     }
-    let path = s.c(CYAN, &abbrev_home(v.dir, v.home));
-    let mut t = match v.dir_link.and_then(|tpl| dir_link_url(tpl, v.dir)) {
-        // OSC 8 — Claude Code 가 그대로 넘기고, 터미널이 Cmd+클릭으로 연다. 색은 링크 안에 둔다.
-        Some(url) => format!("\x1b]8;;{url}\x07{path}\x1b]8;;\x07"),
-        None => path,
+    let link = |dir: &str| v.dir_link.and_then(|tpl| dir_link_url(tpl, dir));
+    let project_url = (!v.project_dir.is_empty())
+        .then(|| link(v.project_dir))
+        .flatten();
+    // 지금 폴더가 세션을 띄운 프로젝트 안이면 경로를 둘로 나눠 건다 — 앞부분은 프로젝트를, 뒤의 하위 경로는 지금 폴더를
+    // 연다. 누른 글자가 곧 여는 경로라 글자와 대상이 어긋나지 않는다.
+    let rest = (!v.project_dir.is_empty())
+        .then(|| v.dir.strip_prefix(v.project_dir))
+        .flatten()
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'));
+    let mut t = match (rest, &project_url) {
+        (Some(rest), Some(url)) => {
+            let mut t = hyperlink(url, &s.c(CYAN, &abbrev_home(v.project_dir, v.home)));
+            if !rest.is_empty() {
+                let sub = s.c(CYAN, rest);
+                t += &match link(v.dir) {
+                    Some(url) => hyperlink(&url, &sub),
+                    None => sub,
+                };
+            }
+            t
+        }
+        _ => {
+            let path = s.c(CYAN, &abbrev_home(v.dir, v.home));
+            match link(v.dir) {
+                Some(url) => hyperlink(&url, &path),
+                None => path,
+            }
+        }
     };
     let branch = branch_text(v.git, s);
     if !branch.is_empty() {
         t += &s.c(DIM, " · ");
         t += &branch;
     }
+    // 프로젝트 밖(다른 워크트리 등)으로 나가면 경로로는 프로젝트를 열 수 없다 — 줄 끝에 프로젝트 이름을 단 버튼을 둔다.
+    if let (None, Some(url)) = (rest, &project_url) {
+        let name = std::path::Path::new(v.project_dir)
+            .file_name()
+            .map_or(v.project_dir.into(), |n| n.to_string_lossy());
+        t += "  ";
+        t += &hyperlink(url, &format!("{} {}", s.c(DIM, "↗"), s.c(CYAN, &name)));
+    }
     t
+}
+
+/// OSC 8 — Claude Code 가 그대로 넘기고, 터미널(fullscreen 이면 Claude Code)이 Cmd+클릭으로 연다. 색은 링크 안에 둔다.
+fn hyperlink(url: &str, text: &str) -> String {
+    format!("\x1b]8;;{url}\x07{text}\x1b]8;;\x07")
 }
 
 /// 경로 링크 — 템플릿의 `{{cwd}}` 자리에 퍼센트 인코딩한 경로(`/` 는 그대로)를 넣는다. `{{cwd}}` 가 없으면(오타) `None` —
