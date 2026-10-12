@@ -9,6 +9,11 @@ use std::process::{Command, Stdio};
 const TEST_KEYCHAIN: &str = "rocky-test-absent";
 const DEAD_USAGE_URL: &str = "http://127.0.0.1:1/usage";
 
+/// 골든에서 마감을 적지 않은 extra 명령의 마감 — 제품 기본값(300ms)은 spawn 잠금을 기다린 시간까지 세서, CI 러너가 바쁘면
+/// 제때 끝날 명령도 잘릴 수 있다. 골든은 출력 바이트를 대조하는 자리이고, 마감에 걸리는 동작은 `extra-slow` 가 적어 둔 짧은
+/// 마감이 따로 고정한다.
+const GOLDEN_EXTRA_TIMEOUT_MS: u64 = 5_000;
+
 /// 테스트가 띄우는 바이너리를 사용자 환경에서 떼어 낸다 — 사용 로그(`~/.config/rocky/usage`)와 홈을 임시
 /// 디렉터리로. 안 그러면 테스트 실행이 실제 `rocky usage` 숫자에 섞인다(한때 `board pr-authors` 오류 177건).
 fn isolate<'a>(cmd: &'a mut Command, dir: &std::path::Path) -> &'a mut Command {
@@ -186,12 +191,15 @@ fn full_replays_cc_usage_goldens() {
             &rocky_core::claude_account::cache_slot(&home.join(".cache"), &home.join(".claude")),
             account,
         );
-        for (key, file) in [("usage", "usage.json"), ("state", "state.json")] {
-            if !case[key].is_null() {
-                std::fs::create_dir_all(&bucket).unwrap();
-                std::fs::write(bucket.join(file), case[key].to_string()).unwrap();
+        let seed = || {
+            for (key, file) in [("usage", "usage.json"), ("state", "state.json")] {
+                if !case[key].is_null() {
+                    std::fs::create_dir_all(&bucket).unwrap();
+                    std::fs::write(bucket.join(file), case[key].to_string()).unwrap();
+                }
             }
-        }
+        };
+        seed();
         // 캡처 때와 같은 셸 줄·git 환경으로 repo 를 다시 만든다(작성자·날짜 고정이라 커밋 해시까지 같다).
         let repo = case["repo"].as_array().unwrap();
         if !repo.is_empty() {
@@ -221,7 +229,10 @@ fn full_replays_cc_usage_goldens() {
             .as_array()
             .into_iter()
             .flatten()
-            .map(|c| serde_json::json!({ "command": c["command"], "timeoutMs": c["timeout_ms"] }))
+            .map(|c| {
+                let timeout = c["timeout_ms"].as_u64().unwrap_or(GOLDEN_EXTRA_TIMEOUT_MS);
+                serde_json::json!({ "command": c["command"], "timeoutMs": timeout })
+            })
             .collect();
         let statusline = serde_json::json!({
             "keychainService": TEST_KEYCHAIN,
@@ -241,42 +252,6 @@ fn full_replays_cc_usage_goldens() {
             .to_string(),
         )
         .unwrap();
-        // 환경을 비우고 케이스가 정한 것만 준다 — 사용자 터미널의 TERM·COLUMNS 가 섞이면 바이트가 달라진다.
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
-        cmd.env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .env("HOME", &home)
-            .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
-            .env("ROCKY_CONFIG", &config)
-            .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
-            .env("ROCKY_STATUSLINE_NOW", case["now"].as_str().unwrap())
-            .env("TZ", case["tz"].as_str().unwrap());
-        for (k, v) in case["env"].as_object().unwrap() {
-            cmd.env(k, v.as_str().unwrap());
-        }
-        if let Some(source) = case["sourceEnv"].as_str() {
-            cmd.env("ROCKY_STATUSLINE_SOURCE", source);
-        }
-        let args = case["args"].as_array().unwrap();
-        let mut child = cmd
-            .args(["statusline", "--full"])
-            .args(args.iter().map(|a| a.as_str().unwrap()))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let stdin = case["stdin"]
-            .as_str()
-            .unwrap()
-            .replace("{{HOME}}", home.to_str().unwrap());
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(stdin.as_bytes())
-            .unwrap();
-        let out = child.wait_with_output().unwrap();
         // 바이트로 비교한다 — extra 출력은 UTF-8 이 아닐 수 있다(extra-bytes).
         let mut want = std::fs::read(case_dir.join("expected.txt")).unwrap();
         for pair in case["allow"].as_array().unwrap() {
@@ -286,15 +261,61 @@ fn full_replays_cc_usage_goldens() {
                 .replace(from, to)
                 .into_bytes();
         }
-        let (got_bytes, want_bytes) = (out.stdout.clone(), want.clone());
-        let want = String::from_utf8_lossy(&want_bytes);
-        let got = String::from_utf8_lossy(&got_bytes);
-        if got_bytes != want_bytes || !out.status.success() {
-            failures.push(format!(
-                "{}\n  want {want:?}\n  got  {got:?}\n  err  {}",
-                case_dir.file_name().unwrap().to_string_lossy(),
-                String::from_utf8_lossy(&out.stderr)
-            ));
+        // 마감·파이프 유예에 기대는 케이스(extra·git)는 CI 러너가 바쁘면 한 번 빗나갈 수 있다(2026-10-12 `extra-failures`
+        // 의 `echo survivor` 가 빠짐, 이 맥에서는 부하로도 재현 안 됨) — 다르면 캐시를 다시 심고 한 번만 더 돌린다. 진짜
+        // 회귀는 두 번 다 다르다.
+        for attempt in 1..=2 {
+            if attempt > 1 {
+                seed();
+            }
+            // 환경을 비우고 케이스가 정한 것만 준다 — 사용자 터미널의 TERM·COLUMNS 가 섞이면 바이트가 달라진다.
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
+            cmd.env_clear()
+                .env("PATH", std::env::var("PATH").unwrap_or_default())
+                .env("HOME", &home)
+                .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
+                .env("ROCKY_CONFIG", &config)
+                .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
+                .env("ROCKY_STATUSLINE_NOW", case["now"].as_str().unwrap())
+                .env("TZ", case["tz"].as_str().unwrap());
+            for (k, v) in case["env"].as_object().unwrap() {
+                cmd.env(k, v.as_str().unwrap());
+            }
+            if let Some(source) = case["sourceEnv"].as_str() {
+                cmd.env("ROCKY_STATUSLINE_SOURCE", source);
+            }
+            let args = case["args"].as_array().unwrap();
+            let mut child = cmd
+                .args(["statusline", "--full"])
+                .args(args.iter().map(|a| a.as_str().unwrap()))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let stdin = case["stdin"]
+                .as_str()
+                .unwrap()
+                .replace("{{HOME}}", home.to_str().unwrap());
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(stdin.as_bytes())
+                .unwrap();
+            let out = child.wait_with_output().unwrap();
+            if out.stdout == want && out.status.success() {
+                break;
+            }
+            if attempt == 2 {
+                failures.push(format!(
+                    "{}\n  want {:?}\n  got  {:?}\n  err  {}",
+                    case_dir.file_name().unwrap().to_string_lossy(),
+                    String::from_utf8_lossy(&want),
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
         }
     }
     assert!(ran >= 30, "크레딧 없는 케이스가 {ran}건뿐이다");

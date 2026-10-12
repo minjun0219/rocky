@@ -487,13 +487,14 @@ fn doctor_reports_what_statusline_would_do() {
         Some(EMAIL),
         serde_json::json!({
             "source": "api", "guard": true, "tokenEnv": "ROCKY_TEST_TOKEN", "alertPercent": 80,
+            // 마감에 걸리지 않아야 할 명령은 넉넉히 — 기본 300ms 는 CI 러너가 바쁘면 넘는다. 마감 동작은 `sleep 5` 가 본다.
             "extraCommands": [
-                {"command": ["sh", "-c", "echo one; echo two"]},
+                {"command": ["sh", "-c", "echo one; echo two"], "timeoutMs": 5000},
                 {"command": ["tool", "{{session_id}}"]},
-                {"command": ["rocky-test-no-such-tool"]},
-                {"command": ["sh", "-c", "echo boom >&2; exit 3"]},
+                {"command": ["rocky-test-no-such-tool"], "timeoutMs": 5000},
+                {"command": ["sh", "-c", "echo boom >&2; exit 3"], "timeoutMs": 5000},
                 {"command": ["sleep", "5"], "timeoutMs": 50},
-                {"command": ["true"]},
+                {"command": ["true"], "timeoutMs": 5000},
             ],
         }),
     );
