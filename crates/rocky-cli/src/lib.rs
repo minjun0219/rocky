@@ -24,6 +24,7 @@ pub mod statusline_guard;
 pub mod statusline_refresh;
 pub mod system;
 pub mod tokens_cmd;
+pub mod tui_cmd;
 pub mod update_main;
 pub mod usage_cmd;
 pub mod verify_cmd;
@@ -36,6 +37,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky ls [--board K|--all] [--archived] [--json]
   rocky next [--board K|--all] [--limit N] [--json]   착수 후보 랭킹 (다음에 뭘 할까)
   rocky today [--json]                    보드 요약 몇 줄 (마감·진행중·핸드오프·수집함 제목) — `! rocky today`
+  rocky tui [--board K] [--actor A]       보드를 터미널에 띄운다 — cmux 패널용, bun 필요(j/k · Enter · s/x/d · a · q)
   rocky inbox [--json]                    수집함 소스별 항목 (✓ 보드에 올라감 · 실패 사유) — `! rocky inbox`
   rocky inbox subscribe <소스> | unsubscribe [소스]   이 세션이 소스를 구독 — 새 항목을 세션에 알린다(착수는 사람이)
   rocky add "제목" [--board K] [--section S] [--parent REF] [--desc MD]

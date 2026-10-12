@@ -239,6 +239,11 @@ fn install(p: &Paths, sha: &str) -> Result<(), String> {
             .map_err(|e| fail(&format!("{bin} 복사"), e))?;
     }
     copy_dir(&p.src.join("dist"), &stage.join("dist")).map_err(|e| fail("웹 UI dist 복사", e))?;
+    let tui = p.src.join("tui/dist").join(crate::tui_cmd::TUI_SCRIPT);
+    if tui.is_file() {
+        std::fs::copy(&tui, stage.join(crate::tui_cmd::TUI_SCRIPT))
+            .map_err(|e| fail("TUI 번들 복사", e))?;
+    }
     std::fs::write(stage.join(".sha"), format!("{sha}\n")).map_err(|e| fail(".sha 쓰기", e))?;
     let _ = std::fs::remove_dir_all(&old);
     if p.out.exists() {
@@ -358,6 +363,12 @@ pub fn update_main(
         )?;
         run("bun", &["install", "--frozen-lockfile"], Some(&p.src))?;
         run("bun", &["run", "build:ui"], Some(&p.src))?;
+        // TUI 번들 — TUI 가 들어오기 전 커밋을 고정해 빌드할 때는 없다. 지난 빌드의 것은 먼저 지운다: `reset --hard` 는
+        // gitignore 된 `tui/dist/` 를 남겨서, 안 그러면 다른 버전의 번들이 함께 깔린다.
+        let _ = std::fs::remove_file(p.src.join("tui/dist").join(crate::tui_cmd::TUI_SCRIPT));
+        if p.src.join("scripts/build-tui.ts").is_file() {
+            run("bun", &["run", "build:tui"], Some(&p.src))?;
+        }
         install(&p, &want)?;
     } else {
         // 빌드 뒤 단계가 실패했던 실행이거나 모드를 벗어났다가 같은 커밋으로 돌아온 것 — 빌드는 있다.

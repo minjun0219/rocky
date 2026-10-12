@@ -16,5 +16,6 @@ mod statusline_doctor_test;
 mod statusline_guard_test;
 mod statusline_refresh_test;
 mod tokens_cmd_test;
+mod tui_cmd_test;
 mod verify_cmd_test;
 mod worklog_mcp_test;
