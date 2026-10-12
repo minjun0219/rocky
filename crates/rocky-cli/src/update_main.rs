@@ -360,7 +360,7 @@ pub fn update_main(
         run("bun", &["run", "build:ui"], Some(&p.src))?;
         install(&p, &want)?;
     } else {
-        // 빌드 뒤 단계가 실패했던 실행이거나 `--release` 뒤 같은 커밋으로 돌아온 것 — 빌드는 있다.
+        // 빌드 뒤 단계가 실패했던 실행이거나 모드를 벗어났다가 같은 커밋으로 돌아온 것 — 빌드는 있다.
         println!(
             "main {} 빌드는 이미 있다 — 링크·데몬 재시작·플러그인만 마저 한다",
             short(&want)
@@ -371,7 +371,10 @@ pub fn update_main(
 
     // 데몬 — main 빌드끼리는 버전 문자열이 같아 훅이 교체하지 않는다. 새 빌드로 직접 재시작하고, 재시작이
     // 같은 빌드(커밋까지)가 떴는지 확인한다.
+    // `warnings` 는 실패 — 하나라도 있으면 끝까지 간 표식을 남기지 않는다. `notes` 는 의도대로 건너뛴 것(개발용
+    // 마켓플레이스 보존 등)이라 성공으로 친다 — 실패로 세면 다음 실행마다 뒤 단계를 되풀이하고 끝나지 않는다.
     let mut warnings = Vec::new();
+    let mut notes = Vec::new();
     let restarted = command(
         &p.out.join("rocky").to_string_lossy(),
         &["daemon", "restart"],
@@ -402,7 +405,7 @@ pub fn update_main(
                 warnings.push(format!("마켓플레이스 전환 실패 — {e}"));
             }
         }
-        PluginStep::Leave(why) => warnings.push(why.clone()),
+        PluginStep::Leave(why) => notes.push(why.clone()),
     }
 
     // Antigravity 번들도 복사본이라 다시 깐다 — 없으면 건너뛴다.
@@ -428,6 +431,9 @@ pub fn update_main(
         daemon_label(ctx)
     );
     println!("  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 훅·커맨드가 적용된다.");
+    for note in &notes {
+        println!("  참고: {note}");
+    }
     if warnings.is_empty() {
         // 끝까지 갔다는 표식 — 없으면 다음 실행이 빌드 없이 뒤 단계만 마저 한다(`BuildPlan::Finish`).
         let _ = std::fs::write(p.out.join(".finished"), format!("{want}\n"));
