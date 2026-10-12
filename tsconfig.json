@@ -23,6 +23,8 @@
     "playwright.config.ts",
     "plugin/scripts/**/*.ts",
     "web/**/*.ts",
-    "web/**/*.tsx"
+    "web/**/*.tsx",
+    "tui/**/*.ts",
+    "tui/**/*.tsx"
   ]
 }
