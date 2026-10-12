@@ -35,7 +35,8 @@
   `token_summary` / `token_current_session`을 담은 streamable HTTP MCP, **웹 UI**(`web/`, 릴리스 때 `dist/`로 빌드해 바이너리 옆 `dist/`를 `/`에 서빙)를 낸다.
 - **CLI `rocky`**(`crates/rocky-cli`) — 얇은 HTTP 클라이언트 + 훅 입구 다섯 개(`hook ensure-daemon` /
   `notify-todo` / `handoff-stop` / `log-turn` / `claim-doing`). `bin/rocky`는 플러그인 버전에 맞는 릴리스 tarball을 받아
-  바이너리를 실행하는 sh 부트스트랩이다.
+  바이너리를 실행하는 sh 부트스트랩이다 — 단 main 빌드 모드인 기기(`current` → `main`)는 그 기기에서 GitHub main 을
+  빌드한 `main/rocky` 를 쓴다(`docs/features/daemon-lifecycle.md`).
 - **worklog stdio MCP 서버**(`rocky mcp worklog`, `crates/rocky-cli/src/worklog_mcp.rs`) — 프로젝트별
   `worklog_*` 도구 4개. 워크로그는 호출자의 레포 루트가 키인데 데몬은 호출자의 cwd를 모르므로 데몬이
   아니라 CLI에 있다; 플러그인 stdio 서버가 세션의 프로젝트 디렉터리에서 뜬다. `hook log-turn`(Stop)이 같은
