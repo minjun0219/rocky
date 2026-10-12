@@ -82,3 +82,27 @@ fn plugin_step_reinstalls_only_our_folder_and_switches_from_release() {
         PluginStep::Leave(_)
     ));
 }
+
+#[test]
+fn release_step_undoes_only_our_folder_and_refreshes_github() {
+    use rocky_core::main_build::{release_step, ReleaseStep};
+    let src = "/d/rocky/main-src";
+    assert_eq!(
+        release_step(&MarketplaceSource::Directory(src.into()), src),
+        ReleaseStep::FromFolder
+    );
+    assert_eq!(
+        release_step(&MarketplaceSource::Missing, src),
+        ReleaseStep::Add
+    );
+    // 지난 전환이 실패해 GitHub 그대로면 옛 클론을 깔지 않게 갱신부터
+    assert_eq!(
+        release_step(&MarketplaceSource::Github("minjun0219/rocky".into()), src),
+        ReleaseStep::Refresh
+    );
+    // 개발용으로 작업 트리를 가리키는 폴더는 `--release` 도 건드리지 않는다
+    assert!(matches!(
+        release_step(&MarketplaceSource::Directory("/w/rocky".into()), src),
+        ReleaseStep::Leave(_)
+    ));
+}

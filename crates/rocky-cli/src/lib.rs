@@ -67,6 +67,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky version | --version               설치된 CLI 버전
   rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main
   rocky update --main [SHA] [--force] [--yes]   GitHub main 을 이 기기에서 release 빌드해 쓴다(처음이면 main 빌드 모드로)
+  rocky update --release [--yes]          main 빌드 모드에서 릴리스로 돌아간다
   rocky statusline [--cwd P] [--session S]  rocky 한 줄 — 없으면 stdin 의 Claude Code 입력을 읽는다
   rocky statusline --full [--source S]      경로·git·모델·한도 줄(cc-usage 와 같은 출력) + 보드 줄 — stdin 을 읽는다.
                                             S = auto|stdin|api|none(이 실행에서만). agy 의 statusLine 에도 같은 명령

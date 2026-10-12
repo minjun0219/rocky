@@ -116,3 +116,27 @@ pub fn plugin_step(source: &MarketplaceSource, main_src: &str) -> PluginStep {
         }
     }
 }
+
+/// `rocky update --release` 가 마켓플레이스를 어떻게 되돌릴지.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReleaseStep {
+    /// `main-src` 폴더 마켓플레이스다 — 빼고 GitHub 를 더한다(빼면 플러그인도 같이 빠진다).
+    FromFolder,
+    /// 등록돼 있지 않다 — GitHub 를 더한다.
+    Add,
+    /// 이미 GitHub 다(예: 지난 `--main` 의 전환이 실패) — 갱신한 뒤 플러그인만 다시 깐다. 갱신 없이 깔면 옛 클론의
+    /// 버전이 깔린다.
+    Refresh,
+    /// 다른 폴더·원천(개발용 연결) — 손대지 않고 멈춘다. 이유를 한 줄로.
+    Leave(String),
+}
+
+/// `main_src` 는 호출자가 정규화한 `main-src` 경로.
+pub fn release_step(source: &MarketplaceSource, main_src: &str) -> ReleaseStep {
+    match plugin_step(source, main_src) {
+        PluginStep::Reinstall => ReleaseStep::FromFolder,
+        PluginStep::Leave(why) => ReleaseStep::Leave(why),
+        PluginStep::Switch if *source == MarketplaceSource::Missing => ReleaseStep::Add,
+        PluginStep::Switch => ReleaseStep::Refresh,
+    }
+}

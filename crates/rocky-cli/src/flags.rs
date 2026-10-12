@@ -9,10 +9,10 @@
 use std::collections::HashMap;
 
 /// 존재만으로 참이 되는 플래그.
-const BOOLEAN_FLAGS: [&str; 21] = [
+const BOOLEAN_FLAGS: [&str; 22] = [
     "all", "archived", "json", "global", "cancel", "help", "note", "last", "force", "version",
     "check", "clear", "rerun", "full", "roots", "wait", "fresh", "dry-run", "activity", "main",
-    "yes",
+    "release", "yes",
 ];
 
 /// 다음 argv 원소를 값으로 먹는 플래그.
