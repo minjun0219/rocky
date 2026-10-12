@@ -105,7 +105,7 @@ export function buildLines({
   const visible = groups.filter((g) => g.items.some(open));
   if (visible.length === 0) {
     lines.push({ kind: 'heading', key: 'h:empty', title: '할 일' });
-    lines.push({ kind: 'empty', key: 'e:board', text: '열린 할 일이 없어요' });
+    lines.push({ kind: 'empty', key: 'e:board', text: '열린 할 일이 없어요 — a 로 추가해요' });
   }
   for (const group of visible) {
     lines.push({
