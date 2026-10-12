@@ -182,6 +182,8 @@ pub struct View<'a> {
     pub home: Option<&'a str>,
     /// 경로를 감쌀 링크 템플릿(`statusline.dirLink`) — `None` 이면 링크 없이 cc-usage 와 같은 바이트.
     pub dir_link: Option<&'a str>,
+    /// 세션을 띄운 프로젝트 — `dir_link` 가 있으면 경로 줄 끝에 이 폴더를 여는 `⧉ 이름` 버튼을 단다. 비면 버튼 없음.
+    pub project_dir: &'a str,
     pub now: DateTime<Utc>,
 }
 
@@ -423,8 +425,7 @@ fn dir_line(v: &View, s: &Style) -> String {
     }
     let path = s.c(CYAN, &abbrev_home(v.dir, v.home));
     let mut t = match v.dir_link.and_then(|tpl| dir_link_url(tpl, v.dir)) {
-        // OSC 8 — Claude Code 가 그대로 넘기고, 터미널이 Cmd+클릭으로 연다. 색은 링크 안에 둔다.
-        Some(url) => format!("\x1b]8;;{url}\x07{path}\x1b]8;;\x07"),
+        Some(url) => hyperlink(&url, &path),
         None => path,
     };
     let branch = branch_text(v.git, s);
@@ -432,7 +433,24 @@ fn dir_line(v: &View, s: &Style) -> String {
         t += &s.c(DIM, " · ");
         t += &branch;
     }
+    // 세션이 하위 폴더·다른 워크트리로 옮겨 가도 늘 같은 프로젝트를 여는 자리 — 글자가 여는 대상을 말한다.
+    let button = v
+        .dir_link
+        .filter(|_| !v.project_dir.is_empty())
+        .and_then(|tpl| dir_link_url(tpl, v.project_dir));
+    if let Some(url) = button {
+        let name = std::path::Path::new(v.project_dir)
+            .file_name()
+            .map_or(v.project_dir.into(), |n| n.to_string_lossy());
+        t += "  ";
+        t += &hyperlink(&url, &format!("{} {}", s.c(DIM, "⧉"), s.c(CYAN, &name)));
+    }
     t
+}
+
+/// OSC 8 — Claude Code 가 그대로 넘기고, 터미널(fullscreen 이면 Claude Code)이 Cmd+클릭으로 연다. 색은 링크 안에 둔다.
+fn hyperlink(url: &str, text: &str) -> String {
+    format!("\x1b]8;;{url}\x07{text}\x1b]8;;\x07")
 }
 
 /// 경로 링크 — 템플릿의 `{{cwd}}` 자리에 퍼센트 인코딩한 경로(`/` 는 그대로)를 넣는다. `{{cwd}}` 가 없으면(오타) `None` —

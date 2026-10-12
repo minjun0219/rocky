@@ -302,7 +302,7 @@
         "dirLink": {
           "type": "string",
           "minLength": 1,
-          "description": "경로 줄의 경로를 링크로 감싼다(OSC 8 — 터미널에서 Cmd+클릭). {{cwd}} 자리에 퍼센트 인코딩한 경로가 들어간다. 예: vscode://file{{cwd}}, cursor://file{{cwd}}. {{cwd}} 가 없거나 결과가 공백·제어 문자·ASCII 밖 글자를 담으면 링크를 걸지 않는다. 기본 없음."
+          "description": "경로 줄의 경로를 링크로 감싸고(OSC 8 — 터미널에서 Cmd+클릭), 줄 끝에 세션을 띄운 프로젝트(workspace.project_dir — 세션이 다른 폴더로 옮겨 가도 그대로)를 여는 ⧉ 이름 버튼을 단다. {{cwd}} 자리에 퍼센트 인코딩한 경로가 들어간다. 예: vscode://file{{cwd}}, cursor://file{{cwd}}. {{cwd}} 가 없거나 결과가 공백·제어 문자·ASCII 밖 글자를 담으면 링크를 걸지 않는다. 기본 없음."
         },
         "keychainService": {
           "type": "string",

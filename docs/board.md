@@ -1006,8 +1006,8 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
   표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
   페이드한다 — rocky 만의 표시라 `creditFade: false` 로 끄면 cc-usage 와 같은 색이다. `statusline.dirLink` 에 링크 템플릿을
-  주면(예: `"vscode://file{{cwd}}"`, `{{cwd}}` 는 퍼센트 인코딩한 경로) 경로 줄의 경로를 Cmd+클릭으로 편집기에서 연다(OSC 8 —
-  역시 rocky 만의 표시, 기본 없음). 설계
+  주면(예: `"vscode://file{{cwd}}"`, `{{cwd}}` 는 퍼센트 인코딩한 경로) 경로 줄의 경로를 Cmd+클릭으로 편집기에서 열고, 줄 끝의 `⧉ 이름`
+  버튼은 세션을 띄운 프로젝트를 연다(OSC 8 — 역시 rocky 만의 표시, 기본 없음). 설계
   `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
 
   `--source auto|stdin|api|none` 은 설정의 `source` 를 이 실행에서만 바꾼다(환경 변수 `ROCKY_STATUSLINE_SOURCE` 도 같고

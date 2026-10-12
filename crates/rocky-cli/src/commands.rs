@@ -1756,6 +1756,7 @@ fn statusline_full(ctx: &CliContext, source: Option<&str>) {
             credit_glow: observed.as_ref().and_then(|o| o.credit_glow),
             home: home.as_deref(),
             dir_link: cfg.dir_link.as_deref(),
+            project_dir: &input.project_dir,
             now,
         };
         let style = Style::from_env(|k| std::env::var(k).ok());

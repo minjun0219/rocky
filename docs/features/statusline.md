@@ -50,6 +50,9 @@
   같은 바이트다. `{{cwd}}` 는 퍼센트 인코딩(`/` 는 그대로)하고, 템플릿에 `{{cwd}}` 가 없거나 결과가 출력 가능한 ASCII 가 아니면
   링크를 빼고 경로만 낸다 — 섞인 제어 문자가 줄 전체를 깨뜨린다. 경로 줄은 폭 판단(`credit_standalone`)에 들지 않아
   `display_width` 는 OSC 를 모른다 — 링크를 상태 줄에 걸게 되면 그때 OSC 를 0칸으로 세야 한다.
+  줄 끝의 `⧉ 이름` 버튼은 같은 템플릿에 `workspace.project_dir`(세션을 띄운 프로젝트 — 세션이 다른 폴더로 옮겨 가도 그대로)를
+  넣는다. 경로 글자는 지금 폴더, 버튼은 늘 같은 프로젝트를 열고, 버튼 글자가 그 이름이라 둘의 대상이 달라도 헷갈리지 않는다.
+  프로젝트를 모르면(빈 값 — agy 등) 버튼을 뺀다.
   링크가 살아남는지는 Claude Code 가 정한다(2.1.295·2.1.296 실측). 터미널이 링크를 지원한다고 판정하지 못하면 statusline 출력의
   OSC 8 을 지우고 글자만 그린다 — 판정은 `TERM_PROGRAM`(`ghostty`·`iTerm.app`·`WezTerm` 등)이고 `TERM`(`xterm-ghostty`)은 보지
   않는다. tmux 흉내 환경이 여기 걸린다: cmux 의 Claude teams 세션은 `TMUX` 를 걸고 `TERM=screen-256color` 에 `TERM_PROGRAM`
