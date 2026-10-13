@@ -1,5 +1,15 @@
 # @minjun0219/rocky
 
+## 0.51.0
+
+### Minor Changes
+
+- [#459](https://github.com/minjun0219/rocky/pull/459) [`64293a1`](https://github.com/minjun0219/rocky/commit/64293a12d8a4d2d6aac47277d856101d9275d365) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 이 보드 줄을 기본으로 붙이지 않는다. 다시 보려면 `rocky.json` 의 `statusline.board: true`.
+
+- [#461](https://github.com/minjun0219/rocky/pull/461) [`67ec4fe`](https://github.com/minjun0219/rocky/commit/67ec4fe863a703e3f0147fe36577ae750f52ece7) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 의 경로를 Cmd+클릭으로 편집기에서 열 수 있다. 경로 앞부분은 세션을 띄운 프로젝트를, 하위 경로는 지금 폴더를 연다. `rocky.json` 의 `statusline.dirLink` 에 `vscode://file{{cwd}}` 처럼 링크 템플릿을 준다.
+
+- [#457](https://github.com/minjun0219/rocky/pull/457) [`c432820`](https://github.com/minjun0219/rocky/commit/c4328208c2468506a29a9ce1900c3460a4405a06) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky tui` — 보드를 터미널에 띄운다(cmux 에서 웹 패널 대신). Ink 로 만든 화면이 데몬 REST/SSE 에 붙어 "지금"(전 보드의 내 차례·돌고 있음)과 보고 있는 보드의 섹션별 트리를 보여 준다. `j`/`k` 이동, `Enter` 상세(100열 이상이면 목록 옆에 늘), `s`·`x`·`d` 상태 변경, `a` 빠른 추가, `[` `]` 보드 전환. 릴리스 tarball 과 `rocky update --main` 이 실행 파일 옆에 `tui.js` 를 함께 깔고, 실행에는 bun 이 필요하다.
+
 ## 0.50.0
 
 ### Minor Changes
