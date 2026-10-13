@@ -3,7 +3,7 @@
 use chrono::{TimeZone, Utc};
 use rocky_core::usage::{
     append_event, build_report, client_of, month_file, normalize_route, parse_since, read_events,
-    render_report, UsageEvent, UsageSource, KNOWN_SURFACES,
+    render_report, rest_surface, UsageEvent, UsageSource, KNOWN_SURFACES, PANEL_CLIENT,
 };
 
 fn ev(ts: &str, source: UsageSource, name: &str, ok: bool, ms: Option<u64>) -> UsageEvent {
@@ -96,6 +96,35 @@ fn routes_fold_the_ref_segment_and_skip_noisy_ones() {
     ] {
         assert_eq!(normalize_route(method, path), None, "{method} {path}");
     }
+}
+
+/// 보드 패널의 폴링은 라우트로 세지 않는다 — `x-rocky-usage` 가 붙은 요청만 노출(`open`)·사용(`use`) 표면 하나씩으로.
+/// 모르는 표시는 버리고, 다른 클라이언트는 그 표시가 있어도 라우트 그대로다.
+#[test]
+fn panel_requests_count_once_as_the_panel_surface() {
+    let route = || "GET /api/changes".to_string();
+    assert_eq!(rest_surface(route(), PANEL_CLIENT, None), None);
+    assert_eq!(rest_surface(route(), PANEL_CLIENT, Some("  ")), None);
+    assert_eq!(rest_surface(route(), PANEL_CLIENT, Some("other")), None);
+    assert_eq!(
+        rest_surface("GET /api/todos".into(), PANEL_CLIENT, Some("open")),
+        Some((UsageSource::Hook, "hook board-panel".to_string()))
+    );
+    assert_eq!(
+        rest_surface(route(), PANEL_CLIENT, Some("use")),
+        Some((UsageSource::Hook, "hook board-panel use".to_string()))
+    );
+    assert_eq!(
+        rest_surface(route(), "web", Some("open")),
+        Some((UsageSource::Rest, "GET /api/changes".to_string()))
+    );
+    // 패널은 쓰지 않는다 — 그 헤더를 단 쓰기는 가리지 않고 라우트로 센다.
+    assert_eq!(
+        rest_surface("POST /api/todos".into(), PANEL_CLIENT, Some("open")),
+        Some((UsageSource::Rest, "POST /api/todos".to_string()))
+    );
+    assert!(KNOWN_SURFACES.contains(&(UsageSource::Hook, "hook board-panel")));
+    assert!(KNOWN_SURFACES.contains(&(UsageSource::Hook, "hook board-panel use")));
 }
 
 #[test]

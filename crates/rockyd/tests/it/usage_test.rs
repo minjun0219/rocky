@@ -50,6 +50,46 @@ async fn rest_calls_are_recorded_by_shape_with_actor_client_and_status() {
     assert!(!events[1].ok);
 }
 
+/// 보드 패널은 몇 초마다 묻는다 — 그 요청은 라우트로 남기지 않고, `x-rocky-usage` 가 붙은 것만 노출(`open`, 첫 보드
+/// 읽기)·사용(`use`, `/rocky-board`·포커스) 표면 하나씩으로 남긴다.
+#[tokio::test]
+async fn panel_polls_are_not_logged_and_its_first_board_read_counts_once() {
+    let f = fx();
+    let (sink, captured) = capture_sink();
+    let state = rebuild(&f, |o| o.usage = Some(sink));
+    let send = |path: &'static str, mark: Option<&'static str>| {
+        let mut req = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("x-rocky-client", "claude-code-panel");
+        if let Some(mark) = mark {
+            req = req.header("x-rocky-usage", mark);
+        }
+        req.body(Body::empty()).unwrap()
+    };
+    for (path, mark) in [
+        ("/api/summary?cached=true&cwd=/w", None),
+        ("/api/changes?sinceId=0&limit=0", None),
+        ("/api/todos?board=rocky-todo", Some("open")),
+        ("/api/changes?sinceId=0&limit=50", None),
+        ("/api/todos?board=rocky-todo", None),
+        ("/api/changes?sinceId=0&limit=0", Some("use")),
+    ] {
+        handle_api(&state, send(path, mark), Some("127.0.0.1".into())).await;
+    }
+    let events = captured.lock().unwrap().clone();
+    let names: Vec<&str> = events.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["hook board-panel", "hook board-panel use"],
+        "{events:?}"
+    );
+    assert!(events.iter().all(|e| e.source == UsageSource::Hook));
+    assert!(events
+        .iter()
+        .all(|e| e.client.as_deref() == Some("claude-code-panel")));
+}
+
 #[tokio::test]
 async fn web_events_are_named_and_bounded() {
     let f = fx();

@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | **맡긴다** | 보드(할 일 · 노트 · 섹션), 핸드오프와 doing 귀속, 새 세션 띄우기, 수집함(외부 앱은 읽기만), `/rocky:next` | board-model · handoff · spawn · inbox |
 | **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
-| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), rc 서버(감시 · 야간), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor (화면은 `web/DESIGN.md`) |
+| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel (화면은 `web/DESIGN.md`) |
 | **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
 | 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity) | daemon-lifecycle |
 
@@ -57,8 +57,8 @@
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
 
 **Claude Code 전용 표면**(MCP 도구가 아니라 Codex/opencode 에는 안 보인다): `plugin/commands/`의 슬래시
-커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · PostToolUse · Stop), `plugin/skills/`의 번들
-스킬, `plugin/agents/`의 서브에이전트. 호스트의 한계가 아니라 연결 방식의 선택이다 — `docs/architecture.md`.
+커맨드, `plugin/hooks/hooks.json`의 훅(SessionStart · UserPromptSubmit · PostToolUse · Stop)과 function hooks 모듈(`modules` —
+`plugin/hooks/board-panel/`, 세션 옆 보드 패널), `plugin/skills/`의 번들 스킬, `plugin/agents/`의 서브에이전트. 호스트의 한계가 아니라 연결 방식의 선택이다 — `docs/architecture.md`.
 Antigravity 는 `antigravity/` 번들이 그중 일부(board · worklog 스킬, 훅 둘)를 따로 싣는다 — `docs/antigravity.md`.
 
 > **범위 판단 전에 먼저 읽을 것.** rocky는 지금 가진 도구로 범위가 정해진 제품이 아니라 개인 플러그인이다.
@@ -75,6 +75,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │   ├── .claude-plugin/plugin.json  플러그인 메타데이터 + MCP 서버 두 개(rocky = 데몬 http, worklog = stdio)
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
 │   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
+│   │                           + modules: hooks/board-panel/(function hooks — 세션 옆 보드 패널, 상태 계약은 types/index.d.ts)
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
 │   └── scripts/                permalink.ts(/rocky:review-request) · pr-threads.ts(/rocky:review-fix) — 설치 후에도 있으려면 플러그인 안에 있어야 한다
 ├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli
@@ -121,7 +122,9 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   `statusline.ts`, `sync-statusline`, `~/.config/rocky/statusline.sh` 설치) — v0.19에서 제거. 재미는 있었지만 필수는
   아니었다. (지금의 `rocky statusline` 은 데몬이 그리는 다른 것이다 — *기능별 개발 문서*의 statusline.)
 - 실험 기능 `lab`(Claude Code function hooks 모듈, `rocky.json` 의 `lab` 블록) — 0.45 에 넣고 0.46 에서 뺐다(사용 0회).
-  오너가 다시 꺼내기 전까지 제안하지 않는다.
+  오너가 다시 꺼내기 전까지 제안하지 않는다. (지금의 `plugin/hooks/board-panel/` 은 2026-10-13 오너 요청으로 넣은 다른 것이다 —
+  보드를 세션 패널에 띄우는 모듈 하나. lab 의 toast·band·limits 를 되살린 것은 아니고, 연결 방식(`modules`·`plugin/types`·검사 스크립트·
+  사용 로그 집계)만 lab 과 같은 모양이다.)
 - `/rocky:codex`와 `/rocky:issue` — v0.19에서 제거. Codex 위임은 공식 `openai/codex-plugin-cc`가 맡는다.
 - rocky-todo의 **Tauri 앱**(`app/`, 그 루트 `DESIGN.md`) — 레포를 흡수할 때 rocky-todo 히스토리에 남겼다.
   (`web/DESIGN.md`는 웹 UI의 다른 현행 문서다.) (**웹 UI**는 2026-09-28 오너 요청으로 `web/`에 되살렸다 —
@@ -154,12 +157,13 @@ bun install         # 의존성 설치
 bun run check       # Biome 검증(쓰기 없음)
 bun run fix         # Biome 안전 수정 + 포맷
 bun run typecheck   # tsc --noEmit
-bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload)
+bun run test        # test:unit(scripts·plugin/scripts·plugin/hooks·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload)
                     # + test:tui(tui/ — Ink 화면은 가짜 터미널로).
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
 bun run build:tui   # tui/ → tui/dist/tui.js(`rocky tui` 가 실행 파일 옆의 이것을 bun 으로). 개발은 `bun run tui -- --port N`
+bun run test:panel  # 보드 패널 mod — `claude plugin validate` + 엔진 테스트 키트(*.test.tsx). claude CLI 가 있어야 해서 CI 밖
 bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e/*.spec.ts) — globalSetup 이 빌드 후 임시 폴더의
                     # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱(Chromium)과 cmux-webkit(cmux 웹뷰 = Safari
                     # 엔진, `bunx playwright install webkit`) 네 프로젝트가 병렬로 돈다. 화면 점검 발견은
@@ -264,6 +268,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 기본 브랜치 검증 | opt-in, 명령은 설정 파일에만. 보드 레포의 작업 트리·브랜치를 건드리지 않는다(detached 워크트리). 준비 실패는 커밋 탓으로 남기지 않는다 | [verify](./docs/features/verify.md) |
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | TUI(`tui/`) | 웹은 `types.ts`·`lib.ts`(순수)만 가져다 쓴다 — 웹 store 는 브라우저에 묶여 있다. 쓰기는 REST 로 보내고 화면은 SSE 를 기다린다. 번들은 `react-devtools-core` 를 빈 모듈로, 실행은 늘 `bun --no-install` | [tui](./docs/features/tui.md) |
+| 보드 패널(mod) | 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬 자동 기동을 거치지 않고 300ms 안에 못 받으면 빈 출력 | [statusline](./docs/features/statusline.md) |
 | 점검(`rocky doctor`) | 읽기만 한다. 꺼진 데몬을 띄우지 않고, 못 받은 항목은 ⚠ 가 아니라 건너뛴다. 판정은 `rocky_core::doctor` 순수 함수 | [doctor](./docs/features/doctor.md) |
 | 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다. rc 가 켜진 기기는 rc 서버로(할 일당 하나, 내리기는 사람) | [spawn](./docs/features/spawn.md) |

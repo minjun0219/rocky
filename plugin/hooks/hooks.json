@@ -49,5 +49,6 @@
         ]
       }
     ]
-  }
+  },
+  "modules": ["./board-panel/register.tsx"]
 }
