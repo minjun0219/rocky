@@ -383,12 +383,12 @@ async fn tick_repo(
             notifier(event);
         }
     }
-    // 머지·닫힘은 끝이다 — 알린 뒤 구독을 걷는다(스냅숏은 아래 `retain_subscribed_prs` 가 걷는다).
-    for event in events
-        .iter()
-        .filter(|e| matches!(e.kind, PrEventKind::Merged | PrEventKind::Closed))
-    {
-        let _ = state.store.unsubscribe_pr(&event.repo, event.number);
+    // 머지·닫힘은 끝이다 — 알린 뒤 구독을 걷는다(스냅숏은 아래 `retain_subscribed_prs` 가 걷는다). 이번 전이가
+    // 아니라 지금 상태로 고른다 — 이미 끝난 채 저장돼 전이가 다시 나지 않는 PR 도 여기서 풀린다(알림 없이).
+    for number in rocky_core::prwatch::ended_numbers(&snapshots) {
+        if let Err(e) = state.store.unsubscribe_pr(repo, number) {
+            eprintln!("rocky: PR 감시 {repo}#{number} — 끝난 PR 의 구독을 걷지 못했다(다음 tick 에 다시): {e}");
+        }
     }
     settle_linked_todos(state, &events);
     Ok(RepoOutcome { events, limit })

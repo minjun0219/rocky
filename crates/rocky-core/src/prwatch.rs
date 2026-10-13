@@ -340,6 +340,17 @@ pub struct PrSnapshot {
     pub author: Option<String>,
 }
 
+/// 이번에 본 스냅숏 중 끝난 PR(머지·닫힘)의 번호 — 구독을 걷을 대상. 전이가 아니라 **지금 상태**로 고른다:
+/// 스냅숏이 이미 끝난 상태로 저장됐는데 구독만 남은 PR(해제가 실패했거나, 처음 본 끝난 PR 을 전이로 치지 않던
+/// 옛 데몬이 남긴 것)은 다시 전이가 나지 않아 영영 안 풀리고 tick 마다 쿼리를 쓴다.
+pub fn ended_numbers(snapshots: &[PrSnapshot]) -> Vec<i64> {
+    snapshots
+        .iter()
+        .filter(|s| matches!(s.state.as_str(), "MERGED" | "CLOSED"))
+        .map(|s| s.number)
+        .collect()
+}
+
 /// "확인·머지해도 되는가" — 열려 있고, draft 가 아니고, 기본 브랜치를 향하고(스택의 맨 아래),
 /// 충돌이 없고, CI 가 통과했고, 처리 안 된 스레드도 결정 필요한 스레드도 없다. 열린 스레드 수
 /// 자체는 조건이 아니다(닫는 건 사람 몫). 사람 승인은 조건이 아니다(1인 레포).
