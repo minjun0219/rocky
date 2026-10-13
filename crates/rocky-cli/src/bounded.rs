@@ -1,6 +1,6 @@
 //! 마감 안에서만 도는 하위 프로세스 — `rocky statusline --full` 의 git 과 `extraCommands` 가 쓴다.
 //!
-//! statusline 은 1초마다 도는 자리라 하위 프로세스가 늦으면 그 세그먼트만 빼고 줄은 그대로 낸다(cc-usage 불변 조건 1).
+//! statusline 은 1초마다 도는 자리라 하위 프로세스가 늦으면 그 세그먼트만 빼고 줄은 그대로 낸다.
 //! 끊을 때는 **프로세스 그룹째** 끊는다 — 본 프로세스만 죽이면 그것이 띄운 자식이 고아로 남아 1초마다 쌓이고, 자식이
 //! stdout 을 물려받았으면 파이프도 닫히지 않는다. 그래서 끊은 뒤에는 파이프를 기다리지 않는다.
 
@@ -11,7 +11,7 @@ use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 본 프로세스가 끝난 뒤 파이프(stdout·stderr)가 닫히기를 기다리는 시간 — 백그라운드로 띄운 자식이 어느 쪽이든 붙잡고
-/// 있으면 그 출력은 버린다(cc-usage 의 `WaitDelay` 와 같은 값·같은 범위).
+/// 있으면 그 출력은 버린다.
 const PIPE_GRACE: Duration = Duration::from_millis(100);
 
 /// spawn 을 한 번에 하나씩 — macOS 에는 `pipe2` 가 없어 파이프를 만든 뒤 close-on-exec 를 따로 거는데, 그 사이에 다른

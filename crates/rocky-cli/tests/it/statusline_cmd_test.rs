@@ -155,12 +155,14 @@ fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
     );
 }
 
-/// `statusline --full` 을 프로세스째 돌려 cc-usage 골든(`rocky-core/tests/fixtures/cc-usage`)과 바이트 단위로 비교한다 —
+/// `statusline --full` 을 프로세스째 돌려 골든(`rocky-core/tests/fixtures/statusline-full`)과 바이트 단위로 비교한다 —
 /// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 과 `extraCommands` 실행까지 실제 경로를 탄다.
+/// `ROCKY_UPDATE_GOLDEN=1` 이면 비교 대신 지금 출력으로 `expected.txt` 를 다시 쓴다 — 케이스 모양은 `statusline_golden_test`.
 #[test]
-fn full_replays_cc_usage_goldens() {
+fn full_replays_goldens() {
+    let update = std::env::var_os("ROCKY_UPDATE_GOLDEN").is_some();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../rocky-core/tests/fixtures/cc-usage");
+        .join("../rocky-core/tests/fixtures/statusline-full");
     let mut dirs: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -176,8 +178,7 @@ fn full_replays_cc_usage_goldens() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
-        // 캡처 때 cc-usage 캐시에 심은 것을 rocky 의 같은 자리(그 계정의 캐시 폴더)에 심는다. 캐시 JSON 은 cc-usage 와
-        // 같은 모양이라 그대로 쓴다.
+        // 케이스의 `usage`·`state` 를 그 계정의 캐시 폴더에 그대로 심는다.
         // 계정 파일이 있으면 그 계정의 캐시 폴더, 없으면 `_`.
         let account = case["account"].as_str();
         if let Some(email) = account {
@@ -200,7 +201,7 @@ fn full_replays_cc_usage_goldens() {
             }
         };
         seed();
-        // 캡처 때와 같은 셸 줄·git 환경으로 repo 를 다시 만든다(작성자·날짜 고정이라 커밋 해시까지 같다).
+        // 케이스의 셸 줄·git 환경으로 repo 를 만든다(작성자·날짜 고정이라 커밋 해시까지 늘 같다).
         let repo = case["repo"].as_array().unwrap();
         if !repo.is_empty() {
             let project = home.join("project");
@@ -224,7 +225,7 @@ fn full_replays_cc_usage_goldens() {
             }
         }
         let config = dir.path().join("rocky.json");
-        // cc-usage 설정 키(snake_case)를 rocky.json 의 키(camelCase)로 옮긴다.
+        // 케이스의 설정 키(snake_case — 처음 골든을 뜬 cc-usage 의 모양)를 rocky.json 의 키(camelCase)로 옮긴다.
         let extra_commands: Vec<serde_json::Value> = case["config"]["extra_commands"]
             .as_array()
             .into_iter()
@@ -236,7 +237,7 @@ fn full_replays_cc_usage_goldens() {
             .collect();
         let statusline = serde_json::json!({
             "keychainService": TEST_KEYCHAIN,
-            // rocky 만의 크레딧 페이드는 끄고 대조한다(끄면 cc-usage 와 같은 색).
+            // 골든은 크레딧 페이드 없이 뜬 것이다 — 페이드는 `limits_test` 가 따로 본다.
             "creditFade": false,
             "source": case["config"]["source"],
             "alertPercent": case["config"]["alert_percent"],
@@ -253,14 +254,7 @@ fn full_replays_cc_usage_goldens() {
         )
         .unwrap();
         // 바이트로 비교한다 — extra 출력은 UTF-8 이 아닐 수 있다(extra-bytes).
-        let mut want = std::fs::read(case_dir.join("expected.txt")).unwrap();
-        for pair in case["allow"].as_array().unwrap() {
-            let (from, to) = (pair[0].as_str().unwrap(), pair[1].as_str().unwrap());
-            want = String::from_utf8(want)
-                .unwrap()
-                .replace(from, to)
-                .into_bytes();
-        }
+        let want = std::fs::read(case_dir.join("expected.txt")).unwrap();
         // 마감·파이프 유예에 기대는 케이스(extra·git)는 CI 러너가 바쁘면 한 번 빗나갈 수 있다(2026-10-12 `extra-failures`
         // 의 `echo survivor` 가 빠짐, 이 맥에서는 부하로도 재현 안 됨) — 다르면 캐시를 다시 심고 한 번만 더 돌린다. 진짜
         // 회귀는 두 번 다 다르다.
@@ -304,6 +298,10 @@ fn full_replays_cc_usage_goldens() {
                 .write_all(stdin.as_bytes())
                 .unwrap();
             let out = child.wait_with_output().unwrap();
+            if update && out.status.success() {
+                std::fs::write(case_dir.join("expected.txt"), &out.stdout).unwrap();
+                break;
+            }
             if out.stdout == want && out.status.success() {
                 break;
             }

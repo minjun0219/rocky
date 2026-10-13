@@ -494,7 +494,7 @@ fn statusline_block_reads_extra_commands_and_skips_malformed_ones() {
         vec![
             cmd(&["harness-lm", "line", "-s", "{{session_id}}"], None),
             cmd(&["curl", "-sf"], Some(500)),
-            // 빈 command 는 남는다 — 실행 단계에서 건너뛴다(cc-usage 와 같다).
+            // 빈 command 는 남는다 — 실행 단계에서 건너뛴다.
             cmd(&[], None),
         ]
     );

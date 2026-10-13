@@ -1,5 +1,5 @@
 //! `rocky_core::limits`(입력 파싱·한도 선택·경보)와 `statusline::git`(porcelain v2 파싱). cc-usage `internal/core` ·
-//! `internal/git` 테스트에서 옮긴 케이스다. 렌더까지 포함한 바이트 대조는 `cc_usage_parity_test`.
+//! `internal/git` 테스트에서 옮긴 케이스다. 렌더까지 포함한 바이트 대조는 `statusline_golden_test`.
 
 use chrono::{DateTime, TimeDelta, Utc};
 use rocky_core::limits::{
@@ -677,7 +677,7 @@ fn credit_glow_fades_in_when_credits_start_burning() {
         (Some(0.0), true)
     );
     assert_eq!(state.credits_spending_at, None);
-    // 끄면(또는 금액이 없는 줄이면) 페이드하지 않는다 — cc-usage 와 같은 색.
+    // 끄면(또는 금액이 없는 줄이면) 페이드하지 않는다 — 늘 원래 색.
     let off = LimitsConfig {
         credit_fade: Some(false),
         ..cfg(Source::Stdin, None)

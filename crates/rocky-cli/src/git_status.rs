@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use rocky_core::statusline::git::GitStatus;
 
-/// cc-usage 와 같은 마감.
+/// git 세그먼트의 마감 — 넘으면 그 세그먼트만 뺀다.
 pub const GIT_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// `dir` 의 브랜치·변경 수. git repo 가 아니거나 실패하거나 마감을 넘기면 `None`. untracked 는 스캔 비용 때문에 세지

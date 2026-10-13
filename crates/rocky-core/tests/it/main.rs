@@ -3,7 +3,6 @@
 
 mod access_test;
 mod actor_test;
-mod cc_usage_parity_test;
 mod claude_account_test;
 mod config_test;
 mod doctor_test;
@@ -24,6 +23,7 @@ mod rc_test;
 mod refs_test;
 mod sessions_test;
 mod setup_test;
+mod statusline_golden_test;
 mod statusline_test;
 mod store_test;
 mod summary_test;

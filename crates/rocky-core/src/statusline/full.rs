@@ -1,6 +1,5 @@
-//! `rocky statusline --full` 의 렌더 — 경로·git 줄과 모델·ctx·한도 줄. cc-usage `internal/render` 의 이식이고,
-//! 같은 입력이면 ANSI 까지 같은 바이트를 낸다(골든 픽스처 `tests/fixtures/cc-usage/`). 표기·색을 고르는 이유는
-//! cc-usage 쪽 주석과 README 에 있다 — 여기는 동작만 옮겨 둔다.
+//! `rocky statusline --full` 의 렌더 — 경로·git 줄과 모델·ctx·한도 줄. cc-usage `internal/render` 에서 옮겨 왔고 지금은
+//! rocky 가 정본이다. 출력은 골든 픽스처(`tests/fixtures/statusline-full/`)가 ANSI 까지 바이트로 고정한다.
 
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc};
 
@@ -65,7 +64,7 @@ impl Style {
     }
 
     /// 크레딧 금액 색 — 사용률 색(`pct_color`)을 `glow` 만큼 진하게. 0 이면 회색 쪽으로 반쯤 섞은 옅은 색, 1 이면 원래 색.
-    /// 색을 섞을 수 없는 터미널(24bit·256 아님)은 1 이 아니면 회색이다. `None` 이면 원래 색 그대로(cc-usage 와 같다).
+    /// 색을 섞을 수 없는 터미널(24bit·256 아님)은 1 이 아니면 회색이다. `None` 이면 원래 색 그대로.
     fn credit_tone(&self, used: f64, glow: Option<f64>) -> String {
         let Some(glow) = glow else {
             return self.pct_color(used);
@@ -176,11 +175,11 @@ pub struct View<'a> {
     pub currency: &'a str,
     /// 로그인된 계정의 표시 — `None` 이면 없음(목록에 없는 계정).
     pub badge: Option<&'a Badge>,
-    /// 크레딧 금액 색의 진하기(`limits::credit_glow`) — `None` 이면 cc-usage 와 같은 색.
+    /// 크레딧 금액 색의 진하기(`limits::credit_glow`) — `None` 이면 페이드 없이 원래 색.
     pub credit_glow: Option<f64>,
     /// `~` 로 줄일 홈 디렉터리.
     pub home: Option<&'a str>,
-    /// 경로를 감쌀 링크 템플릿(`statusline.dirLink`) — `None` 이면 링크 없이 cc-usage 와 같은 바이트.
+    /// 경로를 감쌀 링크 템플릿(`statusline.dirLink`) — `None` 이면 링크 없이 경로만.
     pub dir_link: Option<&'a str>,
     /// 세션을 띄운 프로젝트 — `dir_link` 가 있으면 경로의 프로젝트 부분이 이 폴더를 열고, 지금 폴더가 프로젝트 밖이면
     /// 줄 끝에 `↗ 이름` 버튼을 단다. 비면 경로 전체가 지금 폴더를 연다.
@@ -358,7 +357,7 @@ fn status_note(v: &View, s: &Style) -> String {
     }
 }
 
-/// 에러 문구를 40바이트에서 자른다(cc-usage 와 같은 길이). 글자 중간에서 자르지는 않는다.
+/// 에러 문구를 40바이트에서 자른다. 글자 중간에서 자르지는 않는다.
 fn short_err(e: &str) -> String {
     if e.len() <= 40 {
         return e.to_string();

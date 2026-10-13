@@ -1,5 +1,9 @@
 # cc-usage 미러 — statusline 을 rocky 로 옮기고 같은 출력을 낸다
 
+> **현행 여부(2026-10-13)**: 이주는 끝났고 cc-usage 와 바이트를 맞추는 일은 그만뒀다 — rocky 가 정본이다. 골든은
+> `crates/rocky-core/tests/fixtures/statusline-full/` 로 옮겨 rocky 출력을 기준으로 삼고, 캡처 스크립트는 지웠다. 지금 규칙의 정본은
+> `docs/features/statusline.md`. 아래는 기록이다.
+
 2026-10-05. 오너 요청: cc-usage(Go, 별도 공개 레포)의 기능을 rocky(Rust)로 가져온다. 기존 cc-usage 는 그대로 두고
 둘을 나란히 돌리며 기능을 맞추고, rocky 가 대체할 수 있다고 판단되면 그때 cc-usage 아카이브를 고려한다.
 

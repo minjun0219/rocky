@@ -133,7 +133,7 @@ pub fn describe(p: &Probe, timeout: Duration) -> String {
 }
 
 /// 명령의 stdout → 붙일 줄. 끝의 줄바꿈을 떼고 공백뿐인 줄은 뺀다. 나머지는 **바이트 그대로**다 — ANSI 는 물론
-/// UTF-8 이 아닌 출력도 cc-usage 처럼 손대지 않고 붙인다.
+/// UTF-8 이 아닌 출력도 손대지 않고 붙인다.
 pub fn output_lines(stdout: &[u8]) -> Vec<Vec<u8>> {
     let mut end = stdout.len();
     while end > 0 && stdout[end - 1] == b'\n' {

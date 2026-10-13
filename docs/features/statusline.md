@@ -1,7 +1,7 @@
 # statusline — 한 줄 렌더
 
 > rocky 를 **고치는** 에이전트용 개발 문서. 설정 방법은 [`docs/board.md`](../board.md) "statusline 에 얹기",
-> `--full` 의 cc-usage 이식 설계는 [`2026-10-05-cc-usage-mirror-design.md`](../design/specs/2026-10-05-cc-usage-mirror-design.md).
+> `--full` 을 cc-usage 에서 옮겨 온 설계(기록)는 [`2026-10-05-cc-usage-mirror-design.md`](../design/specs/2026-10-05-cc-usage-mirror-design.md).
 
 ## 규칙
 
@@ -10,14 +10,15 @@
   `board_key_for_cwd` 로 정한다.
 - **끼워 넣는 쪽은 `rocky statusline`**(`--cwd`·`--session`, 없으면 stdin JSON). 1초마다 도는 자리라 사용 로그·데몬 자동 기동을
   거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.
-- `--full`(경로·git 줄 + 모델·ctx·한도 줄)은 cc-usage 의 이식이다 — 같은 입력이면 ANSI 까지 **같은 바이트**를 낸다(골든 픽스처
-  `crates/rocky-core/tests/fixtures/cc-usage/`). 한도(5h/7d) 판정은 순수 함수, "지금"은 인자로 받는다.
+- `--full`(경로·git 줄 + 모델·ctx·한도 줄)은 cc-usage 에서 옮겨 왔고 **지금은 rocky 가 정본이다**(오너 결정 2026-10-13 — cc-usage
+  와 바이트를 맞추지 않는다). 출력은 골든 픽스처 `crates/rocky-core/tests/fixtures/statusline-full/` 가 ANSI 까지 고정한다. 한도(5h/7d)
+  판정은 순수 함수, "지금"은 인자로 받는다.
 - `--full` 의 줄은 **CLI 가 그린다** — 데몬이 없어도 경로·모델·한도 줄은 남고, 보드 줄은 그 아래 한 세그먼트라 실패하면 그 줄만
   빠진다. 보드 줄은 `statusline.board: true` 일 때만 붙고 기본은 끔 — 꺼져 있으면 데몬에 묻지도 않는다(오너 결정 2026-10-12). 설정은 `rocky.json` 최상위 `statusline` 블록(보드 줄 템플릿 `todo.statusline` 과 다른 자리).
-- 골든은 cc-usage(아카이브됨 — 로컬 체크아웃을 빌드해 쓴다)에서 `scripts/cc-usage-capture.ts` 로 뜬다. 일부러 다르게 둔 곳은
-  케이스의 `allow` 나 스펙의 "의도된 차이" 에 적는다.
-  테스트 전용 `ROCKY_STATUSLINE_NOW`(RFC3339)가 "지금" 을 고정한다 — 사용자 표면이 아니라 README 표에 올리지 않는다(cc-usage
-  쪽 짝은 `CC_USAGE_NOW`).
+- 골든은 처음에 cc-usage 에서 떴고 지금은 rocky 출력이 기준이다. 출력을 일부러 바꾸면 `ROCKY_UPDATE_GOLDEN=1 cargo test -p rocky-cli
+  full_replays_goldens` 로 `expected.txt` 를 다시 쓰고 diff 를 눈으로 본다. 새 케이스는 폴더 + `case.json`(필드는
+  `statusline_golden_test.rs` 머리 주석)을 만들고 같은 명령으로 뜬다. 골든은 크레딧 페이드를 끄고 돈다.
+  테스트 전용 `ROCKY_STATUSLINE_NOW`(RFC3339)가 "지금" 을 고정한다 — 사용자 표면이 아니라 README 표에 올리지 않는다.
 - git 세그먼트는 `git status --porcelain=v2` 한 번, 500ms. 넘으면 **프로세스 그룹째** 끊고 그 세그먼트만 뺀다 — git 만 죽이면
   git 이 띄운 자식이 고아로 남아 1초마다 쌓인다. git 과 `extraCommands` 는 같은 실행기를 쓴다(`crates/rocky-cli/src/bounded.rs`).
 - `extraCommands` 는 나란히 돌리고 출력은 **설정 순서대로** 붙인다. rocky 는 그 명령이 무엇인지 모른다 — 특정 도구를 아는
@@ -36,7 +37,7 @@
   계정의 한도를 그리는 회귀가 난다.
 - **캐시는 `<cache>/rocky/statusline/<설정 폴더 해시>/<이메일 해시>/`** — `account.json`(이메일 캐시, 1분 TTL·한도가 바뀌면
   재확인, 못 읽으면 덮지 않음)은 설정 폴더에 하나, `state.json`(writer = statusline)·`usage.json`(writer = 갱신)은 계정마다.
-  JSON 모양은 cc-usage 와 같다(골든이 캐시를 함께 심는다).
+  JSON 모양은 cc-usage 시절 그대로다(골든이 캐시를 함께 심는다).
 - **테스트는 실제 토큰·API 에 닿으면 안 된다.** macOS keychain 은 HOME 과 무관하므로 `--full` 을 도는 테스트는 없는
   `keychainService` 와 테스트 전용 `ROCKY_STATUSLINE_USAGE_URL`(가짜·죽은 주소)을 함께 건다.
 
@@ -46,8 +47,8 @@
 - **계정 배지**는 계정 캐시의 이메일로 `statusline.badges` 를 찾는다 — 배지는 세그먼트가 아니라 머리표라 구분자 없이 맨 앞에 붙고,
   폭(+1)은 크레딧 배치 판단에 든다. 나머지가 다 비어도 배지는 낸다.
 
-- **경로 링크(`dirLink`)도 rocky 만의 표시다** — 설정이 있을 때만 경로를 OSC 8(`ESC ]8;;URL BEL`)로 감싸고, 없으면 cc-usage 와
-  같은 바이트다. `{{cwd}}` 는 퍼센트 인코딩(`/` 는 그대로)하고, 템플릿에 `{{cwd}}` 가 없거나 결과가 출력 가능한 ASCII 가 아니면
+- **경로 링크(`dirLink`)도 rocky 만의 표시다** — 설정이 있을 때만 경로를 OSC 8(`ESC ]8;;URL BEL`)로 감싸고, 없으면 링크 없이
+  경로만 낸다. `{{cwd}}` 는 퍼센트 인코딩(`/` 는 그대로)하고, 템플릿에 `{{cwd}}` 가 없거나 결과가 출력 가능한 ASCII 가 아니면
   링크를 빼고 경로만 낸다 — 섞인 제어 문자가 줄 전체를 깨뜨린다. 경로 줄은 폭 판단(`credit_standalone`)에 들지 않아
   `display_width` 는 OSC 를 모른다 — 링크를 상태 줄에 걸게 되면 그때 OSC 를 0칸으로 세야 한다.
   지금 폴더가 `workspace.project_dir`(세션을 띄운 프로젝트 — 세션이 다른 폴더로 옮겨 가도 그대로) 안이면 경로를 둘로 나눠 건다:
@@ -63,9 +64,9 @@
   Claude Code 가 클릭을 받아 직접 `open` 하고, 허용 스킴(`vscode:`·`cursor:`·`zed:`·`windsurf:`·`idea:`·`jetbrains:`·`http(s):`
   등) 밖이면 열지 않는다 — 템플릿 예시는 이 안에서 고른다. 그 밖에서는 터미널이 연다.
 
-- **크레딧 페이드는 rocky 만의 표시다**(cc-usage 아카이브 뒤 첫 갈래). 안 쓸 때 금액 색을 회색 쪽으로 반 섞고, 쓰기 시작하면
+- **크레딧 페이드는 rocky 만의 표시다**. 안 쓸 때 금액 색을 회색 쪽으로 반 섞고, 쓰기 시작하면
   그 시각(`state.json` 의 `credits_spending_at`)부터 3초에 걸쳐 원래 색으로 — 다시 안 쓰면 바로 옅게. 색을 섞을 수 없는 터미널은
-  회색 ↔ 원래 색. 골든 대조는 `creditFade: false` 로 돈다(끄면 cc-usage 와 같은 바이트).
+  회색 ↔ 원래 색. 끄면(`creditFade: false`) 늘 원래 색.
 
 - **`source` 는 그 실행에서만 덮을 수 있다** — 설정 < `ROCKY_STATUSLINE_SOURCE` < `--source`(`limits::override_source`). 모르는
   환경 변수 값은 무시, 모르는 플래그 값은 `[rocky] --source "…": …` 한 줄만 낸다. 갱신 자식에게는 **같은 환경 변수로** 넘긴다
@@ -101,4 +102,4 @@
 테스트: 계정 규칙 `crates/rocky-core/tests/it/claude_account_test.rs`, 캐시 판정 `limits_test.rs`, 계정 분리·전환·관측 기록
 `crates/rocky-cli/tests/it/statusline_cmd_test.rs`(`full_keeps_caches_apart_per_config_dir` · `full_follows_an_account_switch_inside_one_config_dir`),
 갱신 `statusline_refresh_test.rs`(가짜 usage API 서버), 보드 줄 `crates/rocky-core/tests/it/statusline_test.rs`,
-`crates/rockyd/tests/it/server_statusline_test.rs`, 골든 픽스처 `crates/rocky-core/tests/fixtures/cc-usage/`.
+`crates/rockyd/tests/it/server_statusline_test.rs`, 골든 픽스처 `crates/rocky-core/tests/fixtures/statusline-full/`(`statusline_golden_test.rs` · `statusline_cmd_test.rs::full_replays_goldens`).
