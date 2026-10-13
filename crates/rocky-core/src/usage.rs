@@ -159,6 +159,34 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
     Some(shape)
 }
 
+/// 보드 패널(`plugin/hooks/board-panel`, Claude Code function hooks)이 데몬을 읽을 때 다는 `x-rocky-client`.
+pub const PANEL_CLIENT: &str = "claude-code-panel";
+/// 보드 패널이 떴다(노출) — 패널은 몇 초마다 묻는 폴링이라 요청마다 세지 않고, 세션마다 첫 보드 읽기(`x-rocky-usage: open`)
+/// 하나만 이 이름으로 센다. 설치돼 있는 한 0 이 되지 않는다.
+pub const PANEL_SURFACE: &str = "hook board-panel";
+/// 보드 패널을 사람이 썼다 — `/rocky-board` 실행이나 패널 포커스(`x-rocky-usage: use`), 세션마다 한 번. 노출과 따로 세야
+/// "떠 있기만 했나, 손을 댔나" 를 가를 수 있다.
+pub const PANEL_USE_SURFACE: &str = "hook board-panel use";
+
+/// REST 요청 하나를 어느 표면으로 셀지 — 보통은 라우트 모양 그대로. 보드 패널의 읽기(GET)는 라우트로 세지 않는다: 폴링이
+/// 그 라우트(`GET /api/changes` 등)를 쓰이는 것처럼 부풀리고 사용 로그를 채운다. `x-rocky-usage` 가 `open` 이면 노출,
+/// `use` 면 사용으로 하나씩 남긴다. 패널은 쓰지 않으므로 그 헤더를 단 쓰기 요청은 가리지 않고 라우트로 센다.
+/// None 이면 남기지 않는다.
+pub fn rest_surface(
+    route: String,
+    client: &str,
+    usage_mark: Option<&str>,
+) -> Option<(UsageSource, String)> {
+    if client == PANEL_CLIENT && route.starts_with("GET ") {
+        return match usage_mark.map(str::trim) {
+            Some("open") => Some((UsageSource::Hook, PANEL_SURFACE.to_string())),
+            Some("use") => Some((UsageSource::Hook, PANEL_USE_SURFACE.to_string())),
+            _ => None,
+        };
+    }
+    Some((UsageSource::Rest, route))
+}
+
 /// 클라이언트 종류 — `x-rocky-client` 헤더가 있으면 그것, 없으면 User-Agent 로 추정.
 pub fn client_of(x_rocky_client: Option<&str>, user_agent: Option<&str>) -> String {
     if let Some(c) = x_rocky_client.map(str::trim).filter(|c| !c.is_empty()) {
@@ -346,6 +374,8 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Hook, "hook log-turn"),
     (UsageSource::Hook, "hook log-turn agy"),
     (UsageSource::Hook, "hook claim-doing"),
+    (UsageSource::Hook, "hook board-panel"),
+    (UsageSource::Hook, "hook board-panel use"),
     (UsageSource::Cli, "rocky ls"),
     (UsageSource::Cli, "rocky next"),
     (UsageSource::Cli, "rocky today"),
