@@ -253,7 +253,7 @@
     },
     "statusline": {
       "type": "object",
-      "description": "`rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄)의 한도 설정 — cc-usage 와 같은 출력을 낸다. 보드 줄 템플릿(todo.statusline)과는 다른 자리다.",
+      "description": "`rocky statusline --full`(경로·git·모델·ctx·5h/7d 줄)의 한도 설정. 보드 줄 템플릿(todo.statusline)과는 다른 자리다.",
       "properties": {
         "source": {
           "enum": ["auto", "stdin", "api", "none"],
@@ -285,7 +285,7 @@
         },
         "creditFade": {
           "type": "boolean",
-          "description": "크레딧을 안 쓸 때 금액을 옅은 색으로, 쓰기 시작하면 3초에 걸쳐 원래 색으로 페이드한다(rocky 만의 표시). false 면 cc-usage 와 같은 색. 기본 true."
+          "description": "크레딧을 안 쓸 때 금액을 옅은 색으로, 쓰기 시작하면 3초에 걸쳐 원래 색으로 페이드한다. false 면 늘 원래 색. 기본 true."
         },
         "guard": {
           "type": "boolean",

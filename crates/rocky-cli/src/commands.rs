@@ -1631,11 +1631,11 @@ fn this_session() -> Result<(String, String), String> {
 }
 
 /// `statusline [--cwd P] [--session S] [--full]` — rocky 한 줄(데몬이 렌더). 둘 다 없으면 Claude Code 가 statusline
-/// 명령에 주는 stdin JSON(`workspace.current_dir`·`session_id`)에서 읽는다. cc-usage `extra_commands` 에는
+/// 명령에 주는 stdin JSON(`workspace.current_dir`·`session_id`)에서 읽는다. 다른 statusline 도구에 끼울 때는
 /// `["rocky","statusline","--cwd","{{cwd}}","--session","{{session_id}}"]` 로 넣는다. 보여줄 게 없거나 데몬이
 /// 없으면 아무것도 출력하지 않고 성공으로 끝난다 — statusline 이 에러 줄을 띄우지 않게.
 ///
-/// `--full` 이면 cc-usage 와 같은 경로·git·모델·한도 줄을 CLI 가 직접 그리고, `statusline.board` 가 켜져 있으면 그 아래에
+/// `--full` 이면 경로·git·모델·한도 줄을 CLI 가 직접 그리고, `statusline.board` 가 켜져 있으면 그 아래에
 /// 보드 줄을 붙인다(`statusline_full`).
 pub fn cmd_statusline(
     ctx: &CliContext,
@@ -1680,7 +1680,7 @@ fn board_line(ctx: &CliContext, cwd: Option<&str>, session: Option<&str>) -> Opt
     crate::client::statusline_line(&ctx.base_url, &query.join("&"))
 }
 
-/// `statusline --full` — cc-usage statusline 과 같은 바이트를 낸다(설계 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`).
+/// `statusline --full` — 경로·git·모델·한도 줄(골든 `rocky-core/tests/fixtures/statusline-full/`).
 /// 렌더는 CLI 가 하므로 데몬이 없어도 경로·모델·한도 줄은 남는다. 그 아래로 `extraCommands` 의 줄(설정 순서), 맨 아래
 /// 보드 줄(`statusline.board` 가 켜져 있을 때만 — 기본 끔) — 둘 다 늦거나 실패하면 그 줄만 빠진다. 하위 프로세스·데몬 조회는 렌더와 나란히 돈다(가장 느린 것 하나만
 /// 기다린다). 설정은 `rocky.json` 최상위 `statusline` 블록이다.
@@ -1781,7 +1781,7 @@ fn statusline_full(ctx: &CliContext, source: Option<&str>) {
     let _ = std::io::stdout().write_all(&bytes);
 }
 
-/// 테스트 전용 — RFC3339 시각을 주면 "지금" 을 고정한다(골든 대조용, cc-usage 의 `CC_USAGE_NOW` 와 같은 자리).
+/// 테스트 전용 — RFC3339 시각을 주면 "지금" 을 고정한다(골든 대조용).
 const STATUSLINE_NOW_ENV: &str = "ROCKY_STATUSLINE_NOW";
 
 pub fn statusline_now() -> chrono::DateTime<chrono::Utc> {

@@ -23,7 +23,7 @@ fn main() {
 fn run(argv: &[String]) -> Result<(), String> {
     let parsed = match parse_flags(argv) {
         Ok(parsed) => parsed,
-        // statusLine 명령줄이 틀려도 statusline 은 비지 않는다 — 무엇이 틀렸는지 한 줄을 낸다(cc-usage 와 같다).
+        // statusLine 명령줄이 틀려도 statusline 은 비지 않는다 — 무엇이 틀렸는지 한 줄을 낸다.
         Err(e)
             if argv.first().is_some_and(|c| c == "statusline")
                 && argv.iter().any(|a| a == "--full") =>

@@ -149,7 +149,6 @@ pub fn observe(
     }
     let Some(slot) = Slot::from_env(configured_dir) else {
         // 홈을 모르면 캐시도 계정도 없이 — 경보는 시각을 적을 데가 없어 배지로 고정하고, 계정 배지도 없다.
-        // (cc-usage 는 HOME 이 없어도 CLAUDE_CONFIG_DIR 의 계정 파일·XDG_CACHE_HOME 을 쓴다 — 의도된 차이, 스펙 참고.)
         let usage = UsageCache::default();
         let lim = select(cfg, input, &StateFile::default(), &usage, now)?;
         // 쓰기 시작한 시각을 적을 데도 없어 페이드 없이 — 쓰는 중이면 원래 색, 아니면 옅은 색.

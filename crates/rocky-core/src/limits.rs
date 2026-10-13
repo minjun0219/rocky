@@ -1,10 +1,10 @@
-//! 한도(5h/7d) 판정 — cc-usage `internal/core` 의 Rust 이식. 같은 입력이면 같은 판정을 낸다는 것이 계약이고,
-//! 골든 픽스처(`tests/fixtures/cc-usage/`)가 고정한다. 설계: `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+//! 한도(5h/7d) 판정 — cc-usage `internal/core` 에서 옮겨 왔고 지금은 rocky 가 정본이다. 출력은 골든 픽스처
+//! (`tests/fixtures/statusline-full/`)가 고정한다. 옮겨 온 설계: `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
 //!
 //! 순수 함수만 둔다 — "지금" 은 인자로 받는다. 이름이 `usage` 가 아닌 것은 사용 로그(`crate::usage`)와 겹쳐서다.
 //!
-//! 캐시(`usage.json` = usage API 응답·크레딧 기준선·backoff, `state.json` = stdin 관측·갱신 기동 시각)는 cc-usage 와 **같은
-//! JSON 모양**이다. 파일을 읽고 쓰는 일은 CLI 몫이고, 여기는 그 값으로 판정만 한다.
+//! 캐시(`usage.json` = usage API 응답·크레딧 기준선·backoff, `state.json` = stdin 관측·갱신 기동 시각)는 cc-usage 시절의
+//! JSON 모양을 그대로 쓴다. 파일을 읽고 쓰는 일은 CLI 몫이고, 여기는 그 값으로 판정만 한다.
 
 use std::collections::BTreeMap;
 
@@ -17,7 +17,7 @@ mod guard;
 pub use agy::{agy_limits, local_limits, AgyQuota, PRODUCT_ANTIGRAVITY};
 pub use guard::{credits_enabled, guard, parse_go_duration, AllowFile};
 
-/// 한도를 어디서 읽나 — cc-usage 설정의 `source` 와 같은 값.
+/// 한도를 어디서 읽나 — `statusline.source`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Source {
     /// stdin 에 `rate_limits` 가 있으면 stdin, 없으면 usage API.
@@ -52,7 +52,7 @@ impl Source {
 }
 
 /// statusline 이 이번 실행에서만 쓸 `source` — 설정값을 환경 변수가, 그것을 `--source` 플래그가 이긴다. 갱신 자식에게도
-/// 같은 환경 변수로 넘긴다(`rocky statusline refresh`). cc-usage 의 `$CC_USAGE_SOURCE` 자리다.
+/// 같은 환경 변수로 넘긴다(`rocky statusline refresh`).
 ///
 /// **guard 는 이것을 보지 않는다** — 환경 변수는 프로세스 트리로 물려 내려가서, 다른 호스트 때문에 셸에 export 해 둔
 /// `none` 이 같은 셸에서 띄운 Claude Code 의 guard 를 아무 표시 없이 끈다. guard 는 설정 파일만 본다.
@@ -73,7 +73,7 @@ pub fn override_source(
     Ok(source)
 }
 
-/// 판정에 쓰는 설정 — cc-usage `config.json` 중 이 모듈이 읽는 필드.
+/// 판정에 쓰는 설정 — `rocky.json` 의 `statusline` 중 이 모듈이 읽는 필드.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LimitsConfig {
     pub source: Source,
@@ -89,7 +89,7 @@ pub struct LimitsConfig {
     pub poll_seconds: Option<u64>,
     /// 한도 소진 뒤 크레딧 조회 주기(초) — 없거나 0 이하면 300.
     pub credit_poll_seconds: Option<u64>,
-    /// 크레딧을 안 쓸 때 금액을 옅게, 쓰기 시작하면 원래 색으로 페이드(`creditFade`) — 없으면 켜짐. 끄면 cc-usage 와 같은 색.
+    /// 크레딧을 안 쓸 때 금액을 옅게, 쓰기 시작하면 원래 색으로 페이드(`creditFade`) — 없으면 켜짐. 끄면 늘 원래 색.
     pub credit_fade: Option<bool>,
     /// `rocky statusline guard` 를 켠다 — 없으면 꺼짐(훅을 걸어도 아무것도 막지 않는다).
     pub guard: bool,
@@ -229,8 +229,8 @@ impl Input {
 }
 
 /// Go `*float64` 필드가 JSON 을 받는 방식 — `null` 이면 없음, 숫자면 그 값, **다른 타입이면 0**. Go 디코더가
-/// 포인터를 먼저 할당하고 나서 타입 에러를 내기 때문이다(`"41"` → `ctx 0%`). cc-usage 와 같은 출력을 내려고
-/// 따라간다(픽스처 `type-mismatch`).
+/// 포인터를 먼저 할당하고 나서 타입 에러를 내기 때문이다(`"41"` → `ctx 0%`). cc-usage 시절부터 이렇게
+/// 그려 왔고 골든 `type-mismatch` 가 고정한다.
 fn go_number(v: &Value) -> Option<f64> {
     match v {
         Value::Null => None,
@@ -775,7 +775,7 @@ const RISING_WINDOW: TimeDelta = TimeDelta::minutes(15);
 /// 크레딧을 쓰기 시작한 뒤 금액 색이 원래 색까지 오는 시간.
 pub const CREDIT_FADE: TimeDelta = TimeDelta::seconds(3);
 
-/// 금액 색을 얼마나 원래 색으로 그릴지 — `None` 이면 페이드를 하지 않는다(설정으로 껐거나 금액이 없는 줄: cc-usage 와 같은 색),
+/// 금액 색을 얼마나 원래 색으로 그릴지 — `None` 이면 페이드를 하지 않는다(설정으로 껐거나 금액이 없는 줄: 늘 원래 색),
 /// `Some(0.0)` 은 옅은 색(안 쓰는 중), `Some(1.0)` 은 원래 색. 쓰기 시작하면 그 시각을 `state` 에 적고 거기서부터 3초에 걸쳐
 /// 0 → 1 로 오른다. 안 쓰게 되면 바로 0 이다(페이드 없이). 돌려주는 `bool` 이 true 면 `state` 가 바뀌었다.
 pub fn credit_glow(

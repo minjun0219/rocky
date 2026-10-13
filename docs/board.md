@@ -983,7 +983,7 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
 실패하면 아무것도 출력하지 않고 성공으로 끝난다(statusline이 보드 때문에 깨지지 않는다). 사용 로그를 남기지
 않고 데몬을 띄우지도 않는다 — 1초마다 × 세션 수만큼 도는 자리다.
 
-- **cc-usage `extra_commands`** — `{{cwd}}`·`{{session_id}}`를 채워 준다:
+- **다른 statusline 도구의 덧붙이는 명령**(예: 옛 cc-usage `extra_commands`) — `{{cwd}}`·`{{session_id}}`를 채워 준다:
 
   ```json
   { "command": ["rocky", "statusline", "--cwd", "{{cwd}}", "--session", "{{session_id}}"], "timeout_ms": 500 }
@@ -996,20 +996,19 @@ statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무
   printf '%s' "$input" | rocky statusline
   ```
 
-- **`rocky statusline --full`** — cc-usage 를 대신해 statusline 전체를 그린다: 경로·git 줄, 모델·effort·ctx·5h/7d
-  줄, 한도가 소진되면 크레딧 줄, `statusline.board: true` 면 그 아래 보드 줄(기본 끔). 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 같은
-  입력에서 cc-usage 와 바이트 단위로 같다(골든 `crates/rocky-core/tests/fixtures/cc-usage/`). 한도 설정은 `rocky.json`
+- **`rocky statusline --full`** — statusline 전체를 그린다: 경로·git 줄, 모델·effort·ctx·5h/7d
+  줄, 한도가 소진되면 크레딧 줄, `statusline.board: true` 면 그 아래 보드 줄(기본 끔). 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 골든
+  `crates/rocky-core/tests/fixtures/statusline-full/` 이 고정한다. 한도 설정은 `rocky.json`
   최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
   세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
   300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄(켰을 때)은 맨 아래다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
   읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 한도가
   임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
   표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
-  페이드한다 — rocky 만의 표시라 `creditFade: false` 로 끄면 cc-usage 와 같은 색이다. `statusline.dirLink` 에 링크 템플릿을
+  페이드한다 — `creditFade: false` 로 끄면 늘 원래 색이다. `statusline.dirLink` 에 링크 템플릿을
   주면(예: `"vscode://file{{cwd}}"`, `{{cwd}}` 는 퍼센트 인코딩한 경로) 경로 줄의 경로를 Cmd+클릭으로 편집기에서 연다 — 경로
-  앞부분은 세션을 띄운 프로젝트를, 하위 경로는 지금 폴더를 열고, 프로젝트 밖으로 나가면 줄 끝에 `↗ 이름` 버튼을 단다(OSC 8 —
-  역시 rocky 만의 표시, 기본 없음). 설계
-  `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
+  앞부분은 세션을 띄운 프로젝트를, 하위 경로는 지금 폴더를 열고, 프로젝트 밖으로 나가면 줄 끝에 `↗ 이름` 버튼을 단다(OSC 8, 기본 없음).
+  cc-usage 에서 옮겨 온 설계(기록)는 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
 
   `--source auto|stdin|api|none` 은 설정의 `source` 를 이 실행에서만 바꾼다(환경 변수 `ROCKY_STATUSLINE_SOURCE` 도 같고
   플래그가 이긴다). `none` 은 토큰·API·캐시를 일절 보지 않고 경로 줄과 모델 · ctx 만 그린다(`extraCommands` 와 켜 둔 보드 줄은
