@@ -381,6 +381,67 @@ async fn a_closed_pr_is_unsubscribed_after_the_transition() {
     assert_eq!(calls.lock().unwrap().len(), before);
 }
 
+/// 스냅숏이 이미 끝난 채로 저장됐는데 구독만 남은 PR — 해제가 실패했거나, 처음 본 끝난 PR 을 전이로 치지 않던
+/// 옛 데몬이 남긴 것(실제로 머지된 PR 두 건이 9일 동안 tick 마다 쿼리됐다). 전이가 다시 나지 않아도 지금 상태로
+/// 구독을 걷고 링크된 할 일도 닫는다 — 알림만 없이.
+#[tokio::test]
+async fn a_subscription_left_on_an_already_ended_snapshot_is_dropped_quietly() {
+    let f = fx();
+    sub(&f, "o/r", 7, Some("gone-session"));
+    let todo = linked_todo(&f, "갇힌 PR", &["https://github.com/o/r/pull/7"]);
+    let merged = rocky_core::prwatch::PrSnapshot {
+        repo: "o/r".into(),
+        number: 7,
+        title: "PR 7".into(),
+        url: "https://github.com/o/r/pull/7".into(),
+        state: "MERGED".into(),
+        is_draft: false,
+        base: "main".into(),
+        head: "0123456".into(),
+        merge_state: "UNKNOWN".into(),
+        ci: rocky_core::prwatch::CiState::Pass,
+        unhandled: 0,
+        unhandled_ids: vec![],
+        decision: 0,
+        ready: false,
+        updated_at: "2026-09-28T10:00:00Z".into(),
+        author: None,
+    };
+    // 구독 해제 없이 스냅숏만 끝난 상태로 — 그 갇힌 상태를 그대로 만든다.
+    f.store
+        .apply_pr_snapshot("o/r", &[merged], "rocky", &|_, _| true)
+        .unwrap();
+    assert_eq!(f.store.pr_subscriptions().unwrap().len(), 1);
+
+    let responses = Arc::new(Mutex::new(
+        json!({ "r": [pr(7, "MERGED", "SUCCESS", "UNKNOWN", "main")] }),
+    ));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let runner = fake_gh(responses, calls.clone());
+    let (notifier, seen) = capture();
+    let events = tick(&f.state, &runner, &notifier, true).await.events;
+    assert!(
+        events.is_empty(),
+        "다시 머지 전이를 내지 않는다: {events:?}"
+    );
+    assert!(seen.lock().unwrap().is_empty(), "끝난 세션에 알리지 않는다");
+    assert!(f.store.pr_subscriptions().unwrap().is_empty());
+    let before = calls.lock().unwrap().len();
+    tick(&f.state, &runner, &notifier, true).await;
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        before,
+        "다음 tick 부터는 묻지 않는다"
+    );
+    // 할 일은 그 한 번에 완료되고 댓글도 하나뿐이다(다음 tick 은 이 PR 을 묻지 않는다).
+    let (status, comments) = status_and_comments(&f, &todo);
+    assert_eq!(status, rocky_core::types::TodoStatus::Done);
+    assert_eq!(
+        comments,
+        vec!["rocky: #7 머지로 완료 — https://github.com/o/r/pull/7".to_string()]
+    );
+}
+
 /// 보드의 `repo` 는 감시 대상을 정하지 않는다 — 보드에 레포를 붙여도 구독이 없으면 묻지 않는다.
 #[tokio::test]
 async fn a_board_repo_alone_does_not_start_watching() {

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use rocky_core::prwatch::{
-    bridge_payload, detail_query, diff, is_rate_limit_error, is_ready, list_query,
+    bridge_payload, detail_query, diff, ended_numbers, is_rate_limit_error, is_ready, list_query,
     notification_text, osascript_args, parse_pr_details, parse_pr_list, pause_for, CiState,
     PrEventKind, PrSnapshot, RateLimit, RATE_LIMIT_BLIND_PAUSE_SECS, RATE_LIMIT_FLOOR,
 };
@@ -229,6 +229,18 @@ fn ready_rules() {
     assert!(!is_ready(
         "CLOSED", false, "main", "main", "CLEAN", ok, 0, 0
     ));
+}
+
+/// 끝난 PR 은 전이가 아니라 지금 상태로 고른다 — 열린 것·draft 는 빼고 머지·닫힘만.
+#[test]
+fn ended_numbers_picks_merged_and_closed_only() {
+    let snaps = [
+        snap(1, "OPEN", true, "CLEAN"),
+        snap(2, "MERGED", false, "UNKNOWN"),
+        snap(3, "CLOSED", false, "UNKNOWN"),
+    ];
+    assert_eq!(ended_numbers(&snaps), vec![2, 3]);
+    assert!(ended_numbers(&[]).is_empty());
 }
 
 fn snap(number: i64, state: &str, ready: bool, merge_state: &str) -> PrSnapshot {
