@@ -8,7 +8,8 @@
 
 ### 무엇을 보나
 - **구독한 PR 만**(`pr_subscriptions` — `rocky pr subscribe N`, `/rocky:review-request`·`review-fix` 가 구독, 머지·닫힘에서 풀린다 — 전이가 아니라 tick 에서 본 **지금 상태**로
-  고른다(`ended_numbers`). 스냅숏이 이미 끝난 채 구독만 남은 PR 도 다음 tick 에 알림 없이 풀린다)
+  고른다(`ended_numbers`). 스냅숏이 이미 끝난 채 구독만 남은 PR 도 다음 tick 에 알림 없이 풀리고, 링크된 할 일 정리도
+  같은 기준이다)
   `pr.intervalMinutes` 마다 상세 쿼리로 보고 `pr-*` 전이(actor `rocky`)를 그 레포를 둔 보드 히스토리에 남긴다. 레포 목록은 보지
   않는다 — 보드의 `repo` 는 감시 대상을 정하지 않는다. 구독은 `POST/DELETE /api/prs/subscriptions`(로컬 전용), `GET` 은 열려 있다.
 - **필터 구독**(`rocky pr subscribe --filter "repo:o/r author:@me"`, `/api/prs/filters`)은 GitHub 검색 조건이다 — tick 마다 검색 한

@@ -383,26 +383,32 @@ async fn tick_repo(
             notifier(event);
         }
     }
-    // 머지·닫힘은 끝이다 — 알린 뒤 구독을 걷는다(스냅숏은 아래 `retain_subscribed_prs` 가 걷는다). 이번 전이가
-    // 아니라 지금 상태로 고른다 — 이미 끝난 채 저장돼 전이가 다시 나지 않는 PR 도 여기서 풀린다(알림 없이).
+    // 머지·닫힘은 끝이다 — 알린 뒤 구독을 걷고 링크된 할 일을 정리한다(스냅숏은 아래 `retain_subscribed_prs` 가
+    // 걷는다). 둘 다 이번 전이가 아니라 지금 상태로 고른다 — 이미 끝난 채 저장돼 전이가 다시 나지 않는 PR 도
+    // 여기서 풀리고 할 일도 닫힌다(알림만 없다).
     for number in rocky_core::prwatch::ended_numbers(&snapshots) {
         if let Err(e) = state.store.unsubscribe_pr(repo, number) {
             eprintln!("rocky: PR 감시 {repo}#{number} — 끝난 PR 의 구독을 걷지 못했다(다음 tick 에 다시): {e}");
         }
     }
-    settle_linked_todos(state, &events);
+    settle_linked_todos(state, repo, &snapshots);
     Ok(RepoOutcome { events, limit })
 }
 
 /// 끝난 PR(머지·닫힘)을 링크한 할 일을 정리한다 — 머지면 완료(링크한 다른 PR 이 아직 감시 중이면 기다린다),
 /// 머지 없이 닫혔으면 댓글만. 이미 끝낸 할 일은 건드리지 않는다. 구독을 걷은 뒤에 불러야 "남은 PR" 이 맞다.
+/// 이번에 본 스냅숏의 지금 상태로 고른다 — 구독이 걷힌 PR 은 다시 묻지 않으므로 PR 마다 한 번이다.
 /// 실패는 로그만 — PR 감시는 계속 돈다.
-fn settle_linked_todos(state: &Arc<ServerState>, events: &[rocky_core::prwatch::PrEvent]) {
+fn settle_linked_todos(
+    state: &Arc<ServerState>,
+    repo: &str,
+    snapshots: &[rocky_core::prwatch::PrSnapshot],
+) {
     use rocky_core::prwatch::{linked_todo_action, LinkedTodoAction};
     use rocky_core::types::{ListTodosFilter, StatusAction, TodoStatus};
-    let ended: Vec<_> = events
+    let ended: Vec<_> = snapshots
         .iter()
-        .filter(|e| matches!(e.kind, PrEventKind::Merged | PrEventKind::Closed))
+        .filter(|s| matches!(s.state.as_str(), "MERGED" | "CLOSED"))
         .collect();
     if ended.is_empty() {
         return;
@@ -424,12 +430,12 @@ fn settle_linked_todos(state: &Arc<ServerState>, events: &[rocky_core::prwatch::
     // 한 tick 에 같은 할 일의 PR 이 함께 머지되면(스택을 연달아 머지) 목록은 아직 옛 상태다 — 두 번 완료하지 않게.
     let mut completed: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for event in ended {
-        let merged = event.kind == PrEventKind::Merged;
+        let merged = event.state == "MERGED";
         for todo in todos.iter().filter(|t| t.status != TodoStatus::Done) {
             if completed.contains(todo.id.as_str()) {
                 continue;
             }
-            let action = linked_todo_action(&todo.links, &event.repo, event.number, merged, &open);
+            let action = linked_todo_action(&todo.links, repo, event.number, merged, &open);
             let comment = match &action {
                 LinkedTodoAction::NotLinked => continue,
                 LinkedTodoAction::Complete => {

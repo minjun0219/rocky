@@ -383,11 +383,12 @@ async fn a_closed_pr_is_unsubscribed_after_the_transition() {
 
 /// 스냅숏이 이미 끝난 채로 저장됐는데 구독만 남은 PR — 해제가 실패했거나, 처음 본 끝난 PR 을 전이로 치지 않던
 /// 옛 데몬이 남긴 것(실제로 머지된 PR 두 건이 9일 동안 tick 마다 쿼리됐다). 전이가 다시 나지 않아도 지금 상태로
-/// 구독을 걷는다 — 알림 없이.
+/// 구독을 걷고 링크된 할 일도 닫는다 — 알림만 없이.
 #[tokio::test]
 async fn a_subscription_left_on_an_already_ended_snapshot_is_dropped_quietly() {
     let f = fx();
     sub(&f, "o/r", 7, Some("gone-session"));
+    let todo = linked_todo(&f, "갇힌 PR", &["https://github.com/o/r/pull/7"]);
     let merged = rocky_core::prwatch::PrSnapshot {
         repo: "o/r".into(),
         number: 7,
@@ -431,6 +432,13 @@ async fn a_subscription_left_on_an_already_ended_snapshot_is_dropped_quietly() {
         calls.lock().unwrap().len(),
         before,
         "다음 tick 부터는 묻지 않는다"
+    );
+    // 할 일은 그 한 번에 완료되고 댓글도 하나뿐이다(다음 tick 은 이 PR 을 묻지 않는다).
+    let (status, comments) = status_and_comments(&f, &todo);
+    assert_eq!(status, rocky_core::types::TodoStatus::Done);
+    assert_eq!(
+        comments,
+        vec!["rocky: #7 머지로 완료 — https://github.com/o/r/pull/7".to_string()]
     );
 }
 
