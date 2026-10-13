@@ -14,7 +14,16 @@ const PANE_PROPS = (columns: number, isFocused = false) => ({
 });
 
 /** 가짜 데몬·세션 — 플러그인 아래에서 엔진 대신 답하고, 플러그인이 부른 것을 기록한다. */
-function world(on: On, opts: { board: string | null; openFails?: number; placed?: boolean }) {
+function world(
+  on: On,
+  opts: {
+    board: string | null;
+    openFails?: number;
+    placed?: boolean;
+    /** 시작할 때 이미 붙어 있는 표면(`$.session.surfaces()`). */
+    surfaces?: ('terminal' | 'desktop' | 'vscode' | 'mobile')[];
+  },
+) {
   const seen = {
     fetched: [] as string[],
     usageMarked: [] as string[],
@@ -31,6 +40,8 @@ function world(on: On, opts: { board: string | null; openFails?: number; placed?
   };
   const clock = mock.clock(on);
   on('session.start', (_$, e) => ({ cwd: e.cwd }));
+  on('session.attach', (_$, e) => ({ clientId: e.clientId }));
+  on('session.surfaces', () => ({ value: opts.surfaces ?? [] }));
   on('session.cwd', () => ({ value: '/w/rocky' }));
   on('command.register', (_$, e) => {
     seen.commands.push(e.name);
@@ -223,12 +234,36 @@ test('보드가 없는 폴더면 패널을 저절로 열지 않는다', async ($
   expect(seen.usageMarked).toEqual([]);
 });
 
-test('그릴 데가 없는 실행(-p·SDK)에서는 아무것도 하지 않는다', async ($, on) => {
+test('아무 표면도 없는 실행(-p)에서는 아무것도 하지 않는다', async ($, on) => {
   const { seen, clock } = world(on, { board: 'rocky' });
   await $.session.start({ cwd: '/w/rocky', surface: null, isInteractive: false });
   await clock.advance(10_000);
   expect(seen.commands).toEqual([]);
   expect(seen.fetched).toEqual([]);
+});
+
+test('원격 제어처럼 SDK 로 시작한 세션은 앱이 붙을 때 시작한다 — 여러 번 붙어도 한 번', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky' });
+  await $.session.start({ cwd: '/w/rocky', surface: null, isInteractive: false });
+  await clock.advance(10_000);
+  expect(seen.fetched).toEqual([]);
+  await $.session.attach({ surface: 'desktop', clientId: 'app-1' });
+  await clock.settle();
+  expect(seen.commands).toEqual(['rocky-board']);
+  expect(seen.fetched).toEqual(['/api/summary', '/api/changes', '/api/todos']);
+  expect(seen.opened).toBe(1);
+  await $.session.attach({ surface: 'mobile', clientId: 'phone-1' });
+  await clock.settle();
+  expect(seen.commands).toEqual(['rocky-board']);
+  expect(seen.opened).toBe(1);
+});
+
+test('시작할 때 이미 붙은 원격 표면이 있으면 바로 시작한다', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky', surfaces: ['desktop'] });
+  await $.session.start({ cwd: '/w/rocky', surface: null, isInteractive: false });
+  await clock.settle();
+  expect(seen.commands).toEqual(['rocky-board']);
+  expect(seen.opened).toBe(1);
 });
 
 for (const surface of ['terminal', 'desktop'] as const) {

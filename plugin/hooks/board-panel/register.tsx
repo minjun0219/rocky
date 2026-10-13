@@ -184,30 +184,48 @@ async function tick($: EngineInterface, panel: Panel): Promise<void> {
   }
 }
 
+/**
+ * 패널을 시작한다 — 명령 등록·첫 읽기·폴링. 한 로드에 한 번(터미널과 앱이 함께 붙어도 하나). 그릴 데가 생겼을 때만
+ * 부른다(`session.start`·`session.attach`).
+ */
+async function start($: EngineInterface): Promise<void> {
+  if (current !== null) {
+    return;
+  }
+  const panel: Panel = {
+    cwd: null,
+    board: null,
+    collect: null,
+    summaryAt: 0,
+    lastId: null,
+    inFlight: false,
+    marked: new Set(),
+    opened: false,
+  };
+  current = panel;
+  await $.command.register({
+    name: 'rocky-board',
+    description: '이 폴더의 rocky 보드를 패널에 띄운다',
+    immediate: true,
+  });
+  void tick($, panel);
+  $.clock.every(POLL_MS, () => void tick($, panel));
+}
+
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
-    // 패널을 그릴 데가 없는 실행(`-p`·SDK·원격 제어)에서는 아무것도 하지 않는다.
-    if (!e.isInteractive) {
-      return next(e);
+    // 그릴 데가 있을 때만 — 터미널(REPL)이거나 이미 붙은 원격 표면이 있다. 원격 제어처럼 SDK 로 도는 세션은
+    // `isInteractive: false`·표면 없음으로 시작해 앱이 붙을 때(`session.attach`) 시작한다. 끝까지 아무도 안 붙는 `-p`
+    // 실행은 건너뛴다(그 폴더에서 몇 초마다 데몬을 묻지 않게).
+    if (e.isInteractive || (await $.session.surfaces()).length > 0) {
+      await start($);
     }
-    const panel: Panel = {
-      cwd: null,
-      board: null,
-      collect: null,
-      summaryAt: 0,
-      lastId: null,
-      inFlight: false,
-      marked: new Set(),
-      opened: false,
-    };
-    current = panel;
-    await $.command.register({
-      name: 'rocky-board',
-      description: '이 폴더의 rocky 보드를 패널에 띄운다',
-      immediate: true,
-    });
-    void tick($, panel);
-    $.clock.every(POLL_MS, () => void tick($, panel));
+    return next(e);
+  });
+
+  on('session.attach', async ($, e, next) => {
+    // 원격 클라이언트(데스크톱·모바일 앱 등)가 붙었다 — 이제 패널을 그릴 데가 있다.
+    await start($);
     return next(e);
   });
 
