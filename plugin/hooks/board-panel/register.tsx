@@ -170,7 +170,11 @@ async function tick($: EngineInterface, panel: Panel): Promise<void> {
     }
     if (panel.board !== null && !panel.opened) {
       panel.opened = true;
-      void $.ui.open({ id: PANE, title: TITLE });
+      // `isPlaced: false` 는 "열렸지만 좁아서 기다린다" 다 — 터미널이 넓어지면 엔진이 그린다(`$.ui.open` 문서: "waits
+      // undrawn … until they open it or the terminal widens"). 그래서 다시 열지 않고, 열기 자체가 실패했을 때만 다음 바퀴에.
+      void $.ui.open({ id: PANE, title: TITLE }).catch(() => {
+        panel.opened = false;
+      });
     }
   } catch (err) {
     // $.http.fetch 가 거절됐다(데몬이 꺼졌거나 포트가 다르다) 또는 엔진 호출이 실패했다.

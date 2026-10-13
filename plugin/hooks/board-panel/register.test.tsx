@@ -14,7 +14,7 @@ const PANE_PROPS = (columns: number, isFocused = false) => ({
 });
 
 /** 가짜 데몬·세션 — 플러그인 아래에서 엔진 대신 답하고, 플러그인이 부른 것을 기록한다. */
-function world(on: On, opts: { board: string | null }) {
+function world(on: On, opts: { board: string | null; openFails?: number; placed?: boolean }) {
   const seen = {
     fetched: [] as string[],
     usageMarked: [] as string[],
@@ -36,9 +36,16 @@ function world(on: On, opts: { board: string | null }) {
     seen.commands.push(e.name);
     return { value: { command: e.name } };
   });
+  let openFails = opts.openFails ?? 0;
   on('ui.open', () => {
     seen.opened += 1;
-    return { value: { isPlaced: true as const } };
+    if (openFails > 0) {
+      openFails -= 1;
+      throw new Error('refused');
+    }
+    return opts.placed === false
+      ? { value: { isPlaced: false as const, reason: 'terminal is 100 columns, under 144' } }
+      : { value: { isPlaced: true as const } };
   });
   on('http.fetch', (_$, e) => {
     const url = new URL(e.url);
@@ -185,6 +192,26 @@ test('히스토리를 못 읽으면 사유만 남기고 할 일을 몇 초마다
   expect(await ui.find({ text: '/api/changes 응답 500' })).toBeDefined();
   // 지난 목록은 그대로 보인다.
   expect(await ui.find({ text: /rocky-45/ })).toBeDefined();
+});
+
+test('좁아서 기다리는 패널은 다시 열지 않는다 — 넓어지면 엔진이 그린다', async ($, on) => {
+  // 좁은 터미널 — 열렸지만 기다린다. 넓어지면 엔진이 그리므로 다시 열 일이 없다.
+  const narrow = world(on, { board: 'rocky', placed: false });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await narrow.clock.settle();
+  await narrow.clock.advance(15_000);
+  expect(narrow.seen.opened).toBe(1);
+});
+
+test('열기가 거절되면 다음 바퀴에 다시 연다', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky', openFails: 1 });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await clock.settle();
+  expect(seen.opened).toBe(1);
+  await clock.advance(5_000);
+  expect(seen.opened).toBe(2);
+  await clock.advance(10_000);
+  expect(seen.opened).toBe(2);
 });
 
 test('보드가 없는 폴더면 패널을 저절로 열지 않는다', async ($, on) => {
