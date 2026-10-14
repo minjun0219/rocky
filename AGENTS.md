@@ -268,7 +268,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 기본 브랜치 검증 | opt-in, 명령은 설정 파일에만. 보드 레포의 작업 트리·브랜치를 건드리지 않는다(detached 워크트리). 준비 실패는 커밋 탓으로 남기지 않는다 | [verify](./docs/features/verify.md) |
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | TUI(`tui/`) | 웹은 `types.ts`·`lib.ts`(순수)만 가져다 쓴다 — 웹 store 는 브라우저에 묶여 있다. 쓰기는 REST 로 보내고 화면은 SSE 를 기다린다. 번들은 `react-devtools-core` 를 빈 모듈로, 실행은 늘 `bun --no-install` | [tui](./docs/features/tui.md) |
-| 보드 패널(mod) | 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
+| 보드 패널(mod) | 저절로 열지 않는다 — `/rocky-board` 로만 열고, 데몬은 패널이 열려 있는 동안만 묻는다(매 바퀴 `$.ui.panes()` 로 확인). 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬 자동 기동을 거치지 않고 300ms 안에 못 받으면 빈 출력 | [statusline](./docs/features/statusline.md) |
 | 점검(`rocky doctor`) | 읽기만 한다. 꺼진 데몬을 띄우지 않고, 못 받은 항목은 ⚠ 가 아니라 건너뛴다. 판정은 `rocky_core::doctor` 순수 함수 | [doctor](./docs/features/doctor.md) |
 | 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다. rc 가 켜진 기기는 rc 서버로(할 일당 하나, 내리기는 사람) | [spawn](./docs/features/spawn.md) |

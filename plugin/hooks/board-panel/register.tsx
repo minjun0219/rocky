@@ -19,11 +19,14 @@ const TITLE = 'rocky 보드';
 const DAEMON = 'http://127.0.0.1:8636';
 /**
  * 사용 로그가 패널의 요청을 라우트로 세지 않게 다는 `x-rocky-client`(`rocky_core::usage::PANEL_CLIENT`). 세션마다 한 번씩만
- * `x-rocky-usage` 를 더한다 — 첫 보드 읽기에 `open`(패널이 떴다), `/rocky-board`·패널 포커스에 `use`(사람이 손을 댔다).
- * 폴링이 사용 횟수를 부풀리지 않게.
+ * `x-rocky-usage` 를 더한다 — 패널을 연 뒤 첫 보드 읽기에 `open`(보드를 보였다), `/rocky-board`·패널 포커스에 `use`(사람이
+ * 손을 댔다). 폴링이 사용 횟수를 부풀리지 않게.
  */
 const CLIENT = 'claude-code-panel';
-/** 바뀐 게 있는지 묻는 간격 — 보드 히스토리의 새 행만 읽는 가벼운 요청이다. 이 보드를 건드렸을 때만 할 일을 다시 읽는다. */
+/**
+ * 바뀐 게 있는지 묻는 간격 — 보드 히스토리의 새 행만 읽는 가벼운 요청이다. 이 보드를 건드렸을 때만 할 일을 다시 읽는다.
+ * 타이머는 패널을 처음 열 때 켠다. 데몬은 패널이 열려 있을 때만 묻는다 — 닫혀 있으면 엔진의 패널 기록만 보고 돌아선다.
+ */
 const POLL_MS = 5_000;
 /** 한 번에 받는 새 히스토리 행 — 꽉 차면 더 있을 수 있어 이 보드를 건드린 것으로 본다. */
 const CHANGES_LIMIT = 50;
@@ -44,10 +47,12 @@ type Panel = {
   /** 마지막으로 본 보드 히스토리 id — null 이면 아직(첫 읽기는 행 없이 id 만). */
   lastId: number | null;
   inFlight: boolean;
-  /** 사용 로그에 남긴 표시 — 세션마다 하나씩(`open` 노출, `use` 사용). */
+  /** 바퀴가 도는 중에 `/rocky-board` 가 읽기를 청했다 — 그 바퀴가 끝나면 한 번 더 돈다(닫힌 것으로 보고 돌아선 바퀴에 묻히지 않게). */
+  again: boolean;
+  /** 폴링 타이머를 켰나 — 패널을 처음 열 때 켜고 끄지 않는다. */
+  polling: boolean;
+  /** 사용 로그에 남긴 표시 — 세션마다 하나씩(`open` 보드를 읽었다, `use` 사람이 손을 댔다). */
   marked: Set<UsageMark>;
-  /** 보드가 있는 폴더에서 패널을 한 번 열었나 — 사람이 닫은 패널을 폴링이 다시 열지 않게. */
-  opened: boolean;
 };
 
 type UsageMark = 'open' | 'use';
@@ -111,6 +116,18 @@ async function tick($: EngineInterface, panel: Panel): Promise<void> {
   }
   panel.inFlight = true;
   try {
+    // 닫힌 패널을 위해 데몬을 묻지 않는다. 닫힘은 엔진의 기록으로 안다 — 사람이 닫든 원격 앱에서 닫든 같다.
+    let open: boolean;
+    try {
+      open = await isOpen($);
+    } catch (err) {
+      // 기록을 못 읽으면 열렸는지 모른다 — 데몬 탓으로 돌리지 않고 그 사유를 남긴다(열린 패널이면 보인다).
+      await fail($, `패널 상태를 읽지 못했다(${String(err).slice(0, 60)})`);
+      return;
+    }
+    if (!open) {
+      return;
+    }
     const now = await $.clock.now();
     const cwd = await $.session.cwd();
     const prev = await read($, view);
@@ -168,25 +185,48 @@ async function tick($: EngineInterface, panel: Panel): Promise<void> {
         at: new Date(now).toISOString(),
       }));
     }
-    if (panel.board !== null && !panel.opened) {
-      panel.opened = true;
-      // `isPlaced: false` 는 "열렸지만 좁아서 기다린다" 다 — 터미널이 넓어지면 엔진이 그린다(`$.ui.open` 문서: "waits
-      // undrawn … until they open it or the terminal widens"). 그래서 다시 열지 않고, 열기 자체가 실패했을 때만 다음 바퀴에.
-      void $.ui.open({ id: PANE, title: TITLE }).catch(() => {
-        panel.opened = false;
-      });
-    }
   } catch (err) {
     // $.http.fetch 가 거절됐다(데몬이 꺼졌거나 포트가 다르다) 또는 엔진 호출이 실패했다.
     await fail($, `데몬에 닿지 않는다(${String(err).slice(0, 60)}) — rocky daemon status`);
   } finally {
     panel.inFlight = false;
+    if (panel.again) {
+      panel.again = false;
+      void tick($, panel);
+    }
   }
 }
 
+/** 지금 읽기를 청한다 — 바퀴가 도는 중이면 그 바퀴가 끝난 뒤 한 번 더. */
+function readNow($: EngineInterface, panel: Panel): void {
+  if (panel.inFlight) {
+    panel.again = true;
+    return;
+  }
+  void tick($, panel);
+}
+
 /**
- * 패널을 시작한다 — 명령 등록·첫 읽기·폴링. 한 로드에 한 번(터미널과 앱이 함께 붙어도 하나). 그릴 데가 생겼을 때만
- * 부른다(`session.start`·`session.attach`).
+ * 폴링을 켜고 바로 읽는다. 타이머는 패널을 처음 열 때(다시 로드된 모듈이 열린 패널을 이어받을 때도) 한 번 켜고 끄지 않는다 —
+ * 닫혔다고 본 바퀴가 타이머를 끄기 전에 다시 열면 열린 패널이 멈춘 채 남는다. 닫혀 있는 동안은 바퀴마다 엔진의 기록만 본다.
+ */
+function poll($: EngineInterface, panel: Panel): void {
+  if (!panel.polling) {
+    panel.polling = true;
+    $.clock.every(POLL_MS, () => void tick($, panel));
+  }
+  readNow($, panel);
+}
+
+/** 이 세션에 패널이 열려 있나 — 엔진의 기록이라 다시 로드된 모듈도 이어받은 패널을 안다. */
+async function isOpen($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some((pane) => pane.id === PANE);
+}
+
+/**
+ * 명령을 등록한다 — 한 로드에 한 번(터미널과 앱이 함께 붙어도 하나). 그릴 데가 생겼을 때만 부른다(`session.start`·
+ * `session.attach`). 패널은 저절로 열지 않는다 — `/rocky-board` 로 연다(오너 결정 2026-10-14). 모듈이 다시 로드됐는데
+ * 패널이 열려 있으면 폴링을 켠다.
  */
 async function start($: EngineInterface): Promise<void> {
   if (current !== null) {
@@ -199,8 +239,9 @@ async function start($: EngineInterface): Promise<void> {
     summaryAt: 0,
     lastId: null,
     inFlight: false,
+    again: false,
+    polling: false,
     marked: new Set(),
-    opened: false,
   };
   current = panel;
   await $.command.register({
@@ -208,8 +249,9 @@ async function start($: EngineInterface): Promise<void> {
     description: '이 폴더의 rocky 보드를 패널에 띄운다',
     immediate: true,
   });
-  void tick($, panel);
-  $.clock.every(POLL_MS, () => void tick($, panel));
+  if (await isOpen($).catch(() => false)) {
+    poll($, panel);
+  }
 }
 
 export const register: Register = (on) => {
@@ -231,6 +273,10 @@ export const register: Register = (on) => {
 
   on('command.run', { command: 'rocky-board' }, async ($) => {
     await $.ui.open({ id: PANE, title: TITLE });
+    // 폴링을 켜고(처음이면) 바로 읽는다 — 다음 바퀴(5초)를 기다리지 않게.
+    if (current !== null) {
+      poll($, current);
+    }
     void markUse($);
     return { text: 'rocky 보드 패널을 열었다.' };
   });
@@ -242,6 +288,10 @@ export const register: Register = (on) => {
       void markUse($);
     }
     const v = await read($, view);
+    if (v.at === null && v.error === null) {
+      // 패널을 먼저 열고 읽는다 — 첫 읽기 전에 "보드 없음" 으로 보이지 않게.
+      return <Text dimColor>읽는 중…</Text>;
+    }
     const doing = v.items.filter((i) => i.status === 'doing').length;
     const todo = v.items.length - doing;
 
