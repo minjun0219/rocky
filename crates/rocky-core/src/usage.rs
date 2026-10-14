@@ -161,11 +161,11 @@ pub fn normalize_route(method: &str, path: &str) -> Option<String> {
 
 /// 보드 패널(`plugin/hooks/board-panel`, Claude Code function hooks)이 데몬을 읽을 때 다는 `x-rocky-client`.
 pub const PANEL_CLIENT: &str = "claude-code-panel";
-/// 보드 패널이 떴다(노출) — 패널은 몇 초마다 묻는 폴링이라 요청마다 세지 않고, 세션마다 첫 보드 읽기(`x-rocky-usage: open`)
-/// 하나만 이 이름으로 센다. 설치돼 있는 한 0 이 되지 않는다.
+/// 보드 패널이 보드를 보였다(노출) — 패널은 열려 있는 동안 몇 초마다 묻는 폴링이라 요청마다 세지 않고, 세션마다 첫 보드
+/// 읽기(`x-rocky-usage: open`) 하나만 이 이름으로 센다. 패널은 `/rocky-board` 로만 열린다.
 pub const PANEL_SURFACE: &str = "hook board-panel";
-/// 보드 패널을 사람이 썼다 — `/rocky-board` 실행이나 패널 포커스(`x-rocky-usage: use`), 세션마다 한 번. 노출과 따로 세야
-/// "떠 있기만 했나, 손을 댔나" 를 가를 수 있다.
+/// 보드 패널을 사람이 썼다 — `/rocky-board` 실행이나 패널 포커스(`x-rocky-usage: use`), 세션마다 한 번. 패널이 이 명령으로만
+/// 열려 노출과 거의 같이 움직인다 — 보드가 없는 폴더에서 연 패널은 이것만 남긴다.
 pub const PANEL_USE_SURFACE: &str = "hook board-panel use";
 
 /// REST 요청 하나를 어느 표면으로 셀지 — 보통은 라우트 모양 그대로. 보드 패널의 읽기(GET)는 라우트로 세지 않는다: 폴링이

@@ -1,5 +1,6 @@
 // 엔진 테스트 키트에서 돈다 — `bun run test:panel`(claude CLI 필요, CI 밖). 순수 판정은 data.test.ts(bun, CI).
 import type { On } from 'claude-code';
+import type { Engine } from 'claude-code/testing';
 import { expect, mock, test } from 'claude-code/testing';
 
 const LONG = 'Antigravity 앱·IDE 에서 rocky 번들이 붙는지 확인한다 — 긴 제목은 다음 줄로 내려간다';
@@ -18,10 +19,12 @@ function world(
   on: On,
   opts: {
     board: string | null;
-    openFails?: number;
-    placed?: boolean;
     /** 시작할 때 이미 붙어 있는 표면(`$.session.surfaces()`). */
     surfaces?: ('terminal' | 'desktop' | 'vscode' | 'mobile')[];
+    /** 시작할 때 엔진의 기록(`$.ui.panes()`)에 패널이 이미 열려 있다 — 모듈이 다시 로드된 경우. */
+    paneOpen?: boolean;
+    /** `$.ui.panes()` 가 거절된다. */
+    panesFail?: boolean;
   },
 ) {
   const seen = {
@@ -29,6 +32,8 @@ function world(
     usageMarked: [] as string[],
     clients: new Set<string>(),
     opened: 0,
+    /** `$.ui.panes()` 를 물은 횟수 — 타이머가 도는지 본다. */
+    panes: 0,
     commands: [] as string[],
   };
   /** 데몬 쪽 상태 — 테스트가 바꾸면 다음 폴링이 본다. */
@@ -38,6 +43,8 @@ function world(
     changesStatus: 200,
     collect: 2,
   };
+  /** 엔진의 패널 기록 — `$.ui.open` 이 열고, 테스트가 `closePane` 으로 닫는다(사람이 닫은 것처럼). `late` 면 1초 늦게 답한다. */
+  const pane = { open: opts.paneOpen ?? false, late: false };
   const clock = mock.clock(on);
   on('session.start', (_$, e) => ({ cwd: e.cwd }));
   on('session.attach', (_$, e) => ({ clientId: e.clientId }));
@@ -47,16 +54,34 @@ function world(
     seen.commands.push(e.name);
     return { value: { command: e.name } };
   });
-  let openFails = opts.openFails ?? 0;
   on('ui.open', () => {
     seen.opened += 1;
-    if (openFails > 0) {
-      openFails -= 1;
-      throw new Error('refused');
+    pane.open = true;
+    return { value: { isPlaced: true as const } };
+  });
+  on('ui.panes', async () => {
+    seen.panes += 1;
+    if (opts.panesFail) {
+      throw new Error('panes refused');
     }
-    return opts.placed === false
-      ? { value: { isPlaced: false as const, reason: 'terminal is 100 columns, under 144' } }
-      : { value: { isPlaced: true as const } };
+    // 물은 순간의 기록 — 늦게 답해도 그때 것을 돌려준다.
+    const open = pane.open;
+    if (pane.late) {
+      await clock.sleep(1_000);
+    }
+    return {
+      value: open
+        ? [
+            {
+              id: 'rocky-board',
+              title: 'rocky 보드',
+              isShown: true,
+              isFocused: false,
+              isPlaced: true,
+            },
+          ]
+        : [],
+    };
   });
   on('http.fetch', (_$, e) => {
     const url = new URL(e.url);
@@ -89,54 +114,159 @@ function world(
     daemon.lastId += boards.length;
     daemon.entries = boards.map((boardKey) => ({ boardKey }));
   };
-  return { seen, daemon, clock, touch };
+  /** 사람이 패널을 닫은 것처럼 — 엔진의 기록에서 빠진다. */
+  const closePane = () => {
+    pane.open = false;
+  };
+  /** 이제부터 패널 기록을 1초 늦게 답한다. */
+  const panesLate = () => {
+    pane.late = true;
+  };
+  return { seen, daemon, clock, touch, closePane, panesLate };
 }
 
-test('보드가 있는 폴더면 패널을 열고, 이 보드를 건드린 변화가 있을 때만 할 일을 다시 읽는다', async ($, on) => {
+/** 사람이 `/rocky-board` 를 친다. */
+const openPanel = ($: Engine) =>
+  $.command.run({
+    command: 'rocky-board',
+    args: '',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 120 },
+  });
+
+const sorted = (xs: readonly string[]) => [...xs].sort();
+
+test('세션을 열어도 패널을 저절로 열지 않고 데몬도 묻지 않는다 — 명령만 등록하고 타이머도 켜지 않는다', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky' });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await clock.advance(15_000);
+  expect(seen.commands).toEqual(['rocky-board']);
+  expect(seen.opened).toBe(0);
+  expect(seen.fetched).toEqual([]);
+  // 시작할 때 이어받을 패널이 있는지 한 번 볼 뿐이다.
+  expect(seen.panes).toBe(1);
+});
+
+test('/rocky-board 로 열면 그때부터 읽고, 이 보드를 건드린 변화가 있을 때만 다시 읽는다', async ($, on) => {
   const { seen, clock, touch } = world(on, { board: 'rocky' });
   await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  expect(await openPanel($)).toEqual({ text: 'rocky 보드 패널을 열었다.' });
   await clock.settle();
-  expect(seen.commands).toEqual(['rocky-board']);
   expect(seen.opened).toBe(1);
-  expect(seen.fetched).toEqual(['/api/summary', '/api/changes', '/api/todos']);
-  // 패널의 요청은 모두 사용 로그용 클라이언트를 달고, 사용 표시는 첫 보드 읽기에만.
+  // 첫 읽기(요약·마지막 id·할 일)와 사용 표시(`use`, 가장 가벼운 읽기) — 둘은 나란히 간다.
+  expect(sorted(seen.fetched)).toEqual([
+    '/api/changes',
+    '/api/changes',
+    '/api/summary',
+    '/api/todos',
+  ]);
+  // 패널의 요청은 모두 사용 로그용 클라이언트를 달고, 사용 표시는 세션마다 한 번씩.
   expect([...seen.clients]).toEqual(['claude-code-panel']);
-  expect(seen.usageMarked).toEqual(['/api/todos:open']);
+  expect(sorted(seen.usageMarked)).toEqual(['/api/changes:use', '/api/todos:open']);
 
   // 다음 폴링 — 새 히스토리가 없으면 그것만 묻는다.
+  let at = seen.fetched.length;
   await clock.advance(5_000);
-  expect(seen.fetched.slice(3)).toEqual(['/api/changes']);
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes']);
 
   // 다른 보드만 바뀌었으면 다시 읽지 않는다.
   touch('other', null);
+  at = seen.fetched.length;
   await clock.advance(5_000);
-  expect(seen.fetched.slice(4)).toEqual(['/api/changes']);
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes']);
 
-  // 이 보드가 바뀌면 할 일만 다시 읽는다(요약은 아니다). 사용 표시·패널 열기는 되풀이하지 않는다.
+  // 이 보드가 바뀌면 할 일만 다시 읽는다(요약은 아니다). 사용 표시는 되풀이하지 않는다.
   touch('rocky');
+  at = seen.fetched.length;
   await clock.advance(5_000);
-  expect(seen.fetched.slice(5)).toEqual(['/api/changes', '/api/todos']);
-  expect(seen.usageMarked).toEqual(['/api/todos:open']);
-  expect(seen.opened).toBe(1);
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes', '/api/todos']);
+  expect(sorted(seen.usageMarked)).toEqual(['/api/changes:use', '/api/todos:open']);
 });
 
-test('/rocky-board 를 치거나 패널에 포커스를 주면 사용으로 세션마다 한 번 센다', async ($, on) => {
-  const { seen, clock } = world(on, { board: 'rocky' });
+test('패널을 닫으면 데몬을 묻지 않고, 다시 열면 이어 간다', async ($, on) => {
+  const { seen, clock, closePane } = world(on, { board: 'rocky' });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await openPanel($);
+  await clock.settle();
+  closePane();
+  let at = seen.fetched.length;
+  await clock.advance(15_000);
+  expect(seen.fetched.slice(at)).toEqual([]);
+  // 다시 열면 마지막 id 부터 이어 간다 — 바뀐 게 없으면 히스토리만 묻는다.
+  await openPanel($);
+  await clock.settle();
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes']);
+  at = seen.fetched.length;
+  await clock.advance(5_000);
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes']);
+  expect(seen.opened).toBe(2);
+});
+
+test('닫혔다고 본 바퀴가 도는 중에 다시 열어도 다음 바퀴를 기다리지 않고 읽는다', async ($, on) => {
+  const { seen, clock, closePane, panesLate } = world(on, { board: 'rocky' });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await openPanel($);
+  await clock.settle();
+  closePane();
+  panesLate();
+  // 5초 바퀴가 패널 기록을 묻는다 — 답(닫힘)은 1초 뒤에 온다.
+  await clock.advance(5_000);
+  // 그 사이에 다시 연다 — 도는 바퀴는 닫힘을 보고 돌아서지만, 끝나자마자 한 번 더 돈다.
+  await openPanel($);
+  const at = seen.fetched.length;
+  await clock.advance(2_000);
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes']);
+});
+
+test('패널 기록을 못 읽으면 데몬 탓으로 돌리지 않고 그 사유를 보인다', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky', panesFail: true });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await openPanel($);
+  await clock.settle();
+  // 사용 표시(`use`)만 나가고 보드는 묻지 않는다.
+  expect(seen.fetched).toEqual(['/api/changes']);
+  const ui = await $.ui.mount({
+    plugin: 'rocky',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'rocky-board',
+    props: PANE_PROPS(80),
+    viewport: { columns: 80, rows: 24 },
+  });
+  expect(await ui.find({ text: /패널 상태를 읽지 못했다/ })).toBeDefined();
+  expect(await ui.find({ text: /데몬에 닿지 않는다/ })).toBeUndefined();
+});
+
+test('모듈이 다시 로드됐는데 패널이 열려 있으면 바로 읽는다', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky', paneOpen: true });
   await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
   await clock.settle();
-  const run = () =>
-    $.command.run({
-      command: 'rocky-board',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: { isFullscreen: false, columns: 120 },
-    });
-  expect(await run()).toEqual({ text: 'rocky 보드 패널을 열었다.' });
+  expect(seen.opened).toBe(0);
+  expect(seen.fetched).toEqual(['/api/summary', '/api/changes', '/api/todos']);
+});
+
+test('첫 읽기 전에는 보드가 없다고 하지 않고 읽는 중이라고 보인다', async ($, on) => {
+  const { clock } = world(on, { board: 'rocky' });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
   await clock.settle();
-  expect(seen.opened).toBe(2);
-  expect(seen.usageMarked).toEqual(['/api/todos:open', '/api/changes:use']);
-  // 다시 치거나 포커스를 줘도 더 세지 않는다.
-  await run();
+  const ui = await $.ui.mount({
+    plugin: 'rocky',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'rocky-board',
+    props: PANE_PROPS(80),
+    viewport: { columns: 80, rows: 24 },
+  });
+  expect(await ui.find({ text: '읽는 중…' })).toBeDefined();
+  expect(await ui.find({ text: /보드 없음/ })).toBeUndefined();
+});
+
+test('/rocky-board 를 다시 치거나 패널에 포커스를 줘도 사용은 세션마다 한 번만 센다', async ($, on) => {
+  const { seen, clock } = world(on, { board: 'rocky' });
+  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await openPanel($);
+  await clock.settle();
+  await openPanel($);
   const ui = await $.ui.mount({
     plugin: 'rocky',
     surface: 'terminal',
@@ -147,13 +277,12 @@ test('/rocky-board 를 치거나 패널에 포커스를 주면 사용으로 세�
   });
   await ui.drawn();
   await clock.settle();
-  expect(seen.usageMarked).toEqual(['/api/todos:open', '/api/changes:use']);
+  expect(sorted(seen.usageMarked)).toEqual(['/api/changes:use', '/api/todos:open']);
 });
 
 test('패널에 포커스만 줘도 사용으로 센다', async ($, on) => {
   const { seen, clock } = world(on, { board: 'rocky' });
   await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
-  await clock.settle();
   const ui = await $.ui.mount({
     plugin: 'rocky',
     surface: 'terminal',
@@ -164,12 +293,13 @@ test('패널에 포커스만 줘도 사용으로 센다', async ($, on) => {
   });
   await ui.drawn();
   await clock.settle();
-  expect(seen.usageMarked).toEqual(['/api/todos:open', '/api/changes:use']);
+  expect(seen.usageMarked).toEqual(['/api/changes:use']);
 });
 
 test('수집함 수는 히스토리에 남지 않아 요약을 60초마다 다시 읽는다', async ($, on) => {
   const { seen, daemon, clock } = world(on, { board: 'rocky' });
   await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await openPanel($);
   await clock.settle();
   daemon.collect = 5;
   await clock.advance(60_000);
@@ -188,10 +318,12 @@ test('수집함 수는 히스토리에 남지 않아 요약을 60초마다 다�
 test('히스토리를 못 읽으면 사유만 남기고 할 일을 몇 초마다 통째로 다시 읽지 않는다', async ($, on) => {
   const { seen, daemon, clock } = world(on, { board: 'rocky' });
   await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
+  await openPanel($);
   await clock.settle();
   daemon.changesStatus = 500;
+  const at = seen.fetched.length;
   await clock.advance(15_000);
-  expect(seen.fetched.slice(3)).toEqual(['/api/changes', '/api/changes', '/api/changes']);
+  expect(seen.fetched.slice(at)).toEqual(['/api/changes', '/api/changes', '/api/changes']);
   const ui = await $.ui.mount({
     plugin: 'rocky',
     surface: 'terminal',
@@ -205,33 +337,22 @@ test('히스토리를 못 읽으면 사유만 남기고 할 일을 몇 초마다
   expect(await ui.find({ text: /rocky-45/ })).toBeDefined();
 });
 
-test('좁아서 기다리는 패널은 다시 열지 않는다 — 넓어지면 엔진이 그린다', async ($, on) => {
-  // 좁은 터미널 — 열렸지만 기다린다. 넓어지면 엔진이 그리므로 다시 열 일이 없다.
-  const narrow = world(on, { board: 'rocky', placed: false });
-  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
-  await narrow.clock.settle();
-  await narrow.clock.advance(15_000);
-  expect(narrow.seen.opened).toBe(1);
-});
-
-test('열기가 거절되면 다음 바퀴에 다시 연다', async ($, on) => {
-  const { seen, clock } = world(on, { board: 'rocky', openFails: 1 });
-  await $.session.start({ cwd: '/w/rocky', surface: 'terminal', isInteractive: true });
-  await clock.settle();
-  expect(seen.opened).toBe(1);
-  await clock.advance(5_000);
-  expect(seen.opened).toBe(2);
-  await clock.advance(10_000);
-  expect(seen.opened).toBe(2);
-});
-
-test('보드가 없는 폴더면 패널을 저절로 열지 않는다', async ($, on) => {
+test('보드가 없는 폴더에서 열면 붙은 보드가 없다고 보이고 할 일은 묻지 않는다', async ($, on) => {
   const { seen, clock } = world(on, { board: null });
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true });
+  await openPanel($);
   await clock.settle();
-  expect(seen.opened).toBe(0);
-  expect(seen.fetched).toEqual(['/api/summary', '/api/changes']);
-  expect(seen.usageMarked).toEqual([]);
+  expect(seen.fetched).not.toContain('/api/todos');
+  expect(seen.usageMarked).toEqual(['/api/changes:use']);
+  const ui = await $.ui.mount({
+    plugin: 'rocky',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'rocky-board',
+    props: PANE_PROPS(80),
+    viewport: { columns: 80, rows: 24 },
+  });
+  expect(await ui.find({ text: '이 폴더에 붙은 보드가 없다.' })).toBeDefined();
 });
 
 test('아무 표면도 없는 실행(-p)에서는 아무것도 하지 않는다', async ($, on) => {
@@ -242,28 +363,28 @@ test('아무 표면도 없는 실행(-p)에서는 아무것도 하지 않는다'
   expect(seen.fetched).toEqual([]);
 });
 
-test('원격 제어처럼 SDK 로 시작한 세션은 앱이 붙을 때 시작한다 — 여러 번 붙어도 한 번', async ($, on) => {
+test('원격 제어처럼 SDK 로 시작한 세션은 앱이 붙을 때 명령을 등록한다 — 여러 번 붙어도 한 번', async ($, on) => {
   const { seen, clock } = world(on, { board: 'rocky' });
   await $.session.start({ cwd: '/w/rocky', surface: null, isInteractive: false });
   await clock.advance(10_000);
-  expect(seen.fetched).toEqual([]);
+  expect(seen.commands).toEqual([]);
   await $.session.attach({ surface: 'desktop', clientId: 'app-1' });
   await clock.settle();
   expect(seen.commands).toEqual(['rocky-board']);
-  expect(seen.fetched).toEqual(['/api/summary', '/api/changes', '/api/todos']);
-  expect(seen.opened).toBe(1);
   await $.session.attach({ surface: 'mobile', clientId: 'phone-1' });
   await clock.settle();
   expect(seen.commands).toEqual(['rocky-board']);
-  expect(seen.opened).toBe(1);
+  // 여기서도 저절로 열거나 묻지 않는다.
+  expect(seen.opened).toBe(0);
+  expect(seen.fetched).toEqual([]);
 });
 
-test('시작할 때 이미 붙은 원격 표면이 있으면 바로 시작한다', async ($, on) => {
+test('시작할 때 이미 붙은 원격 표면이 있으면 바로 명령을 등록한다', async ($, on) => {
   const { seen, clock } = world(on, { board: 'rocky', surfaces: ['desktop'] });
   await $.session.start({ cwd: '/w/rocky', surface: null, isInteractive: false });
   await clock.settle();
   expect(seen.commands).toEqual(['rocky-board']);
-  expect(seen.opened).toBe(1);
+  expect(seen.opened).toBe(0);
 });
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -271,6 +392,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     test(`${surface} ${columns}칸 — 끝낸 것은 빼고, 제목은 자르지 않고 줄을 바꿔 그린다`, async ($, on) => {
       const { clock } = world(on, { board: 'rocky' });
       await $.session.start({ cwd: '/w/rocky', surface, isInteractive: true });
+      await openPanel($);
       await clock.settle();
       const ui = await $.ui.mount({
         plugin: 'rocky',
