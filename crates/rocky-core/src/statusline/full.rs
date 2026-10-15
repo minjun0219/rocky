@@ -78,9 +78,17 @@ impl Style {
         }
     }
 
-    /// ctx 색 — 한도와 다른 축(파랑). 차오를수록 밝아지되 뒤로 몰아서 밝아진다.
+    /// ctx 색 — 한도와 다른 축(파랑). 차오를수록 밝아지되 뒤로 몰아서 밝아지고, 자동 압축이 다가오면(`CTX_ALERT_AT`)
+    /// 굵은 금색으로 바뀐다 — 파랑이 밝아지는 것만으로는 눈에 띄지 않는다.
     fn ctx_color(&self, p: f64) -> String {
         let p = p.clamp(0.0, 100.0);
+        // 그리는 숫자(반올림)로 견준다 — `90%` 로 보이는데 파랑이면 안 된다.
+        if p.round() >= CTX_ALERT_AT {
+            return match self.rgb(CTX_ALERT_RGB) {
+                Some(c) => format!("{BOLD}{c}"),
+                None => CTX_ALERT.to_string(),
+            };
+        }
         let t = (p / 100.0).powf(CTX_CURVE);
         let rgb = (
             (75.0 + 45.0 * t) as i32,
@@ -91,7 +99,6 @@ impl Style {
             return c;
         }
         match p {
-            p if p >= CTX_HIGH_AT => CTX_HIGH,
             p if p >= CTX_MID_AT => CTX_MID,
             _ => CTX_LOW,
         }
@@ -106,7 +113,8 @@ const CYAN: &str = "\x1b[36m";
 const BLUE: &str = "\x1b[1;34m";
 const CTX_LOW: &str = "\x1b[34m";
 const CTX_MID: &str = "\x1b[94m";
-const CTX_HIGH: &str = "\x1b[96m";
+const CTX_ALERT: &str = "\x1b[1;93m";
+const CTX_ALERT_RGB: (i32, i32, i32) = (255, 215, 0);
 const MAGENTA: &str = "\x1b[1;35m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
@@ -118,7 +126,9 @@ const RIGHT_MARGIN: usize = 40;
 
 const CTX_CURVE: f64 = 2.2;
 const CTX_MID_AT: f64 = 80.0;
-const CTX_HIGH_AT: f64 = 95.0;
+/// ctx 를 강조하는 사용률. 1M 창의 자동 압축은 97% 언저리에서 일어난다(실측 967k~974k 토큰) — 그 전에 눈에 띄게.
+/// 200k 창은 83% 언저리에서 압축돼 이 색까지 가지 않는다.
+const CTX_ALERT_AT: f64 = 90.0;
 
 /// 7d 세그먼트가 나타나는 사용률 — 색이 노래지기 시작하는 지점과 같다.
 const SEVEN_DAY_SHOW_AT: f64 = 70.0;
@@ -626,5 +636,44 @@ mod tests {
         }
         assert_eq!(money("$", 100.0), "$100.00");
         assert_eq!(money("$", -3.0), "$0.00");
+    }
+
+    #[test]
+    fn ctx_turns_bold_gold_from_the_shown_90() {
+        let paths = [
+            (
+                Style {
+                    color: true,
+                    ..Default::default()
+                },
+                "\x1b[1;93m",
+            ),
+            (
+                Style {
+                    color: true,
+                    color256: true,
+                    ..Default::default()
+                },
+                "\x1b[1m\x1b[38;5;220m",
+            ),
+            (
+                Style {
+                    color: true,
+                    true_color: true,
+                    ..Default::default()
+                },
+                "\x1b[1m\x1b[38;2;255;215;0m",
+            ),
+        ];
+        for (s, want) in paths {
+            // 89.5 는 `90%` 로 그려진다 — 보이는 숫자와 색이 같이 바뀌어야 한다.
+            assert_eq!(format!("{:.0}%", 89.5), "90%");
+            for p in [89.5, 90.0, 97.0, 100.0, 140.0] {
+                assert_eq!(s.ctx_color(p), want, "ctx {p} · {s:?}");
+            }
+            for p in [0.0, 41.0, 85.0, 89.4] {
+                assert_ne!(s.ctx_color(p), want, "ctx {p} 는 아직 파랑 · {s:?}");
+            }
+        }
     }
 }

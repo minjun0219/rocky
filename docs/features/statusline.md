@@ -71,6 +71,11 @@
   그 시각(`state.json` 의 `credits_spending_at`)부터 3초에 걸쳐 원래 색으로 — 다시 안 쓰면 바로 옅게. 색을 섞을 수 없는 터미널은
   회색 ↔ 원래 색. 끄면(`creditFade: false`) 늘 원래 색.
 
+- **ctx 는 그리는 숫자가 90% 이상이면 굵은 금색이다**(`CTX_ALERT_AT`, 16색 터미널은 `1;93`). 그 아래는 차오를수록 밝아지는 파랑
+  한 축(한도의 초록 → 빨강과 다른 축)이다. 견주는 값은 반올림한 숫자다 — 89.5 는 `90%` 로 그려지니 금색이다. 기준은 1M 창의
+  자동 압축(97% 언저리, 실측 967k~974k 토큰)보다 앞서 눈에 띄게 잡았다. 200k 창은 83% 언저리에서 압축돼 금색까지 가지 않는다.
+  고정하는 테스트는 `full.rs` 의 `ctx_turns_bold_gold_from_the_shown_90` 와 골든 `ctx-near`·`ctx-near-256`·`truecolor`.
+
 - **`source` 는 그 실행에서만 덮을 수 있다** — 설정 < `ROCKY_STATUSLINE_SOURCE` < `--source`(`limits::override_source`). 모르는
   환경 변수 값은 무시, 모르는 플래그 값은 `[rocky] --source "…": …` 한 줄만 낸다. 갱신 자식에게는 **같은 환경 변수로** 넘긴다
   (`statusline_refresh::spawn_detached`) — 안 넘기면 자식이 설정·물려받은 값으로 다시 판단해 부모와 다른 모드로 돈다.
