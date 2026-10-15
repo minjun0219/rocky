@@ -196,9 +196,13 @@ pub struct ServerState {
     /// "보내지 않기" 를 켠 세션 — PR·수집함 알림을 이 세션에는 보내지 않는다. 메모리에만(데몬을 다시
     /// 띄우면 풀린다 — 세션은 오래 살지 않는다).
     muted: Mutex<std::collections::HashSet<String>>,
+    /// 보드 행이 바뀔 때마다 오르는 값 — 싱크 소켓(`ws::serve_socket`)이 이걸 보고 깨어나 바뀐 행을 읽는다. 값 자체는
+    /// 뜻이 없고 바뀌었다는 신호만 쓴다. 방송 채널이 아니라서 밀린 소켓도 다음에 한꺼번에 읽는다.
+    pub(crate) sync_rows: Arc<tokio::sync::watch::Sender<u64>>,
     /// 스토어 구독 해제용.
     _subscription: u64,
     _doc_subscription: u64,
+    _rows_subscription: u64,
 }
 
 impl ServerState {
@@ -494,6 +498,12 @@ const LEGACY_REVIEW_FIX_KEY: &str = "autoResolve";
 
 /// 서버 상태를 만든다 — 스토어 change 이벤트를 SSE 브로드캐스트로 잇는다.
 pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
+    // 보드 행 변경 신호 — 스토어의 `update_hook` 이 쓰기 도중에 부르므로 값만 올리고 바로 돌아온다.
+    let sync_rows = Arc::new(tokio::sync::watch::channel(0u64).0);
+    let rows_signal = sync_rows.clone();
+    let rows_subscription = options.store.subscribe_rows(move || {
+        rows_signal.send_modify(|version| *version = version.wrapping_add(1));
+    });
     let (events, _) = broadcast::channel::<String>(256);
     let sender = events.clone();
     let subscription = options.store.subscribe(move |event| {
@@ -622,8 +632,10 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         inboxes: Mutex::new(inboxes),
         deliveries: Mutex::new(deliveries.into()),
         muted: Mutex::new(std::collections::HashSet::new()),
+        sync_rows,
         _subscription: subscription,
         _doc_subscription: doc_subscription,
+        _rows_subscription: rows_subscription,
     });
     // 문서 이벤트 리스너는 상태를 약하게 잡는다 — 강하게 잡으면 서로를 물고 영영 안 죽는다.
     if let Ok(mut slot) = doc_state.lock() {

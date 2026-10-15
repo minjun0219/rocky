@@ -13,7 +13,8 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-rusqlite = { version = "0.34", features = ["bundled"] }
+# `hooks`: 보드 행이 바뀌면 싱크 소켓을 깨우는 `update_hook`(rocky_core::store) — 새 크레이트가 아니라 rusqlite 의 기능이다.
+rusqlite = { version = "0.34", features = ["bundled", "hooks"] }
 serde = { version = "1", features = ["derive"] }
 # `preserve_order`: Value 가 키를 정렬하지 않고 파싱 순서를 유지한다. CLI 의 `--json`
 # 이 서버가 낸 필드 순서를 그대로 내보내야 TS 판과 출력이 같다(정렬하면 달라진다).
