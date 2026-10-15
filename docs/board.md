@@ -12,7 +12,7 @@ rocky 플러그인의 본체다 — 옛 별도 레포 `rocky-todo`를 2026-09에
 ```
 
 - 계층(todo/subtask) + 섹션 + 보드(프로젝트) 단위, 우선순위(p1–p4)/라벨/마감일/링크 첨부.
-- 처리중 표시: `start` 하면 `show`·statusline에 actor + 경과가 붙는다. 그 작업을 든 세션이
+- 처리중 표시: `start` 하면 `show`에 actor + 경과가 붙는다. 그 작업을 든 세션이
   사라졌으면 "세션 없음", 살아 있는데 턴이 끝났고 완료 처리가 없으면 "멈춤" 으로 바뀐다
   (세션을 대조할 수 없을 때만 경과 30분 기준 "오래됨").
 - 죽은 세션이 든 진행중은 저절로 풀린다: 에이전트가 `start`만 하고 세션이 사라진 채 24시간이
@@ -358,9 +358,9 @@ rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 채널(`claude --dangerously-load-development-channels plugin:rocky@rocky-marketplace`)도 아직 남아 있다 —
 받은편지함이 실제로 자리 잡으면 걷는다.
 
-## 요약 — `rocky today` · 세션 시작 요약 · statusline
+## 요약 — `rocky today` · 세션 시작 요약
 
-"지금 뭐 봐야 하나" 를 몇 줄로. 셋이 같은 판정(`rocky_core::summary`)을 쓴다.
+"지금 뭐 봐야 하나" 를 몇 줄로. 둘이 같은 판정(`rocky_core::summary`)을 쓴다.
 
 - **`rocky today [--json]`** — 첫 줄에 개수(마감 지남 · 오늘 마감 · 진행중 · 핸드오프 대기 · 수집함
   미올림), 그 아래 보드 항목 최대 4개(지난 마감 → 오늘 마감 → 진행중 순), 그 아래 **미올림 수집함 항목**
@@ -376,12 +376,7 @@ rocky board review-fix on    # 이 레포의 보드 — 끄려면 off
 - **"미올림" 판정** — 수집함 항목의 url이 **어느 보드의 todo 링크에든**(보관된 todo 포함) 있으면 올라간
   것이다. 데몬이 `GET /api/inbox` 응답의 항목마다 `promoted`로 채우고, 요약·웹·`rocky inbox`가 같은
   값을 본다 — 한 보드에 올린 항목이 다른 레포 세션에서 계속 미올림으로 뜨지 않는다.
-- **statusline** — 템플릿 변수 `{due}`(오늘·지난 마감 미완료 수)와 `{collect}`(수집함 미올림 수)
-  추가. 기본 템플릿에 `[  ⏰ {due}][  📥 {collect}]`로 들어 있고, 사용자 템플릿에는 직접 넣는다.
-  수집함은 **기다리지 않는 조회**(`GET /api/inbox?cached=true`) — 캐시된 것만 쓰고, 없거나 만료됐으면
-  뒤에서 갱신을 시작한다. 그래서 첫 줄에는 비어 있다가 다음 틱부터 채워지고, 보고 있는 동안 60초
-  주기로 새로워진다. 1초마다 도는 자리라 어댑터를 기다리면 안 된다.
-- `GET /api/summary?cwd=&cached=true` — 위 셋이 쓰는 JSON. `cached=true` 면 수집함을 기다리지 않고,
+- `GET /api/summary?cwd=&cached=true` — 위 둘이 쓰는 JSON. `cached=true` 면 수집함을 기다리지 않고,
   캐시가 없으면 `collect`를 생략한다(모름 ≠ 0).
 
 ## MCP 도구 (에이전트)
@@ -481,8 +476,8 @@ GitHub 링크 · 레포 경로), 오른쪽 `편집`으로 그 자리에서 고�
   어긋나게 두면 잃는 게 하나 있다: 세션 ↔ 보드 자동 매칭은 세션 cwd의 경로 세그먼트에
   key가 나타나는지로 판정하므로(핸드오프 대상 고르기, 방치된 doing 판정) 디렉터리 이름과
   다른 key는 후보를 못 찾는다 — 기능이 죽지는 않고 사람이 대상을 직접 고르게 된다.
-  statusline의 보드 판정은 다르다 — `boards.path`를 먼저 보므로 경로만 설정돼 있으면
-  이름이 어긋나도 정확하다.
+  cwd 로 보드를 고르는 쪽(`board_key_for_cwd` — 세션 목록·rocky 채널·훅)은 다르다 — `boards.path`를 먼저
+  보므로 경로만 설정돼 있으면 이름이 어긋나도 정확하다.
 - `rocky board show`가 옛 이름(`previousKeys`)을 함께 보여준다 — 그 참조가 아직
   살아 있다는 걸 아는 자리다.
 
@@ -957,7 +952,7 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 노출·수집함·statusline 연결·보드 ↔ 레포 경로를 한 번에 점검해 `다음 할 일`을 내고(`--json`),
 `rocky config init`이 기본 파일(expose off · sessionSummary on)을 없을 때만 만든다. Claude Code
 에서는 `/rocky:config`가 그 결과를 보고 빠진 항목을 하나씩 물어 채운다(`/rocky:config expose off`
-처럼 값 변경도). `settings.json`의 statusLine은 덮어쓰지 않는다 — 조각을 붙일지 묻는다.
+처럼 값 변경도). `settings.json`의 statusLine은 덮어쓰지 않는다 — 넣을 조각을 보여 준다.
 `rocky doctor`는 같은 점검에 실행 상태를 더한다 — `/api/health`(DB 무결성·PR 감시 `available`·`lastTick` 15분),
 `/api/verify`(실패한 대상), `/api/deliveries`(24시간 안 실패·끝난 세션 수), `/api/rc/servers`(자격·꺼진 고정 서버). 판정은
 `rocky_core::doctor`, 데몬이 꺼져 있으면 띄우지 않고 "닿지 못함" 으로 남긴다.
@@ -969,151 +964,90 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 | `ROCKY_TODO_ACTOR` | CLI actor 이름 강제 |
 | `ROCKY_TODO_WATCH` | 보드 변경 주입 훅 on/off (기본 on) |
 | `ROCKY_TODO_EXPOSE` | 노출 채널 강제 (`lan,tailscale-serve` / `off`) — 설정 시 config 무시 |
-| `ROCKY_TODO_STATUSLINE` | statusline 템플릿 강제 (아래 "statusline에 얹기") |
 | `ROCKY_CONFIG` | user rocky.json 경로 override (기본 `~/.config/rocky/rocky.json`) |
 | `ROCKY_TODO_UI_DIST` | 데몬이 `/`에 서빙할 정적 디렉터리(선택 — 기본 없음. 웹 UI를 다시 붙일 때 쓴다) |
 
-## statusline에 얹기
+## statusline
 
-보드를 보려고 브라우저 창이나 터미널 pane을 따로 띄우는 대신, 이미 떠 있는 Claude Code
-statusline에 세그먼트 하나로 붙인다. **보여줄 게 없으면 아무것도 출력하지 않는다.**
+**`rocky statusline`** 이 Claude Code statusline 전체를 그린다 — 경로·git 줄, 모델·effort·ctx·5h/7d 줄, 한도가 소진되면
+크레딧 줄. CLI 가 직접 그리고 데몬에 묻지 않으므로 데몬이 없어도 줄은 그대로다. 사용 로그를 남기지 않는다 — 1초마다 ×
+세션 수만큼 도는 자리다. 예전 설정의 `--full` 은 그대로 받는다. 데몬이 그리던 보드 줄(`GET /api/statusline`·`todo.statusline`
+템플릿·`statusline.board`)은 걷었다 — 보드는 세션 옆 패널(`/rocky-board`)이나 웹 UI 에서 본다. 보드 줄을 끼우던 옛 꼴
+(`rocky statusline --cwd … --session …`)과 `extraCommands` 안에서 불린 `rocky statusline` 은 아무것도 그리지 않는다. statusline
+스크립트 안에서 `rocky statusline` 을 끼워 부르면 줄 전체가 한 번 더 나오니, statusLine 을 바로 `rocky statusline` 으로 건다.
 
-`GET /api/statusline?cwd=<경로>&session=<세션 id>`가 완성된 한 줄을 `text/plain`으로
-돌려준다 — 렌더까지 데몬이 한다. 끼워 넣는 쪽은 **`rocky statusline`**을 부르면 된다: 포트는 `rocky.json`
-에서, 인코딩·300ms 제한·실패 숨기기(데몬 없음·라우트 없는 구버전의 404)는 명령이 한다. 보여줄 게 없거나
-실패하면 아무것도 출력하지 않고 성공으로 끝난다(statusline이 보드 때문에 깨지지 않는다). 사용 로그를 남기지
-않고 데몬을 띄우지도 않는다 — 1초마다 × 세션 수만큼 도는 자리다.
+출력은 골든
+`crates/rocky-core/tests/fixtures/statusline-full/` 이 고정한다. 한도 설정은 `rocky.json`
+최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
+세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
+300ms, stdin 은 넘기지 않는다)로 그 아래에 설정 순서대로 붙는다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
+읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 한도가
+임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
+표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
+페이드한다 — `creditFade: false` 로 끄면 늘 원래 색이다. `statusline.dirLink` 에 링크 템플릿을
+주면(예: `"vscode://file{{cwd}}"`, `{{cwd}}` 는 퍼센트 인코딩한 경로) 경로 줄의 경로를 Cmd+클릭으로 편집기에서 연다 — 경로
+앞부분은 세션을 띄운 프로젝트를, 하위 경로는 지금 폴더를 열고, 프로젝트 밖으로 나가면 줄 끝에 `↗ 이름` 버튼을 단다(OSC 8, 기본 없음).
+cc-usage 에서 옮겨 온 설계(기록)는 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
 
-- **다른 statusline 도구의 덧붙이는 명령**(예: 옛 cc-usage `extra_commands`) — `{{cwd}}`·`{{session_id}}`를 채워 준다:
+`--source auto|stdin|api|none` 은 설정의 `source` 를 이 실행에서만 바꾼다(환경 변수 `ROCKY_STATUSLINE_SOURCE` 도 같고
+플래그가 이긴다). `none` 은 토큰·API·캐시를 일절 보지 않고 경로 줄과 모델 · ctx 만 그린다(`extraCommands` 는 그대로
+붙는다).
 
-  ```json
-  { "command": ["rocky", "statusline", "--cwd", "{{cwd}}", "--session", "{{session_id}}"], "timeout_ms": 500 }
-  ```
+**Antigravity(`agy`)에서도 같은 명령을 건다** — stdin 의 `product: "antigravity"` 로 알아본다. 이때는 `source` 와 무관하게
+Claude 쪽 토큰·API·캐시·계정 배지를 보지 않고(같은 머신 Claude 세션의 5h/7d 가 섞이지 않게), 한도는 agy 가 주는 `quota`
+로 그린다 — 모델이 Gemini 면 `gemini-5h`/`gemini-weekly`, 그 밖이면 `3p-5h`/`3p-weekly`. 경보는 깜빡이지 않고 배지로
+고정된다(경보 시각을 적을 캐시를 쓰지 않는다). agy 안에서 `/statusline rocky statusline`, 또는
+`~/.gemini/antigravity-cli/settings.json` 에 `"statusLine": { "type": "command", "command": "rocky statusline" }`.
+`{{session_id}}` 에는 agy 의 세션 id 가 들어간다.
 
-- **`settings.json`의 `statusLine.command` 나 statusline 스크립트** — 인자 없이 부르면 Claude Code가 주는
-  stdin JSON(`workspace.current_dir`·`session_id`)을 읽는다:
-
-  ```sh
-  printf '%s' "$input" | rocky statusline
-  ```
-
-- **`rocky statusline --full`** — statusline 전체를 그린다: 경로·git 줄, 모델·effort·ctx·5h/7d
-  줄, 한도가 소진되면 크레딧 줄, `statusline.board: true` 면 그 아래 보드 줄(기본 끔). 앞의 줄들은 CLI 가 직접 그리므로 데몬이 없어도 남는다. 출력은 골든
-  `crates/rocky-core/tests/fixtures/statusline-full/` 이 고정한다. 한도 설정은 `rocky.json`
-  최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
-  세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
-  300ms)로 그 아래에 설정 순서대로 붙고, 보드 줄(켰을 때)은 맨 아래다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
-  읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. 한도가
-  임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
-  표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
-  페이드한다 — `creditFade: false` 로 끄면 늘 원래 색이다. `statusline.dirLink` 에 링크 템플릿을
-  주면(예: `"vscode://file{{cwd}}"`, `{{cwd}}` 는 퍼센트 인코딩한 경로) 경로 줄의 경로를 Cmd+클릭으로 편집기에서 연다 — 경로
-  앞부분은 세션을 띄운 프로젝트를, 하위 경로는 지금 폴더를 열고, 프로젝트 밖으로 나가면 줄 끝에 `↗ 이름` 버튼을 단다(OSC 8, 기본 없음).
-  cc-usage 에서 옮겨 온 설계(기록)는 `docs/design/specs/2026-10-05-cc-usage-mirror-design.md`.
-
-  `--source auto|stdin|api|none` 은 설정의 `source` 를 이 실행에서만 바꾼다(환경 변수 `ROCKY_STATUSLINE_SOURCE` 도 같고
-  플래그가 이긴다). `none` 은 토큰·API·캐시를 일절 보지 않고 경로 줄과 모델 · ctx 만 그린다(`extraCommands` 와 켜 둔 보드 줄은
-  그대로 붙는다).
-
-  **Antigravity(`agy`)에서도 같은 명령을 건다** — stdin 의 `product: "antigravity"` 로 알아본다. 이때는 `source` 와 무관하게
-  Claude 쪽 토큰·API·캐시·계정 배지를 보지 않고(같은 머신 Claude 세션의 5h/7d 가 섞이지 않게), 한도는 agy 가 주는 `quota`
-  로 그린다 — 모델이 Gemini 면 `gemini-5h`/`gemini-weekly`, 그 밖이면 `3p-5h`/`3p-weekly`. 경보는 깜빡이지 않고 배지로
-  고정된다(경보 시각을 적을 캐시를 쓰지 않는다). agy 안에서 `/statusline rocky statusline --full`, 또는
-  `~/.gemini/antigravity-cli/settings.json` 에 `"statusLine": { "type": "command", "command": "rocky statusline --full" }`.
-  `{{session_id}}` 에는 agy 의 세션 id 가 들어간다.
-
-  **크레딧 guard** — 한도가 소진돼 크레딧이 차감되기 시작하면 prompt 를 막는다. 원할 때만 켠다: `rocky.json` 의
-  `statusline.guard: true` 와 `~/.claude/settings.json` 의 `hooks.UserPromptSubmit` 에 항목 하나(기존 훅은 지우지 않는다).
-
-  ```json
-  { "hooks": [ { "type": "command", "command": "rocky statusline guard" } ] }
-  ```
-
-  막으면 exit 2 로 끝나 Claude Code 가 prompt 를 버리고 이유를 보인다 — 한도가 소진됐는데 크레딧이 꺼졌다고 확인되지 않았을 때,
-  그리고 최근 15분 안에 크레딧이 늘었을 때. 크레딧이 켜졌는지는 usage 응답이 있으면 그것으로, 없으면(`stdin` 은 한도 전까지
-  API 를 부르지 않는다) 계정 파일의 `hasExtraUsageEnabled` 로 본다. 설정 오류·데이터 없음·`source: none` 에서는 막지 않는다
-  (fail-open). 설정 파일의 `source` 만 보고 `ROCKY_STATUSLINE_SOURCE` 는 보지 않는다. 풀려면 터미널에서
-  `rocky statusline allow 30m`(기간은 `2h` · `1h30m` 꼴, `off` 면 다시 켬) — 허용은 계정과 상관없이 하나라 막힌 세션과 다른
-  환경의 터미널에서 불러도 풀린다.
-
-  **줄이 안 나오면** — statusline 은 실패를 조용히 삼키므로 이유는 진단 명령에서 본다.
-  `rocky statusline doctor [--session ID]` 는 읽는 설정 파일·`source`·이 터미널의 설정 폴더와 로그인된 계정·keychain 항목
-  (macOS 면 `Claude Code` 로 시작하는 후보 전부)·credentials 파일·캐시 폴더·guard·크레딧 상태·토큰을 찍고, `extraCommands` 를
-  statusline 과 같은 경로로 돌려 항목마다 결과(ok · 출력 없음 · 건너뜀 · 미설치 · 타임아웃 · 비정상 종료)를 보인 뒤 캐시
-  (`state`·`usage`·`allow`)를 덤프한다. `{{session_id}}` 를 쓰는 명령은 `--session` 을 주지 않으면 건너뛴다고 나온다.
-  `rocky statusline probe` 는 usage API 원본 응답을 들여 써서 보인다(필드 확인용 — 캐시는 쓰지 않는다). keychain 후보에서
-  이름을 골라 `keychainService` 에 적을 때는 **사람이 고른다** — 틀린 항목이면 다른 계정의 숫자를 그린다.
-
-  계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
-  로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. keychain 은 Claude Code 의 이름
-  규칙대로 찾는다 — `CLAUDE_CONFIG_DIR` 로 띄운 세션은 `Claude Code-credentials-<sha256(그 값) 앞 8자리>`, 없이 띄운 세션은
-  `Claude Code-credentials`(이름이 폴더마다 갈려 다른 계정의 토큰을 집지 않는다). keychain 토큰이 만료됐으면 유효한
-  `<그 폴더>/.credentials.json` 이 이긴다 — launchd 아래 등에서 띄운 세션은 파일에 쓰고 keychain 항목은 낡은 채 남는다.
-  `keychainService` · `credentialsFile` 은 `configDir`(없으면 `~/.claude`)의 세션에만 쓰인다 — `rocky.json` 하나를 모든 세션이
-  같이 쓰므로, 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰으로 남의 숫자를 그린다.
-
-  cc-usage 의 `extra_commands` 를 그대로 옮기면 된다(키만 `timeout_ms` → `timeoutMs`). rocky 보드 줄을 붙이던 `curl`
-  항목은 빼고 `statusline.board: true` 로 켠다 — `--full` 이 직접 붙인다.
-
-  `~/.config/rocky/rocky.json`:
-
-  ```json
-  "statusline": {
-    "source": "stdin",
-    "extraCommands": [{ "command": ["harness-lm", "line", "-s", "{{session_id}}"] }]
-  }
-  ```
-
-  `~/.claude/settings.json`:
-
-  ```json
-  "statusLine": { "type": "command", "command": "rocky statusline --full" }
-  ```
-
-`rocky`가 PATH에 없는 환경이면 `~/.local/share/rocky/current/rocky`를 쓴다. `curl`로 라우트를 직접 불러도
-되지만(`curl -sf --max-time 0.3 --get --data-urlencode cwd=… …/api/statusline`), 그때는 `-f`를 빼지 않는다.
-
-**환경 전제 셋** — 새 머신에 붙일 때 걸리는 것들이다:
-
-- **Claude Code 전용.** `statusLine` 자체가 Claude Code 기능이고, 기본 템플릿이 쓰는
-  `{mine.*}`/`{inbox}`/`{stale}`은 세션 판정(`claude agents --json`)에 의존한다 —
-  opencode/Codex 에서는 전부 비어 `{doing}`만 남는다.
-- **포트를 바꿔 썼으면** (`todo.port`) URL의 포트도 같이 바꾼다. 안 그러면 조용히 무출력이다.
-- **`jq`가 필요하다.** statusline 입력은 stdin JSON이라 파서 없이는 값을 못 꺼낸다.
-
-배선은 머신마다 수동이다 — 플러그인은 사용자의 statusline 스크립트를 건드리지 않는다.
-
-### 템플릿
-
-`rocky.json`의 `todo.statusline.template`로 바꾼다. 기본값:
-
-```
-[⏺ {mine.ref} {mine.title}][ 💬 {mine.comments}][  🤝 {inbox}][  ✅ {pr.ready}][  ⛔ {pr.conflict}][  ⚠ {stale}][  ⏰ {due}][  📥 {collect}]
-```
-
-문법은 둘뿐이다.
-
-- `{name}` — 값으로 치환. 모르는 이름은 그대로 남는다(오타가 눈에 보이라고).
-- `[...]` — 옵셔널 그룹. 안의 placeholder가 **전부** 비면 그룹이 통째로 사라진다.
-  숫자 `0`은 "빈 값"이다. placeholder가 없는 그룹은 순수 장식이라 늘 남는다.
-
-| placeholder | 뜻 |
-| --- | --- |
-| `{mine.ref}` / `{mine.title}` | **이 세션이** `doing`으로 잡은 항목 (제목은 30자에서 절단) |
-| `{mine.comments}` | 그 항목의 댓글 수 — 사람이 댓글을 달면 다음 갱신에 숫자가 올라간다 |
-| `{inbox}` | 이 세션 앞으로 대기 중인 **핸드오프** 수 — 이름과 달리 받은편지함 메시지 수가 아니다(데몬은 메시지를 큐에 두지 않고 세션 소켓에 바로 쓴다) |
-| `{pr.ready}` | 이 세션이 구독한(`rocky pr subscribe`) 열린 PR 중 머지 후보 수 — 데몬 PR 감시의 판정 |
-| `{pr.conflict}` | 같은 PR 중 충돌(`mergeStateStatus` DIRTY) 수 |
-| `{due}` / `{collect}` | 이 보드의 오늘·지난 마감 미완료 수 / 수집함 미올림 수 |
-| `{stale}` | 이 보드에서 방치된 `doing` 수 (세션이 사라졌거나 턴이 끝났는데 완료가 없다) |
-| `{doing}` | 이 보드의 전체 `doing` 수 |
-
-`{mine.*}`은 세션 귀속(`doing_session_id`)이 있는 작업에만 붙는다 — 핸드오프로 시작했거나, 세션이 MCP
-`todo_status` 로 스스로 `start` 한 것(PostToolUse 훅이 귀속). 사람이 웹·CLI 로 누른 start 와 셸의 `rocky start` 는 없다. 보드 판정은 `cwd`로 하며 워크트리도 원본 보드로 모인다.
-
-색을 넣으려면 템플릿에 ANSI 이스케이프를 직접 쓴다(JSON 문자열이라 `\u001b`가 그대로
-들어간다). 이스케이프 안의 `[`는 그룹 문법으로 읽지 않는다:
+**크레딧 guard** — 한도가 소진돼 크레딧이 차감되기 시작하면 prompt 를 막는다. 원할 때만 켠다: `rocky.json` 의
+`statusline.guard: true` 와 `~/.claude/settings.json` 의 `hooks.UserPromptSubmit` 에 항목 하나(기존 훅은 지우지 않는다).
 
 ```json
-{ "todo": { "statusline": { "template": "[\u001b[33m⏺ {mine.ref}\u001b[0m {mine.title}][  ⚠ {stale}]" } } }
+{ "hooks": [ { "type": "command", "command": "rocky statusline guard" } ] }
 ```
+
+막으면 exit 2 로 끝나 Claude Code 가 prompt 를 버리고 이유를 보인다 — 한도가 소진됐는데 크레딧이 꺼졌다고 확인되지 않았을 때,
+그리고 최근 15분 안에 크레딧이 늘었을 때. 크레딧이 켜졌는지는 usage 응답이 있으면 그것으로, 없으면(`stdin` 은 한도 전까지
+API 를 부르지 않는다) 계정 파일의 `hasExtraUsageEnabled` 로 본다. 설정 오류·데이터 없음·`source: none` 에서는 막지 않는다
+(fail-open). 설정 파일의 `source` 만 보고 `ROCKY_STATUSLINE_SOURCE` 는 보지 않는다. 풀려면 터미널에서
+`rocky statusline allow 30m`(기간은 `2h` · `1h30m` 꼴, `off` 면 다시 켬) — 허용은 계정과 상관없이 하나라 막힌 세션과 다른
+환경의 터미널에서 불러도 풀린다.
+
+**줄이 안 나오면** — statusline 은 실패를 조용히 삼키므로 이유는 진단 명령에서 본다.
+`rocky statusline doctor [--session ID]` 는 읽는 설정 파일·`source`·이 터미널의 설정 폴더와 로그인된 계정·keychain 항목
+(macOS 면 `Claude Code` 로 시작하는 후보 전부)·credentials 파일·캐시 폴더·guard·크레딧 상태·토큰을 찍고, `extraCommands` 를
+statusline 과 같은 경로로 돌려 항목마다 결과(ok · 출력 없음 · 건너뜀 · 미설치 · 타임아웃 · 비정상 종료)를 보인 뒤 캐시
+(`state`·`usage`·`allow`)를 덤프한다. `{{session_id}}` 를 쓰는 명령은 `--session` 을 주지 않으면 건너뛴다고 나온다.
+`rocky statusline probe` 는 usage API 원본 응답을 들여 써서 보인다(필드 확인용 — 캐시는 쓰지 않는다). keychain 후보에서
+이름을 골라 `keychainService` 에 적을 때는 **사람이 고른다** — 틀린 항목이면 다른 계정의 숫자를 그린다.
+
+계정을 나눠 쓰면(`CLAUDE_CONFIG_DIR`) 그 세션의 계정을 따라간다 — 토큰도 캐시(`~/.cache/rocky/statusline/`)도 설정 폴더와
+로그인된 계정(이메일)별로 갈린다. cc-usage 처럼 `XDG_CACHE_HOME` 을 따로 줄 필요가 없다. keychain 은 Claude Code 의 이름
+규칙대로 찾는다 — `CLAUDE_CONFIG_DIR` 로 띄운 세션은 `Claude Code-credentials-<sha256(그 값) 앞 8자리>`, 없이 띄운 세션은
+`Claude Code-credentials`(이름이 폴더마다 갈려 다른 계정의 토큰을 집지 않는다). keychain 토큰이 만료됐으면 유효한
+`<그 폴더>/.credentials.json` 이 이긴다 — launchd 아래 등에서 띄운 세션은 파일에 쓰고 keychain 항목은 낡은 채 남는다.
+`keychainService` · `credentialsFile` 은 `configDir`(없으면 `~/.claude`)의 세션에만 쓰인다 — `rocky.json` 하나를 모든 세션이
+같이 쓰므로, 폴더와 상관없이 쓰면 다른 계정 세션이 그 토큰으로 남의 숫자를 그린다.
+
+cc-usage 의 `extra_commands` 를 그대로 옮기면 된다(키만 `timeout_ms` → `timeoutMs`). rocky 보드 줄을 붙이던 `curl`
+항목은 뺀다 — 그 라우트는 걷었다.
+
+`~/.config/rocky/rocky.json`:
+
+```json
+"statusline": {
+  "source": "stdin",
+  "extraCommands": [{ "command": ["harness-lm", "line", "-s", "{{session_id}}"] }]
+}
+```
+
+`~/.claude/settings.json`:
+
+```json
+"statusLine": { "type": "command", "command": "rocky statusline" }
+```
+
+`rocky`가 PATH에 없는 환경이면 `~/.local/share/rocky/current/rocky`를 쓴다.
+
+배선은 머신마다 수동이다 — 플러그인은 사용자의 `statusLine` 설정을 건드리지 않는다(`/rocky:config` 가 넣을 조각을 보여 준다).

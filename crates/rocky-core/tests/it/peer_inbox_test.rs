@@ -1,5 +1,6 @@
 //! 세션 받은편지함으로 밀어 넣기 — 경로 검증·한 줄 형식·본문·보낼 세션 고르기(순수).
 
+use rocky_core::board_path::BoardLocation;
 use rocky_core::peer_inbox::{
     inbox_line, is_inbox_socket_path, pick_session, pr_session_message, registration_alive,
     review_session_message, session_candidates, superseded_sessions, InboxRegistration,
@@ -7,7 +8,6 @@ use rocky_core::peer_inbox::{
 };
 use rocky_core::prwatch::{PrEvent, PrEventKind};
 use rocky_core::sessions::{AgentSession, SessionsResult};
-use rocky_core::statusline::BoardLocation;
 
 #[test]
 fn only_claude_code_inbox_socket_paths_are_accepted() {

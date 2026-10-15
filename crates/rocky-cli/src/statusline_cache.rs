@@ -1,4 +1,4 @@
-//! `rocky statusline --full` 의 캐시 파일 — 계정 캐시(`account.json`)와 계정별 `state.json` · `usage.json`. 판정은
+//! `rocky statusline` 의 캐시 파일 — 계정 캐시(`account.json`)와 계정별 `state.json` · `usage.json`. 판정은
 //! `rocky_core::limits`, 자리 규칙은 `rocky_core::claude_account`, 여기는 읽고 쓰기만 한다.
 //!
 //! 읽기 실패(없음·깨짐)는 빈 값이다 — statusline 이 캐시 때문에 비면 안 된다. 쓰기는 같은 폴더의 임시 파일에 쓰고

@@ -97,9 +97,9 @@ Both are gone — `souls/*.md` + `soul.ts` + the `inject-soul` hook + `rocky.jso
 and `statusline/*.sh` + `statusline.ts` + `sync-statusline`. They were personality and chrome, not
 load-bearing, and the soul was the one thing rocky injected into every session.
 
-Today's `rocky statusline` is **not** those templates coming back: it is a CLI subcommand that prints
-the daemon's board segment, and with `--full` the path · git · model · limit lines moved in from the
-owner's separate statusline tool on 2026-10-05 (`docs/features/statusline.md`). It is called as `rocky statusline` on
+Today's `rocky statusline` is **not** those templates coming back: it is a CLI subcommand that draws
+the path · git · model · ctx · limit lines moved in from the owner's separate statusline tool on 2026-10-05
+(`docs/features/statusline.md`); the daemon-rendered board segment it used to print was removed on 2026-10-15. It is called as `rocky statusline` on
 `PATH` (the `~/.local/bin/rocky` link), never through the per-version plugin cache path — which is how
 the stable-path constraint below is met.
 

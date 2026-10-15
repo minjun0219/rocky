@@ -16,8 +16,9 @@
 - **PR 감시의 "첫 바퀴 전" 은 멈춤이 아니다.** 데몬이 막 뜨면 `prWatch` 는 기본값(`available: false`, `lastTick`·`reason` 없음)이다. tick 은
   실패해도 늘 `lastTick` 과 `reason` 을 함께 남기므로, 둘 다 없으면 첫 tick 전으로 보고 ✓(정보)로 낸다 — 재기동 직후 doctor 가 `gh auth
   status` 를 안내하던 오탐(2026-10-06 실측: 기동 뒤 1분 반쯤 첫 tick).
-- **statusline 연결은 `rocky statusline`(·플래그) 직접 호출도 친다**(`setup::statusline_wired`) — 그 명령이 보드 줄을 그리므로 `/api/statusline`
-  조각을 또 붙이라고 하면 보드 줄이 두 번 나온다. `rocky statusline guard`·`doctor` 같은 하위 명령은 그리지 않아 치지 않는다.
+- **statusline 연결은 `rocky statusline`(·플래그)을 부를 때만 친다**(`setup::statusline_wired`) — 걷은 `/api/statusline` 을 부르는 옛
+  조각은 아무것도 그리지 않으니 연결로 치지 않고, `settings.json` 에 넣을 조각(`setup::STATUSLINE_SETTING`)을 안내한다.
+  `rocky statusline guard`·`doctor` 같은 하위 명령은 그리지 않아 치지 않는다.
 
 ## 코드
 

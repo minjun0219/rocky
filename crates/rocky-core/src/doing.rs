@@ -4,8 +4,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::actors::is_agent_actor;
+use crate::board_path::is_under;
 use crate::sessions::{match_board, AgentSession, SessionsResult};
-use crate::statusline::is_under;
 use crate::types::{Board, Handoff, HandoffStatus, Todo, TodoStatus};
 
 /// doing 하나의 생존 상태.
@@ -47,7 +47,7 @@ fn state_of_session(session: &AgentSession) -> DoingState {
 ///
 /// 세션이 스스로 든 것의 귀속(`doing_session_claimed`)은 **보지 않는다** — 그 세션은 Stop 에서 "닫았나?" 를 묻지 않으므로
 /// 턴이 끝날 때마다 `Idle`(방치·멈춤·이어받기 추천)이 되고, `/clear` 로 id 가 바뀌면 `Gone`(자동 해제)이 된다. 그 귀속은
-/// statusline ⏺·턴 태그에만 쓴다(오너 결정 2026-10-06).
+/// 턴 태그에만 쓴다(오너 결정 2026-10-06 — 같이 쓰던 statusline ⏺ 는 2026-10-15 에 걷었다).
 pub fn resolve_doing_state(todo: &Todo, board_key: &str, sessions: &SessionsResult) -> DoingState {
     if todo.status != TodoStatus::Doing {
         return DoingState::Unknown;

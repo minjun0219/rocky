@@ -70,8 +70,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main
   rocky update --main [SHA] [--force] [--yes]   GitHub main 을 이 기기에서 release 빌드해 쓴다(처음이면 main 빌드 모드로)
   rocky update --release [--yes]          main 빌드 모드에서 릴리스로 돌아간다
-  rocky statusline [--cwd P] [--session S]  rocky 한 줄 — 없으면 stdin 의 Claude Code 입력을 읽는다
-  rocky statusline --full [--source S]      경로·git·모델·한도 줄, statusline.board 면 + 보드 줄 — stdin 을 읽는다.
+  rocky statusline [--source S]             경로·git·모델·ctx·한도 줄 — Claude Code 가 주는 stdin 을 읽는다(--full 도 받는다).
                                             S = auto|stdin|api|none(이 실행에서만). agy 의 statusLine 에도 같은 명령
   rocky statusline guard                    UserPromptSubmit 훅 — 한도 소진으로 크레딧이 차감되면 prompt 를 막는다(exit 2).
                                             statusline.guard 가 켜져 있어야 돈다

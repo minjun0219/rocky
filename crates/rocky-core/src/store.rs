@@ -1402,7 +1402,7 @@ impl TodoStore {
         let rows = stmt
             .query_map([], board_from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        // 별칭은 보드마다 조회하지 않는다 — statusline 라우트가 초당 이 함수를 부른다.
+        // 별칭은 보드마다 조회하지 않는다 — 보드 수만큼 쿼리가 늘지 않게 한 번에 읽는다.
         let mut alias_stmt =
             conn.prepare("SELECT key, board_id FROM board_aliases ORDER BY created_at, key")?;
         let aliases = alias_stmt

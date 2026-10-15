@@ -16,7 +16,7 @@ argument-hint: "[항목 또는 바꿀 값 — 예: statusline · expose off · i
    / `statusline` / `board`)과 `다음 할 일` 이 그대로 작업 목록이다.
 2. **사용자 파일은 덮어쓰지 않는다.** `rocky.json` 은 있으면 키 단위로 고치고(없는 키만 추가·
    지시받은 키만 변경), `~/.claude/settings.json` 의 `statusLine` 은 절대 갈아 끼우지 않는다 —
-   기존 스크립트 끝에 조각을 **붙이는** 것까지만, 그것도 사용자가 고르면.
+   넣을 조각을 **보여 주는** 것까지만이다(`rocky statusline` 이 줄 전체를 그려 남의 스크립트 끝에 붙는 조각이 아니다).
 3. **한 번에 하나씩 묻는다.** 항목마다 `AskUserQuestion` 하나. 선택지에 "건너뛰기" 를 늘 둔다.
    기본값으로 충분한 것(예: 요약 on)은 묻지 않고 넘어간다.
 4. **비밀값은 다루지 않는다.** 수집함 어댑터가 토큰을 쓰면 `op://` 참조만 적는다(agent-vault
@@ -51,7 +51,7 @@ rocky config show
 | `daemon` 없음 | (묻지 않음) | `rocky daemon start` 후 `show` 재확인 |
 | `daemon` 버전 불일치 | 지금 재기동할까 (열린 세션의 MCP 가 잠깐 끊긴다) | `rocky daemon stop && rocky daemon start` |
 | `launchd` | 상주 등록할까 (로그인 때 자동 기동·죽으면 재기동) | `rocky daemon install` |
-| `statusline` | 어디에 붙일까 — statusLine 이 스크립트 파일이면 "그 파일 끝에 붙인다 / 조각만 보여준다 / 건너뛴다" | 파일 끝에 `show` 가 낸 조각을 그대로 append (`jq` 있는지 먼저 `command -v jq`). 파일이 아니면(인자 붙은 명령) 조각만 보여주고 사용자 몫 |
+| `statusline` | (묻지 않음) | `show` 가 낸 조각(`"statusLine": { "type": "command", "command": "rocky statusline" }` — `rocky` 가 PATH 에 없으면 링크 경로)을 보여 주고, 다른 도구의 줄은 `statusline.extraCommands`(인자로 `{{cwd}}`·`{{session_id}}` 만 받고 stdin 은 받지 않는다)로 붙일 수 있다고 안내한다. 옛 `/api/statusline` 조각이 남았으면 지우라고 한다 — 파일은 사용자가 고친다 |
 | `cli` (터미널에서 `rocky` 안 불림) | 링크만 없으면 (묻지 않음) 걸고, PATH 가 없으면 rc 에 넣을까 | `rocky config link` / 셸 rc 에 `export PATH="$HOME/.local/bin:$PATH"` 한 줄 (파일은 사용자가 고른다 — 자동으로 rc 를 고치지 않는다) |
 | `board` 없음 | (묻지 않음 — 첫 todo 때 생긴다) | 안내만 |
 | `board` path 없음/어긋남 | 이 레포 경로로 잡을까 | `rocky board path` (cwd) |
@@ -78,7 +78,7 @@ EOF
 
 - `expose` 는 `"off"` 또는 `["lan", "tailscale-serve"]`. 켜는 쪽은 노출 범위를 먼저 한 줄로
   설명하고 묻는다(보드는 무인증이다 — `docs/board.md` "노출 범위").
-- `port` / `dir` 를 바꾸면 statusline 조각의 포트·데몬 재기동까지 같이 챙긴다.
+- `port` / `dir` 를 바꾸면 데몬 재기동까지 같이 챙긴다.
 - `sessionSummary: false` 는 그 키만.
 
 ### 수집함 어댑터 (`inbox`)
@@ -108,6 +108,5 @@ rocky config show
 | --- | --- |
 | `rocky` 바이너리 없음 | 플러그인 설치·첫 세션 안내 후 멈춤 |
 | 데몬이 안 뜸 | `rocky daemon status` 출력과 `~/.config/rocky/todo/daemon.log` 꼬리 20줄을 보여주고 멈춤 |
-| `jq` 없음 | statusline 조각은 붙이지 않고 `brew install jq` 안내 |
 | `settings.json` 이 JSON 으로 안 읽힘 | 손대지 않고 사실만 보고 |
 | 사용자가 항목을 건너뜀 | 그대로 두고 다음 항목 |

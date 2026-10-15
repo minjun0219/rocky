@@ -3,11 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
+use rocky_core::board_path::BoardLocation;
 use rocky_core::config::{expand_tilde, user_config_path, TodoConfig};
 use rocky_core::setup::{
     build_report, default_config_json, render_report, ConfigFileState, DaemonState, SetupInput,
 };
-use rocky_core::statusline::BoardLocation;
 use serde_json::Value;
 
 use crate::client::{daemon_health, request_value, CliContext};

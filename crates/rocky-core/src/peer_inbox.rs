@@ -15,8 +15,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::board_path::{board_key_for_cwd, BoardLocation};
 use crate::prwatch::{PrEvent, PrEventKind};
-use crate::statusline::{board_key_for_cwd, BoardLocation};
 
 /// 등록 하나가 이만큼 갱신이 없으면 버린다 — 훅이 턴마다 다시 등록하므로 살아 있는 세션은
 /// 계속 새로워진다. 죽은 세션의 소켓(프로세스 번호 이름)이 `/tmp/cc-socks` 에 남기 때문이다.

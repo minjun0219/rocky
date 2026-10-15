@@ -1,4 +1,4 @@
-//! 마감 안에서만 도는 하위 프로세스 — `rocky statusline --full` 의 git 과 `extraCommands` 가 쓴다.
+//! 마감 안에서만 도는 하위 프로세스 — `rocky statusline` 의 git 과 `extraCommands` 가 쓴다.
 //!
 //! statusline 은 1초마다 도는 자리라 하위 프로세스가 늦으면 그 세그먼트만 빼고 줄은 그대로 낸다.
 //! 끊을 때는 **프로세스 그룹째** 끊는다 — 본 프로세스만 죽이면 그것이 띄운 자식이 고아로 남아 1초마다 쌓이고, 자식이
@@ -9,6 +9,11 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
+
+/// 이 실행기가 띄운 자식에 거는 표식 — `rocky statusline` 은 이것을 보면 아무것도 그리지 않는다. `extraCommands` 에
+/// `rocky statusline` 이 들어 있으면 자기를 다시 띄우고, 그 자식이 또 띄우는 것을 끝없이 되풀이한다(단계마다 새 프로세스
+/// 그룹이라 마감 kill 로 끊기지 않는다).
+pub const NESTED_ENV: &str = "ROCKY_STATUSLINE_NESTED";
 
 /// 본 프로세스가 끝난 뒤 파이프(stdout·stderr)가 닫히기를 기다리는 시간 — 백그라운드로 띄운 자식이 어느 쪽이든 붙잡고
 /// 있으면 그 출력은 버린다.
@@ -65,6 +70,7 @@ pub fn run_detailed(argv: &[String], timeout: Duration) -> (Outcome, Duration) {
         let _guard = spawn_lock();
         Command::new(program)
             .args(args)
+            .env(NESTED_ENV, "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

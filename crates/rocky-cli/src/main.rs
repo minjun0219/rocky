@@ -24,10 +24,7 @@ fn run(argv: &[String]) -> Result<(), String> {
     let parsed = match parse_flags(argv) {
         Ok(parsed) => parsed,
         // statusLine 명령줄이 틀려도 statusline 은 비지 않는다 — 무엇이 틀렸는지 한 줄을 낸다.
-        Err(e)
-            if argv.first().is_some_and(|c| c == "statusline")
-                && argv.iter().any(|a| a == "--full") =>
-        {
+        Err(e) if statusline_renders(argv) => {
             println!("[rocky] {e}");
             return Ok(());
         }
@@ -55,14 +52,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    let (ctx, runtime, todo_config) = build_cli_context(parsed.str_flag("actor"));
-    let expose_lan = runtime
-        .expose
-        .contains(&rocky_core::config::ExposeChannel::Lan);
-    let expose_ts = runtime
-        .expose
-        .contains(&rocky_core::config::ExposeChannel::TailscaleServe);
-    // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬 자동 기동을 거치지 않는다.
+    // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬을 거치지 않고, CLI 맥락(설정 읽기)을 만들기 전에 끝낸다.
     // statusline 이 detached 로 띄우는 갱신 — 사람이 부를 일은 없다(도움말에도 없다).
     if command == "statusline" && rest.first().map(String::as_str) == Some("refresh") {
         let mut cfg =
@@ -76,20 +66,25 @@ fn run(argv: &[String]) -> Result<(), String> {
         return Ok(());
     }
     // guard·allow 같은 statusline 의 하위 명령은 사람이 부르거나 prompt 당 한 번 도는 것이라 보통 경로(사용 로그)를 탄다.
-    let statusline_tool = matches!(
-        rest.first().map(String::as_str),
-        Some("guard" | "allow" | "probe" | "doctor")
-    );
+    let statusline_tool = rest
+        .first()
+        .is_some_and(|sub| STATUSLINE_SUBCOMMANDS.contains(&sub.as_str()));
     if command == "statusline" && !statusline_tool {
-        commands::cmd_statusline(
-            &ctx,
-            parsed.str_flag("cwd"),
-            parsed.str_flag("session"),
-            parsed.bool_flag("full"),
-            parsed.str_flag("source"),
-        );
+        // `--cwd`·`--session` 은 다른 statusline 도구에 보드 줄을 끼우던 옛 꼴이다 — 보드 줄은 걷었으니 아무것도 내지
+        // 않는다. 그 자리에 줄 전체가 또 나오면 화면이 겹친다.
+        if parsed.str_flag("cwd").is_none() && parsed.str_flag("session").is_none() {
+            commands::cmd_statusline(parsed.str_flag("source"));
+        }
         return Ok(());
     }
+
+    let (ctx, runtime, todo_config) = build_cli_context(parsed.str_flag("actor"));
+    let expose_lan = runtime
+        .expose
+        .contains(&rocky_core::config::ExposeChannel::Lan);
+    let expose_ts = runtime
+        .expose
+        .contains(&rocky_core::config::ExposeChannel::TailscaleServe);
     let board = parsed
         .str_flag("board")
         .map(str::to_string)
@@ -269,4 +264,17 @@ fn run(argv: &[String]) -> Result<(), String> {
         );
     }
     result
+}
+
+/// `rocky statusline` 의 하위 명령 — 줄을 그리지 않는다. `refresh` 는 statusline 이 detached 로 띄우는 갱신이다.
+const STATUSLINE_SUBCOMMANDS: &[&str] = &["guard", "allow", "probe", "doctor", "refresh"];
+
+/// 명령줄이 틀렸을 때 줄 하나로 알릴 statusline 렌더인가 — 플래그를 가르기 전이라 argv 를 그대로 본다. 하위 명령은
+/// `statusline` 바로 다음 자리만 본다(플래그 값이 하위 명령 이름과 같아도 헷갈리지 않게). 하위 명령은 사람이나 훅이 부르는
+/// 것이라 보통 오류로 끝낸다.
+fn statusline_renders(argv: &[String]) -> bool {
+    argv.first().is_some_and(|c| c == "statusline")
+        && !argv
+            .get(1)
+            .is_some_and(|a| STATUSLINE_SUBCOMMANDS.contains(&a.as_str()))
 }

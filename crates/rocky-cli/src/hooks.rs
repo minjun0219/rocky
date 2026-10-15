@@ -76,7 +76,7 @@ fn held_todos(base_url: &str, session_id: &str) -> Vec<rocky_core::handoff::Held
         .unwrap_or_default()
 }
 
-/// 이 세션이 일하는 보드 — 훅 입력의 cwd 를 보드 목록에 대 본다(statusline 과 같은 규칙: `boards.path`
+/// 이 세션이 일하는 보드 — 훅 입력의 cwd 를 보드 목록에 대 본다(`board_path::board_key_for_cwd` 규칙: `boards.path`
 /// 하위 → key 세그먼트). 데몬이 없거나 어느 보드로도 안 풀리면 None.
 /// 세션 cwd 가 가리키는 보드. `/api/boards` 를 못 읽으면 `Failed` — cwd 가 없거나 매칭되는
 /// 보드가 없으면 `Unmatched` 다(둘을 섞으면 조회 실패 한 번에 PR 전이를 잃는다).
@@ -101,16 +101,16 @@ fn session_board_key(base_url: &str, input: &serde_json::Value) -> BoardLookup {
     else {
         return BoardLookup::Failed;
     };
-    let locations: Vec<rocky_core::statusline::BoardLocation> = boards
+    let locations: Vec<rocky_core::board_path::BoardLocation> = boards
         .iter()
         .filter_map(|b| {
-            Some(rocky_core::statusline::BoardLocation {
+            Some(rocky_core::board_path::BoardLocation {
                 key: b.get("key")?.as_str()?.to_string(),
                 path: b.get("path").and_then(|p| p.as_str()).map(str::to_string),
             })
         })
         .collect();
-    match rocky_core::statusline::board_key_for_cwd(&locations, Some(&cwd)) {
+    match rocky_core::board_path::board_key_for_cwd(&locations, Some(&cwd)) {
         Some(key) => BoardLookup::Found(key),
         None => BoardLookup::Unmatched,
     }
@@ -674,7 +674,7 @@ pub fn hook_handoff_stop(ctx: &CliContext) {
     );
 }
 
-/// PostToolUse(`todo_status`): 세션이 스스로 `start` 한 할 일에 이 세션을 귀속시킨다 — statusline 의 ⏺ 와 턴 태그가 그
+/// PostToolUse(`todo_status`): 세션이 스스로 `start` 한 할 일에 이 세션을 귀속시킨다 — 턴 태그가 그
 /// 귀속을 본다(Stop 의 "닫았나?" 확인은 핸드오프로 받은 것에만). 데몬이 조건(방금 시작·에이전트·귀속 없음)을 다시 본다.
 /// 서브에이전트가 든 것은 메인 세션의 것으로 붙지 않게 건너뛴다. 어떤 실패도 조용하다(fail-open).
 pub fn hook_claim_doing(ctx: &CliContext) {

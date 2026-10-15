@@ -1,4 +1,4 @@
-//! `rocky statusline --full` 의 git 세그먼트 재료 — `git status --porcelain=v2` 를 한 번 부른다. 파싱은
+//! `rocky statusline` 의 git 세그먼트 재료 — `git status --porcelain=v2` 를 한 번 부른다. 파싱은
 //! `rocky_core::statusline::git`, 실행(마감·그룹 kill)은 `crate::bounded`.
 
 use std::time::Duration;

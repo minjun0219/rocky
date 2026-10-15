@@ -1,11 +1,11 @@
 //! 설치·설정 점검 — 재료 → 체크 목록/다음 할 일.
 
+use rocky_core::board_path::BoardLocation;
 use rocky_core::config::{ExposeChannel, ExposeValue, InboxSource, TodoConfig};
 use rocky_core::setup::{
-    build_report, default_config_json, render_report, statusline_snippet, statusline_wired,
-    CheckKind, ConfigFileState, DaemonState, SetupInput,
+    build_report, default_config_json, render_report, statusline_setting, statusline_stale_snippet,
+    statusline_wired, CheckKind, ConfigFileState, DaemonState, SetupInput,
 };
-use rocky_core::statusline::BoardLocation;
 
 fn input() -> SetupInput {
     SetupInput {
@@ -26,7 +26,7 @@ fn input() -> SetupInput {
         launchd_registered: true,
         launchd_loaded: true,
         statusline_command: Some("/home/u/.claude/statusline.sh".into()),
-        statusline_script: Some("curl -sf http://127.0.0.1:8636/api/statusline?cwd=$cwd".into()),
+        statusline_script: Some("exec \"$HOME/.local/bin/rocky\" statusline".into()),
         cwd: Some("/w/rocky".into()),
         repo_key: Some("rocky".into()),
         boards: vec![BoardLocation {
@@ -85,7 +85,7 @@ fn missing_pieces_become_ordered_next_steps() {
     assert!(r
         .next_steps
         .iter()
-        .any(|s| s.contains("/api/statusline?cwd=$cwd&session=$sid")));
+        .any(|s| s.contains(r#""command": "rocky statusline""#)));
     let text = render_report(&r);
     assert!(text.contains("✗ daemon"));
     assert!(text.contains("· config"));
@@ -180,10 +180,15 @@ fn board_check_covers_missing_board_and_path_mismatch() {
 #[test]
 fn statusline_wiring_is_detected_in_command_or_script() {
     assert!(statusline_wired(
+        Some("/x/statusline.sh"),
+        Some("#!/bin/sh\nexec rocky statusline")
+    ));
+    // 걷은 데몬 라우트(`/api/statusline`)를 부르는 옛 조각은 이제 아무것도 그리지 않는다 — 연결이 아니다.
+    assert!(!statusline_wired(
         Some("curl http://127.0.0.1:8636/api/statusline"),
         None
     ));
-    assert!(statusline_wired(
+    assert!(!statusline_wired(
         Some("/x/statusline.sh"),
         Some("rt=$(curl -sf \"http://127.0.0.1:8636/api/statusline?cwd=$cwd\")")
     ));
@@ -192,12 +197,45 @@ fn statusline_wiring_is_detected_in_command_or_script() {
         Some("echo hi")
     ));
     assert!(!statusline_wired(None, None));
-    assert!(statusline_snippet(9000).contains("127.0.0.1:9000/api/statusline"));
+    // 넣을 조각 — `rocky` 가 PATH 에 없으면(새 기기) PATH 와 상관없는 링크 경로로.
+    assert!(statusline_setting(true).contains(r#""command": "rocky statusline""#));
+    assert!(statusline_setting(false).contains(r#""command": "~/.local/bin/rocky statusline""#));
+}
+
+/// 걷은 `/api/statusline` 을 부르는 옛 조각이 `rocky statusline` 과 한 스크립트에 남아 있으면, 연결은 됐어도 지우라고 짚는다 —
+/// 렌더마다 404 로 헛돈다.
+#[test]
+fn stale_board_line_snippet_is_flagged_even_when_wired() {
+    let script = "#!/bin/sh\nrocky statusline --full\nrt=$(curl -sf \"http://127.0.0.1:8636/api/statusline?cwd=$cwd\")";
+    assert!(statusline_wired(Some("/x/statusline.sh"), Some(script)));
+    assert!(statusline_stale_snippet(
+        Some("/x/statusline.sh"),
+        Some(script)
+    ));
+    let mut i = input();
+    i.statusline_script = Some(script.into());
+    let r = build_report(&i);
+    let c = r.check("statusline").unwrap();
+    assert!(!c.ok, "{c:?}");
+    assert!(r
+        .next_steps
+        .iter()
+        .any(|s| s.contains("/api/statusline") && s.contains("지운다")));
+    // rocky 가 PATH 에 없는 기기는 조각도 링크 경로로 안내한다.
+    let mut i = input();
+    i.statusline_command = None;
+    i.statusline_script = None;
+    i.cli_on_path = None;
+    let r = build_report(&i);
+    assert!(r
+        .next_steps
+        .iter()
+        .any(|s| s.contains("~/.local/bin/rocky statusline")));
 }
 
 #[test]
 fn calling_rocky_statusline_directly_counts_as_wired() {
-    // `rocky statusline`(·플래그)은 보드 줄을 직접 그린다 — 조각을 또 붙이라고 하면 보드 줄이 두 번.
+    // `rocky statusline`(·플래그)이 줄 전체를 그린다.
     assert!(statusline_wired(
         Some("/Users/me/.local/bin/rocky statusline --full"),
         None

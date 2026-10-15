@@ -1,5 +1,5 @@
-//! `rocky statusline` — statusline 자리는 실패해도 조용해야 한다: 데몬이 없거나 입력이 깨져도 빈 출력 +
-//! 성공. 에러 줄이 statusline 에 새면 사용자 화면이 망가진다.
+//! `rocky statusline` — 경로·git 줄과 모델·ctx·한도 줄. statusline 자리는 실패해도 줄을 지킨다: 입력이 깨져도
+//! 성공으로 끝나고, 설정이 틀리면 무엇이 틀렸는지 한 줄만 낸다. 에러가 statusline 에 새면 사용자 화면이 망가진다.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -52,23 +52,6 @@ fn run(args: &[&str], stdin: &str) -> (i32, String, String) {
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
-}
-
-#[test]
-fn no_daemon_or_bad_input_is_silent_success() {
-    for (args, stdin) in [
-        (vec!["statusline", "--cwd", "/tmp", "--session", "s"], ""),
-        (
-            vec!["statusline"],
-            r#"{"workspace":{"current_dir":"/tmp"},"session_id":"s"}"#,
-        ),
-        (vec!["statusline"], "not json"),
-    ] {
-        let (code, out, err) = run(&args, stdin);
-        assert_eq!(code, 0, "{args:?}: {err}");
-        assert_eq!(out, "", "{args:?}");
-        assert_eq!(err, "", "{args:?}");
-    }
 }
 
 /// `board pr-authors` 의 인자 조합 — 로그인들, 또는 `--clear` 중 하나만. 둘 다·둘 다 없음은 사용법 오류로
@@ -407,6 +390,17 @@ fn full_kills_a_hung_git_with_its_process_group() {
 
 /// `statusline --full` 한 번 — 환경을 비우고 주어진 것만 넣는다. 데몬·keychain·usage API 에 닿지 않는다.
 fn full_once(home: &std::path::Path, env: &[(&str, &str)], config: &str, stdin: &str) -> String {
+    statusline_once(home, &["statusline", "--full"], env, config, stdin)
+}
+
+/// `full_once` 와 같은 격리로 인자만 바꿔 한 번 돌린다.
+fn statusline_once(
+    home: &std::path::Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    config: &str,
+    stdin: &str,
+) -> String {
     let rocky_json = home.join("rocky.json");
     std::fs::write(&rocky_json, config).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
@@ -422,7 +416,7 @@ fn full_once(home: &std::path::Path, env: &[(&str, &str)], config: &str, stdin: 
         cmd.env(k, v);
     }
     let mut child = cmd
-        .args(["statusline", "--full"])
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -848,55 +842,99 @@ fn refresh_with_source_none_from_the_parent_is_a_noop() {
     );
 }
 
-/// 보드 줄만 돌려주는 가짜 데몬 — 받은 요청 수를 센다.
-fn fake_board_daemon() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-    use std::io::Read;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let hits = std::sync::Arc::new(AtomicUsize::new(0));
-    let seen = hits.clone();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(mut stream) = stream else { continue };
-            let mut buf = [0u8; 4096];
-            let mut head = Vec::new();
-            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
-                match stream.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => head.extend_from_slice(&buf[..n]),
-                }
-            }
-            seen.fetch_add(1, Ordering::SeqCst);
-            let body = "BOARD-LINE";
-            let reply = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            let _ = stream.write_all(reply.as_bytes());
-        }
-    });
-    (port, hits)
+/// `rocky statusline` 이 곧 full 이다 — 예전 설정의 `--full` 은 받기만 하고 같은 줄을 그린다. 데몬에 묻는 보드 줄 모드는 없다.
+#[test]
+fn statusline_without_flag_draws_the_full_lines() {
+    let home = tempfile::tempdir().unwrap();
+    let config =
+        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"none"}}"#;
+    let stdin = r#"{"session_id":"s1","workspace":{"current_dir":"/tmp"},"model":{"display_name":"Opus 5"},"context_window":{"used_percentage":41}}"#;
+    let plain = statusline_once(home.path(), &["statusline"], &[], config, stdin);
+    let full = statusline_once(home.path(), &["statusline", "--full"], &[], config, stdin);
+    assert!(plain.contains("Opus 5 · ctx 41%"), "{plain:?}");
+    assert_eq!(plain, full);
 }
 
-/// 보드 줄은 `statusline.board: true` 일 때만 붙는다 — 기본은 끔이고, 꺼져 있으면 데몬에 묻지도 않는다.
+/// 명령줄이 틀려도 statusline 은 비지 않는다 — `--full` 이 없어도 무엇이 틀렸는지 한 줄을 내고 성공으로 끝난다. 하위 명령의
+/// 오류는 보통 오류다. 하위 명령인지는 `statusline` 바로 다음 자리만 본다(플래그 값 `doctor` 에 속지 않는다).
 #[test]
-fn full_adds_the_board_line_only_when_turned_on() {
-    use std::sync::atomic::Ordering;
-    let (port, hits) = fake_board_daemon();
-    let stdin = r#"{"session_id":"s1","workspace":{"current_dir":"/tmp"},"model":{"display_name":"Opus 5"}}"#;
-    let config = |board: &str| {
-        format!(
-            r#"{{"todo":{{"port":{port},"dir":"/nonexistent","expose":"off"}},"statusline":{{"source":"none"{board}}}}}"#
-        )
-    };
+fn a_bad_statusline_command_line_prints_one_line() {
+    for args in [
+        vec!["statusline", "--bogus"],
+        vec!["statusline", "--full", "--session", "doctor", "--bogus"],
+    ] {
+        let (code, out, err) = run(&args, "");
+        assert_eq!(code, 0, "{args:?}: {err}");
+        assert!(out.starts_with("[rocky] "), "{args:?}: {out:?}");
+        assert_eq!(err, "", "{args:?}");
+    }
+    let (code, out, _) = run(&["statusline", "doctor", "--bogus"], "");
+    assert_ne!(code, 0);
+    assert_eq!(out, "");
+}
 
+/// 보드 줄을 끼우던 옛 꼴(`--cwd`·`--session`)과 다른 statusline 의 `extraCommands` 로 불린 것(`ROCKY_STATUSLINE_NESTED`)은
+/// 아무것도 그리지 않는다 — 줄 전체가 그 자리에 또 나오거나, 자기를 끝없이 다시 띄우지 않게.
+#[test]
+fn old_embed_form_and_nested_calls_draw_nothing() {
+    // 격리 헬퍼로만 부른다 — 이 동작이 깨지면 줄 전체를 그리러 가고, 그때 실제 keychain·usage API 에 닿으면 안 된다.
     let home = tempfile::tempdir().unwrap();
-    let off = full_once(home.path(), &[], &config(""), stdin);
-    assert!(!off.contains("BOARD-LINE"), "{off:?}");
-    assert_eq!(hits.load(Ordering::SeqCst), 0, "꺼져 있는데 데몬에 물었다");
+    let config =
+        r#"{"todo":{"port":1,"dir":"/nonexistent","expose":"off"},"statusline":{"source":"none"}}"#;
+    let stdin = r#"{"workspace":{"current_dir":"/tmp"},"model":{"display_name":"Opus 5"}}"#;
+    let old_embed = statusline_once(
+        home.path(),
+        &["statusline", "--cwd", "/tmp", "--session", "s"],
+        &[],
+        config,
+        stdin,
+    );
+    assert_eq!(old_embed, "");
+    let nested = statusline_once(
+        home.path(),
+        &["statusline"],
+        &[("ROCKY_STATUSLINE_NESTED", "1")],
+        config,
+        stdin,
+    );
+    assert_eq!(nested, "");
+}
 
-    let on = full_once(home.path(), &[], &config(r#","board":true"#), stdin);
-    assert!(on.ends_with("BOARD-LINE\n"), "{on:?}");
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+/// `extraCommands` 에 `rocky statusline` 이 들어 있어도 한 번만 그린다 — 자식은 중첩 표식을 보고 아무것도 내지 않는다.
+#[test]
+fn rocky_statusline_inside_extra_commands_does_not_recurse() {
+    let home = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "todo": {"port": 1, "dir": "/nonexistent", "expose": "off"},
+        "statusline": {
+            "source": "none",
+            "extraCommands": [
+                {"command": [env!("CARGO_BIN_EXE_rocky"), "statusline"], "timeoutMs": 5000},
+                {"command": ["echo", "EXTRA"], "timeoutMs": 5000}
+            ]
+        }
+    })
+    .to_string();
+    let stdin = r#"{"workspace":{"current_dir":"/tmp"},"model":{"display_name":"Opus 5"}}"#;
+    let out = statusline_once(home.path(), &["statusline"], &[], &config, stdin);
+    assert_eq!(out, "/tmp\nOpus 5\nEXTRA\n");
+}
+
+/// 렌더는 데몬에 묻지 않는다 — 1초마다 × 세션 수만큼 도는 자리다. 설정의 포트에 리스너를 열어 두고 연결이 하나도 안 왔는지 본다.
+#[test]
+fn rendering_never_contacts_the_daemon() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let config = format!(
+        r#"{{"todo":{{"port":{port},"dir":"/nonexistent","expose":"off"}},"statusline":{{"source":"none"}}}}"#
+    );
+    let stdin = r#"{"session_id":"s1","workspace":{"current_dir":"/tmp"},"model":{"display_name":"Opus 5"}}"#;
+    let out = statusline_once(home.path(), &["statusline"], &[], &config, stdin);
+    assert!(out.contains("Opus 5"), "{out:?}");
+    assert!(
+        matches!(listener.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock),
+        "statusline 이 데몬 포트에 연결했다"
+    );
 }

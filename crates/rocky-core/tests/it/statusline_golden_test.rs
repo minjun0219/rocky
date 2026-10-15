@@ -1,4 +1,4 @@
-//! `statusline --full` 골든 — `tests/fixtures/statusline-full/<케이스>/` 의 `case.json` 을 `limits` + `statusline::full` 로
+//! `rocky statusline` 골든 — `tests/fixtures/statusline-full/<케이스>/` 의 `case.json` 을 `limits` + `statusline::full` 로
 //! 다시 그려 `expected.txt` 와 바이트 단위로 비교한다. 처음 골든은 cc-usage 에서 떴고 지금은 rocky 출력이 기준이다.
 //!
 //! `case.json`: `why`(무엇을 고정하나) · `now`(RFC3339) · `tz`(`Asia/Seoul`·`UTC`) · `env`(`COLUMNS`·`TERM`·`COLORTERM`·

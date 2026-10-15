@@ -1,4 +1,4 @@
-//! `rocky statusline --full` 의 렌더 — 경로·git 줄과 모델·ctx·한도 줄. cc-usage `internal/render` 에서 옮겨 왔고 지금은
+//! `rocky statusline` 의 렌더 — 경로·git 줄과 모델·ctx·한도 줄. cc-usage `internal/render` 에서 옮겨 왔고 지금은
 //! rocky 가 정본이다. 출력은 골든 픽스처(`tests/fixtures/statusline-full/`)가 ANSI 까지 바이트로 고정한다.
 
 use chrono::{DateTime, Datelike, TimeDelta, TimeZone, Timelike, Utc};

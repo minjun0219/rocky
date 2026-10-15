@@ -27,9 +27,9 @@ use std::time::Duration;
 use rmcp::model::{CustomNotification, JsonObject, ServerNotification};
 use rmcp::service::Peer;
 use rmcp::RoleServer;
+use rocky_core::board_path::{board_key_for_cwd, BoardLocation};
 use rocky_core::notify::{page_cursor, pr_channel_events, pr_entries_for_session, PrChannelEvent};
 use rocky_core::prwatch::PrSubscription;
-use rocky_core::statusline::{board_key_for_cwd, BoardLocation};
 use rocky_core::types::ChangesSince;
 
 /// Claude Code 가 채널로 인식하는 capability 키 — `capabilities.experimental` 아래.

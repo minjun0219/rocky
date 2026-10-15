@@ -237,7 +237,7 @@ async fn archived_boards_and_aliases() {
         .unwrap()
         .iter()
         .any(|s| s["name"] == "gh-bugs"));
-    // 요약·statusline 처럼 보드를 모르면 공통 소스만, 보드 없이 부르면 전부.
+    // 요약처럼 보드를 모르면 공통 소스만, 보드 없이 부르면 전부.
     let (_, all) = get(&f.state, "/api/inbox").await;
     assert_eq!(all["sources"].as_array().unwrap().len(), 2);
     let (_, summary) = get(&f.state, "/api/summary?cwd=/nowhere").await;

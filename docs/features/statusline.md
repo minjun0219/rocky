@@ -1,20 +1,23 @@
-# statusline — 한 줄 렌더
+# statusline — 줄 렌더
 
-> rocky 를 **고치는** 에이전트용 개발 문서. 설정 방법은 [`docs/board.md`](../board.md) "statusline 에 얹기",
-> `--full` 을 cc-usage 에서 옮겨 온 설계(기록)는 [`2026-10-05-cc-usage-mirror-design.md`](../design/specs/2026-10-05-cc-usage-mirror-design.md).
+> rocky 를 **고치는** 에이전트용 개발 문서. 설정 방법은 [`docs/board.md`](../board.md) "statusline",
+> cc-usage 에서 옮겨 온 설계(기록 — 그때 이름은 `--full`)는 [`2026-10-05-cc-usage-mirror-design.md`](../design/specs/2026-10-05-cc-usage-mirror-design.md).
 
 ## 규칙
 
-- **`GET /api/statusline` 은 한 줄 전체를 데몬이 렌더링한다.** 이 라우트만 세션 목록을 15초마다 새로 받고, 만료된 값은 기다리지 않고 내주며 뒤에서
-  새로 받는다(SWR — 요청이 `claude agents` 를 기다리면 CLI 300ms 마감에 걸린다). 실패하면 빈 문자열. 보드는
-  `board_key_for_cwd` 로 정한다.
-- **끼워 넣는 쪽은 `rocky statusline`**(`--cwd`·`--session`, 없으면 stdin JSON). 1초마다 도는 자리라 사용 로그·데몬 자동 기동을
-  거치지 않고, 300ms 안에 못 받으면 조용히 빈 출력.
-- `--full`(경로·git 줄 + 모델·ctx·한도 줄)은 cc-usage 에서 옮겨 왔고 **지금은 rocky 가 정본이다**(오너 결정 2026-10-13 — cc-usage
+- **`rocky statusline` 이 줄 전체를 CLI 에서 그린다** — 경로·git 줄과 모델·ctx·한도 줄(한도가 소진되면 크레딧 줄). 1초마다 도는
+  자리라 사용 로그를 거치지 않고 데몬에 묻지 않는다 — 데몬이 없어도 줄은 그대로다. `--full` 은 예전 설정을 위해 받기만 한다.
+  데몬이 그리던 보드 줄(`GET /api/statusline`·`todo.statusline` 템플릿·`statusline.board`)은 걷었다(오너 결정 2026-10-15 — 늘 full
+  만 썼다). 걷은 라우트는 사용 로그에서 계속 건너뛴다 — 옛 조각이 남은 기기가 1초마다 404 로 로그를 채우지 않게.
+- **다른 statusline 안에서 불린 `rocky statusline` 은 아무것도 그리지 않는다** — `extraCommands` 실행기가 자식에
+  `ROCKY_STATUSLINE_NESTED` 를 걸고(`bounded::NESTED_ENV`), 보드 줄을 끼우던 옛 꼴(`--cwd`·`--session`)도 빈 출력이다. 안 그러면
+  extra 안의 `rocky statusline` 이 자기를 끝없이 다시 띄운다(단계마다 새 프로세스 그룹이라 마감 kill 로 끊기지 않는다). 렌더
+  분기는 `build_cli_context` 앞에서 끝난다 — 1초마다 도는 자리에서 쓰지 않는 설정을 읽지 않는다. 표식은 rocky 끼리의 약속이라
+  README 표에 올리지 않는다.
+- 이 렌더는 cc-usage 에서 옮겨 왔고 **지금은 rocky 가 정본이다**(오너 결정 2026-10-13 — cc-usage
   와 바이트를 맞추지 않는다). 출력은 골든 픽스처 `crates/rocky-core/tests/fixtures/statusline-full/` 가 ANSI 까지 고정한다. 한도(5h/7d)
   판정은 순수 함수, "지금"은 인자로 받는다.
-- `--full` 의 줄은 **CLI 가 그린다** — 데몬이 없어도 경로·모델·한도 줄은 남고, 보드 줄은 그 아래 한 세그먼트라 실패하면 그 줄만
-  빠진다. 보드 줄은 `statusline.board: true` 일 때만 붙고 기본은 끔 — 꺼져 있으면 데몬에 묻지도 않는다(오너 결정 2026-10-12). 설정은 `rocky.json` 최상위 `statusline` 블록(보드 줄 템플릿 `todo.statusline` 과 다른 자리).
+- 설정은 `rocky.json` 최상위 `statusline` 블록이다.
 - 골든은 처음에 cc-usage 에서 떴고 지금은 rocky 출력이 기준이다. 출력을 일부러 바꾸면 `ROCKY_UPDATE_GOLDEN=1 cargo test -p rocky-cli
   full_replays_goldens` 로 `expected.txt` 를 다시 쓰고 diff 를 눈으로 본다. 새 케이스는 폴더 + `case.json`(필드는
   `statusline_golden_test.rs` 머리 주석)을 만들고 같은 명령으로 뜬다. 골든은 크레딧 페이드를 끄고 돈다.
@@ -24,7 +27,7 @@
 - `extraCommands` 는 나란히 돌리고 출력은 **설정 순서대로** 붙인다. rocky 는 그 명령이 무엇인지 모른다 — 특정 도구를 아는
   코드가 들어오면 그 도구의 변경이 rocky 를 깬다. 본 프로세스가 끝난 뒤 100ms 안에 파이프가 닫히지 않으면(백그라운드 자식이
   stdout·stderr 를 붙잡음) 그 출력은 버린다. 출력은 바이트 그대로 붙인다(UTF-8 이 아니어도). spawn 만 뮤텍스로 한 번에
-  하나씩 — macOS 에는 `pipe2` 가 없어 동시 spawn 이 파이프 끝을 남의 자식에게 넘길 수 있다. 순서: rocky 줄 → extras → 보드 줄(켰을 때).
+  하나씩 — macOS 에는 `pipe2` 가 없어 동시 spawn 이 파이프 끝을 남의 자식에게 넘길 수 있다. 순서: rocky 줄 → extras.
 
 - **usage API 갱신은 데몬이 아니라 statusline 이 띄운다**(`rocky statusline refresh`, detached + `setsid`). 계정을 세션 환경
   (`CLAUDE_CONFIG_DIR`)으로 판단하는데 데몬은 세션 환경을 볼 수 없어서다 — 자식이 환경을 물려받아 그 계정의 토큰을 쓴다.
@@ -38,7 +41,7 @@
 - **캐시는 `<cache>/rocky/statusline/<설정 폴더 해시>/<이메일 해시>/`** — `account.json`(이메일 캐시, 1분 TTL·한도가 바뀌면
   재확인, 못 읽으면 덮지 않음)은 설정 폴더에 하나, `state.json`(writer = statusline)·`usage.json`(writer = 갱신)은 계정마다.
   JSON 모양은 cc-usage 시절 그대로다(골든이 캐시를 함께 심는다).
-- **테스트는 실제 토큰·API 에 닿으면 안 된다.** macOS keychain 은 HOME 과 무관하므로 `--full` 을 도는 테스트는 없는
+- **테스트는 실제 토큰·API 에 닿으면 안 된다.** macOS keychain 은 HOME 과 무관하므로 statusline 을 그리는 테스트는 없는
   `keychainService` 와 테스트 전용 `ROCKY_STATUSLINE_USAGE_URL`(가짜·죽은 주소)을 함께 건다.
 
 - **경보 깜빡임은 `state.json` 의 `alert_key`(`<단계>@<창 키>`)·`alert_at` 으로 센다** — 키가 바뀌면(단계가 오르거나 창이 리셋)
@@ -90,16 +93,15 @@
 
 | 무엇 | 어디 |
 | --- | --- |
-| 세그먼트 렌더 | `crates/rocky-core/src/statusline.rs` |
-| `--full` 렌더·폭·git·extra | `crates/rocky-core/src/statusline/{full,width,git,extra}.rs` |
+| 렌더·폭·git·extra | `crates/rocky-core/src/statusline/{full,width,git,extra}.rs` |
 | 한도 판정 | `crates/rocky-core/src/limits.rs`, agy `limits/agy.rs`, guard `limits/guard.rs` |
 | guard·allow | `crates/rocky-cli/src/statusline_guard.rs` |
 | probe·doctor | `crates/rocky-cli/src/statusline_doctor.rs` |
-| CLI 입구 | `crates/rocky-cli/src/commands.rs`·`client.rs`(`rocky statusline`) |
+| CLI 입구 | `crates/rocky-cli/src/{main,commands}.rs`(`rocky statusline`) |
 | 하위 프로세스(마감·그룹 kill) | `crates/rocky-cli/src/{bounded,git_status}.rs` |
 | 계정 판단·캐시·갱신 | `crates/rocky-core/src/claude_account.rs`, `crates/rocky-cli/src/{statusline_cache,statusline_refresh}.rs` |
 
 테스트: 계정 규칙 `crates/rocky-core/tests/it/claude_account_test.rs`, 캐시 판정 `limits_test.rs`, 계정 분리·전환·관측 기록
 `crates/rocky-cli/tests/it/statusline_cmd_test.rs`(`full_keeps_caches_apart_per_config_dir` · `full_follows_an_account_switch_inside_one_config_dir`),
-갱신 `statusline_refresh_test.rs`(가짜 usage API 서버), 보드 줄 `crates/rocky-core/tests/it/statusline_test.rs`,
-`crates/rockyd/tests/it/server_statusline_test.rs`, 골든 픽스처 `crates/rocky-core/tests/fixtures/statusline-full/`(`statusline_golden_test.rs` · `statusline_cmd_test.rs::full_replays_goldens`).
+갱신 `statusline_refresh_test.rs`(가짜 usage API 서버), 인자 없는 호출 = `--full`
+`statusline_cmd_test.rs::statusline_without_flag_draws_the_full_lines`, 골든 픽스처 `crates/rocky-core/tests/fixtures/statusline-full/`(`statusline_golden_test.rs` · `statusline_cmd_test.rs::full_replays_goldens`).

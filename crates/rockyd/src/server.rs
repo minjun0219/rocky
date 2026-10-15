@@ -11,6 +11,7 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::response::Response;
+use rocky_core::board_path::{board_key_for_cwd, BoardLocation};
 use rocky_core::config::InboxSource;
 use rocky_core::doing::{
     gone_handoffs, handoff_phase, is_unstarted, overdue_unaccepted, resolve_doing_state,
@@ -35,12 +36,8 @@ use rocky_core::sessions::{
     job_state_path, match_board, parse_job_state, parse_job_worktree, stop_target, takes_handoff,
     AgentSession, JobSummary, SessionsResult, StopRefusal,
 };
-use rocky_core::statusline::{
-    board_key_for_cwd, render_statusline, BoardLocation, StatuslineData, StatuslineMine,
-    DEFAULT_STATUSLINE_TEMPLATE, STATUSLINE_TITLE_MAX,
-};
 use rocky_core::store::{StoreError, StoreResult, TodoStore};
-use rocky_core::summary::{build_summary, count_unpromoted, due_bucket, Summary};
+use rocky_core::summary::{build_summary, Summary};
 use rocky_core::types::*;
 use rocky_core::usage::{client_of, normalize_route, rest_surface, UsageEvent, UsageSource};
 use serde_json::{json, Value};
@@ -74,12 +71,9 @@ pub type RealPath = Arc<dyn Fn(&str) -> std::io::Result<String> + Send + Sync>;
 /// 서버 옵션 — 테스트가 fake 를 넣는 주입점 (TS `TodoServerOptions` 대응).
 pub struct ServerOptions {
     pub store: Arc<TodoStore>,
-    pub statusline_template: Option<String>,
     pub sessions: Option<SessionsProvider>,
     /// spawn 라우트 전용 — 기본은 **캐시 없는** 조회기 (spawn 이전 스냅샷 금지).
     pub spawn_sessions: Option<SessionsProvider>,
-    /// statusline 라우트 전용 — 기본은 새 값 15초·낡은 값 30분의 SWR (초당 도는 유일한 경로라 요청이 조회를 기다리지 않는다).
-    pub statusline_sessions: Option<SessionsProvider>,
     pub gh_runner: Option<Runner>,
     pub spawn: Option<SpawnFn>,
     pub path_exists: Option<PathExists>,
@@ -113,10 +107,8 @@ impl ServerOptions {
     pub fn new(store: Arc<TodoStore>) -> Self {
         ServerOptions {
             store,
-            statusline_template: None,
             sessions: None,
             spawn_sessions: None,
-            statusline_sessions: None,
             gh_runner: None,
             spawn: None,
             path_exists: None,
@@ -149,11 +141,9 @@ struct VerifyQueue {
 
 pub struct ServerState {
     pub store: Arc<TodoStore>,
-    statusline_template: String,
     sessions: SessionsProvider,
     spawn_sessions: SessionsProvider,
-    pub(crate) statusline_sessions: SessionsProvider,
-    /// 위 두 SWR 캐시를 비운다 — 주입한 조회기(테스트)면 아무것도 안 한다.
+    /// 위 SWR 캐시를 비운다 — 주입한 조회기(테스트)면 아무것도 안 한다.
     sessions_invalidate: SessionsInvalidate,
     gh_runner: Runner,
     spawn: SpawnFn,
@@ -222,7 +212,7 @@ impl ServerState {
         (self.sessions)().await
     }
 
-    /// 세션 목록 캐시를 비운다 — 세션을 멈춘 쪽이 부른다. 안 비우면 `/api/sessions`·statusline·`doingState` 가 멈춘 세션을
+    /// 세션 목록 캐시를 비운다 — 세션을 멈춘 쪽이 부른다. 안 비우면 `/api/sessions`·`doingState` 가 멈춘 세션을
     /// 오래된 값으로 최대 30분 더 본다(다른 탭·폰 포함).
     pub fn invalidate_sessions(&self) {
         (self.sessions_invalidate)();
@@ -543,48 +533,28 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         options.inbox_sources.clone(),
         inbox_adapters.clone(),
     );
-    // 주입된 sessions 는 spawn/statusline 조회기의 **폴백**이기도 하다 — 테스트가
-    // sessions 하나만 넣었을 때 세 라우트가 같은 결정론적 목록을 보게 한다
-    // (TS `resolveSpawnSessions` / statuslineSessions 배선과 동일).
+    // 주입된 sessions 는 spawn 조회기의 **폴백**이기도 하다 — 테스트가
+    // sessions 하나만 넣었을 때 두 쪽이 같은 결정론적 목록을 보게 한다
+    // (TS `resolveSpawnSessions` 배선과 동일).
     let injected = options.sessions.clone();
-    // 기본 SWR 캐시를 비우는 손잡이들 — 세션을 멈춘 뒤 오래된 목록이 돌아오지 않게 한다.
-    let mut invalidates: Vec<SessionsInvalidate> = Vec::new();
-    let sessions = injected.clone().unwrap_or_else(|| {
-        // 오래된 값은 30분까지 바로 주고 뒤에서 새로 받는다 — 60초였을 땐 잠깐 쉬고 온 첫 요청마다
-        // `claude agents --json`(콜드 3초)을 기다렸다(rocky-23). 상태를 바꾸는 판단(스윕)은 `fresh_sessions`.
-        let (provider, invalidate) = swr_sessions_with_invalidate(
-            default_gh.clone(),
-            Duration::from_secs(3),
-            Duration::from_secs(30 * 60),
-        );
-        invalidates.push(invalidate);
-        provider
-    });
+    // 기본 SWR 캐시와 그것을 비우는 손잡이 — 세션을 멈춘 뒤 오래된 목록이 돌아오지 않게 한다. 주입한 조회기(테스트)면
+    // 비울 것이 없다.
+    let (sessions, sessions_invalidate): (SessionsProvider, SessionsInvalidate) =
+        match injected.clone() {
+            Some(provider) => (provider, Arc::new(|| {})),
+            // 오래된 값은 30분까지 바로 주고 뒤에서 새로 받는다 — 60초였을 땐 잠깐 쉬고 온 첫 요청마다
+            // `claude agents --json`(콜드 3초)을 기다렸다(rocky-23). 상태를 바꾸는 판단(스윕)은 `fresh_sessions`.
+            None => swr_sessions_with_invalidate(
+                default_gh.clone(),
+                Duration::from_secs(3),
+                Duration::from_secs(30 * 60),
+            ),
+        };
     // spawn 라우트만 기본이 **캐시 없는** 조회기 — 가드가 spawn 이전 스냅샷을 보면 안 된다.
     let spawn_sessions = options
         .spawn_sessions
-        .or_else(|| injected.clone())
-        .unwrap_or_else(|| uncached_sessions(default_gh.clone()));
-    let statusline_sessions = options
-        .statusline_sessions
         .or(injected)
-        // 15초가 지나면 낡은 값을 바로 주고 뒤에서 한 번 새로 받는다 — 만료 때마다 그 요청이 `claude agents --json`
-        // (~220ms, 콜드 수 초)을 기다리면 CLI 의 300ms 마감에 걸려 보드 줄이 비었다(rocky-47: curl p99 441ms · max 1s).
-        // 새로 받는 간격은 15초 그대로라 배경 부하는 늘지 않는다.
-        .unwrap_or_else(|| {
-            let (provider, invalidate) = swr_sessions_with_invalidate(
-                default_gh.clone(),
-                Duration::from_secs(15),
-                Duration::from_secs(30 * 60),
-            );
-            invalidates.push(invalidate);
-            provider
-        });
-    let sessions_invalidate: SessionsInvalidate = Arc::new(move || {
-        for invalidate in &invalidates {
-            invalidate();
-        }
-    });
+        .unwrap_or_else(|| uncached_sessions(default_gh.clone()));
     // 전달 기록도 되살린다 — 배포마다 데몬이 다시 떠도 "예전에 못 보냈나" 가 남는다.
     let deliveries = options
         .store
@@ -601,12 +571,8 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         .collect();
     let state = Arc::new(ServerState {
         store: options.store,
-        statusline_template: options
-            .statusline_template
-            .unwrap_or_else(|| DEFAULT_STATUSLINE_TEMPLATE.to_string()),
         sessions,
         spawn_sessions,
-        statusline_sessions,
         sessions_invalidate,
         gh_runner: gh_runner.clone(),
         spawn: options.spawn.unwrap_or_else(default_spawn_fn),
@@ -703,14 +669,6 @@ fn to_http_error(error: &StoreError) -> Response {
         StatusCode::BAD_REQUEST
     };
     error_response(&message, status)
-}
-
-fn plain(body: &str) -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(Body::from(body.to_string()))
-        .unwrap()
 }
 
 // ── 요청 파싱 ───────────────────────────────────────────────────────────────
@@ -845,22 +803,6 @@ fn with_doing_state(
         view.doing_state = Some(resolve_doing_state(&view.todo, &board_key, sessions));
     }
     Ok(view)
-}
-
-/// 이 세션을 가리키는 식별자 전부 — full UUID 와 spawn 의 짧은 8자 id.
-fn session_aliases(session: &str, sessions: &SessionsResult) -> Vec<String> {
-    let mut aliases = vec![session.to_string()];
-    if let Some(found) = sessions
-        .sessions
-        .iter()
-        .find(|s| s.session_id == session || s.id.as_deref() == Some(session))
-    {
-        aliases.push(found.session_id.clone());
-        if let Some(id) = &found.id {
-            aliases.push(id.clone());
-        }
-    }
-    aliases
 }
 
 /// 응답 전용 핸드오프 — 저장 모델 + phase/unstarted/stale (TS `HandoffView`).
@@ -1064,11 +1006,6 @@ async fn dispatch(
             "prWatch": state.pr_watch(),
             "dbIntegrity": state.db_integrity(),
         })));
-    }
-
-    // ── statusline ──
-    if *method == Method::GET && path == "/api/statusline" {
-        return Ok(statusline_of(state, query).await);
     }
 
     // ── inbox (수집함 — 외부 투두 앱 읽기 전용) ──
@@ -3958,183 +3895,6 @@ async fn handoffs_list_route(
     Ok(ok_json(&views))
 }
 
-/// GET /api/statusline — 모든 실패·빈 상태 = 빈 문자열(text/plain).
-async fn statusline_of(state: &Arc<ServerState>, query: &HashMap<String, String>) -> Response {
-    match statusline_inner(state, query).await {
-        Ok(line) => plain(&line),
-        Err(_) => plain(""),
-    }
-}
-
-async fn statusline_inner(
-    state: &Arc<ServerState>,
-    query: &HashMap<String, String>,
-) -> StoreResult<String> {
-    let store = &state.store;
-    let session = query.get("session");
-    let cwd = query.get("cwd");
-    let doing = store.list_todos(&ListTodosFilter {
-        status: Some(TodoStatus::Doing),
-        ..Default::default()
-    })?;
-    let pending = if session.is_some() {
-        store.list_handoffs(&ListHandoffsFilter {
-            status: Some(HandoffStatus::Pending),
-            ..Default::default()
-        })?
-    } else {
-        Vec::new()
-    };
-    // 보드 기준 마감·수집함 — 둘 다 세션 조회 없이 나온다. 수집함은 **기다리지 않는** 조회(캐시만).
-    let (due, collect) = {
-        let boards = store.list_boards(false)?;
-        let locations: Vec<BoardLocation> = boards
-            .iter()
-            .map(|b| BoardLocation {
-                key: b.key.clone(),
-                path: b.path.clone(),
-            })
-            .collect();
-        let board_key = board_key_for_cwd(&locations, cwd.map(String::as_str));
-        let todos = store.list_todos(&ListTodosFilter {
-            board: board_key.clone(),
-            ..Default::default()
-        })?;
-        let today = today_local();
-        let due = todos
-            .iter()
-            .filter(|t| t.status != TodoStatus::Done)
-            .filter(|t| {
-                t.due
-                    .as_deref()
-                    .and_then(|d| due_bucket(d, &today))
-                    .is_some()
-            })
-            .count() as i64;
-        let inbox = marked_inbox(
-            state,
-            InboxFetch::CachedOnly,
-            InboxScope::Board(board_key.as_deref()),
-        )
-        .await?;
-        (due, count_unpromoted(&inbox))
-    };
-    // 이 세션이 구독했을 수 있는 PR 중 알릴 것(머지 후보·충돌) — 세션 별칭은 아래에서 푼다.
-    let (pr_subscriptions, notable_prs) = if session.is_some() {
-        let prs: Vec<_> = store
-            .list_prs(None, true)?
-            .into_iter()
-            .filter(|p| p.ready || p.merge_state == "DIRTY")
-            .collect();
-        if prs.is_empty() {
-            (Vec::new(), prs)
-        } else {
-            (store.pr_subscriptions()?, prs)
-        }
-    } else {
-        (Vec::new(), Vec::new())
-    };
-    // 보여줄 게 없으면 **세션 조회 전에** 빈 문자열 — 초당 도는 최빈 경로의 비용 절감.
-    if doing.is_empty()
-        && pending.is_empty()
-        && due == 0
-        && collect == 0
-        && pr_subscriptions.is_empty()
-    {
-        return Ok(String::new());
-    }
-
-    let sessions = (state.statusline_sessions)().await;
-    let aliases = session.map(|s| session_aliases(s, &sessions));
-    let mine_todo = aliases.as_ref().and_then(|aliases| {
-        doing.iter().find(|todo| {
-            todo.doing_session_id
-                .as_ref()
-                .is_some_and(|id| aliases.contains(id))
-        })
-    });
-    let mine = match mine_todo {
-        Some(todo) => {
-            let view = with_ref_todo(store, todo.clone())?;
-            Some(StatuslineMine {
-                r#ref: view.r#ref.clone(),
-                title: view.todo.title.clone(),
-                comments: view.comment_count,
-            })
-        }
-        None => None,
-    };
-
-    // 보드가 안 풀리면 전체 doing 으로 폴백 — 0 으로 만들면 방치 경고가 조용히 사라진다.
-    let boards = store.list_boards(false)?;
-    let locations: Vec<BoardLocation> = boards
-        .iter()
-        .map(|b| BoardLocation {
-            key: b.key.clone(),
-            path: b.path.clone(),
-        })
-        .collect();
-    let board_key = board_key_for_cwd(&locations, cwd.map(String::as_str));
-    let board_id = match &board_key {
-        Some(key) => store.board_id_of(key)?,
-        None => None,
-    };
-    let board_doing: Vec<&Todo> = match &board_id {
-        Some(id) => doing.iter().filter(|t| t.board_id == *id).collect(),
-        None => doing.iter().collect(),
-    };
-    // boardKeyOf 는 보드마다 DB 쿼리 — 요청 안에서 boardId 당 한 번만 푼다.
-    let mut board_keys: HashMap<String, String> = HashMap::new();
-    let mut stale = 0i64;
-    for todo in &board_doing {
-        let key = match board_keys.get(&todo.board_id) {
-            Some(key) => key.clone(),
-            None => {
-                let resolved = store.board_key_of(&todo.board_id)?.unwrap_or_default();
-                board_keys.insert(todo.board_id.clone(), resolved.clone());
-                resolved
-            }
-        };
-        let doing_state = resolve_doing_state(todo, &key, &sessions);
-        if matches!(
-            doing_state,
-            rocky_core::doing::DoingState::Idle | rocky_core::doing::DoingState::Gone
-        ) {
-            stale += 1;
-        }
-    }
-    let inbox = aliases
-        .as_ref()
-        .map(|aliases| {
-            pending
-                .iter()
-                .filter(|h| aliases.contains(&h.session_id))
-                .count() as i64
-        })
-        .unwrap_or(0);
-    let (pr_ready, pr_conflict) = aliases
-        .as_ref()
-        .map(|aliases| {
-            rocky_core::statusline::session_pr_counts(&pr_subscriptions, &notable_prs, aliases)
-        })
-        .unwrap_or((0, 0));
-
-    Ok(render_statusline(
-        &state.statusline_template,
-        &StatuslineData {
-            mine,
-            inbox,
-            pr_ready,
-            pr_conflict,
-            stale,
-            due,
-            collect,
-            doing: board_doing.len() as i64,
-        },
-        STATUSLINE_TITLE_MAX,
-    ))
-}
-
 /// `?limit=` — 세션 상세에 실을 최근 턴 수(기본 50, 최대 500).
 fn token_turn_limit(query: &HashMap<String, String>) -> usize {
     query
@@ -4270,11 +4030,11 @@ fn board_sources_fn(
 }
 
 /// 수집함 조회 + "이미 올라감" 표시 — 판정 근거는 전 보드(보관 포함)의 링크다(`Store::linked_urls`).
-/// 항목이 하나도 없으면 스토어를 읽지 않는다(statusline 은 초 단위로 부른다).
+/// 항목이 하나도 없으면 스토어를 읽지 않는다(`?cached` 로 자주 부르는 쪽이 있다).
 /// 보드 소스는 결과에 보드 key 를 붙이고(`board`), `board` 로 거른다 — 설정 파일의 소스(공통) + 그
 /// 보드의 소스. 보드를 모르면(`None`, cwd 가 어느 보드에도 안 맞음) 공통 소스만: 다른 보드의 전용 필터
 /// 결과가 섞이지 않게. 보드 소스 목록을 못 읽어도 수집함 전체를 실패시키지 않는다(조회기와 같다).
-/// 항목이 없으면 링크를 읽지 않는다(statusline 은 초 단위로 부른다).
+/// 항목이 없으면 링크를 읽지 않는다(`?cached` 로 자주 부르는 쪽이 있다).
 /// 보드 key(별칭 포함) → 현재 key. 없는 보드면 None.
 fn current_board_key(state: &Arc<ServerState>, key: &str) -> Option<String> {
     let id = state.store.board_id_of(key).ok().flatten()?;
@@ -4286,7 +4046,7 @@ fn current_board_key(state: &Arc<ServerState>, key: &str) -> Option<String> {
 enum InboxScope<'a> {
     /// 전부 — `GET /api/inbox`(TUI 탭·`rocky inbox`).
     All,
-    /// 설정 파일의 소스 + 그 보드의 소스. `None` 이면 공통 소스만(요약·statusline 이 보드를 모를 때).
+    /// 설정 파일의 소스 + 그 보드의 소스. `None` 이면 공통 소스만(요약이 보드를 모를 때).
     Board(Option<&'a str>),
 }
 
