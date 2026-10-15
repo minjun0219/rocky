@@ -1,0 +1,179 @@
+# 이중 구조와 싱크 — 설계 (로컬 데몬 + 클라우드 중계소, Linear식 클라이언트)
+
+- 날짜: 2026-10-15
+- 결정자: 오너 (방향: 이 문서의 A안, 로컬 싱크부터)
+- 상태: 1번 조각 구현 중. 2~4번 조각은 개요만 있고, 시작할 때 이 문서에 더한다
+
+## 한 줄
+
+**데몬은 계속 그 기기 보드의 정본이다.** 동기화를 켠 기기에서는 Cloudflare의 Durable Object 하나가 중계소가 되어,
+맥이 잠든 동안 폰에서 한 쓰기를 받아 두었다가 데몬이 연결되면 넘긴다. 웹 화면은 로컬과 클라우드 모두 Linear처럼
+기기에 사본을 두고, 쓰기는 먼저 화면에 반영하고, 바뀐 행만 받는다.
+
+## 왜
+
+- **두 가지 쓰임.** 데스크톱 중심 기기는 지금처럼 맥 안에서만 쓴다. 모바일 중심 기기는 맥이 잠들어 있어도 폰에서
+  보드를 보고 고치고 싶다. 지금 원격 접근(Cloudflare Tunnel + Access)은 맥이 깨어 있어야 열린다.
+- **웹이 느리다.** 데몬 처리 시간은 이미 짧다. 2026-10-01~15 사용 로그에서 웹이 부른 `GET /api/todos`의 처리 시간은
+  p50 8ms다. 느린 곳은 웹이 쓰기마다 서버 확정을 기다리고(`web/store.ts`의 "낙관적 갱신을 하지 않는다"), 이름 없는
+  변경 알림(SSE)마다 목록을 통째로 다시 받고, 60초마다 전부 다시 받는 구조다. 같은 기간 웹은 `GET /api/logs/worklog`를
+  10,180번, `GET /api/handoffs`를 5,879번 불렀다. 폰에서 터널로 들어오면 이 왕복이 모두 인터넷을 건넌다.
+- **Linear의 방식.** Linear는 처음 한 번 데이터를 받아 IndexedDB에 두고, 데이터베이스 전체에 하나뿐인 순번
+  (`lastSyncId`) 이후의 변경만 WebSocket으로 받는다. 쓰기는 트랜잭션으로 먼저 화면에 반영하고, 서버가 거절하면
+  되돌린다. 충돌은 서버에 도착한 순서로 정하고(필드 단위), CRDT는 긴 글(이슈 설명)에만 쓴다. 이슈 번호는 서버가
+  매긴다. rocky도 같은 모양으로 간다.
+
+## 결정
+
+1. **데몬이 정본이다.** 웹·TUI·클라우드는 모두 데몬의 클라이언트다. 번호 매기기와 자동화(PR 감시, 핸드오프,
+   doing 귀속)는 데몬만 한다.
+2. **클라우드는 중계소다.** Cloudflare Worker와 SQLite Durable Object(DO) 하나. DO에는 데몬이 확정한 행의 사본과,
+   데몬이 연결되지 않은 동안 받은 쓰기(보낼 변경함)만 둔다. 데몬이 연결되면 변경함을 넘기고, 데몬이 확정한 행으로
+   사본을 바꾼다.
+3. **연결은 데몬이 먼저 건다.** 데몬이 바깥으로 WebSocket 하나를 연다(Access 서비스 토큰). 맥에 들어오는 문을 새로
+   열지 않는다.
+4. **기기별 opt-in.** [`docs/rewrite/decisions.md`](../../rewrite/decisions.md) "확장 경로 제약"(2026-08-31)을
+   그대로 따른다. 기본은 로컬 전용이고 설정 키는 그때 비워 둔 `todo.sync`다. 데몬 코어는 클라우드를 모르고, 연결기는
+   다른 클라이언트와 같은 싱크 프로토콜로 바뀐 행을 받는다. 동기화를 켜지 않은 기기의 보드 데이터는 어떤 경로로도
+   기계를 떠나지 않는다.
+5. **충돌은 데몬에 도착한 순서로 정한다.** 쓰기는 필드 단위 패치라서 나중에 도착한 패치의 필드가 남는다. 진 값은
+   히스토리에 남는다. 노트 본문은 지금의 CRDT(Yjs)를 그대로 쓴다.
+6. **D1 대신 Durable Object.** D1에는 구독이나 변경 피드가 없어서 실시간 전파를 하려면 WebSocket을 받을 DO가 어차피
+   필요하다. 이 기기의 보드(할 일 223개, 댓글 265개, 히스토리 2,187행)는 JSON으로 1MB가 안 되어 DO 하나의
+   SQLite(객체당 10GB)로 충분하다. Cloudflare도 사용자별 SQL 상태와 실시간 협업에 DO를 권한다.
+7. **워커는 TypeScript다.** 보드 규칙은 데몬에만 있고, 워커는 사본·변경함·전파만 다루는 가장자리 코드다. 웹의 낙관적
+   반영 모듈을 워커와 같이 쓴다. `workers-rs`는 1.0 전이고, 지금 보드 규칙(`store.rs`)은 SQL에 묶여 있어 wasm으로
+   옮기려면 먼저 떼어 내야 한다.
+8. **싱크 라이브러리를 들이지 않는다.** 서버를 Rust 데몬으로 둘 수 있는 것은 Replicache 프로토콜 정도인데,
+   Replicache는 유지보수 모드다. LiveStore는 데몬이 이벤트 소싱으로 바뀌어야 하고, Zero는 Postgres가 필요하다.
+   프레임 모양은 Replicache의 pull·push·poke를 따른다.
+9. **웹은 낙관적으로 반영한다.** "서버가 정본"이라는 전제는 그대로 두고, 확정된 행 위에 아직 확인받지 않은 변경을
+   겹쳐 그린다. 서버가 거절하면 되돌린다.
+
+## 조각
+
+| # | 조각 | 바뀌는 것 | 효과 |
+| --- | --- | --- | --- |
+| 1 | 싱크 프로토콜(데몬) | 보드 행의 `seq`, `/api/ws`의 싱크·트랜잭션 프레임 | 기존 REST·MCP·훅·TUI는 그대로 |
+| 2 | 로컬 퍼스트 웹 | IndexedDB 사본, 낙관적 반영, 다시 읽기와 60초 폴링 제거 | 데스크톱 중심 기기도 빨라진다 |
+| 3 | 클라우드 중계소 | `cloud/`(Worker + DO), 데몬 연결기, `todo.sync` | 맥이 잠들어도 폰에서 쓴다 |
+| 4 | 클라우드 화면 | 기능에 따른 탭, 맥 연결 상태, 보낼 변경 표시, 홈 화면 앱(PWA) | |
+
+조각마다 PR 여러 개(코드 300~400줄 기준)로 나눈다. 1번은 서로 의존하므로 스택으로 낸다.
+
+## 1번 조각 — 싱크 프로토콜
+
+### 대상 테이블
+
+`boards`, `sections`, `todos`, `comments`, `notes`, `history`, `handoffs` 일곱 개. `note_docs`(CRDT 상태)는 지금의
+노트 문서 프레임(`doc`·`update`·`sub`)으로 오가므로 넣지 않는다. 수집함·구독·전달·PR 감시 테이블은 기계 상태라서
+넣지 않는다.
+
+행 모양은 지금 타입(`Board`, `Section`, `Todo`, `Comment`, `Note`, `HistoryEntry`, `Handoff`)의 JSON에 `seq`를 더한
+것이다. `ref`·`commentCount` 같은 파생 값과 세션에서 계산하는 값(`doingState`, `stale`)은 싣지 않고 클라이언트가
+계산한다.
+
+### 순번 `seq`
+
+- `sync_state` 행 하나에 마지막 순번과 `epoch`(마이그레이션 때 정하는 임의 값)를 둔다.
+- 일곱 테이블에 `seq INTEGER NOT NULL DEFAULT 0` 열과 인덱스를 둔다. `AFTER INSERT`·`AFTER UPDATE` 트리거가
+  `sync_state.seq`를 1 올리고 그 값을 행에 적는다. `record_history`를 부르는 쓰기 26곳과 그렇지 않은 쓰기를 하나도
+  고치지 않아도 모든 변경에 순번이 붙는다.
+- 트리거 안의 갱신은 `WHEN NEW.seq IS OLD.seq` 조건과 SQLite 기본값(재귀 트리거 꺼짐) 두 겹으로 자기를 다시 부르지
+  않는다.
+- 기존 행은 0으로 둔다. 처음 받는 클라이언트는 늘 통째로 받으므로 소급하지 않아도 된다.
+- 삭제가 없다(보관만). 그래서 지운 행을 따로 기억하지 않는다.
+- 쓰기는 연결 하나(`Mutex<Connection>`)로 줄을 서므로 순번 순서가 커밋 순서다.
+
+### 깨우기
+
+지금 변경 이벤트(`ChangeEvent`)는 히스토리를 남기는 쓰기에서만 나온다. 그래서 세션 귀속(`claim-session`), 조절된
+노트 편집 이벤트, 섹션 보관에 딸린 할 일 보관을 놓친다. 대신 `rusqlite`의 `update_hook`(기능 `hooks`, 새 크레이트가
+아니다)으로 대상 테이블이 바뀔 때 스토어가 알린다. 데몬은 알림을 받으면 20ms 모았다가 연결마다 "그 연결에 보낸
+순번 이후"를 읽어 보낸다. 방송 채널을 쓰지 않으므로 밀린 연결도 다음 차례에 한꺼번에 받는다(`lag` 없음).
+
+### 프레임 (`GET /api/ws`)
+
+지금의 노트 소켓에 프레임을 더한다. 클라이언트는 연결 하나로 노트 문서와 보드 행을 함께 받는다.
+
+- `{t:"sync", since?, epoch?}` → `{t:"rows", epoch, seq, full, rows:{boards:[…], sections:[…], …}}`
+  - `since`가 없거나, `epoch`가 다르거나, `since`가 지금 순번보다 크면 `full:true`다. 클라이언트는 사본을 통째로
+    바꾼다.
+  - 그 밖에는 `seq > since`인 행만 보낸다.
+- `sync`를 받은 연결에는 바뀐 행이 생길 때마다 데몬이 같은 `rows` 프레임(`full:false`)을 먼저 보낸다.
+- `{t:"tx", id, ops:[…]}` → `{t:"ack", id, seq}` 또는 `{t:"reject", id, at, error}`. 데몬은 `ack` 앞에 그 순번까지의
+  `rows`를 먼저 보낸다. 그래서 `ack`를 받은 클라이언트의 사본에는 이미 결과가 들어 있다.
+
+### 트랜잭션
+
+- 어휘는 원격에서도 이미 허용된 보드 쓰기만이다. 할 일 만들기·고치기·상태 바꾸기·순서, 댓글 쓰기·고치기·보관,
+  섹션 만들기·보관, 노트 만들기·제목·보관·고정, 보드 제목·설명.
+- 세션 띄우기, 이슈 만들기, 핸드오프, 보드의 `path`·`repo`·`reviewFix`·`prAuthors`, 수집함 설정은 어휘에 없다.
+  그런 쓰기는 지금처럼 로컬 요청 전용 REST로만 한다. 클라우드를 거쳐 온 쓰기가 프로그램 실행으로 이어질 길이
+  프로토콜에 없다.
+- op마다 지금 스토어 메서드를 그대로 부른다. 검증, 히스토리, 이벤트가 REST와 같다. 행위자는 소켓의 `actor`다.
+- 만들기는 클라이언트가 정한 id(`new_id`와 같은 8자 base36)를 받는다. 낙관적으로 그린 행과 확정된 행의 id가
+  같고, 응답을 잃어 다시 보내도 두 번 만들어지지 않는다(같은 id가 이미 있으면 성공으로 본다).
+- op가 여럿이면 차례로 적용하다가 실패한 op에서 멈춘다. 앞의 op는 남고, `reject`의 `at`이 실패한 op의 자리다.
+  결과는 어차피 `rows`로 돌아오므로 클라이언트는 그 트랜잭션의 낙관적 변경을 걷기만 하면 된다.
+
+### 번호
+
+번호는 데몬이 매긴다. 지금 `next_number`는 `MAX(number)+1`이라, 보드에서 가장 큰 번호의 할 일을 다른 보드로 옮기면
+원래 보드가 그 번호를 다시 준다. 줄지 않는 보드별 카운터로 바꾼다(1번 조각과 따로 내는 PR).
+
+### 실패 처리
+
+- 연결이 끊기면 클라이언트가 다시 붙어 `sync since=<마지막 seq>`로 이어 받는다.
+- DB를 새로 만들면 `epoch`가 바뀌어 클라이언트가 통째로 다시 받는다.
+- 트리거가 빠지면 그 테이블의 변경이 퍼지지 않는다. 마이그레이션 테스트가 트리거 열네 개를 이름으로 고정한다.
+
+### 검증
+
+- 스토어: 테이블마다 삽입과 수정에 순번이 오르고, `since` 이후의 행만 나온다. 기존 테스트는 그대로 통과한다.
+- 소켓: 실제 클라이언트(`tokio-tungstenite`)로 `sync` → 통째 사본 → REST 쓰기 → 밀려온 `rows`, 끊고 `since`로
+  다시 붙기, `tx` → `rows` → `ack`.
+- 사용 로그: 새 프레임을 `KNOWN_SURFACES`에 넣는다.
+
+## 2번 조각 — 로컬 퍼스트 웹 (개요)
+
+- zustand 스토어 아래에 싱크 엔진을 둔다. 테이블별 행 맵, 마지막 순번, 보낼 트랜잭션을 IndexedDB에 둔다.
+- 첫 화면은 IndexedDB에서 그리고, 소켓이 붙으면 `since` 이후를 받는다. cmux가 숨은 패널을 다시 열 때도 네트워크
+  없이 그린다.
+- 보드 화면의 다시 읽기와 60초 전체 다시 읽기를 걷는다. 세션·rc·PR·수집함·작업로그 패널은 지금 방식(REST·폴링)을
+  둔다.
+- 노트 편집기는 지금 문서 프레임을 그대로 쓴다.
+
+## 3·4번 조각 — 클라우드 (개요)
+
+- `cloud/`: Worker(정적 파일, Access 토큰 검증)와 DO 하나(SQLite: 사본·변경함, Hibernation WebSocket).
+- 데몬 연결기: `todo.sync`가 있을 때만 뜬다. 데몬 쪽에서는 싱크 프로토콜의 클라이언트이고, 클라우드와도 같은
+  프레임을 주고받는다. 기계 필드(`path`, `repo` 등)는 보내지 않는다.
+- 노트 문서는 Yjs 동기화 프로토콜로 맥과 주고받는다. 서버 둘 사이에서는 양쪽이 상태 벡터를 먼저 보낸다.
+- 클라우드 화면은 피드·할 일·노트만 보인다. 머리줄에 맥 연결 상태와 보낼 변경 개수를 둔다.
+- Access: Worker 단위 Access는 2026-10 문서 기준으로 WebSocket을 받지 못한다. 도메인 단위 Access 앱 뒤에 두고
+  워커가 JWT를 직접 검증한다(데몬의 `rocky_core::access`와 같은 규칙). 서비스 토큰을 단 WebSocket이 Access를
+  통과하는지는 문서에 없어서 3번 조각의 첫 일로 실측한다.
+- DO는 배포할 때 WebSocket이 모두 끊긴다. 클라이언트와 연결기가 순번으로 이어 받는다.
+- 3번을 설계할 때 정할 것: 올릴 보드(전부 올리고 빼는 보드만 끄기 / 고른 보드만), 폰에서 맥 작업(핸드오프·새 세션)
+  예약 여부, 서비스 토큰 보관 위치, 주소.
+
+## 범위 밖
+
+- 데몬을 클라우드로 옮기기. 오프라인에서 보드가 죽는다.
+- 기기끼리 보드 맞추기. 기기마다 독립 인스턴스다.
+- 클라우드를 거친 맥 작업(세션 띄우기, 핸드오프). 3번 설계 때 따로 정하기 전까지 없다.
+- 번호 미리 떼어 주기. 맥이 잠든 동안 만든 할 일은 맥이 깰 때 번호를 받는다.
+
+## 참고
+
+- Linear: [reverse-linear-sync-engine](https://github.com/wzhudev/reverse-linear-sync-engine),
+  [Scaling the Linear Sync Engine](https://linear.app/now/scaling-the-linear-sync-engine),
+  [Rebuilding delta sync](https://linear.app/blog/rebuilding-delta-sync-read-path)
+- Cloudflare: [Storage options](https://developers.cloudflare.com/workers/platform/storage-options/),
+  [DO SQLite API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/),
+  [DO 한도](https://developers.cloudflare.com/durable-objects/platform/limits/),
+  [WebSocket Hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/),
+  [Workers와 Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
+- 동기화: [Replicache 동작 방식](https://doc.replicache.dev/concepts/how-it-works),
+  [y-protocols](https://github.com/yjs/y-protocols/blob/master/PROTOCOL.md)
