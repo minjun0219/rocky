@@ -27,6 +27,7 @@ mod setup_test;
 mod statusline_golden_test;
 mod store_test;
 mod summary_test;
+mod sync_test;
 mod tokens_test;
 mod transcript_test;
 mod usage_test;
