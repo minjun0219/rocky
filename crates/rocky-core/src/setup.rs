@@ -6,8 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::board_path::BoardLocation;
 use crate::config::{ExposeValue, TodoConfig};
-use crate::statusline::BoardLocation;
 
 /// 기본 `rocky.json` — `rocky config init` 이 파일이 없을 때 쓴다. 값은 전부 기본값과
 /// 같아서 있어도 동작이 바뀌지 않는다; `$schema` 로 편집기 자동완성이 붙고 어디를
@@ -25,23 +25,32 @@ pub fn default_config_json() -> String {
     text
 }
 
-/// Claude Code statusline 스크립트 끝에 붙일 조각 — `docs/board.md` "statusline에 얹기" 와
-/// 같은 내용. 포트를 바꿔 썼으면 여기도 따라간다.
-pub fn statusline_snippet(port: u16) -> String {
-    format!(
-        "cwd=$(echo \"$input\" | jq -r '.workspace.current_dir // empty')\n\
-         sid=$(echo \"$input\" | jq -r '.session_id // empty')\n\
-         rt=$(curl -sf --max-time 0.3 \"http://127.0.0.1:{port}/api/statusline?cwd=$cwd&session=$sid\")\n\
-         [ -n \"$rt\" ] && printf '%s\\n' \"$rt\""
-    )
+/// `~/.claude/settings.json` 에 넣을 statusLine — `rocky statusline` 이 줄 전체를 그린다. 터미널에서 `rocky` 가 불리지
+/// 않는 기기(`cli` 점검이 짚는다)는 PATH 와 상관없게 링크 경로로 적는다. `docs/board.md` "statusline" 과 같은 내용.
+pub fn statusline_setting(rocky_on_path: bool) -> String {
+    let rocky = if rocky_on_path {
+        "rocky"
+    } else {
+        "~/.local/bin/rocky"
+    };
+    format!(r#""statusLine": {{ "type": "command", "command": "{rocky} statusline" }}"#)
 }
 
-/// `settings.json` 의 `statusLine.command` 가 rocky 세그먼트를 부르는가 — 데몬의 `/api/statusline` 을 붙였거나,
-/// `rocky statusline`(·`--full` 같은 플래그만)을 직접 부른다(그 명령이 보드 줄을 그린다 — 조각을 또 붙이면 보드
-/// 줄이 두 번 나온다). 명령이 스크립트 경로 하나면(보통 그렇다) 그 파일 내용을 `script_body` 로 같이 넘긴다.
+/// 걷은 보드 줄 라우트(`/api/statusline`)를 부르는 옛 조각이 남았나 — 이제 404 라 아무것도 그리지 않고 렌더마다 헛돈다.
+/// `rocky statusline` 과 한 스크립트에 있으면 연결은 됐어도 지워야 한다.
+pub fn statusline_stale_snippet(command: Option<&str>, script_body: Option<&str>) -> bool {
+    [command, script_body]
+        .into_iter()
+        .flatten()
+        .any(|text| text.contains("/api/statusline"))
+}
+
+/// `settings.json` 의 `statusLine.command` 가 `rocky statusline`(·`--full` 같은 플래그만)을 부르는가. 명령이 스크립트
+/// 경로 하나면(보통 그렇다) 그 파일 내용을 `script_body` 로 같이 넘긴다. 걷어 낸 데몬 라우트(`/api/statusline`)를 부르는
+/// 옛 조각은 이제 아무것도 그리지 않으니 연결로 치지 않는다.
 pub fn statusline_wired(command: Option<&str>, script_body: Option<&str>) -> bool {
-    let wired = |text: &str| text.contains("/api/statusline") || invokes_rocky_statusline(text);
-    command.is_some_and(wired) || script_body.is_some_and(wired)
+    command.is_some_and(invokes_rocky_statusline)
+        || script_body.is_some_and(invokes_rocky_statusline)
 }
 
 /// 어느 줄이 `rocky statusline` 을 그리는 형태로 부르는가 — 실행 파일 이름이 `rocky`(경로 포함)이고 다음이
@@ -306,25 +315,30 @@ pub fn build_report(input: &SetupInput) -> SetupReport {
     ));
 
     // statusline.
-    let wired = statusline_wired(
+    let (command, script) = (
         input.statusline_command.as_deref(),
         input.statusline_script.as_deref(),
     );
+    let wired = statusline_wired(command, script);
+    let stale = statusline_stale_snippet(command, script);
     checks.push(check(
         "statusline",
         CheckKind::Optional,
-        wired,
-        match (&input.statusline_command, wired) {
-            (None, _) => "Claude Code statusLine 미설정".to_string(),
-            (Some(cmd), true) => format!("연결됨 — {cmd}"),
-            (Some(cmd), false) => format!("statusLine 은 있으나 rocky 세그먼트 없음 — {cmd}"),
+        wired && !stale,
+        match (&input.statusline_command, wired, stale) {
+            (None, _, _) => "Claude Code statusLine 미설정".to_string(),
+            (Some(cmd), _, true) => format!("걷은 보드 줄 조각(`/api/statusline`)이 남아 있다 — {cmd}"),
+            (Some(cmd), true, false) => format!("연결됨 — {cmd}"),
+            (Some(cmd), false, false) => format!("statusLine 이 rocky 를 부르지 않는다 — {cmd}"),
         },
-        (!wired).then(|| {
-            format!(
-                "statusline 스크립트 끝에 아래를 붙인다:\n{}",
-                statusline_snippet(input.port)
-            )
-        }),
+        match (wired, stale) {
+            (true, false) => None,
+            (true, true) => Some("statusline 스크립트에서 `/api/statusline` 을 부르는 줄을 지운다".to_string()),
+            (false, _) => Some(format!(
+                "~/.claude/settings.json 에 아래를 넣는다(다른 도구의 줄은 rocky.json 의 statusline.extraCommands — 인자로 {{{{cwd}}}}·{{{{session_id}}}} 만 받고 stdin 은 받지 않는다):\n{}",
+                statusline_setting(input.cli_on_path.is_some())
+            )),
+        },
     ));
 
     // 터미널에서 `rocky` 가 불리는가 — 링크(SessionStart 가 건다)와 PATH 둘 다 있어야 한다.
@@ -391,7 +405,7 @@ fn board_check(input: &SetupInput) -> Check {
             "board",
             CheckKind::Optional,
             false,
-            format!("보드 `{repo_key}` 에 path 없음 — 새 세션 띄우기·statusline 보드 판정이 경로를 못 쓴다"),
+            format!("보드 `{repo_key}` 에 path 없음 — 새 세션 띄우기·세션 목록의 보드 판정이 경로를 못 쓴다"),
             Some("rocky board path".into()),
         ),
         Some(path) => {

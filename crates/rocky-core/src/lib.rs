@@ -5,6 +5,7 @@
 pub mod access;
 pub mod actor;
 pub mod actors;
+pub mod board_path;
 pub mod claude_account;
 pub mod config;
 pub mod doctor;

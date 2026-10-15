@@ -92,9 +92,9 @@ Claude Code의 `Stop` 훅(`rocky hook log-turn`)처럼 매 턴을 `kind: "turn"`
 
 ## statusline
 
-agy의 statusLine도 Claude Code와 같은 꼴의 JSON을 stdin으로 주므로 `rocky statusline --full`을 그대로 건다
-(`/statusline rocky statusline --full`). 한도는 agy가 주는 `quota`로 그리고, Claude 쪽 토큰·캐시는 보지 않는다 —
-[`docs/board.md`](./board.md) "statusline에 얹기".
+agy의 statusLine도 Claude Code와 같은 꼴의 JSON을 stdin으로 주므로 `rocky statusline`을 그대로 건다
+(`/statusline rocky statusline`). 한도는 agy가 주는 `quota`로 그리고, Claude 쪽 토큰·캐시는 보지 않는다 —
+[`docs/board.md`](./board.md) "statusline".
 
 ## 원격 제어(`agy remote-control`)
 

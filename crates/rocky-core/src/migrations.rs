@@ -329,7 +329,7 @@ fn add_cleared_sessions(db: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 마이그레이션 18: `todos.doing_session_claimed` — doing 의 세션 귀속이 핸드오프가 아니라 훅(세션이 스스로 `start`)에서
-/// 왔다. statusline·턴 태그는 같이 쓰고, Stop 훅의 "닫았나?" 확인은 핸드오프로 받은 것에만 한다.
+/// 왔다. 턴 태그는 같이 쓰고, Stop 훅의 "닫았나?" 확인은 핸드오프로 받은 것에만 한다.
 fn add_doing_session_claimed(db: &Connection) -> rusqlite::Result<()> {
     if !table_columns(db, "todos")?
         .iter()

@@ -20,7 +20,7 @@ mod server_issue_test;
 mod server_rest_test;
 mod server_spawn_rc_test;
 mod server_spawn_test;
-mod server_statusline_test;
+mod server_summary_test;
 mod sessions_swr_test;
 mod shutdown_test;
 mod spawnctl_test;

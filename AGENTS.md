@@ -120,7 +120,9 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   git 히스토리에서 되살린다.
 - 소울(`souls/`, `soul.ts`, `inject-soul` 훅, `rocky.json`의 `soul` / `callsign`)과 옛 statusline 템플릿(`statusline/`,
   `statusline.ts`, `sync-statusline`, `~/.config/rocky/statusline.sh` 설치) — v0.19에서 제거. 재미는 있었지만 필수는
-  아니었다. (지금의 `rocky statusline` 은 데몬이 그리는 다른 것이다 — *기능별 개발 문서*의 statusline.)
+  아니었다. (지금의 `rocky statusline` 은 다른 것이다 — *기능별 개발 문서*의 statusline.)
+- 데몬이 그리던 **statusline 보드 줄**(`GET /api/statusline`, `todo.statusline` 템플릿, `ROCKY_TODO_STATUSLINE`, `statusline.board`) —
+  2026-10-15 오너 결정으로 제거(늘 `rocky statusline` 의 full 만 썼다). git 히스토리에만 있다. 보드는 세션 옆 패널(`/rocky-board`)과 웹 UI 로 본다.
 - 실험 기능 `lab`(Claude Code function hooks 모듈, `rocky.json` 의 `lab` 블록) — 0.45 에 넣고 0.46 에서 뺐다(사용 0회).
   오너가 다시 꺼내기 전까지 제안하지 않는다. (지금의 `plugin/hooks/board-panel/` 은 2026-10-13 오너 요청으로 넣은 다른 것이다 —
   보드를 세션 패널에 띄우는 모듈 하나. lab 의 toast·band·limits 를 되살린 것은 아니고, 연결 방식(`modules`·`plugin/types`·검사 스크립트·
@@ -269,7 +271,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | TUI(`tui/`) | 웹은 `types.ts`·`lib.ts`(순수)만 가져다 쓴다 — 웹 store 는 브라우저에 묶여 있다. 쓰기는 REST 로 보내고 화면은 SSE 를 기다린다. 번들은 `react-devtools-core` 를 빈 모듈로, 실행은 늘 `bun --no-install` | [tui](./docs/features/tui.md) |
 | 보드 패널(mod) | 저절로 열지 않는다 — `/rocky-board` 로만 열고, 데몬은 패널이 열려 있는 동안만 묻는다(매 바퀴 `$.ui.panes()` 로 확인). 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
-| statusline | 1초마다 도는 자리 — 사용 로그·데몬 자동 기동을 거치지 않고 300ms 안에 못 받으면 빈 출력 | [statusline](./docs/features/statusline.md) |
+| statusline | 1초마다 도는 자리 — 사용 로그·데몬을 거치지 않는다. 하위 프로세스(git·`extraCommands`)는 마감을 넘기면 프로세스 그룹째 끊고 그 줄만 뺀다 | [statusline](./docs/features/statusline.md) |
 | 점검(`rocky doctor`) | 읽기만 한다. 꺼진 데몬을 띄우지 않고, 못 받은 항목은 ⚠ 가 아니라 건너뛴다. 판정은 `rocky_core::doctor` 순수 함수 | [doctor](./docs/features/doctor.md) |
 | 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다. rc 가 켜진 기기는 rc 서버로(할 일당 하나, 내리기는 사람) | [spawn](./docs/features/spawn.md) |
 | 세션 목록(`claude agents`) | pid 없는 잠든 행을 버리지 않는다. 작업 요약은 `detail`·`needs`·`updatedAt` 만, 못 읽으면 그 행만 비운다 — *the session list is readable remotely* | [sessions](./docs/features/sessions.md) |

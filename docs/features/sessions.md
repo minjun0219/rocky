@@ -44,7 +44,7 @@
   만 넘긴다 — 사람이 보낸 값이 인자가 되지 않는다. 실측(2.1.289): 살아 있는 세션은 transient 서비스(`claude daemon run`)의 자식이라
   stop 할 때 서비스가 늘 떠 있고, stop 뒤 대화·워크트리는 남아 `claude attach` 로 잇는다. 세션은 기본 목록에서 빠진다(`blocked` 는
   `stopped` 가 되어 "내 차례" 에서도 빠진다). **pid 없이 잠든 세션의 stop 은 재 보지 못해 받지 않는다**(409).
-- **멈추면 데몬이 세션 목록 캐시를 비운다**(`invalidate_sessions` — `/api/sessions`·statusline 의 SWR). 안 비우면 오래된 값을 최대
+- **멈추면 데몬이 세션 목록 캐시를 비운다**(`invalidate_sessions` — `/api/sessions` 의 SWR). 안 비우면 오래된 값을 최대
   30분 더 줘서 다른 탭·폰·`doingState` 가 멈춘 세션을 산 것으로 본다. 비우기 전에 시작한 조회는 끝나도 캐시에 쓰지 않는다(세대 번호).
   화면은 그 행을 바로 빼고 목록을 다시 읽는다 — 화면 쪽 감춤 상태는 두지 않는다(두면 곧바로 attach 로 이은 세션까지 숨는다).
 - **attach 복사는 background 행 전부**(짧은 id 가 있으면) — `claude attach <id>` 를 클립보드에. 아무것도 움직이지 않아 노출된 화면에도

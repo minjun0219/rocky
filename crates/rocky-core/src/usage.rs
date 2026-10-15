@@ -111,6 +111,8 @@ const LITERAL_THIRD: &[&str] = &[
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
 const SKIPPED_ROUTES: &[&str] = &[
     "/api/health",
+    // 걷은 라우트 — 옛 statusline 조각이 남은 기기는 1초마다 부른다. 404 로 로그를 채우지 않게 건너뛰고, 옛 조각은
+    // `rocky config show` 의 statusline 점검이 짚는다.
     "/api/statusline",
     "/api/events",
     "/api/tokens/events",
@@ -276,7 +278,7 @@ pub fn parse_since(spec: &str, now: DateTime<Utc>) -> Option<String> {
 /// 접두사로 맞춘다(`rocky board path` 는 `rocky board` 에 속한다).
 pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     // REST — `rockyd::server::dispatch` 의 라우트를 `normalize_route` 모양으로. 라우트를 더하거나
-    // 빼면 여기도 같이(rockyd 의 usage 테스트가 잡는다). health·statusline·events·usage 는 기록 제외.
+    // 빼면 여기도 같이(rockyd 의 usage 테스트가 잡는다). health·events·usage 는 기록 제외.
     (UsageSource::Rest, "GET /api/boards"),
     (UsageSource::Rest, "POST /api/boards"),
     (UsageSource::Rest, "PATCH /api/boards/:ref"),

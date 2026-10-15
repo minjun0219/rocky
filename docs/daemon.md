@@ -126,7 +126,7 @@
   경로 세그먼트에 **현재 key**가 있는지만 본다 — 핸드오프 대상 고르기와 `doing`의
   `gone` 판정이 그걸 쓴다. 즉 key를 디렉터리 이름과 **어긋나게** 바꾸면 그 두 자리에서
   후보를 못 찾는다(기능은 죽지 않고 사람이 고르게 된다). 이름 변경의 통상 방향은 반대
-  (디렉터리에 맞추는 것)라 별칭 매칭까지는 넣지 않았다 — `board_key_for_cwd`(statusline)만
+  (디렉터리에 맞추는 것)라 별칭 매칭까지는 넣지 않았다 — `board_key_for_cwd`(세션 목록·rocky 채널·훅)만
   `boards.path`를 먼저 보므로 경로가 설정된 보드는 이 어긋남에 영향받지 않는다.
 - **노트 본문은 CRDT 문서다**(`rocky_core::note_doc`, Yjs 호환 `yrs`; 설계
   `docs/design/specs/2026-09-28-note-crdt-design.md`, 오너 결정 2026-09-28 — `yrs`/`yjs` 두 런타임
@@ -214,7 +214,7 @@
   않는다**(그 요청은 여전히 세션이 안 집은 것이다).
   귀속이 필요한 이유는 `/mcp`가 stateless 라 도구 호출에 세션 식별자가 없고 에이전트가
   자기 `session_id`를 모르기 때문 — 핸드오프, 그리고 세션이 스스로 `start` 한 것을 PostToolUse 훅이
-  붙이는 것(`doing_session_claimed`)이 그걸 아는 두 경로다. 훅 귀속은 statusline ⏺·턴 태그에만 쓰고 아래
+  붙이는 것(`doing_session_claimed`)이 그걸 아는 두 경로다. 훅 귀속은 턴 태그에만 쓰고 아래
   상태 판정에는 쓰지 않는다(그 세션은 "닫았나?" 를 묻지 않아 턴마다 `idle` 이 되기 때문).
   판정은 `rocky_core::doing`(순수): `resolve_doing_state`는 `live`(세션 busy) / `idle`(세션은 사는데
   턴이 끝나고 완료가 없다 — **가장 흔한 실패**) / `gone` / `unknown`. 귀속이 없는 doing은
@@ -273,23 +273,11 @@
   `rateLimit`을 읽어 잔여가 `RATE_LIMIT_FLOOR`(1,000) 밑이거나 한도 에러를 받으면 그 tick을 멈추고
   리셋까지 쉰다(`pause_for`; 리셋 시각을 모르면 15분). health의 `prWatch.rateLimit`(tick 누계
   cost·마지막 remaining)·`pausedUntil`이 그 상태다.
-- **statusline 세그먼트(`GET /api/statusline`)**: 보드를 보려고 창을 하나 더 띄우지 않으려는
-  표면. `?cwd=&session=`을 받아 **완성된 한 줄**을 `text/plain`으로 낸다 — 렌더를 데몬이
-  하는 이유는 소비자(Claude Code statusline 명령)를 `curl` 한 줄로 유지하려는 것이다.
-  그 자리는 1초마다 × 열어둔 세션 수만큼 도는 유일한 경로라 렌더용 프로세스 기동을 없애는
-  값이 크다. 같은 이유로 이 라우트만 **세션 목록을 15초마다 새로 받는다**(`statusline_sessions`) —
-  다른 라우트의 3초를 쓰면 `claude agents --json`(~220ms)이 3초마다 영구히 도는 배경
-  부하가 된다. 세션 목록에서 얻는 건 방치 경고 하나뿐이라 15초 지연은 손해가 없다. 만료된
-  값은 **기다리지 않고** 내주며 뒤에서 한 번 새로 받는다(SWR, 30분까지) — 만료 때마다 그 요청이
-  조회를 기다리면 CLI의 300ms 마감에 걸려 보드 줄이 비었다(rocky-47). 기동 때 함께 데운다.
-  템플릿 문법은 `{name}` 치환과 `[...]` 옵셔널 그룹 둘뿐이고, **ESC 바로 뒤의 `[`/`]`는
-  리터럴**이다 — 색을 별도 DSL로 만들지 않고 템플릿에 ANSI 이스케이프를 직접 적게 한
-  선택의 대가를 한 줄로 치른 것. 판정은 전부 `rocky_core::statusline`(순수)에 있고 라우트는
-  재료만 모은다. **실패는 조용하다**(빈 문자열) — 여기서 에러 본문을 내면 사용자
-  프롬프트에 JSON 덩어리가 박힌다. 보드 판정은 `board_key_for_cwd`로 `boards.path` 하위 →
-  key가 경로 세그먼트 순인데, `basename(cwd)`를 쓰면 워크트리에서 원본 보드를 놓치기
-  때문이고 이는 `match_board`와 같은 규약이다. `{mine.*}`은 `doing_session_id`
-  귀속이 있는 작업에만 붙는다 — 핸드오프로 시작했거나, 세션이 스스로 `start` 한 것을 PostToolUse 훅이 귀속시켰을 때.
+- **statusline 세그먼트(`GET /api/statusline`)는 걷었다**(2026-10-15): 데몬이 렌더하던 보드 줄이다 — 소비자를 `curl` 한 줄로
+  두려고 렌더를 데몬이 했고, 1초마다 도는 유일한 라우트라 세션 목록을 따로 15초 SWR 로 받았다. 오너가 늘 `rocky statusline`
+  (CLI 가 그리는 경로·모델·ctx·한도 줄)만 써서 템플릿·라우트·조회기를 뺐다. 보드 판정(`board_key_for_cwd` — `boards.path` 하위 →
+  key 가 경로 세그먼트, `basename(cwd)` 는 워크트리에서 원본 보드를 놓친다)은 세션 목록·rocky 채널·훅이 그대로 쓴다. 걷은
+  코드는 git 히스토리에 있다.
 - **새 세션 띄우기(보드 → 새 워크트리)**: rc 가 켜진 기기는 데몬이 워크트리를 만들고 단일 세션 rc 서버를 띄워 그 세션에
   핸드오프를 넣는다(`rockyd::rc::handoff`) — `claude --bg` 세션은 로그인 세션 밖에서 돌아 ssh · 자격이 끊겨 PR 로 끝나는 일을
   끝내지 못했다(2026-09-04 · 2026-10-05). 도는 rc 서버에 새 세션을 로컬에서 청하는 방법이 없어(`--spawn worktree` 는 claude.ai

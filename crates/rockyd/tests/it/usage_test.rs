@@ -29,7 +29,7 @@ async fn rest_calls_are_recorded_by_shape_with_actor_client_and_status() {
         .body(Body::empty())
         .unwrap();
     handle_api(&state, req, Some("127.0.0.1".into())).await;
-    // 1초마다 도는 것은 안 남긴다.
+    // 1초마다 도는 것은 안 남긴다 — 걷은 statusline 라우트를 부르는 옛 조각(404)도.
     for path in ["/api/health", "/api/statusline?cwd=/w"] {
         let req = Request::builder()
             .method("GET")

@@ -71,7 +71,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | 메서드 경로 | 요청 | 응답 | 비고 |
 |---|---|---|---|
 | GET `/api/health` | — | `{ok:true, name:'rocky-todo', version, commit, pid, issueCreateAllowed, spawnAllowed, accessUser, dbIntegrity?}` | version은 stale 데몬 판별 근거. `commit` — 빌드한 커밋의 짧은 해시(표시용, 훅의 교체 판단엔 안 씀. release 빌드에만 있고 아니면 null). `dbIntegrity` — 기동 때 `PRAGMA quick_check` 결과(`"ok"` 아니면 문제 요약). `accessUser` — Cloudflare Access 로 온 요청이면 로그인한 이메일, 아니면 null(화면 힌트) |
-| GET `/api/statusline` | `?cwd=&session=` | `text/plain` 완성 한 줄 | 실패·빈 상태 = 빈 문자열. 아래 절 |
+| GET `/api/statusline` | `?cwd=&session=` | `text/plain` 완성 한 줄 | **걷었다(2026-10-15, 오너 결정)** — statusline 은 CLI 가 그린다(`rocky statusline`). 아래 절은 기록 |
 | GET `/api/events` | — | SSE | 아래 절 |
 | GET `/api/boards` | `?includeArchived=true` | `Board[]` | |
 | POST `/api/boards` | `{key!, title?}` | 201 `Board` | key 없으면 400 `key is required` |
@@ -100,7 +100,7 @@ ref가 맨숫자 꼴(`refNeedsBoardContext`)일 때만 `unknown board: <key>` �
 | GET `/api/ws` | `?actor=` (웹소켓 업그레이드) | JSON 프레임 — `doc`·`update`·`presence`·`sub`/`unsub` 요청, `ok`/`err`·`subbed`·`ev`·`lag` 답 (`rockyd::ws` 머리 주석이 정본) | 노트 동시 편집 소켓. cross-site 핸드셰이크는 403. 같은 일의 HTTP 라우트는 폴백 |
 | POST `/api/prs/filters` | `{query!, sessionId?}` | 201 `PrFilterSubscription` | **로컬 전용**. 한 줄·256자 안이 아니면 400. 같은 세션·같은 조건은 있던 것 |
 | DELETE `/api/prs/filters` | `?id=` | `{removed, prs}` | **로컬 전용**. 그 필터로 들어온 PR 구독도 걷는다(`prs` = 걷힌 수). 없으면 404 |
-| GET `/api/summary` | `?cwd=&cached=true` | `Summary` | **포팅 후 추가(0.26)** — 보드 요약 JSON(마감·진행중·핸드오프·수집함 미올림 + 항목 ≤4, 미올림 전체의 지문 `collectToken`). `rocky today` · SessionStart 훅 · statusline이 쓴다 |
+| GET `/api/summary` | `?cwd=&cached=true` | `Summary` | **포팅 후 추가(0.26)** — 보드 요약 JSON(마감·진행중·핸드오프·수집함 미올림 + 항목 ≤4, 미올림 전체의 지문 `collectToken`). `rocky today` · SessionStart 훅 · 보드 패널이 쓴다 |
 
 ### 동적 (`:ref`는 URL 디코드 후 ref 문법 해석)
 
@@ -190,7 +190,7 @@ worktreePath, server:{pid,name}, base, woke}`(`base` 는 새로 딴 워크트리
 - 헤더: `text/event-stream`, `cache-control: no-cache`, `connection: keep-alive`
 - 해지: 스트림 cancel에서 구독 해제
 
-## statusline (`GET /api/statusline`)
+## statusline (`GET /api/statusline`) — 걷음(2026-10-15), 기록
 
 - 항상 `text/plain; charset=utf-8`. **모든 실패·빈 상태 = 빈 문자열** (에러 본문이
   사용자 프롬프트에 박히면 안 된다)

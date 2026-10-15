@@ -104,7 +104,7 @@ pub struct HeldTodo {
     pub title: String,
     /// GitHub PR 을 링크했다 — 머지를 기다리는 중이라 Stop 확인에서 묻지 않는다(머지되면 데몬이 완료한다).
     pub awaits_pr: bool,
-    /// 핸드오프가 아니라 세션이 스스로 `start` 한 것을 훅이 귀속시켰다 — Stop 확인에서 묻지 않는다(턴 태그·statusline 은 쓴다).
+    /// 핸드오프가 아니라 세션이 스스로 `start` 한 것을 훅이 귀속시켰다 — Stop 확인에서 묻지 않는다(턴 태그는 쓴다).
     pub claimed: bool,
 }
 
@@ -151,7 +151,7 @@ pub fn held_by_session(todos: &serde_json::Value, session_id: &str) -> Vec<HeldT
 /// 턴)면 묻지 않는다 — 안 그러면 "아직 하는 중" 이라 답한 세션을 영영 못 멈춘다. PR 을 링크한 할 일(`awaits_pr`)도
 /// 묻지 않는다 — 머지를 기다리는 동안 턴마다 막히고, 머지되면 데몬이 완료한다.
 pub fn held_todo_reminder(held: &[HeldTodo], stop_hook_active: bool) -> Option<String> {
-    // 스스로 든 것(claimed)은 묻지 않는다 — 오너 결정(2026-10-06): 귀속은 statusline·턴 태그에만, 확인은 핸드오프로 받은 것에만.
+    // 스스로 든 것(claimed)은 묻지 않는다 — 오너 결정(2026-10-06): 귀속은 턴 태그에만, 확인은 핸드오프로 받은 것에만.
     let held: Vec<&HeldTodo> = held.iter().filter(|t| !t.awaits_pr && !t.claimed).collect();
     if stop_hook_active || held.is_empty() {
         return None;

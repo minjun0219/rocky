@@ -5,8 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::statusline::DEFAULT_STATUSLINE_TEMPLATE;
-
 /// 기본 포트 — 키패드로 "todo" (8636).
 pub const DEFAULT_TODO_PORT: u16 = 8636;
 
@@ -43,7 +41,6 @@ pub struct TodoConfig {
     /// 문자열 하나("lan")도 허용 — 배열로 정규화. "off"/null 은 미설정과 동일.
     pub expose: Option<ExposeValue>,
     pub watch: Option<bool>,
-    pub statusline_template: Option<String>,
     /// 수집함 어댑터 — 모양이 틀린 항목은 건너뛴다(다른 필드와 같은 fail-open).
     pub inbox: Vec<InboxSource>,
     /// 보드 설정 화면에서 쓰는 수집함 어댑터(`todo.inboxAdapters[]`) — 그 자체로는 돌지 않고, 보드마다
@@ -77,8 +74,6 @@ pub struct TodoRuntimeConfig {
     /// 바인딩 호스트 — expose 에서 유도 (lan 포함 → 0.0.0.0, 아니면 127.0.0.1).
     pub host: String,
     pub expose: Vec<ExposeChannel>,
-    /// 항상 채워진다(기본값 폴백).
-    pub statusline_template: String,
     /// env 오버라이드 없음 — 설정 파일에서만 온다.
     pub inbox: Vec<InboxSource>,
     /// 보드 설정 화면용 어댑터(`todo.inboxAdapters[]`). 설정 파일에서만 온다.
@@ -151,15 +146,6 @@ pub fn load_todo_config(config_path: &Path) -> TodoConfig {
     }
     if let Some(watch) = todo.get("watch").and_then(|v| v.as_bool()) {
         out.watch = Some(watch);
-    }
-    // 모양이 어긋나면 통째로 무시 — 다른 필드와 같은 fail-open 규칙.
-    if let Some(template) = todo
-        .get("statusline")
-        .and_then(|v| v.as_object())
-        .and_then(|s| s.get("template"))
-        .and_then(|v| v.as_str())
-    {
-        out.statusline_template = Some(template.to_string());
     }
     if let Some(inbox) = todo.get("inbox").and_then(|v| v.as_array()) {
         out.inbox = inbox.iter().filter_map(parse_inbox_source).collect();
@@ -272,25 +258,12 @@ pub fn resolve_runtime_config(env: &EnvMap, todo: &TodoConfig) -> TodoRuntimeCon
     } else {
         "127.0.0.1"
     };
-    // 빈 문자열은 "출력 안 함" 이 아니라 오설정 — 기본 템플릿으로 폴백한다.
-    let statusline_template = env
-        .get("ROCKY_TODO_STATUSLINE")
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            todo.statusline_template
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-        .unwrap_or_else(|| DEFAULT_STATUSLINE_TEMPLATE.to_string());
 
     TodoRuntimeConfig {
         port,
         dir: expand_tilde(&raw_dir),
         host: host.to_string(),
         expose,
-        statusline_template,
         inbox: todo.inbox.clone(),
         inbox_adapters: todo.inbox_adapters.clone(),
     }
@@ -716,8 +689,7 @@ pub fn load_tokens_block(config_path: &Path) -> TokensConfig {
     }
 }
 
-/// `rocky.json` 최상위 `statusline` 블록 — `rocky statusline --full` 의 설정. 보드 줄 템플릿(`todo.statusline`)과는
-/// 다른 자리다.
+/// `rocky.json` 최상위 `statusline` 블록 — `rocky statusline` 의 설정.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatuslineConfig {
     /// 한도 판정(`source` · `alertPercent`).
@@ -734,8 +706,6 @@ pub struct StatuslineConfig {
     pub token_env: Option<String>,
     /// 로그인된 계정(이메일)별 표시(`badges`) — 목록에 없는 계정은 아무것도 붙지 않는다.
     pub badges: std::collections::HashMap<String, crate::statusline::full::Badge>,
-    /// 맨 아래에 보드 줄(`todo.statusline` 템플릿)을 붙이나(`board`). 기본 끔 — 끄면 데몬에 묻지도 않는다.
-    pub board: bool,
     /// 경로를 Cmd+클릭으로 여는 링크 템플릿(`dirLink`, 예: `vscode://file{{cwd}}`). 없으면 링크 없음.
     pub dir_link: Option<String>,
 }
@@ -807,10 +777,6 @@ pub fn load_statusline_block(config_path: &Path) -> StatuslineConfig {
         .unwrap_or(false);
     cfg.limits.guard = block
         .get("guard")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    cfg.board = block
-        .get("board")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let extras = block.get("extraCommands").and_then(|v| v.as_array());

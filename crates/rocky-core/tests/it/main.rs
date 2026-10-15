@@ -3,6 +3,7 @@
 
 mod access_test;
 mod actor_test;
+mod board_path_test;
 mod claude_account_test;
 mod config_test;
 mod doctor_test;
@@ -24,7 +25,6 @@ mod refs_test;
 mod sessions_test;
 mod setup_test;
 mod statusline_golden_test;
-mod statusline_test;
 mod store_test;
 mod summary_test;
 mod tokens_test;

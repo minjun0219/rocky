@@ -1,7 +1,6 @@
 //! TS `src/config.test.ts` + `src/rocky-config.test.ts` 포팅.
 
 use rocky_core::config::*;
-use rocky_core::statusline::DEFAULT_STATUSLINE_TEMPLATE;
 
 fn env(pairs: &[(&str, &str)]) -> EnvMap {
     pairs
@@ -120,44 +119,6 @@ fn env_expose_is_comma_separated_and_wins_entirely() {
     assert_eq!(runtime.host, "0.0.0.0");
 }
 
-#[test]
-fn statusline_template_default() {
-    let runtime = resolve_runtime_config(&env(&[]), &TodoConfig::default());
-    assert_eq!(runtime.statusline_template, DEFAULT_STATUSLINE_TEMPLATE);
-}
-
-#[test]
-fn statusline_template_config_over_default() {
-    let todo = TodoConfig {
-        statusline_template: Some("[{doing}]".into()),
-        ..Default::default()
-    };
-    assert_eq!(
-        resolve_runtime_config(&env(&[]), &todo).statusline_template,
-        "[{doing}]"
-    );
-}
-
-#[test]
-fn statusline_template_env_over_config() {
-    let todo = TodoConfig {
-        statusline_template: Some("[{doing}]".into()),
-        ..Default::default()
-    };
-    let runtime = resolve_runtime_config(&env(&[("ROCKY_TODO_STATUSLINE", "[{stale}]")]), &todo);
-    assert_eq!(runtime.statusline_template, "[{stale}]");
-}
-
-#[test]
-fn blank_statusline_template_falls_back_to_default() {
-    let todo = TodoConfig {
-        statusline_template: Some("   ".into()),
-        ..Default::default()
-    };
-    let runtime = resolve_runtime_config(&env(&[("ROCKY_TODO_STATUSLINE", "  ")]), &todo);
-    assert_eq!(runtime.statusline_template, DEFAULT_STATUSLINE_TEMPLATE);
-}
-
 // ── load_todo_config (rocky-config.test.ts) ──
 
 fn write_config(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -239,20 +200,11 @@ fn wrong_typed_fields_are_dropped() {
 }
 
 #[test]
-fn reads_statusline_template() {
-    let (_dir, path) = write_config(r#"{"todo":{"statusline":{"template":"[{doing}]"}}}"#);
-    assert_eq!(
-        load_todo_config(&path).statusline_template.as_deref(),
-        Some("[{doing}]")
-    );
-}
-
-#[test]
-fn malformed_statusline_is_ignored() {
-    let (_dir, path) = write_config(r#"{"todo":{"statusline":"template"}}"#);
-    assert!(load_todo_config(&path).statusline_template.is_none());
-    let (_dir2, path2) = write_config(r#"{"todo":{"statusline":{"template":123}}}"#);
-    assert!(load_todo_config(&path2).statusline_template.is_none());
+fn old_statusline_template_is_ignored() {
+    // 걷은 보드 줄 템플릿(`todo.statusline`)이 남은 설정도 그대로 읽힌다 — 키 하나 때문에 다른 값을 잃지 않는다.
+    let (_dir, path) =
+        write_config(r#"{"todo":{"port":9000,"statusline":{"template":"[{doing}]"}}}"#);
+    assert_eq!(load_todo_config(&path).port, Some(9000));
 }
 
 // ── todo.inbox (수집함 어댑터 등록) ──
@@ -452,7 +404,7 @@ fn statusline_block_reads_source_and_alert_percent() {
     let c = load_statusline_block(&path).limits;
     assert_eq!(c.source, Source::None);
     assert_eq!(c.alert_percent, Some(80.0));
-    // 모르는 source 는 기본값(auto), 블록·파일이 없어도 기본값 — todo.statusline(템플릿)과 헷갈리지 않는다.
+    // 모르는 source 는 기본값(auto), 블록·파일이 없어도 기본값 — 걷은 todo.statusline(템플릿)과 헷갈리지 않는다.
     for raw in [
         r#"{ "statusline": { "source": "STDIN" } }"#,
         r#"{ "todo": { "statusline": { "template": "x" } } }"#,
@@ -558,14 +510,6 @@ fn statusline_block_reads_credit_fade_defaulting_on() {
     assert!(!load_statusline_block(&path).limits.credit_fade());
     let (_dir, path) = write_config(r#"{ "statusline": {} }"#);
     assert!(load_statusline_block(&path).limits.credit_fade());
-}
-
-#[test]
-fn statusline_block_reads_board_defaulting_off() {
-    let (_dir, path) = write_config(r#"{ "statusline": { "board": true } }"#);
-    assert!(load_statusline_block(&path).board);
-    let (_dir, path) = write_config(r#"{ "statusline": {} }"#);
-    assert!(!load_statusline_block(&path).board);
 }
 
 #[test]
