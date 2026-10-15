@@ -982,7 +982,7 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
 300ms, stdin 은 넘기지 않는다)로 그 아래에 설정 순서대로 붙는다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지
 읽는다 — statusline 이 `rocky statusline refresh` 를 detached 로 띄우고 기다리지 않으며, 결과는 다음 렌더에 나온다. ctx 는
-90% 부터 굵은 금색으로 바뀌어 자동 압축이 다가온 것을 알린다. 한도가
+75% 부터 노랑, 91% 부터 굵은 빨강으로 바뀌어 자동 압축이 다가온 것을 알린다. 한도가
 임박·소진으로 오르면 그 창이 6초 동안 깜빡인 뒤 배지로 남고, `statusline.badges` 에 이메일을 적으면 로그인된 계정을 상태 줄 앞에
 표시한다(예: `"work@example.com": { "emoji": "🏢" }`). 크레딧 금액은 안 쓸 때 옅게, 쓰기 시작하면 3초에 걸쳐 원래 색으로
 페이드한다 — `creditFade: false` 로 끄면 늘 원래 색이다. `statusline.dirLink` 에 링크 템플릿을
