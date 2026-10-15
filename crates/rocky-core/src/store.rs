@@ -22,6 +22,9 @@ use crate::prwatch::{
     diff as pr_diff, event_changes, PrEvent, PrFilterSubscription, PrSnapshot, PrSubscription,
 };
 use crate::refs::GLOBAL_NOTE_PREFIX;
+use crate::sync::{
+    needs_full, SyncHead, SyncRows, SyncTables, Synced, FULL_HISTORY_LIMIT, SYNC_TABLES,
+};
 use crate::types::*;
 
 /// TS 의 `throw new Error(message)` 에 대응 — 메시지가 곧 계약이다.
@@ -420,6 +423,7 @@ impl TodoStore {
                 ..Default::default()
             },
         )?;
+        renew_sync_epoch(&conn)?;
         Ok(TodoStore {
             conn: Mutex::new(conn),
             listeners: Mutex::new(Vec::new()),
@@ -445,6 +449,7 @@ impl TodoStore {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(SCHEMA)?;
         run_migrations(&conn, RunMigrationsOptions::default())?;
+        renew_sync_epoch(&conn)?;
         Ok(TodoStore {
             conn: Mutex::new(conn),
             listeners: Mutex::new(Vec::new()),
@@ -4271,4 +4276,125 @@ impl TodoStore {
         }
         Ok(ChangesSince { last_id, entries })
     }
+
+    /// 싱크 머리 — 마지막으로 매긴 순번과 이 DB 의 `epoch`.
+    pub fn sync_head(&self) -> StoreResult<SyncHead> {
+        let conn = self.lock();
+        sync_head_conn(&conn)
+    }
+
+    /// `since` 뒤에 바뀐 보드 행. 클라이언트 사본을 통째로 바꿔야 하면(`sync::needs_full`) 행 전부를 돌려준다 — 히스토리만은
+    /// 최근 `FULL_HISTORY_LIMIT` 줄까지. 머리와 행을 같은 락 안에서 읽으므로, 돌려준 `seq` 까지의 변경이 빠짐없이 들어 있다.
+    pub fn sync_rows_since(
+        &self,
+        since: Option<i64>,
+        epoch: Option<&str>,
+    ) -> StoreResult<SyncRows> {
+        let conn = self.lock();
+        let head = sync_head_conn(&conn)?;
+        let full = needs_full(since, epoch, &head);
+        // 마이그레이션 전부터 있던 행은 순번 0 이라 통째로 줄 때는 0 도 넣는다.
+        let after = if full { -1 } else { since.unwrap_or(-1) };
+        let history = if full {
+            recent_history(&conn, FULL_HISTORY_LIMIT)?
+        } else {
+            synced_rows(&conn, "history", after, history_from_row)?
+        };
+        let rows = SyncTables {
+            boards: synced_boards(&conn, after)?,
+            sections: synced_rows(&conn, "sections", after, section_from_row)?,
+            todos: synced_rows(&conn, "todos", after, todo_from_row)?,
+            comments: synced_rows(&conn, "comments", after, comment_from_row)?,
+            notes: synced_rows(&conn, "notes", after, note_from_row)?,
+            history,
+            handoffs: synced_rows(&conn, "handoffs", after, handoff_from_row)?,
+        };
+        Ok(SyncRows {
+            epoch: head.epoch,
+            seq: head.seq,
+            full,
+            rows,
+        })
+    }
+}
+
+fn sync_head_conn(conn: &Connection) -> StoreResult<SyncHead> {
+    conn.query_row("SELECT epoch, seq FROM sync_state WHERE id = 1", [], |r| {
+        Ok(SyncHead {
+            epoch: r.get(0)?,
+            seq: r.get(1)?,
+        })
+    })
+    .map_err(|e| StoreError::new(format!("cannot read sync_state (migration 19): {e}")))
+}
+
+/// 스토어가 DB 를 열 때마다 `epoch` 를 새로 정한다 — 백업에서 되살린 DB 의 순번이 클라이언트가 가진 옛 순번과 겹쳐도,
+/// 클라이언트는 다른 epoch 를 보고 통째로 다시 받는다. 대가는 데몬이 다시 뜬 뒤 첫 연결이 통째로 받는 것이다.
+fn renew_sync_epoch(conn: &Connection) -> StoreResult<()> {
+    conn.execute(
+        "UPDATE sync_state SET epoch = lower(hex(randomblob(8))) WHERE id = 1",
+        [],
+    )
+    .map_err(|e| StoreError::new(format!("cannot renew sync epoch: {e}")))?;
+    Ok(())
+}
+
+/// 순번이 `after` 보다 큰 보드 — REST 의 보드처럼 `previousKeys` 를 붙인다. 별칭은 키를 바꿀 때만 생기고 그때 보드 행도
+/// 함께 바뀌므로(`update_board`) 이어 받기에서도 낡지 않는다. 별칭은 보드마다 묻지 않고 한 번에 읽는다.
+fn synced_boards(conn: &Connection, after: i64) -> StoreResult<Vec<Synced<Board>>> {
+    let mut boards = synced_rows(conn, "boards", after, board_from_row)?;
+    if boards.is_empty() {
+        return Ok(boards);
+    }
+    let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
+    let mut stmt =
+        conn.prepare("SELECT board_id, key FROM board_aliases ORDER BY created_at, key")?;
+    for pair in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        let (board_id, key) = pair?;
+        aliases.entry(board_id).or_default().push(key);
+    }
+    for board in &mut boards {
+        board.row.previous_keys = aliases.remove(&board.row.id);
+    }
+    Ok(boards)
+}
+
+/// 최근 히스토리 `limit` 줄을 순번 순으로 — 통째 사본용. 마이그레이션 전 줄은 순번이 모두 0 이라 id 로 가른다.
+fn recent_history(conn: &Connection, limit: i64) -> StoreResult<Vec<Synced<HistoryEntry>>> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM (SELECT * FROM history ORDER BY id DESC LIMIT ?1) ORDER BY seq, id",
+    )?;
+    let rows = stmt
+        .query_map(params![limit], |r| {
+            Ok(Synced {
+                row: history_from_row(r)?,
+                seq: r.get("seq")?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// `table` 에서 순번이 `after` 보다 큰 행을 순번 순으로. 테이블 이름이 SQL 에 들어가므로 `SYNC_TABLES` 밖은 거절한다.
+fn synced_rows<T>(
+    conn: &Connection,
+    table: &str,
+    after: i64,
+    map: fn(&Row) -> rusqlite::Result<T>,
+) -> StoreResult<Vec<Synced<T>>> {
+    if !SYNC_TABLES.contains(&table) {
+        return Err(StoreError::new(format!("not a sync table: {table}")));
+    }
+    let mut stmt = conn.prepare(&format!(
+        "SELECT * FROM {table} WHERE seq > ?1 ORDER BY seq"
+    ))?;
+    let rows = stmt
+        .query_map(params![after], |r| {
+            Ok(Synced {
+                row: map(r)?,
+                seq: r.get("seq")?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
 }

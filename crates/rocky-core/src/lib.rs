@@ -30,6 +30,7 @@ pub mod setup;
 pub mod statusline;
 pub mod store;
 pub mod summary;
+pub mod sync;
 pub mod tokens;
 pub mod transcript;
 pub mod types;

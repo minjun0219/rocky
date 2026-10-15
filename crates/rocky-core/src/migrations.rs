@@ -342,7 +342,59 @@ fn add_doing_session_claimed(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub const MIGRATIONS: [MigrationFn; 18] = [
+/// 마이그레이션 19: 보드 테이블에 싱크 순번(`seq`)을 단다 — 이중 구조 설계(2026-10-15)의 1번 조각.
+///
+/// `sync_state` 한 행이 마지막 순번과 `epoch`(DB 마다 다른 임의 값)를 갖는다. `sync::SYNC_TABLES` 마다
+/// `AFTER INSERT`·`AFTER UPDATE` 트리거가 순번을 1 올려 그 행에 적는다 — 쓰기 경로를 하나도 고치지 않아도 모든
+/// 변경에 순번이 붙는다. 트리거 안의 갱신은 `WHEN NEW.seq IS OLD.seq` 와 SQLite 기본값(재귀 트리거 꺼짐) 두 겹으로
+/// 자기를 다시 부르지 않는다. 기존 행은 0 으로 둔다 — 처음 받는 클라이언트는 늘 통째로 받는다.
+///
+/// 없는 테이블은 건너뛴다. 실제 DB 는 SCHEMA(`store.rs`)가 일곱 테이블을 마이그레이션보다 먼저 만들고, 트리거가 다
+/// 있는지는 `sync_test` 가 실제 DB 로 고정한다. 건너뛰는 것은 최소 스키마로 마이그레이션만 도는 테스트 DB 뿐이다.
+///
+/// 대상 목록은 `sync::SYNC_TABLES` 를 읽지 않고 여기 고정한다. 이미 19 까지 간 DB 는 이 마이그레이션을 다시 돌지
+/// 않으므로, 대상 테이블을 늘릴 때는 새 마이그레이션으로 열과 트리거를 더한다(`sync_test` 가 빠진 트리거를 잡는다).
+fn add_sync_seq(db: &Connection) -> rusqlite::Result<()> {
+    const TABLES: [&str; 7] = [
+        "boards", "sections", "todos", "comments", "notes", "history", "handoffs",
+    ];
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sync_state (
+           id INTEGER PRIMARY KEY CHECK (id = 1),
+           seq INTEGER NOT NULL,
+           epoch TEXT NOT NULL
+         );
+         INSERT OR IGNORE INTO sync_state (id, seq, epoch) VALUES (1, 0, lower(hex(randomblob(8))));",
+    )?;
+    for table in TABLES {
+        let columns = table_columns(db, table)?;
+        if columns.is_empty() {
+            continue;
+        }
+        if !columns.iter().any(|c| c == "seq") {
+            db.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN seq INTEGER NOT NULL DEFAULT 0"
+            ))?;
+        }
+        db.execute_batch(&format!(
+            "CREATE INDEX IF NOT EXISTS idx_{table}_seq ON {table}(seq);
+             CREATE TRIGGER IF NOT EXISTS {table}_sync_insert AFTER INSERT ON {table}
+             BEGIN
+               UPDATE sync_state SET seq = seq + 1 WHERE id = 1;
+               UPDATE {table} SET seq = (SELECT seq FROM sync_state WHERE id = 1) WHERE rowid = NEW.rowid;
+             END;
+             CREATE TRIGGER IF NOT EXISTS {table}_sync_update AFTER UPDATE ON {table}
+             WHEN NEW.seq IS OLD.seq
+             BEGIN
+               UPDATE sync_state SET seq = seq + 1 WHERE id = 1;
+               UPDATE {table} SET seq = (SELECT seq FROM sync_state WHERE id = 1) WHERE rowid = NEW.rowid;
+             END;"
+        ))?;
+    }
+    Ok(())
+}
+
+pub const MIGRATIONS: [MigrationFn; 19] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -361,6 +413,7 @@ pub const MIGRATIONS: [MigrationFn; 18] = [
     add_session_inboxes,
     add_cleared_sessions,
     add_doing_session_claimed,
+    add_sync_seq,
 ];
 
 #[derive(Default)]
