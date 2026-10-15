@@ -5,6 +5,7 @@ use crate::common::*;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use rocky_core::note_doc::NoteDoc;
+use rocky_core::types::StatusAction;
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -164,4 +165,148 @@ async fn a_cross_site_socket_is_refused_at_the_handshake() {
     req.headers_mut()
         .insert("origin", format!("http://{addr}").parse().unwrap());
     assert!(tokio_tungstenite::connect_async(req).await.is_ok());
+}
+
+// ── 보드 싱크(`sync` → `rows`) ─────────────────────────────────────────────
+
+async fn create_todo(f: &Fx, title: &str) -> String {
+    let (status, body) = post(
+        &f.state,
+        "/api/todos",
+        json!({ "board": "sync", "title": title }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    body["id"].as_str().unwrap().to_string()
+}
+
+fn todo_ids(frame: &Value) -> Vec<String> {
+    frame["rows"]["todos"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn connect(addr: std::net::SocketAddr) -> Socket {
+    tokio_tungstenite::connect_async(format!("ws://{addr}/api/ws?actor=logan"))
+        .await
+        .unwrap()
+        .0
+}
+
+#[tokio::test]
+async fn sync_sends_a_full_copy_then_pushes_changed_rows() {
+    let f = fx();
+    let first = create_todo(&f, "first").await;
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(&mut ws, json!({ "t": "sync" })).await;
+    let copy = next(&mut ws).await;
+    assert_eq!(copy["t"], "rows");
+    assert_eq!(copy["full"], true);
+    assert_eq!(todo_ids(&copy), vec![first]);
+    let seq = copy["seq"].as_i64().unwrap();
+
+    let second = create_todo(&f, "second").await;
+    let pushed = next(&mut ws).await;
+    assert_eq!(pushed["t"], "rows");
+    assert_eq!(pushed["full"], false);
+    assert_eq!(pushed["epoch"], copy["epoch"]);
+    assert_eq!(todo_ids(&pushed), vec![second]);
+    assert!(pushed["seq"].as_i64().unwrap() > seq);
+}
+
+/// 클라이언트는 마지막으로 받은 `rows` 의 `seq`·`epoch` 를 들고 다시 붙는다 — 끊긴 사이의 쓰기만 받는다.
+#[tokio::test]
+async fn sync_resumes_from_the_last_frame_after_reconnecting() {
+    let f = fx();
+    create_todo(&f, "old").await;
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(&mut ws, json!({ "t": "sync", "id": 1 })).await;
+    let copy = next(&mut ws).await;
+    assert_eq!(copy["id"], 1);
+    let (seq, epoch) = (copy["seq"].clone(), copy["epoch"].clone());
+    ws.close(None).await.unwrap();
+
+    let newer = create_todo(&f, "newer").await;
+    let mut again = connect(addr).await;
+    send(
+        &mut again,
+        json!({ "t": "sync", "since": seq, "epoch": epoch }),
+    )
+    .await;
+    let resumed = next(&mut again).await;
+    assert_eq!(resumed["full"], false);
+    assert_eq!(todo_ids(&resumed), vec![newer]);
+
+    // 다른 DB 의 사본이면 통째로 다시 준다.
+    send(
+        &mut again,
+        json!({ "t": "sync", "since": seq, "epoch": "not-this-db" }),
+    )
+    .await;
+    let everything = next(&mut again).await;
+    assert_eq!(everything["full"], true);
+    assert_eq!(todo_ids(&everything).len(), 2);
+}
+
+/// 히스토리를 남기지 않는 쓰기(세션 귀속)도 바뀐 행으로 밀려온다.
+#[tokio::test]
+async fn writes_without_history_are_pushed_too() {
+    let f = fx();
+    let id = create_todo(&f, "claimed").await;
+    f.store
+        .set_todo_status(&id, StatusAction::Start, "claude-code", None)
+        .unwrap();
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(&mut ws, json!({ "t": "sync" })).await;
+    assert_eq!(next(&mut ws).await["full"], true);
+
+    f.store
+        .claim_doing_session(&id, "session-1", None)
+        .unwrap()
+        .expect("귀속이 붙어야 이 테스트가 뜻이 있다");
+    let pushed = next(&mut ws).await;
+    assert_eq!(todo_ids(&pushed), vec![id]);
+    assert_eq!(pushed["rows"]["todos"][0]["doingSessionId"], "session-1");
+    assert_eq!(pushed["rows"]["history"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn a_socket_that_never_synced_gets_no_rows() {
+    let f = fx();
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    create_todo(&f, "quiet").await;
+    let got = tokio::time::timeout(std::time::Duration::from_millis(300), ws.next()).await;
+    assert!(got.is_err(), "sync 전에는 프레임이 오면 안 된다: {got:?}");
+}
+
+/// 같은 노트를 2초 안에 다시 고치면 전역 변경 이벤트가 조절돼 나오지 않는다 — 그래도 바뀐 노트 행은 밀려온다. 깨우기가
+/// 변경 이벤트가 아니라 SQLite 훅인 이유이고, 이 테스트가 그것을 가른다.
+#[tokio::test]
+async fn doc_edits_inside_the_event_throttle_are_pushed_too() {
+    let f = fx();
+    let id = note(&f, "hello").await;
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(&mut ws, json!({ "t": "sync" })).await;
+    assert_eq!(next(&mut ws).await["full"], true);
+
+    for text in ["hello 1", "hello 2"] {
+        let doc = f.store.note_doc_state(&id, None, None).unwrap();
+        let client = NoteDoc::from_state(&doc.update).unwrap();
+        let before = client.state_vector();
+        client.set_text(text);
+        let update = client.diff_since(&before).unwrap();
+        f.store
+            .apply_note_update(&id, &update, "logan", Some("ca"), None)
+            .unwrap();
+        let pushed = next(&mut ws).await;
+        assert_eq!(pushed["rows"]["notes"][0]["content"], text, "{pushed}");
+    }
 }

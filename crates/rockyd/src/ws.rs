@@ -14,13 +14,23 @@
 //! 방송이 밀리면 `{t:"lag", note}` — 클라이언트가 상태 벡터로 차분을 다시 받는다(SSE 판은 끊고 재접속했다).
 //! 실패는 `{t:"err", id, error}`.
 //!
+//! **보드 싱크**(같은 연결, 규칙은 `docs/features/sync.md`):
+//! - `{t:"sync", id?, since?, epoch?}` → `{t:"rows", id?, epoch, seq, full, rows:{boards, sections, todos, comments, notes,
+//!   history, handoffs}}` — `full` 이면 클라이언트가 사본을 통째로 바꾼다(히스토리는 최근 2,000줄뿐이고 그보다 오래된
+//!   줄은 REST 로 받는다). 다음에는 `since=seq`, `epoch` 로 묻는다.
+//! - 그 뒤로는 보드 행이 바뀔 때마다 데몬이 같은 `rows`(`full:false`, 그 연결에 보낸 순번 이후)를 먼저 보낸다.
+//!   `sync` 를 다시 보내면 그 커서로 다시 시작한다. 밀다가 읽기가 실패하면 `{t:"err", error}` 를 한 번 보내고 밀기를
+//!   멈춘다 — 클라이언트가 `sync` 를 다시 보낸다.
+//!
 //! **cross-site 가드**: 웹소켓은 브라우저 CORS 밖이라, 다른 사이트의 페이지도 이 주소로 소켓을 열 수 있다
 //! (cross-site WebSocket hijacking). 핸드셰이크에서 REST 변경과 같은 규칙(`is_cross_site_request`)으로 끊는다.
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
+use rocky_core::sync::SyncRows;
 use rocky_core::usage::{UsageEvent, UsageSource};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, mpsc};
@@ -28,15 +38,23 @@ use tokio::task::JoinHandle;
 
 use crate::server::{decode_b64, encode_b64, ServerState};
 
+/// 행이 바뀐 신호를 받은 뒤 모으는 시간 — 쓰기 하나가 여러 행을 건드려도 `rows` 프레임 하나로 보낸다.
+const SYNC_BATCH: Duration = Duration::from_millis(20);
+
+/// 싱크를 시작한 연결의 커서 — 이 연결에 마지막으로 보낸 머리.
+struct SyncCursor {
+    epoch: String,
+    seq: i64,
+}
+
 /// 연결 하나를 끝까지 돈다.
 pub async fn serve_socket(mut socket: WebSocket, state: Arc<ServerState>, actor: String) {
-    let mut event = UsageEvent::new(UsageSource::Rest, "WS /api/ws".to_string(), true);
-    event.actor = Some(actor.clone());
-    event.client = Some("web".into());
-    state.record_usage(event);
+    record(&state, "WS /api/ws", &actor);
 
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
     let mut subs: HashMap<String, JoinHandle<()>> = HashMap::new();
+    let mut cursor: Option<SyncCursor> = None;
+    let mut rows_changed = state.sync_rows.subscribe();
     loop {
         tokio::select! {
             incoming = socket.recv() => {
@@ -46,7 +64,27 @@ pub async fn serve_socket(mut socket: WebSocket, state: Arc<ServerState>, actor:
                     Message::Close(_) => break,
                     _ => continue,
                 };
-                for reply in handle_frame(&state, &actor, &text, &mut subs, &out_tx) {
+                let replies = match serde_json::from_str::<Value>(&text) {
+                    Err(_) => vec![json!({ "t": "err", "error": "bad frame" }).to_string()],
+                    Ok(frame) if frame.get("t").and_then(Value::as_str) == Some("sync") => {
+                        record(&state, "WS /api/ws sync", &actor);
+                        // 읽기 전에 신호를 본 것으로 표시한다 — 읽은 뒤의 변경은 다음 신호가 다시 읽게 한다.
+                        rows_changed.borrow_and_update();
+                        let id = frame.get("id").cloned().unwrap_or(Value::Null);
+                        let since = frame.get("since").and_then(Value::as_i64);
+                        let epoch = frame.get("epoch").and_then(Value::as_str).map(str::to_string);
+                        match read_rows(&state, since, epoch).await {
+                            Ok(rows) => {
+                                let reply = rows_frame(&rows, &id);
+                                cursor = Some(SyncCursor { epoch: rows.epoch, seq: rows.seq });
+                                vec![reply]
+                            }
+                            Err(error) => vec![json!({ "t": "err", "id": id, "error": error }).to_string()],
+                        }
+                    }
+                    Ok(frame) => handle_frame(&state, &actor, &frame, &mut subs, &out_tx),
+                };
+                for reply in replies {
                     if socket.send(Message::Text(reply.into())).await.is_err() {
                         break;
                     }
@@ -57,6 +95,30 @@ pub async fn serve_socket(mut socket: WebSocket, state: Arc<ServerState>, actor:
                     break;
                 }
             }
+            changed = rows_changed.changed(), if cursor.is_some() => {
+                if changed.is_err() {
+                    break;
+                }
+                tokio::time::sleep(SYNC_BATCH).await;
+                rows_changed.borrow_and_update();
+                let Some(current) = cursor.take() else { continue };
+                let frame = match read_rows(&state, Some(current.seq), Some(current.epoch)).await {
+                    Ok(rows) => {
+                        // 커밋마다 신호가 오므로 이미 보낸 변경이면 읽을 게 없다.
+                        let fresh = rows.full || !rows.rows.is_empty();
+                        let frame = fresh.then(|| rows_frame(&rows, &Value::Null));
+                        cursor = Some(SyncCursor { epoch: rows.epoch, seq: rows.seq });
+                        frame
+                    }
+                    // 커서를 비운 채 둔다 — 한 번만 알리고 밀기를 멈춘다. 클라이언트가 `sync` 로 다시 시작한다.
+                    Err(error) => Some(json!({ "t": "err", "error": error }).to_string()),
+                };
+                if let Some(frame) = frame {
+                    if socket.send(Message::Text(frame.into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
         }
     }
     for (_, task) in subs {
@@ -64,17 +126,53 @@ pub async fn serve_socket(mut socket: WebSocket, state: Arc<ServerState>, actor:
     }
 }
 
-/// 프레임 하나 → 바로 돌려줄 답(들). 구독은 `subs` 에 작업으로 걸고, 방송은 `out` 으로 흘려보낸다.
+fn record(state: &ServerState, surface: &str, actor: &str) {
+    let mut event = UsageEvent::new(UsageSource::Rest, surface.to_string(), true);
+    event.actor = Some(actor.to_string());
+    event.client = Some("web".into());
+    state.record_usage(event);
+}
+
+/// 스토어 읽기는 막는 호출(SQLite + std 락)이라 비동기 워커 밖에서 돈다.
+async fn read_rows(
+    state: &Arc<ServerState>,
+    since: Option<i64>,
+    epoch: Option<String>,
+) -> Result<SyncRows, String> {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        state
+            .store
+            .sync_rows_since(since, epoch.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("sync read task failed: {e}"))?
+}
+
+/// `rows` 프레임. 요청에 `id` 가 있었으면 같은 `id` 로 답한다(밀어주기는 `id` 가 없다).
+fn rows_frame(rows: &SyncRows, id: &Value) -> String {
+    let mut frame = json!({
+        "t": "rows",
+        "epoch": rows.epoch,
+        "seq": rows.seq,
+        "full": rows.full,
+        "rows": rows.rows,
+    });
+    if !id.is_null() {
+        frame["id"] = id.clone();
+    }
+    frame.to_string()
+}
+
+/// 노트 프레임 하나 → 바로 돌려줄 답(들). 구독은 `subs` 에 작업으로 걸고, 방송은 `out` 으로 흘려보낸다.
 fn handle_frame(
     state: &Arc<ServerState>,
     actor: &str,
-    text: &str,
+    frame: &Value,
     subs: &mut HashMap<String, JoinHandle<()>>,
     out: &mpsc::UnboundedSender<String>,
 ) -> Vec<String> {
-    let Ok(frame) = serde_json::from_str::<Value>(text) else {
-        return vec![json!({ "t": "err", "error": "bad frame" }).to_string()];
-    };
     let id = frame.get("id").cloned().unwrap_or(Value::Null);
     let str_of = |k: &str| frame.get(k).and_then(Value::as_str).map(str::to_string);
     let Some(note) = str_of("note") else {

@@ -22,6 +22,14 @@
   세션에서 계산하는 값(`doingState`, `stale`)은 싣지 않는다. 보드의 `previousKeys`는 싣는다. 별칭은 키를 바꿀 때만 생기고
   그때 보드 행도 함께 바뀐다(`update_board`).
 - 머리와 행은 같은 락 안에서 읽는다. 돌려준 `seq`까지의 변경이 빠짐없이 들어 있다.
+- **깨우기는 SQLite 훅이다.** `update_hook`이 대상 테이블의 변경을 표시하고 `commit_hook`이 커밋마다 한 번 구독자를 부른다
+  (`subscribe_rows`, 롤백이면 표시를 지운다). 데몬은 `watch` 값만 올린다. 변경 이벤트(`ChangeEvent`)에 기대지 않는다. 모든
+  쓰기가 그 이벤트를 내지는 않는다 — 같은 노트를 2초 안에 다시 고치면 히스토리도 이벤트도 남지 않는다. 그쪽에 기대면 바뀐
+  행이 다음 이벤트까지 묶인다. 훅은 커밋 도중(연결 락 안)에 불리므로 리스너는 신호만 남기고 스토어를 다시 부르지 않는다.
+- **`/api/ws`의 `sync` 프레임을 받은 연결에만 민다.** 신호를 받으면 20ms 모았다가 그 연결에 보낸 순번 이후를 읽는다(읽기는
+  `spawn_blocking`). 이미 보낸 변경이면 보내지 않는다. 방송 채널이 아니므로 밀린 연결도 다음 차례에 한꺼번에 받는다. 읽기
+  전에 신호를 본 것으로 표시해서, 읽은 뒤의 변경은 다음 신호가 다시 읽는다. 밀다가 읽기가 실패하면 `err`를 한 번 보내고
+  밀기를 멈춘다(클라이언트가 `sync`로 다시 시작한다).
 
 ## 코드
 
@@ -30,5 +38,7 @@
 | 대상 테이블 · 행 타입 · 통째 판정(순수) | `crates/rocky-core/src/sync.rs` |
 | `sync_state` · `seq` 열 · 트리거 | `crates/rocky-core/src/migrations.rs`의 `add_sync_seq`(19) |
 | 머리 · 바뀐 행 읽기 · `epoch` 갱신 | `crates/rocky-core/src/store.rs`의 `sync_head` · `sync_rows_since` · `renew_sync_epoch` |
+| 행 변경 구독(`update_hook`) | `crates/rocky-core/src/store.rs`의 `with_conn` · `subscribe_rows` |
+| 변경 신호 · 소켓 프레임 | `crates/rockyd/src/server.rs`의 `sync_rows`, `crates/rockyd/src/ws.rs` |
 
-테스트: `crates/rocky-core/tests/it/sync_test.rs`.
+테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절).

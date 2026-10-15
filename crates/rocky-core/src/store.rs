@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde_json::{json, Value};
@@ -392,6 +392,8 @@ pub struct CommentStats {
 
 type Listener = Box<dyn Fn(&ChangeEvent) + Send + Sync>;
 type DocListener = Box<dyn Fn(&NoteDocEvent) + Send + Sync>;
+type RowListener = Box<dyn Fn() + Send + Sync>;
+type RowListeners = Arc<Mutex<Vec<(u64, RowListener)>>>;
 
 /// rocky 스토어 — 데몬 프로세스 안에서 단일 인스턴스로 쓰인다.
 pub struct TodoStore {
@@ -402,6 +404,8 @@ pub struct TodoStore {
     note_edit_events: Mutex<HashMap<String, std::time::Instant>>,
     /// 노트 문서 갱신 구독 — 서버가 노트별 SSE 로 방송한다.
     doc_listeners: Mutex<Vec<(u64, DocListener)>>,
+    /// 보드 행 변경 구독 — SQLite `update_hook` 이 부른다(`subscribe_rows`). 훅 클로저와 나눠 가진다.
+    row_listeners: RowListeners,
 }
 
 impl TodoStore {
@@ -424,13 +428,63 @@ impl TodoStore {
             },
         )?;
         renew_sync_epoch(&conn)?;
-        Ok(TodoStore {
+        Ok(Self::with_conn(conn))
+    }
+
+    /// 마이그레이션까지 마친 연결로 스토어를 만든다. 보드 행을 바꾼 커밋마다 `subscribe_rows` 구독자를 한 번 부른다 —
+    /// `update_hook` 은 표시만 하고(행마다, 트리거의 순번 갱신 포함) `commit_hook` 이 커밋마다 한 번 알린다. 롤백이면
+    /// 표시를 지운다.
+    fn with_conn(conn: Connection) -> Self {
+        let row_listeners: RowListeners = Arc::new(Mutex::new(Vec::new()));
+        let dirty = Arc::new(AtomicBool::new(false));
+        let mark = dirty.clone();
+        conn.update_hook(Some(
+            move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
+                if SYNC_TABLES.contains(&table) {
+                    mark.store(true, Ordering::Relaxed);
+                }
+            },
+        ));
+        let notify = dirty.clone();
+        let hook_listeners = row_listeners.clone();
+        conn.commit_hook(Some(move || {
+            if notify.swap(false, Ordering::Relaxed) {
+                let listeners = hook_listeners
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                for (_, listener) in listeners.iter() {
+                    listener();
+                }
+            }
+            false // 커밋을 막지 않는다
+        }));
+        conn.rollback_hook(Some(move || dirty.store(false, Ordering::Relaxed)));
+        TodoStore {
             conn: Mutex::new(conn),
             listeners: Mutex::new(Vec::new()),
             next_listener_id: AtomicU64::new(1),
             note_edit_events: Mutex::new(HashMap::new()),
             doc_listeners: Mutex::new(Vec::new()),
-        })
+            row_listeners,
+        }
+    }
+
+    /// 보드 행(`sync::SYNC_TABLES`)을 바꾼 커밋마다 부른다. 변경 이벤트를 내지 않는 쓰기도 놓치지 않는다. 커밋 도중(연결
+    /// 락 안)에 불리므로 리스너는 신호만 남기고 스토어를 다시 부르지 않는다. 메서드 하나가 여러 번 커밋하면 여러 번 불린다.
+    pub fn subscribe_rows(&self, listener: impl Fn() + Send + Sync + 'static) -> u64 {
+        let id = self.next_listener_id.fetch_add(1, Ordering::Relaxed);
+        self.row_listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((id, Box::new(listener)));
+        id
+    }
+
+    pub fn unsubscribe_rows(&self, id: u64) {
+        self.row_listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(listener_id, _)| *listener_id != id);
     }
 
     /// `PRAGMA quick_check` — 정상이면 "ok", 아니면 첫 문제들(줄바꿈으로 이어 붙임).
@@ -450,13 +504,7 @@ impl TodoStore {
         conn.execute_batch(SCHEMA)?;
         run_migrations(&conn, RunMigrationsOptions::default())?;
         renew_sync_epoch(&conn)?;
-        Ok(TodoStore {
-            conn: Mutex::new(conn),
-            listeners: Mutex::new(Vec::new()),
-            next_listener_id: AtomicU64::new(1),
-            note_edit_events: Mutex::new(HashMap::new()),
-            doc_listeners: Mutex::new(Vec::new()),
-        })
+        Ok(Self::with_conn(conn))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {

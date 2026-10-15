@@ -15,7 +15,7 @@
   - `notes.content` 는 읽는 쪽의 진실, `note_docs.state` 는 합치는 쪽의 진실. state 가 전진했을 때만 저장하고, 본문이 바뀌었을
     때만 content·히스토리를 고친다. 셋은 한 트랜잭션.
   - 스토어가 `NoteDocEvent` 를 내고 서버가 노트별로 방송한다(라우트는 방송하지 않는다). 웹은 노트 소켓 하나(`GET /api/ws`)로
-    오가고 밀리면 `lag` 로 차분을 다시 받게 한다. HTTP 라우트·노트별 SSE(밀리면 끊는다)는 폴백.
+    오가고 밀리면 `lag` 로 차분을 다시 받게 한다. HTTP 라우트·노트별 SSE(밀리면 끊는다)는 폴백. 같은 소켓이 보드 싱크 프레임(`sync`·`rows`)도 나른다 — [sync](./sync.md).
   - 제목은 CRDT 가 아니다. 고정(`pinned_at`, REST `pin`/`unpin`·CLI)은 보여 주는 방식이라 MCP 도구로는 바꾸지 않는다(출력의
     `pinnedAt` 은 실린다).
 - 삭제는 없다 — 보관(archive)만. 모든 변경은 히스토리에 남는다.
