@@ -263,6 +263,11 @@ describe('client id', () => {
   test('8자 base36', () => {
     expect(newClientId()).toMatch(/^[0-9a-z]{8}$/);
     expect(newClientId((b) => b.fill(35))).toBe('zzzzzzzz');
+    // 252 이상은 버리고 다시 뽑는다 — 나머지로 접으면 편향된다.
+    let draws = 0;
+    const biasedFirst = (b: Uint8Array) => b.fill(draws++ === 0 ? 255 : 1);
+    expect(newClientId(biasedFirst)).toBe('11111111');
+    expect(draws).toBe(2);
   });
 
   test('다시 보내도 되는 것은 만들기뿐', () => {

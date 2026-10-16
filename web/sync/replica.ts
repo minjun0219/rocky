@@ -205,10 +205,14 @@ export interface PendingOp {
 export function newClientId(
   random: (bytes: Uint8Array) => Uint8Array = (b) => crypto.getRandomValues(b),
 ): string {
-  const bytes = random(new Uint8Array(8));
   let id = '';
-  for (const byte of bytes) {
-    id += (byte % 36).toString(36);
+  while (id.length < 8) {
+    for (const byte of random(new Uint8Array(16))) {
+      // 252(= 36 × 7) 이상은 버리고 다시 뽑는다 — 나머지로 접으면 앞쪽 글자가 더 자주 나온다(편향).
+      if (byte < 252 && id.length < 8) {
+        id += (byte % 36).toString(36);
+      }
+    }
   }
   return id;
 }
