@@ -31,6 +31,17 @@ export const DETAIL_HISTORY_LIMIT = 50;
 export interface SessionsView {
   available: boolean;
   sessions: readonly AgentSession[];
+  /**
+   * 목록을 물을 때의 사본 순번. 이보다 나중에 바뀐 행(새 핸드오프, 방금 doing 이 된 할 일)은 이 목록으로 판정하지
+   * 않는다 — 방금 뜬 세션이 낡은 목록에 없다고 "세션 없음"·"착수 안 함" 으로 그리지 않게. 없으면 늘 판정한다.
+   */
+  seq?: number;
+}
+
+/** 이 행이 세션 목록보다 나중에 바뀌었나 — 그러면 판정하지 않는다(모름). 싱크 행만 `seq` 를 싣는다. */
+function newerThanSessions(row: object, sessions: SessionsView): boolean {
+  const seq = (row as { seq?: unknown }).seq;
+  return sessions.seq !== undefined && typeof seq === 'number' && seq > sessions.seq;
 }
 
 /** board key 가 `<key>-<number>` 로 되읽히는 모양인가 — `refs::is_ref_safe_board_key`. */
@@ -184,7 +195,7 @@ function toTodoView(
     ref: refOf(boardKey ?? '', todo.number, todo.id),
     commentCount: stat?.count ?? 0,
     ...(stat ? { lastCommentAt: stat.lastAt } : {}),
-    ...(sessions && todo.status === 'doing'
+    ...(sessions && todo.status === 'doing' && !newerThanSessions(todo, sessions)
       ? { doingState: resolveDoingState(todo, boardKey ?? '', sessions) }
       : {}),
   };
@@ -267,12 +278,30 @@ export function openHandoffs(
       );
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((h) => ({
-      ...h,
-      phase: handoffPhase(h),
-      unstarted: sessions ? isUnstarted(h, sessions) : false,
-      stale: sessions ? isStaleHandoff(h, sessions) : false,
-    }));
+    .map((h) => handoffView(h, sessions));
+}
+
+/** 핸드오프에 단계와 세션 판정을 얹는다. 세션 목록이 없으면 판정하지 않는다(false). */
+function handoffView(handoff: Handoff, sessions: SessionsView | null | undefined): HandoffView {
+  const judged = sessions && !newerThanSessions(handoff, sessions) ? sessions : null;
+  return {
+    ...handoff,
+    phase: handoffPhase(handoff),
+    unstarted: judged ? isUnstarted(handoff, judged) : false,
+    stale: judged ? isStaleHandoff(handoff, judged) : false,
+  };
+}
+
+/** 한 할 일의 핸드오프 전부 — `GET /api/handoffs?todo=`(상세 드로어의 "세션"). 끝난 것·취소한 것까지, 새것부터. */
+export function todoHandoffs(
+  tables: Tables,
+  todoId: string,
+  sessions?: SessionsView | null,
+): HandoffView[] {
+  return [...tables.handoffs.values()]
+    .filter((h) => h.todoId === todoId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((h) => handoffView(h, sessions));
 }
 
 /**

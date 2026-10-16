@@ -26,6 +26,7 @@ import {
   sectionsOf,
   type SessionsView,
   todoDetail,
+  todoHandoffs,
   todoViews,
 } from './views';
 
@@ -347,5 +348,61 @@ describe('노트 히스토리', () => {
     expect(detail?.note.ref).toBe('rocky-1');
     expect(detail?.history.map((h) => h.id)).toEqual([2, 1]);
     expect(noteDetail(tables, 'nope')).toBeUndefined();
+  });
+});
+
+describe('할 일의 핸드오프', () => {
+  test('끝난 것·취소한 것까지 그 할 일 것만 새것부터', () => {
+    const tables = tablesOf({
+      boards: [board()],
+      todos: [todo()],
+      handoffs: [
+        handoff({ id: 'h1', createdAt: '2026-10-16T01:00:00.000Z' }),
+        handoff({ id: 'h2', status: 'cancelled', createdAt: '2026-10-16T03:00:00.000Z' }),
+        handoff({
+          id: 'h3',
+          status: 'delivered',
+          completedAt: AT,
+          createdAt: '2026-10-16T02:00:00.000Z',
+        }),
+        handoff({ id: 'h4', todoId: 't9' }),
+      ],
+    });
+    const views = todoHandoffs(tables, 't1', live());
+    expect(views.map((h) => `${h.id}:${h.phase}`)).toEqual([
+      'h2:cancelled',
+      'h3:completed',
+      'h1:pending',
+    ]);
+    expect(views.find((h) => h.id === 'h1')?.stale).toBe(true);
+  });
+});
+
+describe('세션 목록보다 새 행', () => {
+  test('목록을 물은 뒤에 바뀐 행은 판정하지 않는다 — 방금 뜬 세션을 "없음" 으로 그리지 않게', () => {
+    const tables = tablesOf({
+      boards: [board()],
+      todos: [
+        {
+          ...todo({ id: 't1', status: 'doing', doingBy: 'claude-code', doingSessionId: 'sess-9' }),
+          seq: 9,
+        } as Todo,
+        {
+          ...todo({ id: 't2', status: 'doing', doingBy: 'claude-code', doingSessionId: 'sess-9' }),
+          seq: 3,
+        } as Todo,
+      ],
+      handoffs: [
+        { ...handoff({ id: 'h1', todoId: 't1', status: 'delivered' }), seq: 9 } as Handoff,
+        { ...handoff({ id: 'h2', todoId: 't2', status: 'delivered' }), seq: 3 } as Handoff,
+      ],
+    });
+    const sessions: SessionsView = { available: true, sessions: [], seq: 5 };
+    const todos = todoViews(tables, { board: 'rocky', includeArchived: false, sessions });
+    expect(todos.find((t) => t.id === 't1')?.doingState).toBeUndefined();
+    expect(todos.find((t) => t.id === 't2')?.doingState).toBe('gone');
+    const handoffs = openHandoffs(tables, { board: 'rocky', sessions });
+    expect(handoffs.find((h) => h.id === 'h1')?.unstarted).toBe(false);
+    expect(handoffs.find((h) => h.id === 'h2')?.unstarted).toBe(true);
   });
 });
