@@ -51,6 +51,27 @@
   앞의 op 는 남는다(`reject` 의 `at` 이 그 자리, 결과는 `rows` 로 돌아온다). 그래서 클라이언트는 op 하나짜리 트랜잭션을 기본으로
   쓴다. `sync` 한 연결이면 결과 `rows` 를 `ack` 보다 먼저 보낸다.
 
+## 웹 사본(2번 조각)
+
+- **웹은 보드 묶음을 사본에서 그린다**(`web/sync/`). 사본으로 그리는 동안(`syncing`, `<html data-sync="replica">`) 화면의
+  보드·할 일·섹션·노트·핸드오프와 상세 드로어(연결된 세션 기록까지)는 REST 로 다시 읽지 않는다. 보드를 바꾸거나 보관 보기를
+  켜도 요청이 없다. `refetch` 는 PR·수집함 요약만 읽는다. 세션·rc·작업로그·`/api/health` 는 지금처럼 REST 다.
+- **사본이 데몬을 따라가는지(`live`)로 모드를 정한다.** 저장 사본만 그린 부팅 직후나 끊긴 동안에도 `SYNC_GRACE_MS`(5초)까지는
+  사본으로 그리고, 그 안에 따라잡지 못하면 REST 로 돈다(`leaveReplica`). 소켓은 계속 다시 붙어 보고 따라잡으면 사본으로 돌아온다.
+  두 경로를 같이 둔다.
+- **쓰기는 `live` 일 때만 `tx`**, 그 밖(따라잡기 전, 끊긴 동안, 에이전트 actor)과 어휘 밖은 REST. `tx` 는 답을 기다리는 동안
+  사본 위에 겹쳐 그린다(`overlay`). 막 만든 할 일에 REST 로만 하는 동작(보내기·새 세션·이슈·옮기기)과 막 만든 노트 열기는 그
+  만들기가 확정될 때까지 기다린다(`pendingCreates`).
+- **데몬이 얹던 값은 웹이 같은 규칙으로 계산한다**(`web/sync/views.ts` — `refs::ref_of`, `doing::resolve_doing_state`,
+  `handoff_phase`·`is_unstarted`, `sessions::match_board` 를 옮긴 것). Rust 규칙을 바꾸면 여기도 고친다. 세션 판정은 에이전트
+  탭의 세션 목록으로 한다. 판정에 걸리는 행이 바뀌면 목록을 바로·3.5초 뒤에 다시 받고, 그 사이 바뀐 행(`seq` 가 믿는 순번보다
+  큼)은 판정하지 않는다 — 데몬의 목록 캐시는 오래된 값을 먼저 준다.
+- **사본은 IndexedDB 에 남는다**(`web/sync/persist.ts`). 실패는 삼키고 메모리로 돈다. 저장이 한 번 실패하면 다음 저장은 사본
+  전체를 쓴다. 저장소 모양을 바꾸면 `DB_VERSION` 을 올린다(옛 사본을 버리고 통째로 다시 받는다). Access 로그아웃은 싱크를
+  멈추고 걸린 저장을 기다린 뒤 사본을 지우고 나간다.
+- **저장 사본으로 그렸으면 주소는 따라잡은 뒤에 푼다**(`boot.ts` 의 `caughtUp`). 낡은 사본에 없는 새 항목의 링크를 지우지 않게.
+- 바뀌지 않은 묶음은 같은 배열로 둔다(`memoized`) — 노트 본문 편집처럼 잦은 변경에도 바뀌지 않은 화면은 다시 그리지 않는다.
+
 ## 코드
 
 | 무엇 | 어디 |
@@ -62,5 +83,10 @@
 | 변경 신호 · 소켓 프레임 | `crates/rockyd/src/server.rs`의 `sync_rows`, `crates/rockyd/src/ws.rs` |
 | 트랜잭션 어휘 · 클라이언트 id(순수) | `crates/rocky-core/src/sync.rs`의 `SyncOp` · `is_client_id` |
 | op 적용 · id 를 받는 만들기 | `crates/rocky-core/src/store.rs`의 `apply_sync_op` · `create_todo_with_id` · `create_note_with_id` · `add_comment_with_id` |
+| 웹 사본 · op 겹치기(순수) | `web/sync/replica.ts` |
+| 웹이 계산하는 값 · 화면용 목록(순수) | `web/sync/views.ts` |
+| 소켓 클라이언트 · IndexedDB 저장 · 부팅 | `web/sync/client.ts` · `persist.ts` · `boot.ts` |
+| 스토어 연결(`syncing`, `tx` 쓰기) | `web/store.ts` |
 
-테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절).
+테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절), `web/sync/*.test.ts`,
+`web/store-sync.test.tsx`, `e2e/sync.spec.ts`(IndexedDB 는 실제 브라우저에서만).

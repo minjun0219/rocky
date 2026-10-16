@@ -2,6 +2,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { rcVisible, type ThemePref } from '../lib';
 import { useUiStore } from '../store';
+import { clearBoardReplica } from '../sync/boot';
 import { logUsage } from '../usage';
 import { BoardSwitcher } from './BoardSwitcher';
 
@@ -249,7 +250,19 @@ function HeaderMenu() {
                 role="menuitem"
                 href="/cdn-cgi/access/logout"
                 className="inline-flex min-h-8 items-center rounded-md px-2 text-muted no-underline hover:bg-surface-2 hover:text-text"
-                onClick={() => logUsage('web:access-logout')}
+                onClick={(e) => {
+                  logUsage('web:access-logout');
+                  // 이 브라우저에 남은 보드 사본부터 지운다 — 폰에 보드가 남지 않게. 지우기를 기다린 뒤에 나간다.
+                  e.preventDefault();
+                  const href = e.currentTarget.href;
+                  void clearBoardReplica().then(() => window.location.assign(href));
+                }}
+                onAuxClick={(e) => {
+                  // 가운데 클릭(새 탭)도 이 탭에서 사본을 지우고 나간다 — 새 탭으로만 나가면 사본이 남는다.
+                  e.preventDefault();
+                  const href = e.currentTarget.href;
+                  void clearBoardReplica().then(() => window.location.assign(href));
+                }}
               >
                 로그아웃
               </a>

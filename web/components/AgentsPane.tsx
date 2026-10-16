@@ -25,12 +25,18 @@ const PHASE_ICON: Record<AgentPhase, { Icon: LucideIcon; className: string; labe
 };
 
 /**
- * 세션 목록 폴링 — 앱 한 곳(`main.tsx`)에서 돈다. 탭을 끄면 돌지 않는다(피드의 에이전트 행도 같이 사라진다).
- * `claude agents --json` 은 데몬이 돌리는 CLI 라 탭 밖에서는 1분에 한 번이면 된다.
+ * 세션 목록 폴링 — 앱 한 곳(`main.tsx`)에서 돈다. 탭을 끄면 돌지 않는다(피드의 에이전트 행도 같이 사라진다). 다만 보드를
+ * 사본으로 그리는 중에 doing 이나 열린 핸드오프가 있으면 그 판정(`doingState`·`stale`)에 쓰려고 1분마다 받는다 — 예전에는
+ * 데몬이 할 일·핸드오프 응답을 만들 때 같은 목록을 조회했다. `claude agents --json` 은 데몬이 돌리는 CLI 라 탭 밖에서는
+ * 1분에 한 번이면 된다.
  */
 export function useAgentsPolling() {
-  const enabled = useUiStore((s) => s.showAgents);
-  const watching = useUiStore((s) => s.view === 'agents');
+  const enabled = useUiStore(
+    (s) =>
+      s.showAgents ||
+      (s.syncing && (s.nowHandoffs.length > 0 || s.nowTodos.some((t) => t.status === 'doing'))),
+  );
+  const watching = useUiStore((s) => s.showAgents && s.view === 'agents');
   const loadAgents = useUiStore((s) => s.loadAgents);
   useEffect(() => {
     if (!enabled) {

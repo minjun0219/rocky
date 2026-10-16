@@ -48,8 +48,13 @@ export function SessionLinks({ todo }: { todo: TodoView }) {
       .map((h) => `${h.id}:${h.status}`)
       .join(','),
   );
+  // 사본으로 그리는 중이면 상세가 이 할 일의 핸드오프를 들고 있다 — REST 로 묻지 않는다.
+  const replicated = useUiStore((s) =>
+    s.detail?.kind === 'todo' && s.detail.todo?.id === todo.id ? s.detail.handoffs : undefined,
+  );
+  const fromReplica = replicated !== undefined;
   const holder = todo.status === 'doing' ? todo.doingSessionId : undefined;
-  const [handoffs, setHandoffs] = useState<HandoffView[]>([]);
+  const [fetched, setFetched] = useState<HandoffView[]>([]);
   const [sessions, setSessions] = useState<{ available: boolean; list: SessionRow[] }>({
     available: false,
     list: [],
@@ -57,19 +62,23 @@ export function SessionLinks({ todo }: { todo: TodoView }) {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: status·updatedAt·openKey 는 다시 읽을 신호로만 쓴다
   useEffect(() => {
-    setHandoffs([]);
+    setFetched([]);
+    if (fromReplica) {
+      return;
+    }
     let live = true;
     api<HandoffView[]>(`/api/handoffs?todo=${encodeURIComponent(todo.id)}`, actor)
       .then((list) => {
         if (live) {
-          setHandoffs(list);
+          setFetched(list);
         }
       })
       .catch(() => {});
     return () => {
       live = false;
     };
-  }, [todo.id, todo.status, todo.updatedAt, openKey, actor]);
+  }, [todo.id, todo.status, todo.updatedAt, openKey, actor, fromReplica]);
+  const handoffs = replicated ?? fetched;
 
   useEffect(() => {
     setSessions({ available: false, list: [] });
