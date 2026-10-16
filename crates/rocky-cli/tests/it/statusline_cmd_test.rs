@@ -236,8 +236,12 @@ fn full_replays_goldens() {
             .to_string(),
         )
         .unwrap();
-        // 바이트로 비교한다 — extra 출력은 UTF-8 이 아닐 수 있다(extra-bytes).
-        let want = std::fs::read(case_dir.join("expected.txt")).unwrap();
+        // 바이트로 비교한다 — extra 출력은 UTF-8 이 아닐 수 있다(extra-bytes). 새 케이스는 아직 expected.txt 가 없다 —
+        // 다시 뜰 때(update)는 빈 값으로 두고 아래에서 쓴다.
+        let want = match std::fs::read(case_dir.join("expected.txt")) {
+            Err(e) if update && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            read => read.unwrap(),
+        };
         // 마감·파이프 유예에 기대는 케이스(extra·git)는 CI 러너가 바쁘면 한 번 빗나갈 수 있다(2026-10-12 `extra-failures`
         // 의 `echo survivor` 가 빠짐, 이 맥에서는 부하로도 재현 안 됨) — 다르면 캐시를 다시 심고 한 번만 더 돌린다. 진짜
         // 회귀는 두 번 다 다르다.

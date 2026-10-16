@@ -78,24 +78,34 @@ impl Style {
         }
     }
 
-    /// ctx 색 — 한도와 다른 축(파랑). 차오를수록 밝아지되 뒤로 몰아서 밝아진다.
+    /// ctx 색 — 한도와 다른 축. 74% 까지는 차오를수록 밝아지는 파랑, 75~90% 는 노랑, 91% 부터는 굵은 빨강이다(Claude
+    /// 화면의 컨텍스트 경고와 같은 구간). 노랑·빨강 구간 안에서는 차오를수록 진해진다. 파랑이 밝아지는 것만으로는 자동
+    /// 압축이 다가와도 눈에 띄지 않는다.
     fn ctx_color(&self, p: f64) -> String {
         let p = p.clamp(0.0, 100.0);
+        // 구간은 그리는 숫자로 가른다. `{:.0}` 은 짝수 쪽으로 반올림한다(90.5 → `90%`) — `f64::round` 로 가르면
+        // `90%` 로 보이는데 빨강이 된다.
+        let shown = p.round_ties_even();
+        if shown >= CTX_RED_AT {
+            let t = (p - CTX_RED_AT) / (100.0 - CTX_RED_AT);
+            return match self.rgb(mix(CTX_RED_FROM, CTX_RED_TO, t)) {
+                Some(c) => format!("{BOLD}{c}"),
+                None => CTX_RED.to_string(),
+            };
+        }
+        if shown >= CTX_YELLOW_AT {
+            let t = (p - CTX_YELLOW_AT) / (CTX_YELLOW_TO_AT - CTX_YELLOW_AT);
+            return self
+                .rgb(mix(CTX_YELLOW_FROM, CTX_YELLOW_TO, t))
+                .unwrap_or_else(|| CTX_YELLOW.to_string());
+        }
         let t = (p / 100.0).powf(CTX_CURVE);
         let rgb = (
             (75.0 + 45.0 * t) as i32,
             (95.0 + 95.0 * t) as i32,
             (130.0 + 125.0 * t) as i32,
         );
-        if let Some(c) = self.rgb(rgb) {
-            return c;
-        }
-        match p {
-            p if p >= CTX_HIGH_AT => CTX_HIGH,
-            p if p >= CTX_MID_AT => CTX_MID,
-            _ => CTX_LOW,
-        }
-        .to_string()
+        self.rgb(rgb).unwrap_or_else(|| CTX_LOW.to_string())
     }
 }
 
@@ -105,8 +115,14 @@ const GREEN: &str = "\x1b[32m";
 const CYAN: &str = "\x1b[36m";
 const BLUE: &str = "\x1b[1;34m";
 const CTX_LOW: &str = "\x1b[34m";
-const CTX_MID: &str = "\x1b[94m";
-const CTX_HIGH: &str = "\x1b[96m";
+const CTX_YELLOW: &str = "\x1b[93m";
+const CTX_RED: &str = "\x1b[1;91m";
+/// 노랑 구간의 시작(75%)과 끝(90%) 색 — 차분한 노랑에서 밝은 금색으로.
+const CTX_YELLOW_FROM: (i32, i32, i32) = (215, 175, 55);
+const CTX_YELLOW_TO: (i32, i32, i32) = (255, 215, 0);
+/// 빨강 구간의 시작(91%)과 끝(100%) 색 — 주홍에서 진한 빨강으로. 굵게 그린다.
+const CTX_RED_FROM: (i32, i32, i32) = (255, 110, 70);
+const CTX_RED_TO: (i32, i32, i32) = (255, 45, 45);
 const MAGENTA: &str = "\x1b[1;35m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
@@ -117,8 +133,12 @@ const BOLD: &str = "\x1b[1m";
 const RIGHT_MARGIN: usize = 40;
 
 const CTX_CURVE: f64 = 2.2;
-const CTX_MID_AT: f64 = 80.0;
-const CTX_HIGH_AT: f64 = 95.0;
+/// ctx 가 노랑·빨강으로 바뀌는 사용률 — Claude 화면의 컨텍스트 경고 구간(75~90% 노랑, 91% 부터 빨강)에 맞춘다.
+/// 1M 창의 자동 압축은 97% 언저리(실측 967k~974k 토큰)라 빨강이 압축 직전 신호다. 200k 창은 83% 언저리에서
+/// 압축돼 노랑까지만 본다.
+const CTX_YELLOW_AT: f64 = 75.0;
+const CTX_YELLOW_TO_AT: f64 = 90.0;
+const CTX_RED_AT: f64 = 91.0;
 
 /// 7d 세그먼트가 나타나는 사용률 — 색이 노래지기 시작하는 지점과 같다.
 const SEVEN_DAY_SHOW_AT: f64 = 70.0;
@@ -626,5 +646,48 @@ mod tests {
         }
         assert_eq!(money("$", 100.0), "$100.00");
         assert_eq!(money("$", -3.0), "$0.00");
+    }
+
+    #[test]
+    fn ctx_is_yellow_from_the_shown_75_and_bold_red_from_the_shown_91() {
+        let sixteen = Style {
+            color: true,
+            ..Default::default()
+        };
+        let c256 = Style {
+            color: true,
+            color256: true,
+            ..Default::default()
+        };
+        let truecolor = Style {
+            color: true,
+            true_color: true,
+            ..Default::default()
+        };
+        // 구간 경계는 그리는 숫자와 같아야 한다 — `{:.0}` 은 짝수 쪽으로 반올림한다.
+        for (p, shown) in [(74.5, "74%"), (75.5, "76%"), (89.5, "90%"), (90.5, "90%")] {
+            assert_eq!(format!("{p:.0}%"), shown);
+        }
+        for p in [0.0, 41.0, 74.0, 74.5] {
+            assert_eq!(sixteen.ctx_color(p), CTX_LOW, "ctx {p} 는 파랑");
+        }
+        for p in [74.6, 75.0, 82.0, 90.0, 90.5] {
+            assert_eq!(sixteen.ctx_color(p), CTX_YELLOW, "ctx {p} 는 노랑");
+        }
+        for p in [90.6, 91.0, 97.0, 100.0, 140.0] {
+            assert_eq!(sixteen.ctx_color(p), CTX_RED, "ctx {p} 는 빨강");
+        }
+        // 노랑은 75% 의 차분한 노랑에서 90% 의 금색으로, 빨강은 91% 의 주홍에서 100% 의 진한 빨강으로 간다.
+        assert_eq!(truecolor.ctx_color(74.0), "\x1b[38;2;98;143;194m");
+        assert_eq!(truecolor.ctx_color(75.0), "\x1b[38;2;215;175;55m");
+        assert_eq!(truecolor.ctx_color(90.0), "\x1b[38;2;255;215;0m");
+        assert_eq!(truecolor.ctx_color(91.0), "\x1b[1m\x1b[38;2;255;110;70m");
+        assert_eq!(truecolor.ctx_color(100.0), "\x1b[1m\x1b[38;2;255;45;45m");
+        assert_ne!(truecolor.ctx_color(80.0), truecolor.ctx_color(85.0));
+        assert_ne!(truecolor.ctx_color(93.0), truecolor.ctx_color(97.0));
+        assert_eq!(c256.ctx_color(75.0), "\x1b[38;5;179m");
+        assert_eq!(c256.ctx_color(90.0), "\x1b[38;5;220m");
+        assert_eq!(c256.ctx_color(91.0), "\x1b[1m\x1b[38;5;203m");
+        assert_eq!(c256.ctx_color(100.0), "\x1b[1m\x1b[38;5;196m");
     }
 }
