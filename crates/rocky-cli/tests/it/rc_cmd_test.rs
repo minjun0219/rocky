@@ -85,13 +85,27 @@ fn logout_goes_on_top_once_with_the_fix() {
     });
     let out = render_status(&raw);
     assert!(
-        out.starts_with("⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 새로 띄우거나 되살리지 못한다\n  새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다"),
+        out.starts_with(
+            "⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 새로 띄우거나 되살리지 못한다\n"
+        ),
         "{out}"
     );
-    assert!(
-        out.contains("Terminal.app 에서 `claude auth login`"),
-        "{out}"
-    );
+    // 키체인 설명과 처방은 macOS 에서만 — 다른 OS 는 플랫폼을 가리지 않는 안내.
+    if cfg!(target_os = "macos") {
+        assert!(
+            out.contains(
+                "\n  새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains("\n  셸에서 풀기: security unlock-keychain ~/Library/Keychains/login.keychain-db && claude auth login"),
+            "{out}"
+        );
+    } else {
+        assert!(!out.contains("keychain"), "{out}");
+        assert!(out.contains("`claude auth login`"), "{out}");
+    }
     // 아래쪽에 로그인 줄을 다시 쓰지 않고, 행은 거절 문구를 짧게 줄인다.
     assert!(!out.contains("claude 로그인:"), "{out}");
     assert_eq!(out.matches("로그아웃이다").count(), 1, "{out}");
@@ -99,10 +113,12 @@ fn logout_goes_on_top_once_with_the_fix() {
     // 짐작이 없으면 일반 안내.
     let plain =
         render_status(&json!({"configured": true, "servers": [], "strays": [], "auth": "out"}));
-    assert!(
-        plain.contains("\n  데몬(launchd)은 셸과 달리 키체인의 자격을 읽는다."),
-        "{plain}"
-    );
+    if cfg!(target_os = "macos") {
+        assert!(
+            plain.contains("\n  데몬(launchd)은 셸과 달리 키체인의 자격을 읽는다."),
+            "{plain}"
+        );
+    }
 }
 
 #[test]

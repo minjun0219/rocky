@@ -439,7 +439,7 @@ pub fn auth_hint(keychain_mdat: Option<i64>, file_mtime: Option<i64>) -> Option<
 /// 데몬 맥락이 로그아웃이라 띄우기 · 재시작을 거절할 때의 결과 문구 — 행의 `lastResult` 로 웹 · `--wait` 에도 그대로 보이니
 /// 푸는 법까지 담는다. CLI 현황은 이 문구로 시작하는 실패를 맨 위 ⚠ 와 겹치지 않게 짧게 줄인다.
 pub const LOGGED_OUT_REFUSAL: &str =
-    "데몬 쪽 claude 가 로그아웃이다 — 손대지 않았다. 맥 앞의 터미널에서 `claude auth login` 뒤 다시";
+    "데몬 쪽 claude 가 로그아웃이다 — 손대지 않았다. 셸에서 `claude auth login` 뒤 다시(macOS 면 먼저 `security unlock-keychain`)";
 
 /// `agy remote-control status` → 첫 `Daemon state = `, `Daemon pid = `, `Instance name: ` 의 첫 단어.
 pub fn parse_agy_status(out: &str) -> AgyStatus {

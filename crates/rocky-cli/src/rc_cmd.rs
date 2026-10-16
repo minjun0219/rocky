@@ -437,6 +437,10 @@ pub fn agy_line(raw: &Value) -> Option<String> {
     })
 }
 
+/// 키체인을 열고 다시 로그인하는 셸 한 줄 — 맥 로그인 암호를 묻는다.
+const SHELL_LOGIN: &str =
+    "security unlock-keychain ~/Library/Keychains/login.keychain-db && claude auth login";
+
 /// 맨 위 ⚠ 구역 — 기기 전체의 문제를 한 번만, 푸는 법과 함께. 행마다 되풀이하지 않는다.
 fn problems(raw: &Value) -> Vec<String> {
     let mut out = Vec::new();
@@ -445,17 +449,18 @@ fn problems(raw: &Value) -> Vec<String> {
     }
     if str_of(raw, "auth") == "out" {
         out.push("⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 새로 띄우거나 되살리지 못한다".into());
-        out.extend(match str_of(raw, "authHint") {
-            "credentialsFileNewer" => [
-                "  새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다 — 데몬(launchd)은 키체인을 먼저 읽는다.",
-                "  맥 앞의 Terminal.app 에서 `claude auth login` 을 한 번 더 하면 키체인에 저장돼 풀린다",
-            ],
-            _ => [
-                "  데몬(launchd)은 셸과 달리 키체인의 자격을 읽는다.",
-                "  맥 앞의 Terminal.app 에서 `claude auth login` 을 하면 풀린다",
-            ],
+        // CLI 는 데몬과 같은 기기에서 돈다 — 키체인 설명과 처방은 macOS 에서만.
+        if cfg!(target_os = "macos") {
+            out.push(match str_of(raw, "authHint") {
+                "credentialsFileNewer" => "  새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다 — 데몬(launchd)은 키체인을 먼저 읽는다.",
+                _ => "  데몬(launchd)은 셸과 달리 키체인의 자격을 읽는다.",
+            }
+            .into());
+            // 키체인이 막힌 셸에서도 열고 로그인하면 키체인에 저장된다(2026-10-16 실측).
+            out.push(format!("  셸에서 풀기: {SHELL_LOGIN}"));
+        } else {
+            out.push("  데몬을 띄운 사용자로 셸에서 `claude auth login` 을 하면 풀린다".into());
         }
-        .map(String::from));
     }
     out
 }
