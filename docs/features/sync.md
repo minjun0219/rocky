@@ -31,6 +31,23 @@
   전에 신호를 본 것으로 표시해서, 읽은 뒤의 변경은 다음 신호가 다시 읽는다. 밀다가 읽기가 실패하면 `err`를 한 번 보내고
   밀기를 멈춘다(클라이언트가 `sync`로 다시 시작한다).
 
+- **트랜잭션 어휘는 원격에서도 이미 허용된 보드 쓰기뿐이다**(`sync::SyncOp`). 세션 띄우기·이슈·핸드오프·보드의
+  `path`·`repo`·`reviewFix`·`prAuthors`·수집함 설정은 어휘에 없다 — 그런 쓰기는 로컬 요청 전용 REST 로만 한다. 새 op 를
+  더할 때는 같은 REST 쓰기가 원격에서도 허용된 것인지(`docs/features/security.md`) 먼저 본다. 모르는 필드는 버린다(보드의
+  `board.update` 에 `path` 를 실어 보내도 제목·설명만 바뀐다).
+- **트랜잭션은 사람(웹·폰)의 쓰기다.** 에이전트 actor(`actors::is_agent_actor`)면 `reject` 한다 — 에이전트의 `start` 는
+  핸드오프를 수락하고 그 앞에서 세션 목록을 조회(프로세스 실행)하는데, 그 길을 소켓에 열지 않는다. 에이전트는 MCP·REST 로 쓴다.
+- **op 는 지금 스토어 메서드로 적용하고, 검사는 REST 와 같다**(`TodoStore::apply_sync_op`). 제목·보드가 비면 거절하고, 섹션
+  이름은 다듬으며 없는 보드에 만들지 않고, `todo.move` 는 `before` 를 명시해야 하고(`null` 이면 맨 뒤), 보드 수정은 고칠
+  필드가 있어야 한다. 히스토리·이벤트도 REST 와 같다.
+- **만들기(할 일·노트·댓글)는 클라이언트가 정한 id 를 쓴다**(`sync::is_client_id`, `new_id` 와 같은 8자 base36). 같은 자리
+  (보드·할 일)에 그 id 가 이미 있으면 새로 만들지 않고 그 행을 돌려준다 — 응답을 잃고 다시 보낸 트랜잭션이 두 번 만들지
+  않는다. 다른 자리에 있으면 거절한다(만들지 않은 것을 만들었다고 답하지 않게). 섹션은 예외로 이름으로 만든다(같은 이름이면
+  그 섹션) — 섹션 id 는 데몬이 정한다.
+- **트랜잭션은 원자적이지 않다.** op 가 하나라도 읽히지 않으면 아무것도 적용하지 않지만, 적용하다 실패하면 그 op 에서 멈추고
+  앞의 op 는 남는다(`reject` 의 `at` 이 그 자리, 결과는 `rows` 로 돌아온다). 그래서 클라이언트는 op 하나짜리 트랜잭션을 기본으로
+  쓴다. `sync` 한 연결이면 결과 `rows` 를 `ack` 보다 먼저 보낸다.
+
 ## 코드
 
 | 무엇 | 어디 |
@@ -40,5 +57,7 @@
 | 머리 · 바뀐 행 읽기 · `epoch` 갱신 | `crates/rocky-core/src/store.rs`의 `sync_head` · `sync_rows_since` · `renew_sync_epoch` |
 | 행 변경 구독(`update_hook`) | `crates/rocky-core/src/store.rs`의 `with_conn` · `subscribe_rows` |
 | 변경 신호 · 소켓 프레임 | `crates/rockyd/src/server.rs`의 `sync_rows`, `crates/rockyd/src/ws.rs` |
+| 트랜잭션 어휘 · 클라이언트 id(순수) | `crates/rocky-core/src/sync.rs`의 `SyncOp` · `is_client_id` |
+| op 적용 · id 를 받는 만들기 | `crates/rocky-core/src/store.rs`의 `apply_sync_op` · `create_todo_with_id` · `create_note_with_id` · `add_comment_with_id` |
 
 테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절).
