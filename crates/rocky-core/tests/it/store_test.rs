@@ -4,7 +4,7 @@ use rocky_core::peer_inbox::ClearedAction;
 use rocky_core::refs::ref_of;
 use rocky_core::store::{StoreResult, TodoStore};
 use rocky_core::types::*;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::path::PathBuf;
 
 struct Fx {
@@ -2833,7 +2833,7 @@ fn move_to_board_issues_new_number() {
         .store
         .move_todo_to_board(&moving.id, "target", "t", None)
         .unwrap();
-    assert_eq!(moved.number, 2); // target 의 MAX+1
+    assert_eq!(moved.number, 2); // target 의 다음 번호(가장 큰 번호 1 다음)
     let target_titles: Vec<_> = f
         .store
         .list_todos(&ListTodosFilter {
@@ -4215,44 +4215,54 @@ fn moving_the_highest_numbered_todo_does_not_free_its_number() {
     assert_eq!(next.number, 3, "옮긴 할 일의 번호(2)를 다시 주지 않는다");
 }
 
-/// 카운터가 없던 때(마이그레이션 20 전)로 DB 를 되돌린다 — 다시 열면 20 이 다시 돈다.
-fn forget_number_counters(db_path: &std::path::Path) {
-    let raw = rusqlite::Connection::open(db_path).unwrap();
-    raw.execute_batch("DROP TABLE number_counters; PRAGMA user_version = 19;")
-        .unwrap();
-}
-
-/// 마이그레이션 20 은 지금의 가장 큰 번호로 카운터를 심는다.
-#[test]
-fn number_counters_are_seeded_from_existing_rows() {
-    let f = fx();
-    let made = create(&f.store, "seed", "a", "t");
-    create(&f.store, "seed", "b", "t");
-    forget_number_counters(&f.db_path);
-    let _reopened = TodoStore::open(&f.db_path).unwrap();
-    let raw = rusqlite::Connection::open(&f.db_path).unwrap();
-    let last: i64 = raw
-        .query_row(
-            "SELECT last FROM number_counters WHERE scope = ?1",
-            [format!("todos:{}", made.board_id)],
-            |r| r.get(0),
+/// 카운터가 없던 때(마이그레이션 20 전)로 DB 를 되돌리고 다시 연다 — 20·21 이 다시 돈다.
+fn upgrade_from_19(f: &mut Fx) {
+    f.raw()
+        .execute_batch(
+            "DROP TRIGGER IF EXISTS todos_number_moved_out;
+             DROP TABLE number_counters;
+             PRAGMA user_version = 19;",
         )
         .unwrap();
-    assert_eq!(last, 2);
+    f.reload();
+}
+
+fn counter_of(f: &Fx, board_id: &str) -> Option<i64> {
+    f.raw()
+        .query_row(
+            "SELECT last FROM number_counters WHERE scope = ?1",
+            [format!("todos:{board_id}")],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+}
+
+/// 마이그레이션 20 은 지금의 가장 큰 번호로 카운터를 심는다 — 빈 번호가 있는 보드라 개수(2)와 가장 큰 번호(3)가 다르다.
+#[test]
+fn number_counters_are_seeded_from_existing_rows() {
+    let mut f = fx();
+    let first = create(&f.store, "seed", "a", "t");
+    let middle = create(&f.store, "seed", "b", "t");
+    create(&f.store, "seed", "c", "t");
+    f.store
+        .move_todo_to_board(&middle.id, "elsewhere", "t", None)
+        .unwrap();
+    upgrade_from_19(&mut f);
+    assert_eq!(counter_of(&f, &first.board_id), Some(3));
 }
 
 /// 업그레이드 전에 옮겨 나간 번호도 막는다 — `MAX` 만으로 심으면 옮긴 가장 큰 번호(2)를 다시 준다.
 #[test]
 fn number_counters_remember_numbers_moved_out_before_the_upgrade() {
-    let f = fx();
+    let mut f = fx();
     create(&f.store, "origin", "one", "t");
     let top = create(&f.store, "origin", "two", "t");
     f.store
         .move_todo_to_board(&top.id, "target", "t", None)
         .unwrap();
-    forget_number_counters(&f.db_path);
-    let reopened = TodoStore::open(&f.db_path).unwrap();
-    let next = create(&reopened, "origin", "three", "t");
+    upgrade_from_19(&mut f);
+    let next = create(&f.store, "origin", "three", "t");
     assert_eq!(
         next.number, 3,
         "업그레이드 전에 옮긴 번호(2)를 다시 주지 않는다"
@@ -4262,7 +4272,7 @@ fn number_counters_remember_numbers_moved_out_before_the_upgrade() {
 /// 옮긴 뒤 원래 보드의 이름이 바뀌었어도 히스토리의 옛 key 를 별칭으로 푼다.
 #[test]
 fn number_counters_follow_a_renamed_origin_board() {
-    let f = fx();
+    let mut f = fx();
     create(&f.store, "origin", "one", "t");
     let top = create(&f.store, "origin", "two", "t");
     f.store
@@ -4278,8 +4288,66 @@ fn number_counters_follow_a_renamed_origin_board() {
             "t",
         )
         .unwrap();
-    forget_number_counters(&f.db_path);
-    let reopened = TodoStore::open(&f.db_path).unwrap();
-    let next = create(&reopened, "renamed", "three", "t");
+    upgrade_from_19(&mut f);
+    let next = create(&f.store, "renamed", "three", "t");
     assert_eq!(next.number, 3);
+}
+
+/// 보드를 떠나는 번호는 누가 옮겨도 남는다 — 카운터를 모르는 바이너리가 raw 로 옮긴 경우(트리거).
+#[test]
+fn a_number_leaving_by_any_writer_is_remembered() {
+    let f = fx();
+    create(&f.store, "origin", "one", "t");
+    let top = create(&f.store, "origin", "two", "t");
+    let target = f.store.ensure_board("target", None, "t").unwrap();
+    f.raw()
+        .execute(
+            "UPDATE todos SET board_id = ?1, number = 99 WHERE id = ?2",
+            [target.id.as_str(), top.id.as_str()],
+        )
+        .unwrap();
+    let next = create(&f.store, "origin", "three", "t");
+    assert_eq!(next.number, 3);
+}
+
+/// 카운터보다 큰 번호의 행이 있으면(카운터 밖에서 매겼다) 그 위로 준다.
+#[test]
+fn todo_numbers_stay_above_rows_beyond_the_counter() {
+    let f = fx();
+    let first = create(&f.store, "origin", "one", "t");
+    let top = create(&f.store, "origin", "two", "t");
+    f.store
+        .move_todo_to_board(&top.id, "target", "t", None)
+        .unwrap();
+    assert_eq!(counter_of(&f, &first.board_id), Some(2));
+    f.raw()
+        .execute(
+            "UPDATE todos SET number = 5 WHERE id = ?1",
+            [first.id.as_str()],
+        )
+        .unwrap();
+    let next = create(&f.store, "origin", "three", "t");
+    assert_eq!(next.number, 6);
+}
+
+/// 만들기는 카운터를 쓰지 않는다 — 커밋이 늘지 않고, 만들다 실패해도 번호가 비지 않는다. 노트 카운터는 없다.
+#[test]
+fn making_items_does_not_write_number_counters() {
+    let f = fx();
+    create(&f.store, "quiet", "one", "t");
+    f.store
+        .create_note(
+            &CreateNoteInput {
+                board: Some("quiet".into()),
+                title: "노트".into(),
+                ..Default::default()
+            },
+            "t",
+        )
+        .unwrap();
+    let rows: i64 = f
+        .raw()
+        .query_row("SELECT COUNT(*) FROM number_counters", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 0);
 }

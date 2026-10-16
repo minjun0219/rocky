@@ -398,7 +398,8 @@ fn add_sync_seq(db: &Connection) -> rusqlite::Result<()> {
 ///
 /// 지금까지 다음 번호는 `MAX(number)+1` 이라, 보드에서 가장 큰 번호의 할 일을 다른 보드로 옮기면 원래 보드가 그 번호를 다시
 /// 줬다(댓글·PR 본문에 남은 옛 참조가 다른 할 일을 가리킨다). 카운터는 그 보드(노트는 전역 공간도)에서 마지막으로 준 번호를
-/// 기억하고 줄지 않는다.
+/// 기억하고 줄지 않는다. (21 부터 만들기는 카운터를 쓰지 않고, 할 일이 보드를 떠날 때만 트리거가 적는다 —
+/// `track_moved_out_numbers`.)
 ///
 /// 씨앗은 지금의 `MAX(number)` 와, 옮기기 히스토리에 남은 "그 보드에서 옮겨 나간 옛 번호" 중 큰 값이다. 업그레이드 전에
 /// 가장 큰 번호를 옮긴 보드는 `MAX` 가 그 번호보다 작아서 `MAX` 만으로는 그 번호를 다시 준다. 이미 다시 쓰인 번호까지
@@ -482,7 +483,39 @@ fn seed_moved_out_numbers(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub const MIGRATIONS: [MigrationFn; 20] = [
+/// 마이그레이션 21: 할 일이 보드를 떠날 때 그 번호를 카운터에 남긴다 — 트리거라서 어느 바이너리가 옮겨도 남는다.
+///
+/// 20 은 할 일·노트를 만들 때마다 카운터를 올렸다. 그러면 카운터 밖에서 매겨진 번호(카운터를 모르는 옛 데몬이 만든
+/// 행)는 옮기는 순간 다시 풀리고, 만들 때마다 커밋이 하나 늘고, 만들다 실패하면 번호가 빈다. 번호가 보드에서 사라지는
+/// 길은 다른 보드로 옮기기 하나뿐이다(삭제가 없고 노트는 보드를 떠나지 않는다). 그래서 이제 카운터는 "그 보드를 떠난
+/// 가장 큰 번호" 만 든다 — 20 이 심은 값은 그대로 바닥으로 남는다. 만들기는 `MAX(number)` 와 이것 중 큰 값에 1을
+/// 더할 뿐 쓰지 않는다(`store::next_number`). 노트 카운터는 쓸 데가 없어 지운다.
+fn track_moved_out_numbers(db: &Connection) -> rusqlite::Result<()> {
+    let todo_columns = table_columns(db, "todos")?;
+    // 최소 스키마로 마이그레이션만 도는 테스트 DB 는 건너뛴다.
+    if !["board_id", "number"]
+        .iter()
+        .all(|c| todo_columns.iter().any(|t| t == c))
+        || table_columns(db, "number_counters")?.is_empty()
+    {
+        return Ok(());
+    }
+    // 트리거 안에서는 UPSERT 대신 두 문장으로 쓴다.
+    db.execute_batch(
+        "DELETE FROM number_counters WHERE scope LIKE 'notes:%';
+         CREATE TRIGGER IF NOT EXISTS todos_number_moved_out
+         AFTER UPDATE OF board_id ON todos
+         WHEN OLD.board_id IS NOT NEW.board_id AND OLD.number IS NOT NULL
+         BEGIN
+           INSERT OR IGNORE INTO number_counters (scope, last)
+             VALUES ('todos:' || OLD.board_id, OLD.number);
+           UPDATE number_counters SET last = MAX(last, OLD.number)
+             WHERE scope = 'todos:' || OLD.board_id;
+         END;",
+    )
+}
+
+pub const MIGRATIONS: [MigrationFn; 21] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -503,6 +536,7 @@ pub const MIGRATIONS: [MigrationFn; 20] = [
     add_doing_session_claimed,
     add_sync_seq,
     add_number_counters,
+    track_moved_out_numbers,
 ];
 
 #[derive(Default)]

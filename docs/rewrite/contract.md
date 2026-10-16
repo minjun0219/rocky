@@ -277,6 +277,6 @@ Rust 화 시 `rocky-todo hook <name>` 서브커맨드로 흡수하되 위 동작
   history / handoffs / board_aliases
 - 히스토리 entity enum: board/section/todo/note. 댓글 mutation은 부모 todo의
   히스토리(action: comment/comment-edit/comment-archive/comment-unarchive)
-- 번호는 보드 내 `MAX(number)+1`, 아카이브해도 회수 없음. 삭제 없음. **TS 와 다르다(2026-10-16)**: 보드마다 줄지 않는
-  카운터(`number_counters`, 마이그레이션 20)로 발급해, 가장 큰 번호의 할 일을 다른 보드로 옮겨도 그 번호를 다시 주지 않는다
+- 번호는 보드 내 `MAX(number)+1`, 아카이브해도 회수 없음. 삭제 없음. **TS 와 다르다(2026-10-16)**: 보드를 떠난 가장 큰
+  번호(`number_counters`, 마이그레이션 20·21)보다도 크게 발급해, 가장 큰 번호의 할 일을 다른 보드로 옮겨도 그 번호를 다시 주지 않는다
 - 마이그레이션: 배열 인덱스+1 = user_version, 적용 전 DB 백업, 기존 항목 불변경
