@@ -15,11 +15,13 @@ import { slicesFor } from './lib';
 import { useMediaQuery, WIDE_QUERY } from './media';
 import { parseRoute } from './route';
 import { useUiStore } from './store';
+import { startBoardSync } from './sync/boot';
 import { setUsageActor } from './usage';
 
 /**
  * rocky 웹 UI 루트 — `bun run build:ui` 가 dist/ 로 번들하고 데몬(rockyd)이 서빙한다.
- * SSE(/api/events) 를 구독해 어떤 경로(CLI/MCP/다른 브라우저)의 변경이든 실시간 반영.
+ * 보드는 보드 싱크(`./sync`, `/api/ws`)로 받은 사본에서 그리고, 어떤 경로(CLI/MCP/다른 브라우저)의 변경이든 바뀐
+ * 행만 밀려온다. 소켓을 못 쓰면 예전처럼 SSE(/api/events) 마다 다시 읽는다. SSE 는 PR·수집함 요약에도 쓴다.
  */
 function App() {
   const refetch = useUiStore((s) => s.refetch);
@@ -82,10 +84,13 @@ function App() {
           console.warn('[rocky] 주소가 가리키는 화면을 열지 못했다', err);
         });
 
+    // 보드 싱크부터 — 저장해 둔 사본이 있으면 그것으로 먼저 그리고, 그때 `refetch` 는 PR·수집함 요약만 읽는다. 사본이
+    // 없으면(첫 방문·소켓 없음) 예전처럼 REST 로 전부 읽는다.
+    const boardSync = startBoardSync();
     // 초기 목록을 받은 뒤에야 URL 의 번호를 todo id 로 해석할 수 있다. 두 번째 인자로
     // 넘겨야 `onSyncError` 가 목록 재조회의 실패만 받는다 — `.catch()` 로 이으면 뒤따르는
     // 주소 해석의 실패까지 함께 삼킨다.
-    void refetch().then(applyRoute, onSyncError);
+    void boardSync.ready.then(() => refetch().then(applyRoute, onSyncError));
     // health 는 부팅과 SSE 재연결 때만 묻는다 (refetch 에 얹으면 SSE 이벤트마다 다시 묻게
     // 된다). 재연결 때 다시 묻는 이유는 버전이다 — 데몬이 재시작되면 SSE 가 끊겼다 붙는다.
     const loadHealth = (): void => {
@@ -104,6 +109,7 @@ function App() {
     // 끊겨 있던 동안의 변경은 오지 않으므로, SSE 재연결을 기다리지 않고 즉시 다시 읽는다.
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
+        useUiStore.getState().wakeSync();
         sync();
       }
     };
@@ -136,7 +142,7 @@ function App() {
         void refetch(slices).catch(onSyncError);
       }, 150);
     };
-    // doing 경과 표시 갱신용 주기 리렌더
+    // doing 경과 표시 갱신용 주기 리렌더 — 사본으로 그리는 중이면 PR·수집함 요약만 다시 읽는다.
     const tick = setInterval(sync, 60_000);
 
     return () => {
@@ -145,6 +151,7 @@ function App() {
       source.close();
       clearTimeout(debounce.current);
       clearInterval(tick);
+      boardSync.stop();
     };
   }, [refetch, setConnected]);
 

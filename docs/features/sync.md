@@ -51,6 +51,20 @@
   앞의 op 는 남는다(`reject` 의 `at` 이 그 자리, 결과는 `rows` 로 돌아온다). 그래서 클라이언트는 op 하나짜리 트랜잭션을 기본으로
   쓴다. `sync` 한 연결이면 결과 `rows` 를 `ack` 보다 먼저 보낸다.
 
+## 웹 사본(2번 조각)
+
+- **웹은 보드 묶음을 사본에서 그린다**(`web/sync/`). 사본이 있는 동안(`syncing`) 화면의 보드·할 일·섹션·노트·핸드오프와
+  상세 드로어는 REST 로 다시 읽지 않는다. `refetch` 는 PR·수집함 요약만 읽는다. 세션·rc·작업로그·`/api/health` 는 지금처럼
+  REST 다. 사본을 받기 전이거나 소켓을 못 쓰면(한 번도 못 붙음, 데몬이 `sync` 를 모름) 예전 REST 경로 그대로 돈다 — 두 경로를
+  같이 둔다.
+- **데몬이 얹던 값은 웹이 같은 규칙으로 계산한다**(`web/sync/views.ts` — `refs::ref_of`, `doing::resolve_doing_state`,
+  `handoff_phase`·`is_unstarted`, `sessions::match_board` 를 옮긴 것). Rust 규칙을 바꾸면 여기도 고친다. 세션 판정은 에이전트
+  탭의 세션 목록(`agents`)으로 하고, 목록이 없으면 판정하지 않는다(모름).
+- **쓰기는 어휘에 있으면 `tx`, 없으면 REST.** `tx` 는 답을 기다리는 동안 사본 위에 겹쳐 그린다(`overlay`). 에이전트 actor
+  화면은 `tx` 를 쓰지 않는다(데몬이 거절한다). 답을 기다리는 op 는 메모리에만 두고, 답 전에 끊기면 만들기만 다시 보낸다.
+- **사본은 IndexedDB 에 남는다**(`web/sync/persist.ts`). 실패는 삼키고 메모리로 돈다. 저장소 모양을 바꾸면 `DB_VERSION` 을
+  올린다(옛 사본을 버리고 통째로 다시 받는다). Access 로그아웃은 사본을 지우고 나간다.
+
 ## 코드
 
 | 무엇 | 어디 |
@@ -62,5 +76,10 @@
 | 변경 신호 · 소켓 프레임 | `crates/rockyd/src/server.rs`의 `sync_rows`, `crates/rockyd/src/ws.rs` |
 | 트랜잭션 어휘 · 클라이언트 id(순수) | `crates/rocky-core/src/sync.rs`의 `SyncOp` · `is_client_id` |
 | op 적용 · id 를 받는 만들기 | `crates/rocky-core/src/store.rs`의 `apply_sync_op` · `create_todo_with_id` · `create_note_with_id` · `add_comment_with_id` |
+| 웹 사본 · op 겹치기(순수) | `web/sync/replica.ts` |
+| 웹이 계산하는 값 · 화면용 목록(순수) | `web/sync/views.ts` |
+| 소켓 클라이언트 · IndexedDB 저장 · 부팅 | `web/sync/client.ts` · `persist.ts` · `boot.ts` |
+| 스토어 연결(`syncing`, `tx` 쓰기) | `web/store.ts` |
 
-테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절).
+테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절), `web/sync/*.test.ts`,
+`web/store-sync.test.tsx`, `e2e/sync.spec.ts`(IndexedDB 는 실제 브라우저에서만).
