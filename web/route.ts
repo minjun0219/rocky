@@ -94,8 +94,8 @@ export function isAddressableBoardKey(key: string): boolean {
  * `/rocky/12` → `{ board: 'rocky', todo: { board: 'rocky', number: 12 } }`,
  * `/?todo=rocky-12` → `{ board: 'all', todo: { board: 'rocky', number: 12 } }`.
  *
- * 둘째 세그먼트는 **양의 정수일 때만** 번호로 읽는다 — 번호는 `MAX(number)+1` 로 발급되어
- * 1부터 시작하므로 `0`/음수/`12abc` 는 번호가 아니다. 셋째 이후 세그먼트는 무시한다.
+ * 둘째 세그먼트는 **양의 정수일 때만** 번호로 읽는다 — 번호는 보드마다 1부터 매기는 카운터로
+ * 발급되므로 `0`/음수/`12abc` 는 번호가 아니다. 셋째 이후 세그먼트는 무시한다.
  * 경로에 번호가 있으면 `?todo=` 는 보지 않는다(`buildPath` 는 둘을 같이 내지 않는다).
  * `?todo=` 는 `{board}-{number}` 를 **가장 오른쪽** `-` 에서 가른다 — 보드 key 에 `-` 가
  * 들어갈 수 있어서다(`rocky-todo-12`). CLI/MCP 의 ref 표기와 같은 규칙.

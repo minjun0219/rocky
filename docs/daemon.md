@@ -179,8 +179,8 @@
   레포 이름에서 유추되는 값이라 생성을 막지 않는다). 다만 `is_ref_safe_board_key("note")`가
   `false` 라 그 보드의 항목은 `ref_of`가 `note-N` 대신 raw id로 폴백한다. todos는 항상
   보드에 속하므로 보드
-  컨텍스트 없는 맨숫자는 에러다. 번호는 보드 안에서 `MAX(number)+1`로 발급되어
-  아카이브해도 회수(재사용)되지 않는다. **댓글은 이 번호 체계 밖이다** — 보드별
+  컨텍스트 없는 맨숫자는 에러다. 번호는 보드마다 줄지 않는 카운터(`number_counters`)로 발급되어
+  아카이브해도, 가장 큰 번호의 할 일을 다른 보드로 옮겨도 회수(재사용)되지 않는다. **댓글은 이 번호 체계 밖이다** — 보드별
   순번 없이 댓글 id 로만 지정한다(`PATCH /api/comments/:id` 등). mutation은 부모 todo의
   히스토리(`entity: 'todo'`, action `comment`/`comment-edit`/`comment-archive`/
   `comment-unarchive`)로 기록되어 SSE·훅 주입 경로를 그대로 탄다.

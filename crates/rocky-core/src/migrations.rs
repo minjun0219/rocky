@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// 마이그레이션 하나 — 같은 트랜잭션 안에서 실행된다.
 pub type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
@@ -394,7 +394,95 @@ fn add_sync_seq(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub const MIGRATIONS: [MigrationFn; 19] = [
+/// 마이그레이션 20: 보드별 번호 카운터 — 번호를 다시 쓰지 않는다.
+///
+/// 지금까지 다음 번호는 `MAX(number)+1` 이라, 보드에서 가장 큰 번호의 할 일을 다른 보드로 옮기면 원래 보드가 그 번호를 다시
+/// 줬다(댓글·PR 본문에 남은 옛 참조가 다른 할 일을 가리킨다). 카운터는 그 보드(노트는 전역 공간도)에서 마지막으로 준 번호를
+/// 기억하고 줄지 않는다.
+///
+/// 씨앗은 지금의 `MAX(number)` 와, 옮기기 히스토리에 남은 "그 보드에서 옮겨 나간 옛 번호" 중 큰 값이다. 업그레이드 전에
+/// 가장 큰 번호를 옮긴 보드는 `MAX` 가 그 번호보다 작아서 `MAX` 만으로는 그 번호를 다시 준다. 이미 다시 쓰인 번호까지
+/// 되살리지는 못한다.
+fn add_number_counters(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS number_counters (
+           scope TEXT PRIMARY KEY,
+           last INTEGER NOT NULL
+         );",
+    )?;
+    for table in ["todos", "notes"] {
+        // 최소 스키마로 마이그레이션만 도는 테스트 DB 는 건너뛴다(실제 DB 는 SCHEMA 와 마이그레이션 1 이 열을 만든다).
+        if !table_columns(db, table)?.iter().any(|c| c == "number") {
+            continue;
+        }
+        db.execute_batch(&format!(
+            "INSERT OR IGNORE INTO number_counters (scope, last)
+             SELECT '{table}:' || COALESCE(board_id, ''), MAX(number) FROM {table}
+             WHERE number IS NOT NULL GROUP BY board_id;"
+        ))?;
+    }
+    seed_moved_out_numbers(db)
+}
+
+/// 옮기기 히스토리(`move-board`, `changes = {board:[원래, 대상], number:[옛, 새]}`)에서 보드마다 옮겨 나간 가장 큰 옛 번호로
+/// 카운터를 올린다. 원래 보드는 그때의 key(모르면 id)라 그 뒤 이름이 바뀌었을 수 있다 — id·지금 key·옛 key(별칭) 순으로
+/// 푼다. 못 풀거나 모양이 다른 줄은 건너뛴다. 높게 잡는 쪽만 안전하다(번호를 건너뛸 뿐이다).
+fn seed_moved_out_numbers(db: &Connection) -> rusqlite::Result<()> {
+    if !table_columns(db, "history")?.iter().any(|c| c == "changes")
+        || table_columns(db, "boards")?.is_empty()
+    {
+        return Ok(());
+    }
+    let has_aliases = !table_columns(db, "board_aliases")?.is_empty();
+    let moved: Vec<String> = db
+        .prepare(
+            "SELECT changes FROM history
+             WHERE entity = 'todo' AND action = 'move-board' AND changes IS NOT NULL",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut highest: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for raw in moved {
+        let Ok(changes) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let (Some(origin), Some(number)) =
+            (changes["board"][0].as_str(), changes["number"][0].as_i64())
+        else {
+            continue;
+        };
+        let mut board_id: Option<String> = db
+            .query_row(
+                "SELECT id FROM boards WHERE id = ?1 OR key = ?1",
+                [origin],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if board_id.is_none() && has_aliases {
+            board_id = db
+                .query_row(
+                    "SELECT board_id FROM board_aliases WHERE key = ?1",
+                    [origin],
+                    |r| r.get(0),
+                )
+                .optional()?;
+        }
+        if let Some(board_id) = board_id {
+            let seen = highest.entry(board_id).or_insert(number);
+            *seen = (*seen).max(number);
+        }
+    }
+    for (board_id, number) in highest {
+        db.execute(
+            "INSERT INTO number_counters (scope, last) VALUES (?1, ?2)
+             ON CONFLICT(scope) DO UPDATE SET last = MAX(last, excluded.last)",
+            rusqlite::params![format!("todos:{board_id}"), number],
+        )?;
+    }
+    Ok(())
+}
+
+pub const MIGRATIONS: [MigrationFn; 20] = [
     add_numbers,
     add_board_repo,
     add_handoffs,
@@ -414,6 +502,7 @@ pub const MIGRATIONS: [MigrationFn; 19] = [
     add_cleared_sessions,
     add_doing_session_claimed,
     add_sync_seq,
+    add_number_counters,
 ];
 
 #[derive(Default)]
