@@ -310,6 +310,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "GET /api/logs/stats"),
     (UsageSource::Rest, "WS /api/ws"),
     (UsageSource::Rest, "WS /api/ws sync"),
+    (UsageSource::Rest, "WS /api/ws tx"),
     (UsageSource::Rest, "POST /api/prs/filters"),
     (UsageSource::Rest, "DELETE /api/prs/filters"),
     (UsageSource::Rest, "PATCH /api/notes/:ref"),

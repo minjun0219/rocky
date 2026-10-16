@@ -310,3 +310,134 @@ async fn doc_edits_inside_the_event_throttle_are_pushed_too() {
         assert_eq!(pushed["rows"]["notes"][0]["content"], text, "{pushed}");
     }
 }
+
+// ── 트랜잭션(`tx` → `rows` → `ack`) ────────────────────────────────────────
+
+#[tokio::test]
+async fn tx_creates_with_the_client_id_and_acks_after_the_rows() {
+    let f = fx();
+    create_todo(&f, "existing").await;
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(&mut ws, json!({ "t": "sync" })).await;
+    assert_eq!(next(&mut ws).await["full"], true);
+
+    let tx = json!({ "t": "tx", "id": "t1", "ops": [
+        { "op": "todo.create", "id": "abcd1234", "board": "sync", "title": "from tx" },
+    ] });
+    send(&mut ws, tx.clone()).await;
+    let rows = next(&mut ws).await;
+    assert_eq!(rows["t"], "rows");
+    assert_eq!(todo_ids(&rows), vec!["abcd1234"]);
+    let ack = next(&mut ws).await;
+    assert_eq!(ack["t"], "ack");
+    assert_eq!(ack["id"], "t1");
+    assert!(ack["seq"].as_i64().unwrap() <= rows["seq"].as_i64().unwrap());
+
+    // 응답을 잃었다고 보고 같은 tx 를 다시 보낸다 — 바뀐 게 없으니 `ack` 만 온다.
+    send(&mut ws, tx).await;
+    let again = next(&mut ws).await;
+    assert_eq!(again["t"], "ack", "{again}");
+    let made = f
+        .store
+        .list_todos(&rocky_core::types::ListTodosFilter {
+            board: Some("sync".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(made.iter().filter(|t| t.id == "abcd1234").count(), 1);
+}
+
+#[tokio::test]
+async fn tx_stops_at_the_failing_op_and_keeps_the_ones_before() {
+    let f = fx();
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(
+        &mut ws,
+        json!({ "t": "tx", "id": "t2", "ops": [
+            { "op": "todo.create", "id": "keep0001", "board": "sync", "title": "kept" },
+            { "op": "comment.create", "id": "cmt00001", "todoId": "keep0001", "body": "hi" },
+            { "op": "todo.status", "id": "nope0000", "action": "done" },
+        ] }),
+    )
+    .await;
+    let reject = next(&mut ws).await;
+    assert_eq!(reject["t"], "reject");
+    assert_eq!(reject["id"], "t2");
+    assert_eq!(reject["at"], 2);
+    assert!(
+        reject["error"].as_str().unwrap().contains("not found"),
+        "{reject}"
+    );
+    assert!(f.store.get_todo("keep0001", None).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn tx_with_an_unreadable_op_applies_nothing() {
+    let f = fx();
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(
+        &mut ws,
+        json!({ "t": "tx", "id": "t3", "ops": [
+            { "op": "todo.create", "id": "skip0001", "board": "sync", "title": "not made" },
+            { "op": "todo.spawn", "id": "skip0001" },
+        ] }),
+    )
+    .await;
+    let reject = next(&mut ws).await;
+    assert_eq!(reject["t"], "reject");
+    assert_eq!(reject["at"], 1);
+    assert!(
+        reject["error"].as_str().unwrap().starts_with("bad op"),
+        "{reject}"
+    );
+    assert!(f.store.get_todo("skip0001", None).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn tx_on_a_socket_without_sync_only_acks() {
+    let f = fx();
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(
+        &mut ws,
+        json!({ "t": "tx", "id": "t4", "ops": [
+            { "op": "todo.create", "id": "solo0001", "board": "sync", "title": "solo" },
+        ] }),
+    )
+    .await;
+    let ack = next(&mut ws).await;
+    assert_eq!(ack["t"], "ack", "{ack}");
+    assert_eq!(ack["id"], "t4");
+}
+
+/// 트랜잭션은 사람의 쓰기다 — 에이전트 actor 면 거절하고 아무것도 바꾸지 않는다. 에이전트의 `start` 는 핸드오프를
+/// 수락하고 그 앞에서 세션 목록을 조회(프로세스 실행)하는데, 그 길을 소켓에 열지 않는다.
+#[tokio::test]
+async fn tx_from_an_agent_actor_is_refused() {
+    let f = fx();
+    let id = create_todo(&f, "agent wants this").await;
+    let addr = serve(&f).await;
+    let (mut ws, _) =
+        tokio_tungstenite::connect_async(format!("ws://{addr}/api/ws?actor=claude-code"))
+            .await
+            .unwrap();
+    send(
+        &mut ws,
+        json!({ "t": "tx", "id": "t5", "ops": [
+            { "op": "todo.status", "id": id, "action": "start" },
+        ] }),
+    )
+    .await;
+    let reject = next(&mut ws).await;
+    assert_eq!(reject["t"], "reject", "{reject}");
+    assert!(reject["at"].is_null());
+    assert!(
+        reject["error"].as_str().unwrap().contains("agent actor"),
+        "{reject}"
+    );
+    let todo = f.store.get_todo(&id, None).unwrap().unwrap();
+    assert_eq!(todo.status, rocky_core::types::TodoStatus::Todo);
+}

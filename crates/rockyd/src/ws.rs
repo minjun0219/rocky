@@ -21,6 +21,10 @@
 //! - 그 뒤로는 보드 행이 바뀔 때마다 데몬이 같은 `rows`(`full:false`, 그 연결에 보낸 순번 이후)를 먼저 보낸다.
 //!   `sync` 를 다시 보내면 그 커서로 다시 시작한다. 밀다가 읽기가 실패하면 `{t:"err", error}` 를 한 번 보내고 밀기를
 //!   멈춘다 — 클라이언트가 `sync` 를 다시 보낸다.
+//! - `{t:"tx", id, ops:[{op:"todo.create", id, …}, …]}` → `{t:"ack", id, seq}` 또는 `{t:"reject", id, at, error}`.
+//!   어휘는 `rocky_core::sync::SyncOp`(원격에서도 이미 허용된 보드 쓰기뿐). `sync` 한 연결이면 결과 `rows` 를 `ack` 보다 먼저
+//!   보낸다. 만들기는 클라이언트가 정한 id 를 쓰고, 그 id 가 이미 있으면 새로 만들지 않는다(다시 보내도 안전하다).
+//!   트랜잭션은 사람의 쓰기다 — 에이전트 actor(`actors::is_agent_actor`)면 `reject` 한다.
 //!
 //! **cross-site 가드**: 웹소켓은 브라우저 CORS 밖이라, 다른 사이트의 페이지도 이 주소로 소켓을 열 수 있다
 //! (cross-site WebSocket hijacking). 핸드셰이크에서 REST 변경과 같은 규칙(`is_cross_site_request`)으로 끊는다.
@@ -30,7 +34,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
-use rocky_core::sync::SyncRows;
+use rocky_core::sync::{SyncOp, SyncRows};
 use rocky_core::usage::{UsageEvent, UsageSource};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, mpsc};
@@ -82,6 +86,33 @@ pub async fn serve_socket(mut socket: WebSocket, state: Arc<ServerState>, actor:
                             Err(error) => vec![json!({ "t": "err", "id": id, "error": error }).to_string()],
                         }
                     }
+                    Ok(frame) if frame.get("t").and_then(Value::as_str) == Some("tx") => {
+                        record(&state, "WS /api/ws tx", &actor);
+                        let id = frame.get("id").cloned().unwrap_or(Value::Null);
+                        match apply_tx(&state, &frame, &actor).await {
+                            Ok(seq) => {
+                                // 결과 행을 `ack` 보다 먼저 보낸다 — `ack` 를 받은 클라이언트의 사본에는 이미 결과가 있다.
+                                let mut replies = Vec::new();
+                                if let Some(current) = cursor.take() {
+                                    rows_changed.borrow_and_update();
+                                    match read_rows(&state, Some(current.seq), Some(current.epoch)).await {
+                                        Ok(rows) => {
+                                            if rows.full || !rows.rows.is_empty() {
+                                                replies.push(rows_frame(&rows, &Value::Null));
+                                            }
+                                            cursor = Some(SyncCursor { epoch: rows.epoch, seq: rows.seq });
+                                        }
+                                        Err(error) => replies.push(json!({ "t": "err", "error": error }).to_string()),
+                                    }
+                                }
+                                replies.push(json!({ "t": "ack", "id": id, "seq": seq }).to_string());
+                                replies
+                            }
+                            Err((at, error)) => {
+                                vec![json!({ "t": "reject", "id": id, "at": at, "error": error }).to_string()]
+                            }
+                        }
+                    }
                     Ok(frame) => handle_frame(&state, &actor, &frame, &mut subs, &out_tx),
                 };
                 for reply in replies {
@@ -131,6 +162,52 @@ fn record(state: &ServerState, surface: &str, actor: &str) {
     event.actor = Some(actor.to_string());
     event.client = Some("web".into());
     state.record_usage(event);
+}
+
+/// `{t:"tx", ops:[…]}` 의 op 를 차례로 적용하고 그 뒤의 머리 순번을 돌려준다. op 가 하나라도 읽히지 않으면 아무것도
+/// 적용하지 않는다. 적용하다 실패하면 그 op 에서 멈추고 자리(`at`)와 이유를 돌려준다 — 앞의 op 는 남는다(결과는 어차피
+/// `rows` 로 돌아온다).
+async fn apply_tx(
+    state: &Arc<ServerState>,
+    frame: &Value,
+    actor: &str,
+) -> Result<i64, (Option<usize>, String)> {
+    // 트랜잭션은 사람(웹·폰)의 쓰기다. 에이전트는 MCP·REST 로 쓴다 — 에이전트의 `start` 는 핸드오프를 수락하고, 그 앞에서
+    // 세션 목록을 조회(프로세스 실행)한다. 그 길을 소켓에는 열지 않는다.
+    if rocky_core::actors::is_agent_actor(actor) {
+        return Err((
+            None,
+            format!("tx is for people — agent actor {actor} writes through MCP or REST"),
+        ));
+    }
+    let Some(ops) = frame.get("ops").and_then(Value::as_array) else {
+        return Err((None, "ops is required".to_string()));
+    };
+    let ops = ops
+        .iter()
+        .enumerate()
+        .map(|(at, op)| {
+            serde_json::from_value::<SyncOp>(op.clone())
+                .map_err(|e| (Some(at), format!("bad op: {e}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let state = state.clone();
+    let actor = actor.to_string();
+    tokio::task::spawn_blocking(move || {
+        for (at, op) in ops.iter().enumerate() {
+            state
+                .store
+                .apply_sync_op(op, &actor)
+                .map_err(|e| (Some(at), e.to_string()))?;
+        }
+        state
+            .store
+            .sync_head()
+            .map(|head| head.seq)
+            .map_err(|e| (None, e.to_string()))
+    })
+    .await
+    .map_err(|e| (None, format!("tx task failed: {e}")))?
 }
 
 /// 스토어 읽기는 막는 호출(SQLite + std 락)이라 비동기 워커 밖에서 돈다.
