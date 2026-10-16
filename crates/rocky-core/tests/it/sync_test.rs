@@ -1,7 +1,7 @@
 //! 싱크 순번(`seq`) — 마이그레이션 19 의 트리거와 `TodoStore::sync_rows_since`.
 
 use rocky_core::store::TodoStore;
-use rocky_core::sync::{needs_full, SyncHead, Synced, FULL_HISTORY_LIMIT, SYNC_TABLES};
+use rocky_core::sync::{needs_full, SyncHead, SyncOp, Synced, FULL_HISTORY_LIMIT, SYNC_TABLES};
 use rocky_core::types::*;
 use rusqlite::Connection;
 
@@ -445,4 +445,208 @@ fn needs_full_only_for_a_fresh_or_foreign_copy() {
     assert!(needs_full(Some(-1), Some("e"), &head));
     assert!(!needs_full(Some(10), Some("e"), &head));
     assert!(!needs_full(Some(0), Some("e"), &head));
+}
+
+// ── 트랜잭션(클라이언트가 정한 id · SyncOp) ─────────────────────────────────
+
+#[test]
+fn client_ids_make_rows_once() {
+    let f = fx();
+    let input = CreateTodoInput {
+        board: "sync".into(),
+        title: "from client".into(),
+        ..Default::default()
+    };
+    let first = f
+        .store
+        .create_todo_with_id("abcd1234", &input, "you")
+        .unwrap();
+    assert_eq!(first.id, "abcd1234");
+    // 응답을 잃고 다시 보낸 만들기 — 새로 만들지 않고 그 행을 돌려준다.
+    let head = f.store.sync_head().unwrap();
+    let again = f
+        .store
+        .create_todo_with_id("abcd1234", &input, "you")
+        .unwrap();
+    assert_eq!(again, first);
+    assert_eq!(
+        f.store.sync_head().unwrap().seq,
+        head.seq,
+        "다시 보내도 쓰기가 없다"
+    );
+
+    let note_input = CreateNoteInput {
+        board: Some("sync".into()),
+        title: "memo".into(),
+        content: None,
+    };
+    let note = f
+        .store
+        .create_note_with_id("note0001", &note_input, "you")
+        .unwrap();
+    assert_eq!(note.id, "note0001");
+    assert_eq!(
+        f.store
+            .create_note_with_id("note0001", &note_input, "you")
+            .unwrap(),
+        note
+    );
+
+    let comment = f
+        .store
+        .add_comment_with_id("cmt00001", "abcd1234", "hi", "you")
+        .unwrap();
+    assert_eq!(comment.id, "cmt00001");
+    assert_eq!(
+        f.store
+            .add_comment_with_id("cmt00001", "abcd1234", "hi", "you")
+            .unwrap(),
+        comment
+    );
+}
+
+#[test]
+fn malformed_client_ids_are_refused() {
+    let f = fx();
+    let input = CreateTodoInput {
+        board: "sync".into(),
+        title: "x".into(),
+        ..Default::default()
+    };
+    for bad in ["ABCD1234", "abc", "abcd12345", "abcd-123"] {
+        let err = f
+            .store
+            .create_todo_with_id(bad, &input, "you")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("invalid client id"), "{bad}: {err}");
+    }
+}
+
+#[test]
+fn sync_ops_tell_clear_from_untouched() {
+    let cleared: SyncOp =
+        serde_json::from_value(serde_json::json!({"op": "todo.update", "id": "x", "due": null}))
+            .unwrap();
+    let untouched: SyncOp =
+        serde_json::from_value(serde_json::json!({"op": "todo.update", "id": "x", "title": "t"}))
+            .unwrap();
+    match (cleared, untouched) {
+        (SyncOp::TodoUpdate { due: cleared, .. }, SyncOp::TodoUpdate { due, title, .. }) => {
+            assert_eq!(cleared, Some(None));
+            assert_eq!(due, None);
+            assert_eq!(title.as_deref(), Some("t"));
+        }
+        other => panic!("{other:?}"),
+    }
+    // 실행으로 이어지는 쓰기는 어휘에 없다.
+    for op in ["todo.spawn", "todo.handoff", "todo.issue", "board.path"] {
+        assert!(
+            serde_json::from_value::<SyncOp>(serde_json::json!({"op": op, "id": "x"})).is_err(),
+            "{op}"
+        );
+    }
+}
+
+#[test]
+fn board_update_only_touches_title_and_description() {
+    let f = fx();
+    todo(&f.store, "sync", "a");
+    f.store
+        .update_board(
+            "sync",
+            &BoardPatch {
+                path: Some(Some("/tmp/real".into())),
+                ..Default::default()
+            },
+            "you",
+        )
+        .unwrap();
+    let op: SyncOp = serde_json::from_value(serde_json::json!({
+        "op": "board.update", "key": "sync", "title": "Sync",
+        "path": "/etc", "repo": "evil/repo", "reviewFix": true,
+    }))
+    .unwrap();
+    f.store.apply_sync_op(&op, "remote").unwrap();
+    let board = f.store.get_board("sync").unwrap().unwrap();
+    assert_eq!(board.title, "Sync");
+    assert_eq!(board.path.as_deref(), Some("/tmp/real"));
+    assert_eq!(board.repo, None);
+    assert!(!board.review_fix);
+}
+
+#[test]
+fn a_client_id_made_elsewhere_is_refused() {
+    let f = fx();
+    let input = |board: &str| CreateTodoInput {
+        board: board.into(),
+        title: "x".into(),
+        ..Default::default()
+    };
+    f.store
+        .create_todo_with_id("abcd1234", &input("a"), "you")
+        .unwrap();
+    // 같은 id 를 다른 보드에 만들려 했다 — 만들지 않은 것을 만들었다고 답하지 않는다.
+    let err = f
+        .store
+        .create_todo_with_id("abcd1234", &input("b"), "you")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("already used"), "{err}");
+
+    let other = f.store.create_todo(&input("a"), "you").unwrap();
+    f.store
+        .add_comment_with_id("cmt00001", "abcd1234", "hi", "you")
+        .unwrap();
+    let err = f
+        .store
+        .add_comment_with_id("cmt00001", &other.id, "hi", "you")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("already used"), "{err}");
+}
+
+#[test]
+fn sync_ops_validate_like_rest() {
+    let f = fx();
+    todo(&f.store, "sync", "anchor");
+    let apply = |op: serde_json::Value| {
+        let op: SyncOp = serde_json::from_value(op).unwrap();
+        f.store.apply_sync_op(&op, "you").map_err(|e| e.to_string())
+    };
+    let err = apply(
+        serde_json::json!({"op": "todo.create", "id": "empty001", "board": "sync", "title": ""}),
+    )
+    .unwrap_err();
+    assert_eq!(err, "title is required");
+    let err =
+        apply(serde_json::json!({"op": "note.create", "id": "empty002", "title": ""})).unwrap_err();
+    assert_eq!(err, "title is required");
+    let err = apply(serde_json::json!({"op": "section.create", "board": "sync", "title": "   "}))
+        .unwrap_err();
+    assert_eq!(err, "title is required");
+    let err =
+        apply(serde_json::json!({"op": "board.update", "key": "sync", "title": " "})).unwrap_err();
+    assert_eq!(err, "title must be a non-empty string");
+    let err = apply(serde_json::json!({"op": "board.update", "key": "sync", "description": ""}))
+        .unwrap_err();
+    assert_eq!(err, "description must be a non-empty string or null");
+    // 섹션 이름은 다듬어서 같은 이름이면 그 섹션을 쓴다.
+    apply(serde_json::json!({"op": "section.create", "board": "sync", "title": "Doing"})).unwrap();
+    apply(serde_json::json!({"op": "section.create", "board": "sync", "title": " Doing "}))
+        .unwrap();
+    let board = f.store.get_board("sync").unwrap().unwrap();
+    let sections = f.store.list_sections(&board.id, false).unwrap();
+    assert_eq!(sections.iter().filter(|s| s.title == "Doing").count(), 1);
+    // `todo.move` 는 REST 처럼 `before` 를 명시해야 한다(`null` 이면 맨 뒤).
+    let anchor = todo(&f.store, "sync", "to move");
+    let err = apply(serde_json::json!({"op": "todo.move", "id": anchor.id})).unwrap_err();
+    assert!(err.starts_with("before is required"), "{err}");
+    apply(serde_json::json!({"op": "todo.move", "id": anchor.id, "before": null})).unwrap();
+    let err = apply(serde_json::json!({"op": "board.update", "key": "sync"})).unwrap_err();
+    assert_eq!(err, "title or description is required");
+    // 없는 보드에 섹션을 만들지 않는다.
+    let err = apply(serde_json::json!({"op": "section.create", "board": "nope", "title": "x"}))
+        .unwrap_err();
+    assert!(err.contains("board not found"), "{err}");
 }

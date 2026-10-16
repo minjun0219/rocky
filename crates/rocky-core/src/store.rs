@@ -23,7 +23,8 @@ use crate::prwatch::{
 };
 use crate::refs::GLOBAL_NOTE_PREFIX;
 use crate::sync::{
-    needs_full, SyncHead, SyncRows, SyncTables, Synced, FULL_HISTORY_LIMIT, SYNC_TABLES,
+    is_client_id, needs_full, SyncHead, SyncOp, SyncRows, SyncTables, Synced, FULL_HISTORY_LIMIT,
+    SYNC_TABLES,
 };
 use crate::types::*;
 
@@ -1876,9 +1877,37 @@ fn ensure_board_conn(
 
 impl TodoStore {
     pub fn create_todo(&self, input: &CreateTodoInput, actor: &str) -> StoreResult<Todo> {
+        self.create_todo_as(None, input, actor)
+    }
+
+    /// 클라이언트가 정한 id(`sync::is_client_id`)로 만든다 — 싱크 트랜잭션용. 그 id 가 이미 있으면 새로 만들지 않고 그
+    /// 행을 돌려준다(응답을 잃고 다시 보낸 트랜잭션이 두 번 만들지 않게).
+    pub fn create_todo_with_id(
+        &self,
+        id: &str,
+        input: &CreateTodoInput,
+        actor: &str,
+    ) -> StoreResult<Todo> {
+        self.create_todo_as(Some(id), input, actor)
+    }
+
+    fn create_todo_as(
+        &self,
+        client_id: Option<&str>,
+        input: &CreateTodoInput,
+        actor: &str,
+    ) -> StoreResult<Todo> {
         let mut events = Vec::new();
         let todo = {
             let conn = self.lock();
+            let id =
+                match client_slot(&conn, "todos", client_id, todo_from_row, |conn, made| {
+                    Ok(board_row_by_any_key(conn, &input.board)?
+                        .is_some_and(|b| b.id == made.board_id))
+                })? {
+                    ClientSlot::Made(made) => return Ok(made),
+                    ClientSlot::New(id) => id,
+                };
             let board = ensure_board_conn(&conn, &mut events, &input.board, None, actor)?;
             // 공백뿐인 이름으로 섹션을 만들지 않고, 앞뒤 공백은 다듬는다(updateTodo 와 동일).
             let mut section_id: Option<String> = None;
@@ -1903,7 +1932,7 @@ impl TodoStore {
             }
             let now = now_iso();
             let todo = Todo {
-                id: new_id(),
+                id,
                 number: next_number(&conn, "todos", Some(&board.id))?,
                 board_id: board.id.clone(),
                 section_id: section_id.clone(),
@@ -3101,16 +3130,45 @@ fn json_to_sql(value: &Value) -> Box<dyn rusqlite::ToSql> {
 
 impl TodoStore {
     pub fn create_note(&self, input: &CreateNoteInput, actor: &str) -> StoreResult<Note> {
+        self.create_note_as(None, input, actor)
+    }
+
+    /// 클라이언트가 정한 id 로 만든다 — `create_todo_with_id` 와 같은 규칙(이미 있으면 그 행).
+    pub fn create_note_with_id(
+        &self,
+        id: &str,
+        input: &CreateNoteInput,
+        actor: &str,
+    ) -> StoreResult<Note> {
+        self.create_note_as(Some(id), input, actor)
+    }
+
+    fn create_note_as(
+        &self,
+        client_id: Option<&str>,
+        input: &CreateNoteInput,
+        actor: &str,
+    ) -> StoreResult<Note> {
         let mut events = Vec::new();
         let note = {
             let conn = self.lock();
+            let id = match client_slot(&conn, "notes", client_id, note_from_row, |conn, made| {
+                Ok(match &input.board {
+                    None => made.board_id.is_none(),
+                    Some(key) => board_row_by_any_key(conn, key)?
+                        .is_some_and(|b| made.board_id.as_deref() == Some(b.id.as_str())),
+                })
+            })? {
+                ClientSlot::Made(made) => return Ok(made),
+                ClientSlot::New(id) => id,
+            };
             let mut board_id: Option<String> = None;
             if let Some(board) = &input.board {
                 board_id = Some(ensure_board_conn(&conn, &mut events, board, None, actor)?.id);
             }
             let now = now_iso();
             let note = Note {
-                id: new_id(),
+                id,
                 number: next_number(&conn, "notes", board_id.as_deref())?,
                 board_id: board_id.clone(),
                 title: input.title.clone(),
@@ -3512,6 +3570,28 @@ impl TodoStore {
         actor: &str,
         current_board_id: Option<&str>,
     ) -> StoreResult<Comment> {
+        self.add_comment_as(None, todo_ref, body, actor, current_board_id)
+    }
+
+    /// 클라이언트가 정한 id 로 댓글을 단다 — `create_todo_with_id` 와 같은 규칙(이미 있으면 그 행).
+    pub fn add_comment_with_id(
+        &self,
+        id: &str,
+        todo_ref: &str,
+        body: &str,
+        actor: &str,
+    ) -> StoreResult<Comment> {
+        self.add_comment_as(Some(id), todo_ref, body, actor, None)
+    }
+
+    fn add_comment_as(
+        &self,
+        client_id: Option<&str>,
+        todo_ref: &str,
+        body: &str,
+        actor: &str,
+        current_board_id: Option<&str>,
+    ) -> StoreResult<Comment> {
         let trimmed = body.trim();
         if trimmed.is_empty() {
             return Err(StoreError::new("comment body is required"));
@@ -3519,10 +3599,23 @@ impl TodoStore {
         let mut events = Vec::new();
         let comment = {
             let conn = self.lock();
+            let id = match client_slot(
+                &conn,
+                "comments",
+                client_id,
+                comment_from_row,
+                |conn, made| {
+                    Ok(get_todo_conn(conn, todo_ref, current_board_id)?
+                        .is_some_and(|t| t.id == made.todo_id))
+                },
+            )? {
+                ClientSlot::Made(made) => return Ok(made),
+                ClientSlot::New(id) => id,
+            };
             let todo = must_get_todo_conn(&conn, todo_ref, current_board_id)?;
             let now = now_iso();
             let comment = Comment {
-                id: new_id(),
+                id,
                 todo_id: todo.id.clone(),
                 actor: actor.to_string(),
                 body: trimmed.to_string(),
@@ -4325,6 +4418,159 @@ impl TodoStore {
         Ok(ChangesSince { last_id, entries })
     }
 
+    /// 싱크 트랜잭션의 쓰기 하나를 지금 스토어 메서드로 적용한다 — 검증·히스토리·이벤트가 REST 와 같다. 만들기는
+    /// 클라이언트가 정한 id 를 쓰고, 그 id 가 이미 있으면 새로 만들지 않는다.
+    pub fn apply_sync_op(&self, op: &SyncOp, actor: &str) -> StoreResult<()> {
+        match op {
+            SyncOp::TodoCreate {
+                id,
+                board,
+                title,
+                description,
+                section,
+                parent_id,
+                priority,
+                due,
+                labels,
+                links,
+            } => {
+                required("title", title)?;
+                required("board", board)?;
+                let input = CreateTodoInput {
+                    board: board.clone(),
+                    title: title.clone(),
+                    description: description.clone(),
+                    section: section.clone(),
+                    parent_id: parent_id.clone(),
+                    priority: *priority,
+                    due: due.clone(),
+                    labels: labels.clone(),
+                    links: links.clone(),
+                };
+                self.create_todo_with_id(id, &input, actor)?;
+            }
+            SyncOp::TodoUpdate {
+                id,
+                title,
+                description,
+                priority,
+                due,
+                labels,
+                links,
+                section,
+                parent_id,
+            } => {
+                let patch = UpdateTodoPatch {
+                    title: title.clone(),
+                    description: description.clone(),
+                    priority: *priority,
+                    due: due.clone(),
+                    labels: labels.clone(),
+                    links: links.clone(),
+                    section: section.clone(),
+                    parent_id: parent_id.clone(),
+                };
+                self.update_todo(id, &patch, actor, None)?;
+            }
+            SyncOp::TodoStatus { id, action } => {
+                self.set_todo_status(id, *action, actor, None)?;
+            }
+            SyncOp::TodoMove { id, before } => {
+                let Some(before) = before else {
+                    return Err(StoreError::new(
+                        "before is required (todo ref, or null for end)",
+                    ));
+                };
+                self.move_todo(id, before.as_deref(), actor, None)?;
+            }
+            SyncOp::CommentCreate { id, todo_id, body } => {
+                self.add_comment_with_id(id, todo_id, body, actor)?;
+            }
+            SyncOp::CommentUpdate { id, body } => {
+                self.update_comment(id, body, actor)?;
+            }
+            SyncOp::CommentArchive { id } => {
+                self.set_comment_archived(id, true, actor)?;
+            }
+            SyncOp::CommentUnarchive { id } => {
+                self.set_comment_archived(id, false, actor)?;
+            }
+            SyncOp::SectionCreate { board, title } => {
+                // REST(`POST /api/sections`)와 같다 — 다듬은 제목이 비면 거절, 없는 보드는 만들지 않는다.
+                let title = required("title", title.trim())?;
+                required("board", board)?;
+                let found = self
+                    .get_board(board)?
+                    .ok_or_else(|| StoreError::new(format!("board not found: {board}")))?;
+                self.ensure_section(&found.id, title, actor)?;
+            }
+            SyncOp::SectionArchive { id } => self.archive_section(id, actor)?,
+            SyncOp::NoteCreate {
+                id,
+                board,
+                title,
+                content,
+            } => {
+                required("title", title)?;
+                let input = CreateNoteInput {
+                    board: board.clone(),
+                    title: title.clone(),
+                    content: content.clone(),
+                };
+                self.create_note_with_id(id, &input, actor)?;
+            }
+            SyncOp::NoteUpdate { id, title } => {
+                let patch = UpdateNotePatch {
+                    title: Some(title.clone()),
+                    ..Default::default()
+                };
+                self.update_note(id, &patch, actor, None)?;
+            }
+            SyncOp::NoteArchive { id } => {
+                self.archive_note(id, actor, None)?;
+            }
+            SyncOp::NoteUnarchive { id } => {
+                self.unarchive_note(id, actor, None)?;
+            }
+            SyncOp::NotePin { id } => {
+                self.set_note_pinned(id, true, actor, None)?;
+            }
+            SyncOp::NoteUnpin { id } => {
+                self.set_note_pinned(id, false, actor, None)?;
+            }
+            SyncOp::BoardUpdate {
+                key,
+                title,
+                description,
+            } => {
+                // REST(`PATCH /api/boards/:key`)와 같다 — 지우기는 `null` 로만, 다듬은 값이 비면 거절.
+                if title.is_none() && description.is_none() {
+                    return Err(StoreError::new("title or description is required"));
+                }
+                let title = match title {
+                    Some(t) => Some(non_empty("title", t, "a non-empty string")?),
+                    None => None,
+                };
+                let description = match description {
+                    Some(Some(d)) => Some(Some(non_empty(
+                        "description",
+                        d,
+                        "a non-empty string or null",
+                    )?)),
+                    Some(None) => Some(None),
+                    None => None,
+                };
+                let patch = BoardPatch {
+                    title,
+                    description,
+                    ..Default::default()
+                };
+                self.update_board(key, &patch, actor)?;
+            }
+        }
+        Ok(())
+    }
+
     /// 싱크 머리 — 마지막으로 매긴 순번과 이 DB 의 `epoch`.
     pub fn sync_head(&self) -> StoreResult<SyncHead> {
         let conn = self.lock();
@@ -4421,6 +4667,76 @@ fn recent_history(conn: &Connection, limit: i64) -> StoreResult<Vec<Synced<Histo
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// 빈 값이면 `"{name} is required"` — REST 의 같은 검사와 같은 문구다.
+fn required<'a>(name: &str, value: &'a str) -> StoreResult<&'a str> {
+    if value.is_empty() {
+        return Err(StoreError::new(format!("{name} is required")));
+    }
+    Ok(value)
+}
+
+/// 다듬은 값이 비면 `"{name} must be {what}"` — REST 의 보드 수정 검사와 같은 문구다.
+fn non_empty(name: &str, value: &str, what: &str) -> StoreResult<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(StoreError::new(format!("{name} must be {what}")));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// 만들기가 쓸 id 의 자리 — 새로 넣을 id, 또는 같은 id 로 이미 만든 행(응답을 잃고 다시 보낸 만들기).
+enum ClientSlot<T> {
+    New(String),
+    Made(T),
+}
+
+/// `client_id` 가 없으면 새 id(`new_id`). 있으면 모양을 보고, 그 id 의 행이 이미 있으면 같은 자리(보드·할 일)에 만든
+/// 것인지 `same_place` 로 확인해 그 행을 돌려준다. 다른 자리면 다른 만들기가 쓴 id 라 거절한다 — 만들지 않은 것을
+/// 만들었다고 답하지 않게.
+fn client_slot<T>(
+    conn: &Connection,
+    table: &str,
+    client_id: Option<&str>,
+    map: fn(&Row) -> rusqlite::Result<T>,
+    same_place: impl FnOnce(&Connection, &T) -> StoreResult<bool>,
+) -> StoreResult<ClientSlot<T>> {
+    let Some(id) = client_id else {
+        return Ok(ClientSlot::New(new_id()));
+    };
+    match row_by_client_id(conn, table, id, map)? {
+        None => Ok(ClientSlot::New(id.to_string())),
+        Some(made) if same_place(conn, &made)? => Ok(ClientSlot::Made(made)),
+        Some(_) => Err(StoreError::new(format!(
+            "client id already used elsewhere in {table}: {id}"
+        ))),
+    }
+}
+
+/// 클라이언트가 정한 id 의 행 — 모양이 틀리면 거절하고, 없으면 `None`. 테이블 이름이 SQL 에 들어가므로 `SYNC_TABLES` 밖은
+/// 거절한다.
+fn row_by_client_id<T>(
+    conn: &Connection,
+    table: &str,
+    id: &str,
+    map: fn(&Row) -> rusqlite::Result<T>,
+) -> StoreResult<Option<T>> {
+    if !is_client_id(id) {
+        return Err(StoreError::new(format!(
+            "invalid client id: {id} — {ID_LENGTH}자 base36(0-9a-z)여야 한다"
+        )));
+    }
+    if !SYNC_TABLES.contains(&table) {
+        return Err(StoreError::new(format!("not a sync table: {table}")));
+    }
+    Ok(conn
+        .query_row(
+            &format!("SELECT * FROM {table} WHERE id = ?1"),
+            params![id],
+            map,
+        )
+        .optional()?)
 }
 
 /// `table` 에서 순번이 `after` 보다 큰 행을 순번 순으로. 테이블 이름이 SQL 에 들어가므로 `SYNC_TABLES` 밖은 거절한다.
