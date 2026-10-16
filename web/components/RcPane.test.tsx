@@ -82,6 +82,19 @@ describe('RcPane', () => {
     expect(screen.getByText('running · mac-1')).toBeTruthy();
   });
 
+  test('데몬이 로그아웃이면 맨 위에 푸는 법 — 원인을 짚었으면 그것까지', () => {
+    renderWithStore(<RcPane />, {
+      rc: status({ auth: 'out', authHint: 'credentialsFileNewer' }),
+      loadRc,
+    });
+    const warn = screen.getByText(/데몬 쪽 claude 가 로그아웃이다/);
+    expect(warn.textContent).toContain('.credentials.json 에만 저장됐다');
+    expect(warn.textContent).toContain('claude auth login');
+    cleanup();
+    renderWithStore(<RcPane />, { rc: status(), loadRc });
+    expect(screen.queryByText(/로그아웃이다/)).toBeNull();
+  });
+
   test('프로브가 실패하면 떠 있지 않은 행은 꺼짐이 아니라 모름 — 꺼진 고정 경고도 없다', () => {
     const rc = status({ probeError: 'ps 실패: x' });
     expect(rcCounts(rc).pinnedOff).toBe(0);

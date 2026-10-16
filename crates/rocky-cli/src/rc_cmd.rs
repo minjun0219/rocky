@@ -12,6 +12,7 @@
 //! - `rocky rc stop <할 일 | 대상 밖 서버>` — 핸드오프 서버(새 세션 띄우기가 띄운 것)나 대상 밖 서버를 닫는다(pid 로만, 폴더는 남긴다).
 //! - `rocky rc report` — 마지막 야간 보고(서버마다 결과 · rocky · agy). 읽기만 해서 `nightly` 와 이름을 갈랐다 —
 //!   `permissions.ask` 의 `rocky rc nightly:*` 확인에 걸리지 않게.
+//! - `rocky rc help` — 옵션 전부. 최상위 도움말(`rocky --help`)은 사람이 쓰는 줄만 둔다 — 옵션은 대부분 에이전트가 쓴다.
 
 use std::time::{Duration, Instant};
 
@@ -23,7 +24,21 @@ use crate::commands::Printer;
 use crate::flags::ParsedFlags;
 use crate::format::encode_uri_component;
 
-const USAGE: &str = "usage: rocky rc [status] [--activity] | rocky rc start --all | rocky rc start <라벨> [--wait] | rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait] | rocky rc agy [start|stop] | rocky rc nightly [--dry-run] | rocky rc report | rocky rc stop <할 일 | 대상 밖 서버>";
+/// `rocky rc help` — 옵션 전부. 최상위 도움말에는 사람이 쓰는 줄만 둔다.
+const USAGE: &str = "\
+usage: rocky rc [하위 명령] [옵션]
+
+  rocky rc [status] [--activity] [--json]   현황. --activity 는 대상마다 최근 활동(git — 대상 수만큼 걸린다)
+  rocky rc start <이름> [--wait]            띄운다. --wait 는 결과가 날 때까지 기다려 찍는다
+  rocky rc start --all                      꺼진 대상 전부 — 고정은 세션과 함께, 나머지는 서버만
+  rocky rc restart <이름> [--fresh | --session <cse_…>] [--wait]
+                                            다시 띄운다 — 붙은 원격 세션이 끊긴다. 대화 중이면 턴이 끝날 때까지
+                                            기다리고, 이 세션이 붙은 서버는 거절한다. --fresh 는 세션을 이어받지
+                                            않고, --session 은 이어받을 claude.ai 쪽 세션 id 를 못 박는다
+  rocky rc stop <할 일 | 대상 밖 서버>       핸드오프 서버(할 일 참조)나 대상 밖 서버(이름 · pid)를 닫는다
+  rocky rc agy [start|stop]                 Antigravity 원격 제어 보기 · 켜기 · 끄기(로컬 전용)
+  rocky rc report [--json]                  마지막 야간 보고 — 서버마다 결과, rocky · agy 버전
+  rocky rc nightly [--dry-run]              야간 재시작을 지금 한 번(--dry-run 은 판정만)";
 /// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// `--activity` 응답 한도 — 데몬이 대상마다 git 을 띄워 기다렸다 답한다.
@@ -77,7 +92,7 @@ pub fn cmd_rc(
         Some(verb @ ("start" | "restart")) => {
             let label = rest
                 .get(1)
-                .ok_or_else(|| format!("{USAGE} — 라벨이 필요하다"))?;
+                .ok_or_else(|| format!("이름이 필요하다\n\n{USAGE}"))?;
             if verb == "start" && flags.str_flag("session").is_some() {
                 return Err(
                     "--session 은 restart 에만 쓴다(그 세션으로 이어받아 다시 띄운다)".into(),
@@ -115,7 +130,7 @@ pub fn cmd_rc(
             // 핸드오프 서버(할 일 참조 · 라벨)를 먼저, 없으면 대상 밖 서버(라벨 · pid). 설정 대상은 여기서 내리지 않는다(감시가
             // 다시 띄운다). 고르는 것도 다시 재는 것도 데몬이 한다 — 여기서는 길만 고르고 자기 서버인지만 막는다.
             let key = rest.get(1).ok_or_else(|| {
-                format!("{USAGE} — 닫을 할 일(예: rocky-41)이나 대상 밖 서버가 필요하다")
+                format!("닫을 할 일(예: rocky-41)이나 대상 밖 서버가 필요하다\n\n{USAGE}")
             })?;
             let status = request_value(ctx, "GET", "/api/rc/servers", None).ok();
             let target = status
@@ -186,7 +201,11 @@ pub fn cmd_rc(
             printer.emit(&raw, || render_nightly(&raw));
             Ok(())
         }
-        Some(sub) => Err(format!("{USAGE} — 모르는 하위 명령: {sub}")),
+        Some("help") => {
+            println!("{USAGE}");
+            Ok(())
+        }
+        Some(sub) => Err(format!("모르는 하위 명령: {sub}\n\n{USAGE}")),
     }
 }
 
@@ -244,72 +263,168 @@ fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn line(v: &Value, running: bool) -> String {
-    let mut parts = vec![format!(
-        "{} {}",
-        if running { "●" } else { "○" },
-        str_of(v, "label")
-    )];
-    if v.get("pinned").and_then(Value::as_bool) == Some(true) {
-        parts.push("고정".into());
+/// 표 한 행 — 기호 · 이름 · 고정 · 떠 있음 · 세션 · 메모. 빈 칸은 빈 문자열.
+struct Row {
+    mark: &'static str,
+    name: String,
+    pinned: bool,
+    up: String,
+    sessions: String,
+    memo: Vec<String>,
+}
+
+fn base_row(v: &Value, running: bool, name: String) -> Row {
+    let sessions = v.get("sessions").and_then(Value::as_u64).unwrap_or(0);
+    Row {
+        mark: if running { "●" } else { "○" },
+        name,
+        pinned: v.get("pinned").and_then(Value::as_bool) == Some(true),
+        up: v
+            .get("uptimeSecs")
+            .and_then(Value::as_u64)
+            .map(human_uptime)
+            .unwrap_or_default(),
+        sessions: if sessions > 0 {
+            sessions.to_string()
+        } else {
+            String::new()
+        },
+        memo: Vec::new(),
     }
+}
+
+fn server_row(v: &Value) -> Row {
+    let running = v.get("running").and_then(Value::as_bool) == Some(true);
+    let mut row = base_row(v, running, str_of(v, "label").to_string());
     let activity = v.get("activity").filter(|a| !a.is_null());
     // 꺼졌고 활동이 없는 비고정 대상 — 옛 CLI 의 "정박"(열 만한 후보가 아니다). 고정은 감시가 되살리니 붙이지 않는다.
-    let pinned = v.get("pinned").and_then(Value::as_bool) == Some(true);
     if !running
-        && !pinned
+        && !row.pinned
         && activity
             .and_then(|a| a.get("active"))
             .and_then(Value::as_bool)
             == Some(false)
     {
-        parts.push("정박".into());
-    }
-    let sessions = v.get("sessions").and_then(Value::as_u64).unwrap_or(0);
-    if sessions > 0 {
-        parts.push(format!("세션 {sessions}"));
-    }
-    if let Some(up) = v.get("uptimeSecs").and_then(Value::as_u64) {
-        parts.push(human_uptime(up));
+        row.memo.push("정박".into());
     }
     if v.get("stale").and_then(Value::as_bool) == Some(true) {
-        parts.push("구버전".into());
+        row.memo.push("구버전".into());
     }
     match str_of(v, "action") {
-        "starting" => parts.push("띄우는 중…".into()),
-        "restarting" => parts.push("재시작 중…".into()),
-        "retrying" => parts.push("다시 시도 중…".into()),
-        "waiting" => parts.push("대화가 끝나길 기다리는 중…".into()),
-        _ if v.get("authSuspect").and_then(Value::as_bool) == Some(true) => {
-            parts.push("⚠ 자격 의심 — 다시 띄우기를 권한다".into())
-        }
+        "starting" => row.memo.push("띄우는 중…".into()),
+        "restarting" => row.memo.push("재시작 중…".into()),
+        "retrying" => row.memo.push("다시 시도 중…".into()),
+        "waiting" => row.memo.push("대화가 끝나길 기다리는 중…".into()),
+        _ if v.get("authSuspect").and_then(Value::as_bool) == Some(true) => row
+            .memo
+            .push("⚠ 로그아웃 전에 뜬 서버 — 다시 띄우기를 권한다".into()),
         _ => {
             // 실패만 남긴다 — 성공은 ● 가 이미 말한다.
             if let Some(r) = v.get("lastResult") {
                 if r.get("ok").and_then(Value::as_bool) == Some(false) {
-                    parts.push(format!("✗ {}", str_of(r, "message")));
+                    // 로그아웃 거절은 푸는 법이 맨 위 ⚠ 에 있다 — 행마다 긴 문구를 되풀이하지 않는다.
+                    row.memo.push(match str_of(r, "message") {
+                        m if m == rocky_core::rc::LOGGED_OUT_REFUSAL => {
+                            "✗ 로그아웃이라 못 띄웠다".into()
+                        }
+                        m => format!("✗ {m}"),
+                    });
                 }
             }
         }
     }
     if let Some(a) = activity {
-        parts.push(activity_summary(a, chrono::Utc::now().timestamp()));
+        row.memo
+            .push(activity_summary(a, chrono::Utc::now().timestamp()));
     }
-    parts.join("  ")
+    row
 }
 
-/// `  ● rocky-41: 핸드오프 작업  세션 1  2시간  /w/rocky/.claude/worktrees/todo-41`.
-pub fn handoff_line(h: &Value) -> String {
-    let mut parts = vec![format!("  ● {}", str_of(h, "name"))];
-    let sessions = h.get("sessions").and_then(Value::as_u64).unwrap_or(0);
-    if sessions > 0 {
-        parts.push(format!("세션 {sessions}"));
+/// 핸드오프 서버 — 이름 칸은 할 일 참조(`rocky-41`), 제목과 폴더는 메모로.
+fn handoff_row(h: &Value) -> Row {
+    let reference = match str_of(h, "todoRef") {
+        "" => str_of(h, "label"),
+        r => r,
+    };
+    let mut row = base_row(h, true, reference.to_string());
+    let name = str_of(h, "name");
+    let title = name
+        .strip_prefix(reference)
+        .and_then(|t| t.strip_prefix(": "))
+        .unwrap_or(name);
+    if !title.is_empty() {
+        row.memo.push(title.to_string());
     }
-    if let Some(up) = h.get("uptimeSecs").and_then(Value::as_u64) {
-        parts.push(human_uptime(up));
+    row.memo.push(str_of(h, "dir").to_string());
+    row
+}
+
+fn stray_row(s: &Value) -> Row {
+    let mut row = base_row(s, true, str_of(s, "label").to_string());
+    row.memo.push(str_of(s, "dir").to_string());
+    row
+}
+
+fn pad(s: &str, width: usize) -> String {
+    let w = rocky_core::statusline::width::display_width(s);
+    format!("{s}{}", " ".repeat(width.saturating_sub(w)))
+}
+
+/// 열 폭 — 머리글과 모든 구역의 행을 함께 재서 구역이 달라도 칸이 맞는다.
+struct Widths([usize; 4]);
+
+impl Widths {
+    const HEAD: [&'static str; 4] = ["이름", "고정", "떠 있음", "세션"];
+
+    fn of(rows: &[&Row]) -> Self {
+        let w = rocky_core::statusline::width::display_width;
+        let mut out = Self::HEAD.map(w);
+        for r in rows {
+            let cells = [
+                r.name.as_str(),
+                pin_cell(r),
+                r.up.as_str(),
+                r.sessions.as_str(),
+            ];
+            for (o, c) in out.iter_mut().zip(cells) {
+                *o = (*o).max(w(c));
+            }
+        }
+        Widths(out)
     }
-    parts.push(str_of(h, "dir").to_string());
-    parts.join("  ")
+
+    fn line(&self, mark: &str, cells: [&str; 4], memo: &str) -> String {
+        let [a, b, c, d] = self.0;
+        format!(
+            "{mark} {}  {}  {}  {}  {memo}",
+            pad(cells[0], a),
+            pad(cells[1], b),
+            pad(cells[2], c),
+            pad(cells[3], d)
+        )
+        .trim_end()
+        .to_string()
+    }
+
+    fn header(&self) -> String {
+        self.line(" ", Self::HEAD, "메모")
+    }
+
+    fn row(&self, r: &Row) -> String {
+        self.line(
+            r.mark,
+            [&r.name, pin_cell(r), &r.up, &r.sessions],
+            &r.memo.join(" · "),
+        )
+    }
+}
+
+fn pin_cell(r: &Row) -> &'static str {
+    if r.pinned {
+        "고정"
+    } else {
+        ""
+    }
 }
 
 /// `antigravity: running (mac-1)` — agy 가 없으면 None.
@@ -320,6 +435,29 @@ pub fn agy_line(raw: &Value) -> Option<String> {
         Some(name) => format!("antigravity: {state} ({name})"),
         None => format!("antigravity: {state}"),
     })
+}
+
+/// 맨 위 ⚠ 구역 — 기기 전체의 문제를 한 번만, 푸는 법과 함께. 행마다 되풀이하지 않는다.
+fn problems(raw: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(err) = raw.get("probeError").and_then(Value::as_str) {
+        out.push(format!("⚠ {err} — ○ 는 꺼짐이 아니라 모름이다"));
+    }
+    if str_of(raw, "auth") == "out" {
+        out.push("⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 새로 띄우거나 되살리지 못한다".into());
+        out.extend(match str_of(raw, "authHint") {
+            "credentialsFileNewer" => [
+                "  새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다 — 데몬(launchd)은 키체인을 먼저 읽는다.",
+                "  맥 앞의 Terminal.app 에서 `claude auth login` 을 한 번 더 하면 키체인에 저장돼 풀린다",
+            ],
+            _ => [
+                "  데몬(launchd)은 셸과 달리 키체인의 자격을 읽는다.",
+                "  맥 앞의 Terminal.app 에서 `claude auth login` 을 하면 풀린다",
+            ],
+        }
+        .map(String::from));
+    }
+    out
 }
 
 pub fn render_status(raw: &Value) -> String {
@@ -338,33 +476,37 @@ pub fn render_status(raw: &Value) -> String {
             .cloned()
             .unwrap_or_default()
     };
-    let mut out: Vec<String> = list("servers")
-        .iter()
-        .map(|s| line(s, s.get("running").and_then(Value::as_bool) == Some(true)))
-        .collect();
-    if let Some(err) = raw.get("probeError").and_then(Value::as_str) {
-        out.insert(0, format!("⚠ {err} — ○ 는 꺼짐이 아니라 모름이다"));
+    let servers: Vec<Row> = list("servers").iter().map(server_row).collect();
+    let handoffs: Vec<Row> = list("handoffs").iter().map(handoff_row).collect();
+    let strays: Vec<Row> = list("strays").iter().map(stray_row).collect();
+    let all: Vec<&Row> = servers.iter().chain(&handoffs).chain(&strays).collect();
+    let widths = Widths::of(&all);
+
+    let mut out = problems(raw);
+    if !out.is_empty() {
+        out.push(String::new());
     }
-    let handoffs = list("handoffs");
+    if !all.is_empty() {
+        out.push(widths.header());
+    }
+    out.extend(servers.iter().map(|r| widths.row(r)));
     if !handoffs.is_empty() {
-        // 보드의 새 세션 띄우기가 띄운 서버 — 감시 · 야간이 건드리지 않고 사람이 닫는다(`rocky rc stop <할 일>`).
-        out.push("핸드오프:".into());
-        out.extend(handoffs.iter().map(handoff_line));
+        // 보드의 새 세션 띄우기가 띄운 서버 — 감시 · 야간이 건드리지 않고 사람이 닫는다.
+        out.push("핸드오프 — 보드에서 띄운 서버, 닫기는 rocky rc stop <할 일>".into());
+        out.extend(handoffs.iter().map(|r| widths.row(r)));
     }
-    let strays = list("strays");
     if !strays.is_empty() {
-        out.push("대상 밖:".into());
-        out.extend(
-            strays
-                .iter()
-                .map(|s| format!("  {}  {}", line(s, true), str_of(s, "dir"))),
-        );
+        out.push("대상 밖 — rocky.json 에 없는 서버, 감시 · 야간이 건드리지 않는다".into());
+        out.extend(strays.iter().map(|r| widths.row(r)));
     }
-    out.push(match str_of(raw, "auth") {
-        "in" => "자격: 로그인됨".into(),
-        "out" => "자격: ⚠ 로그아웃 — 새로 띄우는 서버가 로그인 안 된 채 뜬다".into(),
-        _ => "자격: 확인 못 함".into(),
-    });
+    if !all.is_empty() {
+        out.push(String::new());
+    }
+    match str_of(raw, "auth") {
+        "in" => out.push("claude 로그인: 됨".into()),
+        "out" => {}
+        _ => out.push("claude 로그인: 확인 못 함".into()),
+    }
     if let Some(sup) = raw.get("supervise").filter(|v| !v.is_null()) {
         out.push(match sup.get("lastTick").and_then(Value::as_str) {
             // 데몬은 UTC 로 남긴다 — 이 기기의 현지 시각으로 보인다.
@@ -382,6 +524,9 @@ pub fn render_status(raw: &Value) -> String {
         out.push(nightly_line(nightly));
     }
     out.extend(agy_line(raw));
+    if !all.is_empty() {
+        out.push("● 떠 있음 · ○ 꺼짐 · 고정 = 꺼지면 감시가 되살린다".into());
+    }
     out.join("\n")
 }
 

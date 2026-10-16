@@ -2,7 +2,19 @@ use rocky_cli::rc_cmd::{
     activity_summary, human_uptime, nightly_agy_line, nightly_line, render_nightly, render_result,
     render_status, rocky_line, start_all_targets, stop_target, StopTarget,
 };
+use rocky_core::statusline::width::display_width;
 use serde_json::json;
+
+/// 칸 사이 공백을 하나로 접은 줄들 — 열 폭과 상관없이 내용만 본다.
+fn squashed(out: &str) -> Vec<String> {
+    out.lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect()
+}
+
+fn has_line(out: &str, want: &str) -> bool {
+    squashed(out).iter().any(|l| l == want)
+}
 
 #[test]
 fn uptime_is_one_unit() {
@@ -21,12 +33,75 @@ fn status_lists_targets_strays_auth_and_agy() {
             {"label": "repo-b", "dir": "/w/repo-b", "pinned": false, "running": false, "sessions": 0}
         ],
         "strays": [{"label": "old", "dir": "/w/old", "pid": 9, "sessions": 0}],
-        "auth": "out",
+        "auth": "in",
         "antigravity": {"state": "running", "pid": 7, "instance": "mac-1"}
     });
+    let out = render_status(&raw);
     assert_eq!(
-        render_status(&raw),
-        "● repo-a  고정  세션 2  10분\n○ repo-b\n대상 밖:\n  ● old  /w/old\n자격: ⚠ 로그아웃 — 새로 띄우는 서버가 로그인 안 된 채 뜬다\nantigravity: running (mac-1)"
+        squashed(&out),
+        vec![
+            "이름 고정 떠 있음 세션 메모",
+            "● repo-a 고정 10분 2",
+            "○ repo-b",
+            "대상 밖 — rocky.json 에 없는 서버, 감시 · 야간이 건드리지 않는다",
+            "● old /w/old",
+            "",
+            "claude 로그인: 됨",
+            "antigravity: running (mac-1)",
+            "● 떠 있음 · ○ 꺼짐 · 고정 = 꺼지면 감시가 되살린다",
+        ],
+        "{out}"
+    );
+}
+
+#[test]
+fn columns_line_up_across_sections_with_korean_cells() {
+    let raw = json!({
+        "configured": true,
+        "servers": [
+            {"label": "a", "dir": "/w/a", "pinned": true, "running": true, "uptimeSecs": 7200, "sessions": 1, "stale": true}
+        ],
+        "strays": [{"label": "long-stray-name", "dir": "/w/x", "pid": 9, "uptimeSecs": 50, "sessions": 0}],
+        "auth": "in"
+    });
+    let out = render_status(&raw);
+    // 메모 칸이 시작하는 표시 폭 — 머리글의 "메모" 와 행의 메모가 같은 칸에서 시작한다(한글은 2칸).
+    let memo_col = |line: &str, memo: &str| display_width(&line[..line.find(memo).unwrap()]);
+    let lines: Vec<&str> = out.lines().collect();
+    let head = memo_col(lines[0], "메모");
+    assert_eq!(memo_col(lines[1], "구버전"), head, "{out}");
+    assert_eq!(memo_col(lines[3], "/w/x"), head, "{out}");
+}
+
+#[test]
+fn logout_goes_on_top_once_with_the_fix() {
+    let raw = json!({
+        "configured": true,
+        "servers": [{"label": "a", "dir": "/w/a", "pinned": true, "running": false, "sessions": 0,
+                     "lastResult": {"ok": false, "message": rocky_core::rc::LOGGED_OUT_REFUSAL, "at": "t"}}],
+        "strays": [],
+        "auth": "out",
+        "authHint": "credentialsFileNewer"
+    });
+    let out = render_status(&raw);
+    assert!(
+        out.starts_with("⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 새로 띄우거나 되살리지 못한다\n  새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다"),
+        "{out}"
+    );
+    assert!(
+        out.contains("Terminal.app 에서 `claude auth login`"),
+        "{out}"
+    );
+    // 아래쪽에 로그인 줄을 다시 쓰지 않고, 행은 거절 문구를 짧게 줄인다.
+    assert!(!out.contains("claude 로그인:"), "{out}");
+    assert_eq!(out.matches("로그아웃이다").count(), 1, "{out}");
+    assert!(has_line(&out, "○ a 고정 ✗ 로그아웃이라 못 띄웠다"), "{out}");
+    // 짐작이 없으면 일반 안내.
+    let plain =
+        render_status(&json!({"configured": true, "servers": [], "strays": [], "auth": "out"}));
+    assert!(
+        plain.contains("\n  데몬(launchd)은 셸과 달리 키체인의 자격을 읽는다."),
+        "{plain}"
     );
 }
 
@@ -69,9 +144,9 @@ fn status_shows_action_and_failed_result() {
         "strays": [], "auth": "in", "antigravity": null
     });
     let out = render_status(&raw);
-    assert!(out.contains("● a  재시작 중…"));
-    assert!(out.contains("○ b  ✗ 뜨자마자 내려갔다 — x"));
-    assert!(out.contains("● c\n") || out.contains("● c\r") || out.lines().any(|l| l == "● c"));
+    assert!(has_line(&out, "● a 재시작 중…"), "{out}");
+    assert!(has_line(&out, "○ b ✗ 뜨자마자 내려갔다 — x"), "{out}");
+    assert!(has_line(&out, "● c"), "{out}");
 }
 
 #[test]
@@ -94,11 +169,17 @@ fn status_shows_supervise_and_auth_suspect() {
         "supervise": {"lastTick": "2026-10-06T07:30:05+00:00", "loggedOut": false}
     });
     let out = render_status(&raw);
-    assert!(out.contains("● a  고정  ⚠ 자격 의심"), "{out}");
-    // 시각은 이 기기의 시간대로 바뀐다 — 줄 모양만 본다.
-    let last = out.lines().last().unwrap();
     assert!(
-        last.starts_with("감시: 켜짐 — 마지막 ") && last.ends_with(":30"),
+        has_line(
+            &out,
+            "● a 고정 ⚠ 로그아웃 전에 뜬 서버 — 다시 띄우기를 권한다"
+        ),
+        "{out}"
+    );
+    // 시각은 이 기기의 시간대로 바뀐다 — 줄 모양만 본다.
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("감시: 켜짐 — 마지막 ") && l.ends_with(":30")),
         "{out}"
     );
 }
@@ -171,7 +252,7 @@ fn stale_rows_say_so() {
         "strays": [],
         "auth": "in"
     });
-    assert!(render_status(&raw).starts_with("● a  구버전\n"));
+    assert!(has_line(&render_status(&raw), "● a 구버전"));
 }
 
 #[test]
@@ -182,7 +263,10 @@ fn waiting_rows_say_the_turn_is_still_going() {
         "strays": [],
         "auth": "in"
     });
-    assert!(render_status(&raw).starts_with("● a  세션 1  대화가 끝나길 기다리는 중…\n"));
+    assert!(has_line(
+        &render_status(&raw),
+        "● a 1 대화가 끝나길 기다리는 중…"
+    ));
 }
 
 #[test]
@@ -210,7 +294,7 @@ fn activity_reads_like_the_old_status() {
         "strays": [],
         "auth": "in"
     });
-    assert!(render_status(&raw).starts_with("○ old  정박  - (커밋 없음)\n"));
+    assert!(has_line(&render_status(&raw), "○ old 정박 · - (커밋 없음)"));
     // 고정은 감시가 되살리니 정박이라 하지 않는다.
     let pinned = json!({
         "configured": true,
@@ -219,7 +303,10 @@ fn activity_reads_like_the_old_status() {
         "strays": [],
         "auth": "in"
     });
-    assert!(render_status(&pinned).starts_with("○ pin  고정  - (커밋 없음)\n"));
+    assert!(has_line(
+        &render_status(&pinned),
+        "○ pin 고정 - (커밋 없음)"
+    ));
 }
 
 #[test]
@@ -285,7 +372,10 @@ fn handoff_servers_get_their_own_section() {
     });
     let out = render_status(&raw);
     assert!(
-        out.contains("핸드오프:\n  ● rocky-41: 핸드오프 작업  세션 1  2시간  /w/rocky/.claude/worktrees/todo-41\n"),
+        has_line(
+            &out,
+            "● rocky-41 2시간 1 핸드오프 작업 · /w/rocky/.claude/worktrees/todo-41"
+        ),
         "{out}"
     );
     assert!(!out.contains("대상 밖"), "{out}");

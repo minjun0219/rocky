@@ -177,6 +177,9 @@ pub struct RcStatus {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub handoffs: Vec<HandoffServerRow>,
     pub auth: AuthState,
+    /// 로그아웃일 때 짚을 수 있는 원인(`auth_hint`). 없으면 오지 않는다.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_hint: Option<AuthHint>,
     /// `agy` 가 없으면 None. `rc` 블록과 상관없이 `agy` 설치 여부를 따른다(그 기기에서 agy 를 쓰면 보인다).
     pub antigravity: Option<AgyStatus>,
     /// 프로브 명령(`ps`·`lsof`)이 실패했으면 그 사유 — 이때 "꺼짐"은 모르는 것이다.
@@ -212,6 +215,7 @@ impl RcStatus {
             strays: Vec::new(),
             handoffs: Vec::new(),
             auth: AuthState::Unknown,
+            auth_hint: None,
             antigravity: None,
             probe_error: None,
             supervise: None,
@@ -392,6 +396,50 @@ pub fn parse_auth_status(out: &str) -> AuthState {
         None => AuthState::Unknown,
     }
 }
+
+/// `claude auth status --json` 의 `configDirectory` — 자격 파일(`.credentials.json`)이 있는 폴더.
+pub fn parse_auth_config_dir(out: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(out)
+        .ok()?
+        .get("configDirectory")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// `security find-generic-password -s …`(값 없이 속성만) → 항목의 수정 시각(unix 초).
+/// 속성 줄은 `"mdat"<timedate>=0x… "20261015225804Z\000"` 모양이다.
+pub fn parse_keychain_mdat(out: &str) -> Option<i64> {
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with("\"mdat\""))?;
+    let stamp = line.rsplit_once(" \"")?.1.get(..14)?;
+    chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d%H%M%S")
+        .ok()
+        .map(|t| t.and_utc().timestamp())
+}
+
+/// 로그아웃의 원인 짐작 — 지금은 하나뿐이다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthHint {
+    /// 키체인이 막힌 맥락(원격 셸 등)에서 로그인해 새 자격이 `.credentials.json` 에만 갔다. 키체인을 읽을 수 있는
+    /// 데몬(launchd) 쪽 claude 는 키체인을 먼저 보므로 거기 남은 옛 항목(로그아웃)을 본다(2026-10-16 실측).
+    CredentialsFileNewer,
+}
+
+/// 데몬이 로그아웃으로 볼 때(부르는 쪽이 확인한다), 자격 파일이 키체인 항목보다 새로우면 그 사정을 짚는다. 둘 중 하나라도
+/// 모르면 말하지 않는다.
+pub fn auth_hint(keychain_mdat: Option<i64>, file_mtime: Option<i64>) -> Option<AuthHint> {
+    match (keychain_mdat, file_mtime) {
+        (Some(kc), Some(file)) if file > kc => Some(AuthHint::CredentialsFileNewer),
+        _ => None,
+    }
+}
+
+/// 데몬 맥락이 로그아웃이라 띄우기 · 재시작을 거절할 때의 결과 문구 — 행의 `lastResult` 로 웹 · `--wait` 에도 그대로 보이니
+/// 푸는 법까지 담는다. CLI 현황은 이 문구로 시작하는 실패를 맨 위 ⚠ 와 겹치지 않게 짧게 줄인다.
+pub const LOGGED_OUT_REFUSAL: &str =
+    "데몬 쪽 claude 가 로그아웃이다 — 손대지 않았다. 맥 앞의 터미널에서 `claude auth login` 뒤 다시";
 
 /// `agy remote-control status` → 첫 `Daemon state = `, `Daemon pid = `, `Instance name: ` 의 첫 단어.
 pub fn parse_agy_status(out: &str) -> AgyStatus {

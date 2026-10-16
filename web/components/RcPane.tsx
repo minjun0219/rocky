@@ -584,6 +584,14 @@ export function RcPane() {
           ⚠ {rc.probeError} — 꺼짐 표시는 모르는 것이다
         </p>
       ) : null}
+      {rc.auth === 'out' ? (
+        <p className="mb-0 mt-3 text-chip text-mine">
+          ⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 띄우거나 되살리지 못한다.{' '}
+          {rc.authHint === 'credentialsFileNewer'
+            ? '새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다. 맥 앞의 Terminal.app 에서 claude auth login 을 한 번 더 하면 풀린다'
+            : '맥 앞의 Terminal.app 에서 claude auth login 을 하면 풀린다'}
+        </p>
+      ) : null}
       {pinned.length > 0 ? (
         <>
           <Head

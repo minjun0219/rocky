@@ -99,7 +99,9 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 **Antigravity 원격 제어**(`agy remote-control`)는 rc 블록과 상관없이 그 기기에 `agy`가 있으면 보이고, 켜고 끌 수 있다 — rc 블록이 없는 기기에서는 원격 제어 탭에 Antigravity 줄만 나온다. 켜기·끄기는 이 기계의 원격 접속 데몬을 바꾸므로 로컬 요청만 된다(폰·테일넷 화면에는 버튼이 없다).
 
 ```bash
-rocky rc                         # 대상별 ●/○ · 고정 · 열린 세션 수 · 떠 있은 시간, 핸드오프 서버, 대상 밖 서버, 자격, Antigravity
+rocky rc                         # 현황 표(이름 · 고정 · 떠 있음 · 세션 · 메모), 핸드오프 · 대상 밖 서버, 감시 · 야간 · Antigravity
+                                 # 로그아웃 같은 기기 전체 문제는 맨 위 ⚠ 에 한 번 — 푸는 법까지(새 로그인이 키체인 대신 파일로 갔으면 그렇다고)
+rocky rc help                    # 아래 옵션 전부
 rocky rc start repo-a --wait     # 꺼진 대상을 띄운다(세션까지)
 rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으면 그 세션을 이어받기(가장 최근에 대화한 것, --session-id), --fresh 면 새로. 붙은 원격 세션은 끊긴다
                                  # 막 대화하는 중이면 턴이 끝날 때까지(최대 10분) 기다렸다 내린다
