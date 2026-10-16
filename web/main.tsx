@@ -90,7 +90,9 @@ function App() {
     // 초기 목록을 받은 뒤에야 URL 의 번호를 todo id 로 해석할 수 있다. 두 번째 인자로
     // 넘겨야 `onSyncError` 가 목록 재조회의 실패만 받는다 — `.catch()` 로 이으면 뒤따르는
     // 주소 해석의 실패까지 함께 삼킨다.
-    void boardSync.ready.then(() => refetch().then(applyRoute, onSyncError));
+    void boardSync.cached
+      .then(() => boardSync.caughtUp)
+      .then(() => refetch().then(applyRoute, onSyncError));
     // health 는 부팅과 SSE 재연결 때만 묻는다 (refetch 에 얹으면 SSE 이벤트마다 다시 묻게
     // 된다). 재연결 때 다시 묻는 이유는 버전이다 — 데몬이 재시작되면 SSE 가 끊겼다 붙는다.
     const loadHealth = (): void => {

@@ -257,6 +257,12 @@ function HeaderMenu() {
                   const href = e.currentTarget.href;
                   void clearBoardReplica().then(() => window.location.assign(href));
                 }}
+                onAuxClick={(e) => {
+                  // 가운데 클릭(새 탭)도 이 탭에서 사본을 지우고 나간다 — 새 탭으로만 나가면 사본이 남는다.
+                  e.preventDefault();
+                  const href = e.currentTarget.href;
+                  void clearBoardReplica().then(() => window.location.assign(href));
+                }}
               >
                 로그아웃
               </a>

@@ -15,6 +15,7 @@ import {
   type SessionsView,
   sectionsOf,
   todoDetail,
+  todoHandoffs,
   todoViews,
 } from './sync/views';
 import {
@@ -132,6 +133,8 @@ interface DetailState {
   note?: NoteView;
   history: HistoryEntry[];
   comments: Comment[];
+  /** 사본으로 그릴 때 이 할 일의 핸드오프 전부 — 드로어의 "세션" 이 REST 대신 이것을 읽는다. */
+  handoffs?: HandoffView[];
 }
 
 interface UiState {
@@ -236,7 +239,9 @@ interface UiState {
   attachSync: (sync: BoardSync) => void;
   /** 보드 싱크가 알린 사본과 답을 기다리는 op 로 다시 그린다. */
   applySync: (snapshot: SyncSnapshot) => void;
-  /** 보드 싱크를 뗀다 — 소켓으로는 싱크할 수 없을 때. REST 로 다시 읽는다. */
+  /** 사본이 데몬을 따라잡지 못한 채 기다려 줄 시간이 지났다 — 싱크는 붙여 둔 채 REST 로 그린다(다시 붙으면 돌아온다). */
+  leaveReplica: () => void;
+  /** 보드 싱크를 뗀다 — actor 를 바꾸거나 화면을 내릴 때. REST 로 다시 읽는다. */
   detachSync: () => void;
   /** 화면이 다시 보일 때 — 끊긴 보드 싱크를 기다리지 않고 다시 붙인다. */
   wakeSync: () => void;
@@ -427,25 +432,135 @@ function pushPath(path: string, state: unknown = null): boolean {
 /** 보드 싱크 클라이언트에서 스토어가 쓰는 것 — `SyncClient`, 테스트는 가짜. */
 export interface BoardSync {
   send(op: SyncOp): Promise<void>;
-  reconnectNow(): void;
+  /** 화면이 다시 보일 때 — 끊겼으면 다시 붙고, 붙어 있으면 살아 있는지 묻는다. */
+  wake(): void;
 }
+
+/**
+ * 사본이 데몬을 따라가지 못하는 동안(부팅 직후의 저장 사본, 끊긴 소켓)에도 사본으로 그리는 시간. 그 안에 다시 붙지
+ * 못하면 REST 로 돈다 — 낡은 사본을 오래 보여 주지 않게. 다시 붙으면 사본으로 돌아온다.
+ */
+export const SYNC_GRACE_MS = 5_000;
 
 let boardSync: BoardSync | null = null;
 /** 마지막으로 받은 사본과 답을 기다리는 op. 사본이 비어 있으면(아직 못 받음) REST 로 그린다. */
 let syncSnapshot: SyncSnapshot | null = null;
+/** 이 시각까지는 사본이 데몬을 따라가지 못해도(`live` 가 아니어도) 사본으로 그린다. */
+let graceUntil = 0;
+let graceTimer: ReturnType<typeof setTimeout> | undefined;
 /** 상세 드로어가 REST 로 채운 오래된 히스토리 — 할 일·노트 id 마다. 사본은 최근 2,000줄만 든다. */
 const backfilled = new Map<string, HistoryEntry[]>();
+let backfillVersion = 0;
+/**
+ * 답을 기다리는 만들기 — REST 로만 하는 동작(보내기·새 세션·이슈·다른 보드로 옮기기)과 노트 열기가 데몬이 아직
+ * 모르는 id 로 나가지 않게 이것을 기다린다.
+ */
+const pendingCreates = new Map<string, Promise<void>>();
+/** 세션 판정에 걸리는 행(열린 핸드오프·doing)의 지문 — 바뀌면 세션 목록을 다시 받는다. */
+let sessionSignature: string | undefined;
+let agentsRefresh: ReturnType<typeof setTimeout> | undefined;
+let agentsConfirm: ReturnType<typeof setTimeout> | undefined;
+/**
+ * 데몬의 세션 목록 캐시(`swr_sessions`)가 새것으로 보는 시간보다 조금 길게. 캐시는 오래된 값을 바로 주고 뒤에서 새로
+ * 받으므로, 판정에 걸리는 행이 바뀐 직후에 물은 목록은 그 변화를 모를 수 있다.
+ */
+const SESSIONS_FRESH_MS = 3_500;
+/** 세션 목록을 믿는 사본 순번 — 이보다 나중에 바뀐 doing·핸드오프 행은 판정하지 않는다(`SessionsView.seq`). */
+let sessionsTrustedSeq: number | undefined;
+/** 판정에 걸리는 행이 마지막으로 바뀐 시각 — 그 뒤 `SESSIONS_FRESH_MS` 가 지나 물은 목록부터 믿는다. */
+let sessionsChangedAt: number | undefined;
+let lastDerivedHead: number | undefined;
+
+/** 판정에 걸리는 행이 바뀌었다 — 지금 한 번, 데몬 캐시가 새로 찬 뒤에 한 번 더 세션 목록을 받는다. */
+function refreshSessionsSoon(): void {
+  clearTimeout(agentsRefresh);
+  clearTimeout(agentsConfirm);
+  agentsRefresh = setTimeout(() => void useUiStore.getState().loadAgents(), 200);
+  agentsConfirm = setTimeout(() => void useUiStore.getState().loadAgents(), SESSIONS_FRESH_MS);
+}
 
 /** 겹쳐 그린 사본 — 아직 받은 적이 없으면 null. */
 function syncedTables(): Tables | null {
   if (!syncSnapshot || syncSnapshot.replica.epoch === null) {
     return null;
   }
-  return overlay(syncSnapshot.replica.tables, syncSnapshot.pending);
+  const { tables } = syncSnapshot.replica;
+  return memoized('overlay', [tables, syncSnapshot.pending], () =>
+    overlay(tables, syncSnapshot?.pending ?? []),
+  );
 }
 
-function sessionsOf(agents: UiState['agents']): SessionsView | null {
-  return agents ? { available: agents.available, sessions: agents.list } : null;
+/** 사본으로 그려도 되나 — 데몬을 따라가고 있거나(`live`), 아직 기다려 줄 시간 안이다. */
+function replicaPaintable(): boolean {
+  if (!syncSnapshot || syncSnapshot.replica.epoch === null) {
+    return false;
+  }
+  return syncSnapshot.live || Date.now() < graceUntil;
+}
+
+/** 기다려 줄 시간을 건다 — 그 안에 `live` 가 되지 않으면 REST 로 돈다. */
+function startGrace(): void {
+  graceUntil = Date.now() + SYNC_GRACE_MS;
+  clearTimeout(graceTimer);
+  graceTimer = setTimeout(() => {
+    graceTimer = undefined;
+    if (!syncSnapshot?.live) {
+      useUiStore.getState().leaveReplica();
+    }
+  }, SYNC_GRACE_MS);
+}
+
+function stopGrace(): void {
+  clearTimeout(graceTimer);
+  graceTimer = undefined;
+  graceUntil = 0;
+}
+
+/** 같은 입력이면 지난번 값을 돌려준다 — 바뀌지 않은 묶음은 같은 배열이라 그 화면이 다시 그려지지 않는다. */
+const memo = new Map<string, { deps: readonly unknown[]; value: unknown }>();
+function memoized<T>(key: string, deps: readonly unknown[], compute: () => T): T {
+  const hit = memo.get(key);
+  if (hit && hit.deps.length === deps.length && hit.deps.every((d, i) => Object.is(d, deps[i]))) {
+    return hit.value as T;
+  }
+  const value = compute();
+  memo.set(key, { deps, value });
+  return value;
+}
+
+function sessionsOf(
+  agents: UiState['agents'],
+  trustedSeq: number | undefined,
+): SessionsView | null {
+  if (!agents) {
+    return null;
+  }
+  return {
+    available: agents.available,
+    sessions: agents.list,
+    ...(trustedSeq !== undefined ? { seq: trustedSeq } : {}),
+  };
+}
+
+/** 세션 판정에 걸리는 행의 지문 — 열린 핸드오프의 상태와 착수, doing 의 세션. */
+function sessionSignatureOf(tables: Tables): string {
+  const parts: string[] = [];
+  for (const h of tables.handoffs.values()) {
+    if (h.status === 'pending' || (h.status === 'delivered' && h.completedAt === undefined)) {
+      parts.push(`h:${h.id}:${h.status}:${h.acceptedAt ?? ''}`);
+    }
+  }
+  for (const t of tables.todos.values()) {
+    if (t.status === 'doing') {
+      parts.push(`t:${t.id}:${t.doingSessionId ?? ''}:${t.doingBy ?? ''}`);
+    }
+  }
+  return parts.sort().join('|');
+}
+
+/** 그 만들기가 확정될 때까지. 만들기가 아니거나 이미 확정됐으면 바로 — 만들기가 실패해도 풀린다(뒤 요청이 실패를 말한다). */
+function createSettled(id: string): Promise<void> {
+  return pendingCreates.get(id) ?? Promise.resolve();
 }
 
 /** 사본의 히스토리에 REST 로 채운 오래된 줄을 더한다(같은 줄은 하나로). */
@@ -471,7 +586,12 @@ function detailFromTables(
   if (detail?.kind === 'todo' && detail.todo) {
     const local = todoDetail(tables, detail.todo.id, { includeArchived, sessions });
     return local
-      ? { kind: 'todo', ...local, history: withBackfill(detail.todo.id, local.history) }
+      ? {
+          kind: 'todo',
+          ...local,
+          history: withBackfill(detail.todo.id, local.history),
+          handoffs: todoHandoffs(tables, detail.todo.id, sessions),
+        }
       : detail;
   }
   if (detail?.kind === 'note' && detail.note) {
@@ -500,9 +620,32 @@ const TODO_PATCH_KEYS: ReadonlySet<string> = new Set([
   'parentId',
 ]);
 
-/** 쓰기를 `tx` 로 보낼 싱크 — 사본으로 그리는 중이고 사람 actor 일 때만(데몬은 에이전트 actor 의 `tx` 를 거절한다). */
+/**
+ * 쓰기를 `tx` 로 보낼 싱크 — 사본이 데몬을 따라가고 있고(`live`) 사람 actor 일 때만. 아니면 REST 다(저장 사본만 그린
+ * 채 아직 붙지 못했거나 끊긴 동안, 그리고 데몬이 거절하는 에이전트 actor).
+ */
 function syncWriter(state: UiState): BoardSync | null {
-  return state.syncing && !isAgentActor(state.actor) ? boardSync : null;
+  return state.syncing && syncSnapshot?.live === true && !isAgentActor(state.actor)
+    ? boardSync
+    : null;
+}
+
+/** `tx` 로 보낼 수 있으면 보내고 답을 기다린 뒤 true. 못 보내면 false — 부른 쪽이 REST 로 보낸다. */
+async function sendViaSync(state: UiState, op: SyncOp): Promise<boolean> {
+  const sync = syncWriter(state);
+  if (!sync) {
+    return false;
+  }
+  const sent = sync.send(op);
+  if (op.op === 'todo.create' || op.op === 'note.create' || op.op === 'comment.create') {
+    const { id } = op;
+    const done = () => {
+      pendingCreates.delete(id);
+    };
+    pendingCreates.set(id, sent.then(done, done));
+  }
+  await sent;
+  return true;
 }
 
 type SummaryBody = { collect?: number; collectItems?: CollectItem[]; collectToken?: string };
@@ -537,11 +680,24 @@ function advanceNotesSeen(notes: NoteView[]): void {
   }
 }
 
+/** 노트 상세를 연다 — 주소가 `/{board}/notes/{n}` 로 바뀌고 뒤로 가면 목록. 데몬이 아직 번호를 주지 않았으면 주소는 둔다. */
+function openNoteView(note: NoteView): void {
+  logUsage('web:note-open');
+  useUiStore.setState({ openNoteId: note.id, view: 'notes' });
+  if (note.number <= 0) {
+    return;
+  }
+  pushPath(pathFor({ board: useUiStore.getState().selected, note: note.ref }), {
+    rockyNote: true,
+  });
+}
+
 /** 사본에 없을 수 있는 오래된 히스토리를 REST 로 한 번 채운다. 실패는 삼킨다 — 사본의 최근 줄은 이미 보인다. */
 async function backfillHistory(id: string, path: string): Promise<void> {
   try {
     const body = await api<{ history: HistoryEntry[] }>(path, useUiStore.getState().actor);
     backfilled.set(id, body.history);
+    backfillVersion += 1;
     useUiStore.getState().deriveBoard();
   } catch {
     // 다음에 열 때 다시 묻는다.
@@ -600,15 +756,44 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   attachSync: (sync) => {
     boardSync = sync;
+    // 저장 사본으로 먼저 그리되, 이 안에 데몬을 따라잡지 못하면 REST 로 돈다.
+    startGrace();
   },
   applySync: (snapshot) => {
+    const wasLive = syncSnapshot?.live === true;
     syncSnapshot = snapshot;
+    if (snapshot.live) {
+      stopGrace();
+    } else if (wasLive) {
+      startGrace(); // 끊겼다 — 다시 붙는 동안은 사본으로 그린다
+    }
     get().deriveBoard();
+  },
+  leaveReplica: () => {
+    stopGrace();
+    if (!get().syncing) {
+      return;
+    }
+    delete document.documentElement.dataset.sync;
+    set({ syncing: false });
+    void get()
+      .refetch()
+      .catch(() => {});
   },
   detachSync: () => {
     boardSync = null;
     syncSnapshot = null;
+    stopGrace();
     backfilled.clear();
+    pendingCreates.clear();
+    memo.clear();
+    sessionSignature = undefined;
+    sessionsTrustedSeq = undefined;
+    sessionsChangedAt = undefined;
+    lastDerivedHead = undefined;
+    clearTimeout(agentsRefresh);
+    clearTimeout(agentsConfirm);
+    delete document.documentElement.dataset.sync;
     if (get().syncing) {
       set({ syncing: false });
       void get()
@@ -616,38 +801,84 @@ export const useUiStore = create<UiState>((set, get) => ({
         .catch(() => {});
     }
   },
-  wakeSync: () => boardSync?.reconnectNow(),
+  wakeSync: () => boardSync?.wake(),
   deriveBoard: () => {
     const tables = syncedTables();
-    if (!tables) {
+    if (!tables || !syncSnapshot || !replicaPaintable()) {
       return;
     }
+    const confirmed = syncSnapshot.replica.tables;
+    const head = syncSnapshot.replica.seq;
+    // 판정에 걸리는 행이 바뀌었으면 세션 목록을 새로 받고, 그 목록이 올 때까지 바뀐 행은 판정하지 않는다.
+    const signature = memoized('sessionSignature', [confirmed.handoffs, confirmed.todos], () =>
+      sessionSignatureOf(confirmed),
+    );
+    if (sessionSignature !== undefined && signature !== sessionSignature) {
+      sessionsTrustedSeq ??= lastDerivedHead ?? head;
+      sessionsChangedAt = Date.now();
+      refreshSessionsSoon();
+    }
+    sessionSignature = signature;
+    lastDerivedHead = head;
+
     const { selected, showArchived, agents, detail } = get();
-    const sessions = sessionsOf(agents);
-    const todos = todoViews(tables, { board: selected, includeArchived: showArchived, sessions });
-    const handoffs = openHandoffs(tables, { board: selected, sessions });
-    const notes = noteViews(tables, { board: selected, includeArchived: showArchived });
-    const nextDetail = detailFromTables(tables, detail, showArchived, sessions);
+    const sessions = memoized('sessions', [agents, sessionsTrustedSeq], () =>
+      sessionsOf(agents, sessionsTrustedSeq),
+    );
+    const todos = memoized(
+      'todos',
+      [tables.todos, tables.comments, tables.boards, selected, showArchived, sessions],
+      () => todoViews(tables, { board: selected, includeArchived: showArchived, sessions }),
+    );
+    const handoffs = memoized(
+      'handoffs',
+      [tables.handoffs, tables.todos, tables.boards, selected, sessions],
+      () => openHandoffs(tables, { board: selected, sessions }),
+    );
+    const nextDetail = memoized(
+      'detail',
+      [detail, tables, showArchived, sessions, backfillVersion],
+      () => detailFromTables(tables, detail, showArchived, sessions),
+    );
+    // 이 탭이 사본으로 그린다는 표시 — 개발 도구·E2E 가 본다.
+    document.documentElement.dataset.sync = 'replica';
     set({
       syncing: true,
-      boards: boardsOf(tables),
+      boards: memoized('boards', [tables.boards], () => boardsOf(tables)),
       todos,
       nowTodos:
         selected === 'all' && !showArchived
           ? todos
-          : todoViews(tables, { board: 'all', includeArchived: false, sessions }),
-      sections: sectionsOf(tables, selected),
-      notes,
+          : memoized('nowTodos', [tables.todos, tables.comments, tables.boards, sessions], () =>
+              todoViews(tables, { board: 'all', includeArchived: false, sessions }),
+            ),
+      sections: memoized('sections', [tables.sections, tables.boards, selected], () =>
+        sectionsOf(tables, selected),
+      ),
+      notes: memoized('notes', [tables.notes, tables.boards, selected, showArchived], () =>
+        noteViews(tables, { board: selected, includeArchived: showArchived }),
+      ),
       handoffs,
-      nowHandoffs: selected === 'all' ? handoffs : openHandoffs(tables, { board: 'all', sessions }),
+      nowHandoffs:
+        selected === 'all'
+          ? handoffs
+          : memoized('nowHandoffs', [tables.handoffs, tables.todos, tables.boards, sessions], () =>
+              openHandoffs(tables, { board: 'all', sessions }),
+            ),
       detail: nextDetail,
     });
     // 열어 둔 상세에 새 댓글이 오면 본 것으로 — `openTodoDetail` 과 같은 규칙.
-    if (nextDetail?.kind === 'todo' && nextDetail.todo?.lastCommentAt) {
-      markSeen(localStorage, nextDetail.todo.id, nextDetail.todo.lastCommentAt);
+    const lastCommentAt = nextDetail?.kind === 'todo' ? nextDetail.todo?.lastCommentAt : undefined;
+    if (nextDetail?.todo && lastCommentAt && lastCommentAt !== detail?.todo?.lastCommentAt) {
+      markSeen(localStorage, nextDetail.todo.id, lastCommentAt);
       set({ seenComments: readSeen(localStorage) });
     }
-    advanceNotesSeen(notes);
+    // "본 것" 은 확정된 노트(서버 시계)로만 올린다 — 겹친 노트의 시각은 브라우저 시계다.
+    advanceNotesSeen(
+      memoized('confirmedNotes', [confirmed.notes, confirmed.boards, selected, showArchived], () =>
+        noteViews(confirmed, { board: selected, includeArchived: showArchived }),
+      ),
+    );
   },
 
   setSelected: (selected) => {
@@ -662,7 +893,12 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({ selected, detail: null, openNoteId: null });
       pushPath(pathFor({ board: selected }));
     }
-    get().deriveBoard();
+    if (get().syncing) {
+      // 사본으로 그리는 중이다 — 보드를 바꿔도 요청을 보내지 않는다. 같은 보드를 다시 누르면(새로고침) 끊긴 싱크만 깨운다.
+      get().deriveBoard();
+      get().wakeSync();
+      return;
+    }
     void get().refetch();
   },
   hideGithub: (key) => {
@@ -709,11 +945,21 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
   },
   loadAgents: async () => {
+    const startedAt = Date.now();
+    const head = syncSnapshot?.replica.seq;
     try {
       const result = await api<{ available: boolean; reason?: string; sessions: SessionRow[] }>(
         '/api/sessions',
         get().actor,
       );
+      // 판정에 걸리는 행이 바뀐 뒤 데몬 캐시가 새로 찰 만큼 지나서 물은 목록이면, 물을 때의 순번까지 믿는다.
+      if (
+        head !== undefined &&
+        (sessionsChangedAt === undefined || startedAt >= sessionsChangedAt + SESSIONS_FRESH_MS)
+      ) {
+        sessionsTrustedSeq = head;
+        sessionsChangedAt = undefined;
+      }
       set({
         agents: { available: result.available, reason: result.reason, list: result.sessions },
       });
@@ -794,7 +1040,10 @@ export const useUiStore = create<UiState>((set, get) => ({
   setShowArchived: (showArchived) => {
     logUsage('web:archived-toggle');
     set({ showArchived });
-    get().deriveBoard();
+    if (get().syncing) {
+      get().deriveBoard(); // 보관한 행도 사본에 있다 — 요청을 보내지 않는다
+      return;
+    }
     void get().refetch();
   },
   setActor: (actor) => {
@@ -931,13 +1180,22 @@ export const useUiStore = create<UiState>((set, get) => ({
     const local = tables
       ? todoDetail(tables, id, {
           includeArchived: showArchived,
-          sessions: sessionsOf(get().agents),
+          sessions: sessionsOf(get().agents, sessionsTrustedSeq),
         })
       : undefined;
-    let body: { todo: TodoView; history: HistoryEntry[]; comments: Comment[] };
-    if (local) {
+    let body: {
+      todo: TodoView;
+      history: HistoryEntry[];
+      comments: Comment[];
+      handoffs?: HandoffView[];
+    };
+    if (local && tables) {
       // 사본으로 바로 그린다. 사본(최근 2,000줄)보다 오래된 히스토리는 연 순간에 한 번만 REST 로 채운다.
-      body = { ...local, history: withBackfill(id, local.history) };
+      body = {
+        ...local,
+        history: withBackfill(id, local.history),
+        handoffs: todoHandoffs(tables, id, sessionsOf(get().agents, sessionsTrustedSeq)),
+      };
       if (!options?.refresh) {
         void backfillHistory(id, `/api/todos/${id}`);
       }
@@ -947,13 +1205,22 @@ export const useUiStore = create<UiState>((set, get) => ({
         `/api/todos/${id}${qs}`,
         actor,
       );
+      // 나중에 사본으로 넘어가도 이 히스토리는 남긴다 — 사본은 최근 2,000줄만 든다.
+      backfilled.set(id, body.history);
+      backfillVersion += 1;
     }
     if (options?.refresh && get().detail?.todo?.id !== id) {
       // 갱신하려던 상세가 await 도중 닫혔거나 다른 항목으로 바뀌었다 — 늦게 온 응답을 버린다.
       return;
     }
     set({
-      detail: { kind: 'todo', todo: body.todo, history: body.history, comments: body.comments },
+      detail: {
+        kind: 'todo',
+        todo: body.todo,
+        history: body.history,
+        comments: body.comments,
+        ...(body.handoffs ? { handoffs: body.handoffs } : {}),
+      },
     });
     // 드로어를 연 시점에 이 todo 의 댓글은 모두 확인한 것으로 본다. localStorage(세션 간
     // 유지)와 상태 사본(리렌더 트리거)을 함께 갱신한다. push 여부와 무관하게 수행한다 —
@@ -997,6 +1264,10 @@ export const useUiStore = create<UiState>((set, get) => ({
     const body = local
       ? { ...local, history: withBackfill(id, local.history) }
       : await api<{ note: NoteView; history: HistoryEntry[] }>(`/api/notes/${id}`, actor);
+    if (!local) {
+      backfilled.set(id, body.history);
+      backfillVersion += 1;
+    }
     if (local && !options?.refresh) {
       void backfillHistory(id, `/api/notes/${id}`);
     }
@@ -1063,11 +1334,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     if (board !== get().selected) {
       set({ selected: board });
-      get().deriveBoard();
       if (get().syncing) {
-        void get()
-          .refetch()
-          .catch(() => {}); // 보드 묶음은 이미 그렸다 — 기다리지 않는다
+        get().deriveBoard(); // 사본으로 그리는 중이다 — 요청을 보내지 않는다
       } else {
         await get().refetch();
       }
@@ -1123,15 +1391,15 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   addTodo: async (input) => {
     logUsage('web:quick-add');
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({
+    if (
+      await sendViaSync(get(), {
         op: 'todo.create',
         id: newClientId(),
         board: input.board,
         title: input.title,
         ...(input.section ? { section: input.section } : {}),
-      });
+      })
+    ) {
       return;
     }
     const { actor } = get();
@@ -1140,6 +1408,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   moveTodoToBoard: async (id, board) => {
+    await createSettled(id); // 막 만든 할 일이면 데몬이 알 때까지 — 아니면 모르는 id 로 나간다
     const { actor } = get();
     const moved = await api<{ boardId: string; number: number }>(`/api/todos/${id}/board`, actor, {
       method: 'POST',
@@ -1157,9 +1426,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   moveTodo: async (id, before) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: 'todo.move', id, before });
+    if (await sendViaSync(get(), { op: 'todo.move', id, before })) {
       return;
     }
     const { actor } = get();
@@ -1171,11 +1438,13 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   patchTodo: async (id, patch) => {
-    const sync = syncWriter(get());
-    if (sync && Object.keys(patch).every((key) => TODO_PATCH_KEYS.has(key))) {
-      await sync.send({ op: 'todo.update', id, ...patch } as SyncOp);
+    if (
+      Object.keys(patch).every((key) => TODO_PATCH_KEYS.has(key)) &&
+      (await sendViaSync(get(), { op: 'todo.update', id, ...patch } as SyncOp))
+    ) {
       return;
     }
+    await createSettled(id); // 막 만든 할 일이면 데몬이 알 때까지
     const { actor } = get();
     await api(`/api/todos/${id}`, actor, { method: 'PATCH', body: JSON.stringify(patch) });
     await get().refetch();
@@ -1193,9 +1462,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   setTodoStatus: async (id, action) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: 'todo.status', id, action });
+    if (await sendViaSync(get(), { op: 'todo.status', id, action })) {
       return;
     }
     const { actor } = get();
@@ -1232,15 +1499,15 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   addNote: async (input) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      const id = newClientId();
-      await sync.send({
+    const id = newClientId();
+    if (
+      await sendViaSync(get(), {
         op: 'note.create',
         id,
         title: input.title,
         ...(input.board ? { board: input.board } : {}),
-      });
+      })
+    ) {
       // `ack` 앞에 결과 행이 왔다 — 번호가 붙은 노트로 연다.
       get().openNote(id);
       return;
@@ -1251,14 +1518,17 @@ export const useUiStore = create<UiState>((set, get) => ({
       body: JSON.stringify(input),
     });
     await get().refetch();
-    // 목록 한 줄로 두면 "새 메모" 를 다시 찾아 눌러야 한다 — 만든 노트를 바로 연다.
-    get().openNote(created.id);
+    // 목록 한 줄로 두면 "새 메모" 를 다시 찾아 눌러야 한다 — 만든 노트를 바로 연다. 사본으로 그리는 중이면 행이 아직
+    // 밀려오지 않았을 수 있어 응답의 노트로 연다.
+    openNoteView(get().notes.find((n) => n.id === created.id) ?? created);
   },
 
   saveNote: async (id, patch) => {
-    const sync = syncWriter(get());
-    if (sync && patch.content === undefined && patch.title !== undefined) {
-      await sync.send({ op: 'note.update', id, title: patch.title });
+    if (
+      patch.content === undefined &&
+      patch.title !== undefined &&
+      (await sendViaSync(get(), { op: 'note.update', id, title: patch.title }))
+    ) {
       return;
     }
     const { actor } = get();
@@ -1288,9 +1558,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   pinNote: async (id, pinned) => {
     const { actor } = get();
     logUsage('web:note-pin', { action: pinned ? 'pin' : 'unpin' });
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: pinned ? 'note.pin' : 'note.unpin', id });
+    if (await sendViaSync(get(), { op: pinned ? 'note.pin' : 'note.unpin', id })) {
       return;
     }
     await api(`/api/notes/${id}/${pinned ? 'pin' : 'unpin'}`, actor, { method: 'POST' });
@@ -1298,13 +1566,15 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   openNote: (id) => {
-    const note = get().notes.find((n) => n.id === id);
-    if (!note) {
+    if (pendingCreates.has(id)) {
+      // 데몬이 아직 모르는 노트 — 확정되면 번호가 붙은 주소로 연다(편집기는 데몬에 있는 노트만 연다).
+      void createSettled(id).then(() => get().openNote(id));
       return;
     }
-    logUsage('web:note-open');
-    set({ openNoteId: id, view: 'notes' });
-    pushPath(pathFor({ board: get().selected, note: note.ref }), { rockyNote: true });
+    const note = get().notes.find((n) => n.id === id);
+    if (note) {
+      openNoteView(note);
+    }
   },
 
   closeNote: () => {
@@ -1320,9 +1590,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   addComment: async (todoId, body) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: 'comment.create', id: newClientId(), todoId, body });
+    if (await sendViaSync(get(), { op: 'comment.create', id: newClientId(), todoId, body })) {
       return;
     }
     const { actor } = get();
@@ -1334,9 +1602,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   editComment: async (id, body) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: 'comment.update', id, body });
+    if (await sendViaSync(get(), { op: 'comment.update', id, body })) {
       return;
     }
     const { actor } = get();
@@ -1345,9 +1611,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   archiveComment: async (id) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: 'comment.archive', id });
+    if (await sendViaSync(get(), { op: 'comment.archive', id })) {
       return;
     }
     const { actor } = get();
@@ -1356,9 +1620,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   unarchiveComment: async (id) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      await sync.send({ op: 'comment.unarchive', id });
+    if (await sendViaSync(get(), { op: 'comment.unarchive', id })) {
       return;
     }
     const { actor } = get();
@@ -1367,6 +1629,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   createIssue: async (todoId, repo) => {
+    await createSettled(todoId);
     const { actor } = get();
     await api(`/api/todos/${todoId}/issue`, actor, {
       method: 'POST',
@@ -1432,6 +1695,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   sendHandoff: async (todoId, input) => {
+    await createSettled(todoId);
     const { actor } = get();
     const res = await api<{ woke?: boolean }>(`/api/todos/${todoId}/handoff`, actor, {
       method: 'POST',
@@ -1482,6 +1746,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   spawnSession: async (todoId, input) => {
+    await createSettled(todoId);
     const { actor } = get();
     const result = await api<SpawnResult>(`/api/todos/${todoId}/spawn`, actor, {
       method: 'POST',

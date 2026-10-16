@@ -133,7 +133,9 @@ PATH에 두려면 `ln -s ~/.local/share/rocky/current/rocky ~/.local/bin/rocky`.
   마크다운 설명, 섹션/보드 이동, 중단·완료·보관(시작은 에이전트가 남기는 신호라 버튼이 없다), **에이전트에게 보내기**(핸드오프 — 첫 대상이 새 세션), **연결된 세션**(진행을 든
   세션의 이름·상태와 이 할 일을 보낸 기록), GitHub 이슈 만들기, 댓글, 타임라인. 상단은 SSE 연결 표시와 최근 활동 띠(앰버=에이전트,
   블루=사람), 테마(시스템/밝게/어둡게), 보관됨 표시, actor 이름.
-- **갱신** — SSE(`/api/events`)로 변경이 오면 refetch. 낙관적 갱신 없음(서버가 정본).
+- **갱신** — 보드는 브라우저의 사본(IndexedDB)에서 그리고, 바뀐 행만 소켓(`/api/ws`)으로 받는다. 할 일·댓글·노트 쓰기는
+  답을 기다리지 않고 먼저 보이고, 데몬이 거절하면 되돌린다(정본은 여전히 데몬). 소켓을 쓸 수 없으면 예전처럼 SSE
+  (`/api/events`)로 변경이 올 때마다 다시 읽는다 — 규칙은 `docs/features/sync.md` "웹 사본".
 - **로컬 전용 기능**(이슈 생성·새 세션)은 `/api/health`의 `issueCreateAllowed`/`spawnAllowed`를
   보고 버튼 대신 이유를 보여준다 — 강제는 서버가 한다. 테일넷·터널 경유에서는 그 둘이 막힌다.
 - **개발** — `bun run build:ui` 뒤 `ROCKY_TODO_UI_DIST=$PWD/dist cargo run -p rockyd`. 테스트는
