@@ -359,6 +359,8 @@ export interface RcStatus {
   /** 대상 밖 서버 중 데몬이 띄운 핸드오프 서버 — 없으면 오지 않는다. */
   handoffs?: RcHandoffRow[];
   auth: 'in' | 'out' | 'unknown';
+  /** 로그아웃일 때 짚은 원인 — 새 로그인이 키체인이 아니라 `.credentials.json` 에만 갔다. 없으면 오지 않는다. */
+  authHint?: 'credentialsFileNewer';
   antigravity: { state?: string; pid?: number; instance?: string } | null;
   probeError?: string;
   /** 감시(`rc.supervise`)가 켜져 있으면 그 상태 — 꺼져 있으면 없다. */

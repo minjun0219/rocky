@@ -151,6 +151,27 @@ fn auth_status_unknown_unless_explicit() {
 }
 
 #[test]
+fn auth_hint_needs_a_newer_credentials_file() {
+    // 실제 `security find-generic-password` 속성 출력의 모양(값 없이).
+    let kc = "keychain: \"/Users/u/Library/Keychains/login.keychain-db\"\nattributes:\n    \"acct\"<blob>=\"u\"\n    \"mdat\"<timedate>=0x32303236313031353232353830345A00  \"20261015225804Z\\000\"\n";
+    let mdat = parse_keychain_mdat(kc).expect("mdat");
+    assert_eq!(mdat, 1_792_105_084);
+    assert_eq!(parse_keychain_mdat("no item"), None);
+    assert_eq!(
+        parse_auth_config_dir(r#"{"loggedIn": false, "configDirectory": "/Users/u/.claude"}"#),
+        Some("/Users/u/.claude".into())
+    );
+    assert_eq!(
+        auth_hint(Some(mdat), Some(mdat + 1)),
+        Some(AuthHint::CredentialsFileNewer)
+    );
+    // 파일이 옛것이거나 어느 한쪽을 모르면 짐작하지 않는다.
+    assert_eq!(auth_hint(Some(mdat), Some(mdat - 1)), None);
+    assert_eq!(auth_hint(None, Some(mdat)), None);
+    assert_eq!(auth_hint(Some(mdat), None), None);
+}
+
+#[test]
 fn agy_status_reads_first_values() {
     let out = "Daemon state = running\nDaemon pid = 82906\nDaemon state = active\nInstance name: mac-1 (find it at https://x)\n";
     assert_eq!(

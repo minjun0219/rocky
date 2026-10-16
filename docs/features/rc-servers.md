@@ -112,6 +112,16 @@
 - **자격 관찰**: 끊김(`In → Out`)과 회복(`Out → In`)을 바뀐 바퀴에 한 번씩만 배너로 알린다 — 같은 상태가 이어지면 다시 울리지 않는다.
   기록은 `rc/auth.json`(데몬을 다시 띄워도 회복을 알아채게). 회복 뒤 로그아웃보다 먼저 뜬 서버는 `authSuspect` — 자동으로 재시작하지
   않는다(세션이 붙어 있을 수 있다). launchd 로 도는 데몬은 키체인을 읽어 셸과 자격이 갈릴 수 있다(2026-10-06 두 번째 재발).
+- **로그아웃 원인 짐작(`authHint`)**: 현황이 로그아웃일 때만 키체인 항목 `Claude Code-credentials` 의 수정 시각(`security
+  find-generic-password` 의 속성 — **값은 읽지 않는다**)과 `<configDirectory>/.credentials.json` 의 mtime 을 견준다. 파일이 더
+  새로우면 `credentialsFileNewer` — 키체인이 막힌 맥락(원격 셸 등)에서 로그인해 새 자격이 파일에만 갔고, 키체인을 읽을 수 있는
+  launchd 쪽 claude 는 키체인의 옛 항목을 먼저 본다(2026-10-16 실측: 셸은 키체인 읽기가 `errSecInteractionNotAllowed` 라 파일을,
+  launchd 는 빈 키체인 항목을 읽었다). 처방은 셸에서 `security unlock-keychain ~/Library/Keychains/login.keychain-db && claude auth login` — 키체인을 열고
+  로그인하면 막힌 셸에서도 키체인에 저장되고 launchd 쪽이 바로 로그인으로 돌아온다(같은 날 실측). 판정은 `rc::auth_hint`, 둘 중 하나라도 모르거나
+  macOS 가 아니면 짐작하지 않는다. rocky 는 자격을 옮기거나 고치지 않는다 — 고르는 것은 claude 다.
+- **CLI 현황은 사람이 읽는 표**: 기기 전체의 문제(프로브 실패 · 로그아웃과 푸는 법)는 맨 위 ⚠ 에 한 번만, 그 아래 머리글 있는 표(열은
+  `display_width` 로 맞춘다 — 한글 2칸), 끝에 기호 설명. 옵션 전부는 `rocky rc help` 에, 최상위 도움말에는 사람이 쓰는 줄만 둔다.
+  에이전트는 `--json` 을 읽는다.
 
 ## 코드
 

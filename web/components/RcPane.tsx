@@ -584,6 +584,15 @@ export function RcPane() {
           ⚠ {rc.probeError} — 꺼짐 표시는 모르는 것이다
         </p>
       ) : null}
+      {rc.auth === 'out' ? (
+        <p className="mb-0 mt-3 text-chip text-mine">
+          ⚠ 데몬 쪽 claude 가 로그아웃이다 — 서버를 띄우거나 되살리지 못한다.{' '}
+          {/* 힌트는 macOS 에서만 온다 — 키체인 처방은 그때만, 아니면 플랫폼을 가리지 않는 안내. */}
+          {rc.authHint === 'credentialsFileNewer'
+            ? '새 로그인이 키체인이 아니라 ~/.claude/.credentials.json 에만 저장됐다. 셸에서 security unlock-keychain ~/Library/Keychains/login.keychain-db && claude auth login 으로 풀린다'
+            : '셸에서 claude auth login 으로 풀린다(macOS 면 먼저 security unlock-keychain)'}
+        </p>
+      ) : null}
       {pinned.length > 0 ? (
         <>
           <Head

@@ -447,7 +447,7 @@ async fn logged_out_daemon_context_touches_nothing() {
     let target = control.begin("repo-a", command.clone()).unwrap();
     let result = control.run(target, command).await;
     assert!(!result.ok);
-    assert!(result.message.contains("로그인돼 있지 않다"));
+    assert!(result.message.contains("로그아웃이다"));
     let w = world.lock().unwrap();
     assert!(w.signals.is_empty(), "내리지 않았다");
     assert!(w.spawns.is_empty(), "띄우지 않았다");

@@ -112,18 +112,51 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
     };
     let (servers, strays) = rc::build_rows(&targets, &live);
     let antigravity = agy_status(&agy);
+    let auth_state = rc::parse_auth_status(&auth.stdout);
+    let auth_hint = if auth_state == rc::AuthState::Out {
+        probe_auth_hint(runner, &auth.stdout).await
+    } else {
+        None
+    };
 
     RcStatus {
         configured: true,
         servers,
         strays,
         handoffs: Vec::new(),
-        auth: rc::parse_auth_status(&auth.stdout),
+        auth: auth_state,
+        auth_hint,
         antigravity,
         probe_error,
         supervise: None,
         nightly: None,
     }
+}
+
+/// 로그아웃일 때만 — 키체인 항목(값 없이 속성만)과 `.credentials.json` 의 수정 시각을 견준다. 비밀값은 읽지 않는다.
+/// 키체인은 macOS 에만 있다 — 다른 OS 거나 어느 한쪽을 못 읽으면 짐작하지 않는다.
+async fn probe_auth_hint(runner: &Runner, auth_stdout: &str) -> Option<rc::AuthHint> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let dir = rc::parse_auth_config_dir(auth_stdout)?;
+    let file_mtime = std::fs::metadata(std::path::Path::new(&dir).join(".credentials.json"))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    let keychain = runner(
+        argv(&[
+            "security",
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+        ]),
+        String::new(),
+        PROBE_TIMEOUT,
+    )
+    .await;
+    rc::auth_hint(rc::parse_keychain_mdat(&keychain.stdout), file_mtime)
 }
 
 /// git 명령 하나의 한도 — 최근 활동은 사람이 부를 때만 재니 넉넉히.
@@ -810,10 +843,7 @@ impl RcController {
         // launchd 맥락은 키체인을 읽어서, 셸은 로그인돼 있어도 여기는 로그아웃일 수 있다(2026-10-05 실측).
         // 그대로 띄우면 서버가 "You must be logged in" 으로 곧 내려가고, 재시작이면 떠 있던 서버까지 잃는다.
         if status.auth == rc::AuthState::Out {
-            return Err(
-                "데몬 맥락에서 claude 가 로그인돼 있지 않다 — 손대지 않았다. 데몬을 띄운 맥락(launchd 면 키체인)의 자격을 고친 뒤 다시"
-                    .into(),
-            );
+            return Err(rc::LOGGED_OUT_REFUSAL.into());
         }
         let live = status
             .servers
