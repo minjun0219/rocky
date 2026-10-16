@@ -1,6 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import type { Board, Todo } from '../types';
-import { RESYNC_MIN_MS, RETRY_MAX_MS, SyncClient, type SyncSnapshot, SyncRejected } from './client';
+import {
+  LOAD_TIMEOUT_MS,
+  PING_DEADLINE_MS,
+  PING_IDLE_MS,
+  type ReplicaStore,
+  RESYNC_MIN_MS,
+  RETRY_MAX_MS,
+  STABLE_MS,
+  SyncClient,
+  SyncRejected,
+  type TimerKind,
+} from './client';
 import { memoryReplicaStore } from './persist';
 import { applyRows, emptyReplica, type RowsFrame } from './replica';
 
@@ -58,39 +69,49 @@ class FakeSocket {
   }
 }
 
-function setup(options: { saved?: RowsFrame } = {}) {
+type Timer = { fn: () => void; ms: number; kind: TimerKind; cleared: boolean };
+
+function setup(options: { saved?: RowsFrame; store?: ReplicaStore } = {}) {
   FakeSocket.all = [];
-  const store = memoryReplicaStore();
+  const store = options.store ?? memoryReplicaStore();
   if (options.saved) {
     void store.save(options.saved, applyRows(emptyReplica(), options.saved));
   }
-  const timers: { fn: () => void; ms: number }[] = [];
-  const snapshots: SyncSnapshot[] = [];
-  let fellBack = 0;
+  const timers: Timer[] = [];
   let clock = 0;
   const client = new SyncClient({
     url: 'ws://h/api/ws?actor=logan',
     actor: 'logan',
     store,
-    onChange: (s) => snapshots.push(s),
-    onFallback: () => {
-      fellBack += 1;
-    },
+    onChange: () => {},
     WebSocketImpl: FakeSocket,
-    setTimer: (fn, ms) => {
-      timers.push({ fn, ms });
-      return timers.length;
+    setTimer: (fn, ms, kind) => {
+      const timer = { fn, ms, kind, cleared: false };
+      timers.push(timer);
+      return timer;
     },
-    clearTimer: () => {},
+    clearTimer: (handle) => {
+      if (handle) {
+        (handle as Timer).cleared = true;
+      }
+    },
     now: () => clock,
   });
+  /** 그 종류의 마지막 타이머(지우지 않은 것)를 돌린다. */
+  const fire = (kind: TimerKind) => {
+    const timer = timers.filter((t) => t.kind === kind && !t.cleared).at(-1);
+    if (!timer) {
+      throw new Error(`no ${kind} timer`);
+    }
+    timer.cleared = true;
+    timer.fn();
+  };
   return {
     client,
     store,
     timers,
-    snapshots,
+    fire,
     socket: () => FakeSocket.all.at(-1) as FakeSocket,
-    fellBack: () => fellBack,
     tick: (ms: number) => {
       clock += ms;
     },
@@ -108,19 +129,37 @@ describe('SyncClient', () => {
   test('저장한 사본으로 먼저 알리고, 붙으면 그 머리부터 이어 받는다', async () => {
     const s = setup({ saved: full(7) });
     await s.client.start();
-    expect(s.snapshots[0]?.replica.tables.todos.has('t1')).toBe(true);
+    expect(s.client.snapshot().replica.tables.todos.has('t1')).toBe(true);
     s.socket().open();
     expect(s.socket().frames('sync')).toEqual([{ t: 'sync', id: 'sync', since: 7, epoch: 'e1' }]);
   });
 
-  test('처음이면 since 없이 묻고, 받은 rows 를 적용해 저장한다', async () => {
+  test('사본 읽기가 멈춰도 기다리다 소켓을 연다', async () => {
+    const stuck: ReplicaStore = {
+      load: () => new Promise(() => {}),
+      save: async () => {},
+      clear: async () => {},
+    };
+    const s = setup({ store: stuck });
+    const started = s.client.start();
+    expect(FakeSocket.all).toHaveLength(0);
+    expect(s.timers.find((t) => t.kind === 'load')?.ms).toBe(LOAD_TIMEOUT_MS);
+    s.fire('load');
+    await started;
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  test('rows 를 받으면 live, 끊기면 live 가 아니다', async () => {
     const s = setup();
     await s.client.start();
     s.socket().open();
-    expect(s.socket().frames('sync')).toEqual([{ t: 'sync', id: 'sync' }]);
+    expect(s.client.snapshot().live).toBe(false);
     s.socket().push({ t: 'rows', id: 'sync', ...full() });
-    expect(s.client.snapshot().replica.seq).toBe(5);
+    expect(s.client.snapshot().live).toBe(true);
+    await Bun.sleep(0); // 저장은 차례로 — 다음 틱에 끝난다
     expect((await s.store.load())?.seq).toBe(5);
+    s.socket().close();
+    expect(s.client.snapshot().live).toBe(false);
   });
 
   test('쓰기는 바로 답을 기다리는 op 가 되고, ack 가 오면 걷힌다', async () => {
@@ -155,7 +194,7 @@ describe('SyncClient', () => {
     s.socket().close();
     void s.client.send({ op: 'note.pin', id: 'n1' }).catch(() => {});
     expect(FakeSocket.all).toHaveLength(1);
-    s.timers.at(-1)?.fn();
+    s.fire('retry');
     s.socket().open();
     expect(s.socket().frames('tx')).toHaveLength(1);
   });
@@ -172,9 +211,9 @@ describe('SyncClient', () => {
     });
     const status = s.client.send({ op: 'todo.status', id: 't1', action: 'done' });
     s.socket().close();
-    await expect(status).rejects.toThrow('확인하지 못했다');
+    await expect(status).rejects.toThrow('확인하지 못했어요');
     expect(s.client.snapshot().pending.map((p) => p.op.op)).toEqual(['todo.create']);
-    s.timers.at(-1)?.fn();
+    s.fire('retry');
     s.socket().open();
     const [resent] = s.socket().frames('tx');
     expect(resent).toMatchObject({ ops: [{ op: 'todo.create', id: 'newtodo1' }] });
@@ -182,55 +221,131 @@ describe('SyncClient', () => {
     await create;
   });
 
-  test('다시 붙는 간격은 1초부터 두 배, 상한까지', async () => {
+  test('붙자마자 끊기는 연결은 간격을 늘리고, 오래 붙어 있던 연결이 끊기면 1초부터 다시', async () => {
     const s = setup();
     await s.client.start();
-    s.socket().open();
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 7; i++) {
+      s.socket().open();
       s.socket().close();
-      s.timers.at(-1)?.fn();
+      s.fire('retry');
     }
-    expect(s.timers.map((t) => t.ms)).toEqual([
-      1_000,
-      2_000,
-      4_000,
-      8_000,
-      16_000,
-      RETRY_MAX_MS,
-      RETRY_MAX_MS,
-      RETRY_MAX_MS,
-    ]);
+    const retries = () => s.timers.filter((t) => t.kind === 'retry').map((t) => t.ms);
+    expect(retries()).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, RETRY_MAX_MS, RETRY_MAX_MS]);
+    s.socket().open();
+    s.tick(STABLE_MS);
+    s.socket().close();
+    expect(retries().at(-1)).toBe(1_000);
   });
 
-  test('한 번도 붙지 못하면 REST 로 돌린다', async () => {
+  test('한 번도 못 붙어도 멈추지 않고 계속 붙어 본다 — 쌓인 op 는 붙으면 보낸다', async () => {
     const s = setup();
     await s.client.start();
     const pending = s.client.send({ op: 'note.pin', id: 'n1' });
     s.socket().close();
-    expect(s.fellBack()).toBe(1);
-    await expect(pending).rejects.toThrow();
-    expect(s.timers).toHaveLength(0);
-  });
-
-  test('데몬이 sync 를 모르면 REST 로 돌린다', async () => {
-    const s = setup();
-    await s.client.start();
+    s.fire('retry');
+    s.socket().close();
+    expect(s.client.snapshot().pending).toHaveLength(1);
+    s.fire('retry');
     s.socket().open();
-    s.socket().push({ t: 'err', id: 'sync', error: 'note is required' });
-    expect(s.fellBack()).toBe(1);
+    const [tx] = s.socket().frames('tx');
+    s.socket().push({ t: 'ack', id: tx?.id, seq: 1 });
+    await pending;
   });
 
-  test('밀기가 멈췄다는 err 면 커서부터 다시 묻되, 몰아서 묻지 않는다', async () => {
+  test('sync 의 읽기가 실패하거나 밀기가 멈추면 커서부터 다시 묻고, 5초 안이면 간격을 채운 뒤에 묻는다', async () => {
     const s = setup();
     await s.client.start();
     s.socket().open();
     s.socket().push({ t: 'rows', id: 'sync', ...full(5) });
     s.tick(RESYNC_MIN_MS);
+    s.socket().push({ t: 'err', id: 'sync', error: 'read failed' });
+    s.tick(1_000);
     s.socket().push({ t: 'err', error: 'read failed' });
     s.socket().push({ t: 'err', error: 'read failed' });
-    expect(s.socket().frames('sync')).toEqual([
-      { t: 'sync', id: 'sync' },
-      { t: 'sync', id: 'sync', since: 5, epoch: 'e1' },
+    const resyncs = () => s.socket().frames('sync').length;
+    expect(resyncs()).toBe(2);
+    expect(s.timers.filter((t) => t.kind === 'resync').map((t) => t.ms)).toEqual([
+      RESYNC_MIN_MS - 1_000,
     ]);
+    s.tick(RESYNC_MIN_MS - 1_000);
+    s.fire('resync');
+    expect(s.socket().frames('sync').at(-1)).toEqual({
+      t: 'sync',
+      id: 'sync',
+      since: 5,
+      epoch: 'e1',
+    });
+    expect(resyncs()).toBe(3);
+  });
+
+  test('한동안 조용하면 ping 으로 묻고, 답이 없으면 닫고 다시 붙는다', async () => {
+    const s = setup();
+    await s.client.start();
+    s.socket().open();
+    s.socket().push({ t: 'rows', id: 'sync', ...full() });
+    s.tick(PING_IDLE_MS);
+    s.fire('ping');
+    expect(s.socket().frames('ping')).toHaveLength(1);
+    s.tick(PING_DEADLINE_MS);
+    s.fire('deadline');
+    expect(s.client.snapshot().live).toBe(false);
+    expect(s.timers.some((t) => t.kind === 'retry' && !t.cleared)).toBe(true);
+  });
+
+  test('ping 에 답이 오면 그대로 둔다', async () => {
+    const s = setup();
+    await s.client.start();
+    s.socket().open();
+    s.socket().push({ t: 'rows', id: 'sync', ...full() });
+    s.tick(PING_IDLE_MS);
+    s.fire('ping');
+    s.tick(10);
+    s.socket().push({ t: 'pong' });
+    s.fire('deadline');
+    expect(s.client.snapshot().live).toBe(true);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  test('화면이 다시 보이면 — 끊겨 있으면 바로 붙고, 붙어 있으면 살아 있는지 묻는다', async () => {
+    const s = setup();
+    await s.client.start();
+    s.socket().open();
+    s.client.wake();
+    expect(s.socket().frames('ping')).toHaveLength(1);
+    s.socket().close();
+    s.client.wake();
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  test('저장이 한 번 실패하면 다음 저장은 사본 전체를 쓴다', async () => {
+    const saved: RowsFrame[] = [];
+    let failNext = true;
+    const flaky: ReplicaStore = {
+      load: async () => null,
+      save: async (frame) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('quota');
+        }
+        saved.push(frame);
+      },
+      clear: async () => {},
+    };
+    const s = setup({ store: flaky });
+    await s.client.start();
+    s.socket().open();
+    s.socket().push({ t: 'rows', id: 'sync', ...full(5) });
+    await Bun.sleep(0);
+    s.socket().push({
+      t: 'rows',
+      epoch: 'e1',
+      seq: 6,
+      full: false,
+      rows: { todos: [todo({ id: 't2' })] },
+    });
+    await Bun.sleep(0);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.full).toBe(true);
+    expect(saved[0]?.rows.todos?.map((t) => t.id).sort()).toEqual(['t1', 't2']);
   });
 });

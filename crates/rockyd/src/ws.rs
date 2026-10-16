@@ -25,6 +25,8 @@
 //!   어휘는 `rocky_core::sync::SyncOp`(원격에서도 이미 허용된 보드 쓰기뿐). `sync` 한 연결이면 결과 `rows` 를 `ack` 보다 먼저
 //!   보낸다. 만들기는 클라이언트가 정한 id 를 쓰고, 그 id 가 이미 있으면 새로 만들지 않는다(다시 보내도 안전하다).
 //!   트랜잭션은 사람의 쓰기다 — 에이전트 actor(`actors::is_agent_actor`)면 `reject` 한다.
+//! - `{t:"ping", id?}` → `{t:"pong", id?}` — 클라이언트가 반쯤 죽은 소켓을 가리는 하트비트. 사용 로그를 남기지 않는다(`sync`
+//!   는 프레임마다 남기므로 하트비트로 쓰지 않는다).
 //!
 //! **cross-site 가드**: 웹소켓은 브라우저 CORS 밖이라, 다른 사이트의 페이지도 이 주소로 소켓을 열 수 있다
 //! (cross-site WebSocket hijacking). 핸드셰이크에서 REST 변경과 같은 규칙(`is_cross_site_request`)으로 끊는다.
@@ -70,6 +72,11 @@ pub async fn serve_socket(mut socket: WebSocket, state: Arc<ServerState>, actor:
                 };
                 let replies = match serde_json::from_str::<Value>(&text) {
                     Err(_) => vec![json!({ "t": "err", "error": "bad frame" }).to_string()],
+                    // 살아 있는지 묻는 것 — 클라이언트가 반쯤 죽은 소켓(닫힘이 오지 않는다)을 가린다. 사용 로그는 남기지 않는다.
+                    Ok(frame) if frame.get("t").and_then(Value::as_str) == Some("ping") => {
+                        let id = frame.get("id").cloned().unwrap_or(Value::Null);
+                        vec![json!({ "t": "pong", "id": id }).to_string()]
+                    }
                     Ok(frame) if frame.get("t").and_then(Value::as_str) == Some("sync") => {
                         record(&state, "WS /api/ws sync", &actor);
                         // 읽기 전에 신호를 본 것으로 표시한다 — 읽은 뒤의 변경은 다음 신호가 다시 읽게 한다.

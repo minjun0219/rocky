@@ -286,6 +286,17 @@ async fn a_socket_that_never_synced_gets_no_rows() {
     assert!(got.is_err(), "sync 전에는 프레임이 오면 안 된다: {got:?}");
 }
 
+/// `ping` 에는 `pong` 으로 답한다 — 웹 보드 싱크가 반쯤 죽은 소켓을 가리는 하트비트다. 싱크하지 않은 소켓에도.
+#[tokio::test]
+async fn ping_answers_pong() {
+    let f = fx();
+    let addr = serve(&f).await;
+    let mut ws = connect(addr).await;
+    send(&mut ws, json!({ "t": "ping", "id": "p1" })).await;
+    let reply = next(&mut ws).await;
+    assert_eq!(reply, json!({ "t": "pong", "id": "p1" }));
+}
+
 /// 같은 노트를 2초 안에 다시 고치면 전역 변경 이벤트가 조절돼 나오지 않는다 — 그래도 바뀐 노트 행은 밀려온다. 깨우기가
 /// 변경 이벤트가 아니라 SQLite 훅인 이유이고, 이 테스트가 그것을 가른다.
 #[tokio::test]

@@ -64,7 +64,15 @@ export function idbReplicaStore(factory: IDBFactory = indexedDB, name = DB_NAME)
         }
         db.createObjectStore(META);
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        // 다른 탭이 새 모양(`DB_VERSION`)으로 열려 하면 놓아준다 — 쥐고 있으면 그 탭의 열기가 끝나지 않는다.
+        db.onversionchange = () => {
+          db.close();
+          opening = null;
+        };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
       req.onblocked = () => reject(new Error('IndexedDB open blocked'));
     }).catch((error: unknown) => {
