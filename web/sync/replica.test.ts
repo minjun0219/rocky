@@ -253,6 +253,8 @@ describe('overlay', () => {
     expect(tables.notes.get('newnote1')).toMatchObject({ number: 0, title: '전역 메모' });
     expect(tables.notes.get('newnote1')?.boardId).toBeUndefined();
     expect(tables.notes.get('n1')).toMatchObject({ title: '새 노트 제목', pinnedAt: NOW });
+    // 고친 행의 updatedAt 은 서버 시계 그대로 — 브라우저 시계로 "본 것" 이 앞서 가지 않게.
+    expect(tables.notes.get('n1')?.updatedAt).toBe(AT);
     expect(tables.boards.get('b1')?.title).toBe('로키');
   });
 });

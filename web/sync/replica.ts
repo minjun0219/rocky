@@ -325,21 +325,20 @@ function applyTodoStatus(todo: Todo, action: StatusAction, ctx: OpContext): Todo
         status: 'doing',
         doingBy: ctx.actor,
         doingSince: ctx.now,
-        updatedAt: ctx.now,
       };
     case 'stop':
-      return { ...cleared, status: 'todo', updatedAt: ctx.now };
+      return { ...cleared, status: 'todo' };
     case 'done':
-      return { ...cleared, status: 'done', completedAt: ctx.now, updatedAt: ctx.now };
+      return { ...cleared, status: 'done', completedAt: ctx.now };
     case 'reopen': {
-      const reopened = { ...todo, status: 'todo' as const, updatedAt: ctx.now };
+      const reopened = { ...todo, status: 'todo' as const };
       delete reopened.completedAt;
       return reopened;
     }
     case 'archive':
-      return { ...todo, archivedAt: ctx.now, updatedAt: ctx.now };
+      return { ...todo, archivedAt: ctx.now };
     case 'unarchive': {
-      const restored = { ...todo, updatedAt: ctx.now };
+      const restored = { ...todo };
       delete restored.archivedAt;
       return restored;
     }
@@ -409,7 +408,6 @@ function applyOp(draft: Draft, op: SyncOp, ctx: OpContext): void {
         ...(op.priority !== undefined ? { priority: op.priority } : {}),
         ...(op.labels !== undefined ? { labels: op.labels } : {}),
         ...(op.links !== undefined ? { links: op.links } : {}),
-        updatedAt: ctx.now,
       };
       next = withOptional(next, 'due', op.due);
       next = withOptional(next, 'parentId', op.parentId);
@@ -446,7 +444,7 @@ function applyOp(draft: Draft, op: SyncOp, ctx: OpContext): void {
     case 'comment.update': {
       const current = draft.get('comments', op.id);
       if (current) {
-        draft.put('comments', { ...current, body: op.body, updatedAt: ctx.now });
+        draft.put('comments', { ...current, body: op.body });
       }
       return;
     }
@@ -477,7 +475,7 @@ function applyOp(draft: Draft, op: SyncOp, ctx: OpContext): void {
       // 데몬은 보관한 섹션의 할 일을 섹션 밖으로 뺀다(보관하지는 않는다).
       for (const todo of draft.values('todos')) {
         if (todo.sectionId === op.id) {
-          draft.put('todos', withOptional({ ...todo, updatedAt: ctx.now }, 'sectionId', null));
+          draft.put('todos', withOptional(todo, 'sectionId', null));
         }
       }
       return;
@@ -509,13 +507,12 @@ function applyOp(draft: Draft, op: SyncOp, ctx: OpContext): void {
       if (!current) {
         return;
       }
-      const touched = { ...current, updatedAt: ctx.now };
       const next =
         op.op === 'note.update'
-          ? { ...touched, title: op.title }
+          ? { ...current, title: op.title }
           : op.op === 'note.archive' || op.op === 'note.unarchive'
-            ? withOptional(touched, 'archivedAt', op.op === 'note.archive' ? ctx.now : null)
-            : withOptional(touched, 'pinnedAt', op.op === 'note.pin' ? ctx.now : null);
+            ? withOptional(current, 'archivedAt', op.op === 'note.archive' ? ctx.now : null)
+            : withOptional(current, 'pinnedAt', op.op === 'note.pin' ? ctx.now : null);
       draft.put('notes', next);
       return;
     }
@@ -535,6 +532,9 @@ function applyOp(draft: Draft, op: SyncOp, ctx: OpContext): void {
 /**
  * 아직 답을 받지 않은 op 를 확정된 테이블 위에 차례로 겹친다. 데몬의 규칙을 다 옮기지는 않는다 — 검증은 데몬이
  * 하고, 결과 행이 곧 와서 이 그림을 덮는다. 겹칠 op 가 없으면 받은 테이블을 그대로 돌려준다.
+ *
+ * 고친 행의 `updatedAt` 은 건드리지 않는다 — 그 값은 서버 시계다(노트의 "본 것" 이 그것으로 앞으로 간다). 새 행에만
+ * 보낸 시각(브라우저 시계)을 쓴다.
  */
 export function overlay(tables: Tables, pending: readonly PendingOp[]): Tables {
   if (pending.length === 0) {
