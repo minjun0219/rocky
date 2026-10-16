@@ -1133,7 +1133,8 @@ fn next_position(conn: &Connection, table: &str, board_id: Option<&str>) -> Stor
     Ok(max.unwrap_or(0) + 1)
 }
 
-/// 보드 안에서 다음 번호 — MAX(number)+1 이라 아카이브돼도 회수하지 않는다.
+/// 보드 안에서 다음 번호 — 줄지 않는 카운터(`number_counters`, 마이그레이션 20)로 준다. 아카이브돼도, 가장 큰 번호의 할 일을
+/// 다른 보드로 옮겨도 그 번호를 다시 주지 않는다. 카운터가 뒤처졌으면(카운터를 모르는 옛 데몬이 만든 행) `MAX(number)` 를 따른다.
 fn next_number(conn: &Connection, table: &str, board_id: Option<&str>) -> StoreResult<i64> {
     let max: Option<i64> = match board_id {
         None => conn.query_row(
@@ -1147,7 +1148,21 @@ fn next_number(conn: &Connection, table: &str, board_id: Option<&str>) -> StoreR
             |r| r.get(0),
         )?,
     };
-    Ok(max.unwrap_or(0) + 1)
+    let scope = format!("{table}:{}", board_id.unwrap_or(""));
+    let last: Option<i64> = conn
+        .query_row(
+            "SELECT last FROM number_counters WHERE scope = ?1",
+            params![scope],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let next = max.unwrap_or(0).max(last.unwrap_or(0)) + 1;
+    conn.execute(
+        "INSERT INTO number_counters (scope, last) VALUES (?1, ?2)
+         ON CONFLICT(scope) DO UPDATE SET last = excluded.last",
+        params![scope, next],
+    )?;
+    Ok(next)
 }
 
 // ── 참조 해석 ───────────────────────────────────────────────────────────────

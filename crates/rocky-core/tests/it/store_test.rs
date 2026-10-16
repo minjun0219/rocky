@@ -4199,3 +4199,87 @@ fn verify_subscriptions_take_over_and_follow_the_clear_decision() {
     assert!(f.store.unsubscribe_verify("rocky", "main").unwrap());
     assert!(!f.store.unsubscribe_verify("rocky", "main").unwrap());
 }
+
+/// 번호는 다시 쓰지 않는다 — 가장 큰 번호의 할 일을 다른 보드로 옮겨도 원래 보드는 그 번호를 다시 주지 않는다. 예전엔
+/// `MAX(number)+1` 이라 그 번호가 다음 할 일에 다시 붙어, 댓글·PR 본문에 남은 옛 참조가 다른 할 일을 가리켰다.
+#[test]
+fn moving_the_highest_numbered_todo_does_not_free_its_number() {
+    let f = fx();
+    create(&f.store, "origin", "one", "t");
+    let top = create(&f.store, "origin", "two", "t");
+    assert_eq!(top.number, 2);
+    f.store
+        .move_todo_to_board(&top.id, "target", "t", None)
+        .unwrap();
+    let next = create(&f.store, "origin", "three", "t");
+    assert_eq!(next.number, 3, "옮긴 할 일의 번호(2)를 다시 주지 않는다");
+}
+
+/// 카운터가 없던 때(마이그레이션 20 전)로 DB 를 되돌린다 — 다시 열면 20 이 다시 돈다.
+fn forget_number_counters(db_path: &std::path::Path) {
+    let raw = rusqlite::Connection::open(db_path).unwrap();
+    raw.execute_batch("DROP TABLE number_counters; PRAGMA user_version = 19;")
+        .unwrap();
+}
+
+/// 마이그레이션 20 은 지금의 가장 큰 번호로 카운터를 심는다.
+#[test]
+fn number_counters_are_seeded_from_existing_rows() {
+    let f = fx();
+    let made = create(&f.store, "seed", "a", "t");
+    create(&f.store, "seed", "b", "t");
+    forget_number_counters(&f.db_path);
+    let _reopened = TodoStore::open(&f.db_path).unwrap();
+    let raw = rusqlite::Connection::open(&f.db_path).unwrap();
+    let last: i64 = raw
+        .query_row(
+            "SELECT last FROM number_counters WHERE scope = ?1",
+            [format!("todos:{}", made.board_id)],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(last, 2);
+}
+
+/// 업그레이드 전에 옮겨 나간 번호도 막는다 — `MAX` 만으로 심으면 옮긴 가장 큰 번호(2)를 다시 준다.
+#[test]
+fn number_counters_remember_numbers_moved_out_before_the_upgrade() {
+    let f = fx();
+    create(&f.store, "origin", "one", "t");
+    let top = create(&f.store, "origin", "two", "t");
+    f.store
+        .move_todo_to_board(&top.id, "target", "t", None)
+        .unwrap();
+    forget_number_counters(&f.db_path);
+    let reopened = TodoStore::open(&f.db_path).unwrap();
+    let next = create(&reopened, "origin", "three", "t");
+    assert_eq!(
+        next.number, 3,
+        "업그레이드 전에 옮긴 번호(2)를 다시 주지 않는다"
+    );
+}
+
+/// 옮긴 뒤 원래 보드의 이름이 바뀌었어도 히스토리의 옛 key 를 별칭으로 푼다.
+#[test]
+fn number_counters_follow_a_renamed_origin_board() {
+    let f = fx();
+    create(&f.store, "origin", "one", "t");
+    let top = create(&f.store, "origin", "two", "t");
+    f.store
+        .move_todo_to_board(&top.id, "target", "t", None)
+        .unwrap();
+    f.store
+        .update_board(
+            "origin",
+            &BoardPatch {
+                key: Some("renamed".into()),
+                ..Default::default()
+            },
+            "t",
+        )
+        .unwrap();
+    forget_number_counters(&f.db_path);
+    let reopened = TodoStore::open(&f.db_path).unwrap();
+    let next = create(&reopened, "renamed", "three", "t");
+    assert_eq!(next.number, 3);
+}
