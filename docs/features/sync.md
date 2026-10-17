@@ -78,7 +78,8 @@
 
 ## 클라우드 중계소(3번 조각)
 
-설계는 스펙의 3번 조각. 지금 있는 것은 중계소 코어(`cloud/relay/`)뿐이고, Worker·DO 껍데기와 데몬 연결기는 아직 없다.
+설계는 스펙의 3번 조각. 지금 있는 것은 중계소 코어(`cloud/relay/`)와 그 위의 Worker·DO 껍데기(`cloud/*.ts`)이고, 데몬
+연결기는 아직 없다.
 
 - **중계소는 행을 해석하지 않는다.** 데몬이 보낸 행을 JSON 그대로 `mirror`에 두고 `seq`만 꺼내 쓴다. 보드 규칙과 거르기
   (올리지 않는 보드, 기계 필드)는 데몬 쪽 일이다. 중계소가 행 모양을 알아야 하는 일이 생기면 설계부터 다시 본다.
@@ -93,6 +94,54 @@
   웹의 `SyncOp`에서 타입으로 묶여 있어 어휘가 늘면 `relay.ts`의 `OP_NAMES`가 컴파일되지 않는다.
 - **상태는 SQLite와 소켓 첨부에만 둔다.** DO가 잠들었다 깨면 `Relay` 객체는 새로 만들어진다. 객체 필드에 상태를 두지 않는다.
 - 웹에 보이는 문구(`MESSAGES`)는 웹과 같은 말투로 쓴다. 닫힘 사유(`CLOSE_*`)는 데몬 연결기가 읽는 영어다.
+- **Worker 는 길이 역할을 정하고 Access 토큰이 주인을 확인한다**(`gate.ts`·`access.ts`, 규칙은 [security](./security.md)). 문을
+  지난 소켓만 DO 하나(`relay`)로 넘기고, 역할과 actor 는 내부 주소에 실어 보낸다(`host.ts`의 `hostUrl`). 폰 소켓은 같은 출처의
+  페이지가 연 것만 받으므로 폰 화면(4번 조각)은 중계소와 같은 주소에서 낸다.
+- **판정과 배선은 Bun 으로 테스트한다.** `worker.ts`에는 Workers 런타임에만 있는 것(`cloudflare:workers`, `WebSocketPair`, 자동
+  응답)만 두고, DO 의 소켓 배선은 `host.ts`가 `ctx`의 모양만 받아 한다. 런타임 타입 패키지는 DOM 타입과 부딪혀 들이지 않았다 —
+  쓰는 모양만 `workers.d.ts`·`worker.ts`에 적는다.
+- **ping 은 DO 를 깨우지 않는다.** 웹이 보내는 `{"t":"ping"}` 글자 그대로에는 런타임이 `{"t":"pong"}`으로 답한다
+  (`setWebSocketAutoResponse`). 모양이 다른 ping(`id`를 단 것)만 DO 가 깨어 `Relay`가 답한다. 웹이 보내는 글자는 테스트가 묶는다.
+- **공개키 받기는 받으러 간 요청의 `waitUntil`에 맡긴다.** 동시에 온 요청은 받기 하나를 같이 기다리는데, Workers 는 손님이
+  끊긴 요청의 일을 거둔다. 거둬진 받기는 끝나지 않아 기다리던 요청도, 받기를 다시 시작하지 못하는 다음 요청도 멈춘다.
+- **설정은 Worker secret 넷뿐이다**(`ACCESS_TEAM`·`ACCESS_AUD`·`ACCESS_EMAILS`·`DAEMON_CLIENT_ID`). 공개 레포라 `wrangler.jsonc`에
+  개인 값과 주소를 적지 않는다. 주소는 대시보드에서 Custom Domain 으로 단다 — 설정 파일에 `routes`가 없고 `workers_dev`가
+  꺼져 있어야 배포가 그 주소를 덮어쓰지 않는다. workers.dev·미리보기 주소는 Access 를 거치지 않으므로 끈다.
+
+### 배포와 실측
+
+자동 배포는 없다. 오너가 자기 Cloudflare 계정에 손으로 올린다. 아래 `wrangler`는 `bunx wrangler@4.146.0`이다 — 의존성에
+넣으면 `bun install`마다 workerd 바이너리가 따라온다.
+
+1. **Access 앱**: Zero Trust → Access controls → Applications 에서 Self-hosted 앱을 만들고 중계소 주소(예: `relay.example.com`)
+   전체를 덮는다. 정책은 둘 — 폰용 Allow(허용 이메일)와 데몬용 Service Auth(2의 서비스 토큰). 앱 하나에 둘 다 단다. 앱의 AUD
+   태그(Application Audience Tag)가 3의 `ACCESS_AUD`다.
+2. **서비스 토큰**: Access controls → Service credentials → Service Tokens → Create Service Token. Client Secret 은 이때 한 번만
+   보인다. `security add-generic-password -s rocky-sync -a rocky -w`로 키체인에 넣는다(맨 끝의 `-w`가 비밀을 묻는다).
+3. **배포**: `cloud/`에서 `wrangler login`, `wrangler deploy`, 이어서 secret 넷을 `wrangler secret put <이름>`으로 넣는다 —
+   `ACCESS_TEAM`(`<team>.cloudflareaccess.com`의 `<team>`만), `ACCESS_AUD`, `ACCESS_EMAILS`(여럿이면 쉼표), `DAEMON_CLIENT_ID`.
+   하나라도 비면 소켓마다 500 이다.
+4. **주소 달기**: Workers & Pages → `rocky-relay` → Settings → Domains & Routes → Add → Custom Domain 으로 1의 주소를 단다. CNAME
+   레코드가 이미 있는 호스트(터널이 쓰는 주소)에는 달 수 없다.
+5. **실측**: 데몬처럼 서비스 토큰 헤더를 단 업그레이드를 보낸다. 비밀은 표준 입력으로 넘겨 명령줄과 히스토리에 남기지 않는다.
+
+```sh
+security find-generic-password -s rocky-sync -w \
+  | sed 's/^/CF-Access-Client-Secret: /' \
+  | curl -i -N -s --http1.1 --max-time 5 -H @- \
+      -H 'CF-Access-Client-Id: <Client ID>' \
+      -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+      https://relay.example.com/relay
+```
+
+| 답 | 뜻 |
+| --- | --- |
+| `101 Switching Protocols` 뒤에 `{"t":"sync","id":"sync"}`(앞에 프레임 머리 두 바이트) | 지난다. 데몬 연결기(④)는 스펙대로 서비스 토큰으로 붙는다 |
+| JSON `{"error": …}` | Access 는 지났고 Worker 가 거절했다. 이유가 본문에 있다(`wrangler tail`에도 `rocky relay:` 줄로 남는다) |
+| 그 밖(로그인 페이지로 가는 302, JSON 이 아닌 401·403) | Access 가 업그레이드를 막았다. 스펙의 대안(`/relay`만 Bypass, Worker 가 HMAC 검증)으로 간다 |
+
+결과는 스펙 3번 조각의 "인증"에 적는다. 연결이 5초 뒤 끊기는 것(curl 의 28)은 `--max-time` 때문이다.
 
 ## 코드
 
@@ -110,7 +159,9 @@
 | 소켓 클라이언트 · IndexedDB 저장 · 부팅 | `web/sync/client.ts` · `persist.ts` · `boot.ts` |
 | 스토어 연결(`syncing`, `tx` 쓰기) | `web/store.ts` |
 | 중계소 사본 · 변경함 · 프레임 처리(순수) | `cloud/relay/mirror.ts` · `outbox.ts` · `relay.ts`, 저장소 모양은 `storage.ts` |
+| 중계소 Worker 의 문 · Access 토큰 · DO 소켓 배선 | `cloud/gate.ts` · `access.ts` · `host.ts`, 런타임 입구 `worker.ts`, 배포 설정 `wrangler.jsonc` |
 
 테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절), `web/sync/*.test.ts`,
 `web/store-sync.test.tsx`, `e2e/sync.spec.ts`(IndexedDB 는 실제 브라우저에서만), `cloud/relay/*.test.ts`(DO의
-SQLite는 `bun:sqlite`로 흉내 낸다).
+SQLite는 `bun:sqlite`로 흉내 낸다), `cloud/*.test.ts`(Access 토큰은 테스트마다 만든 RSA 키로 서명하고, DO 의 소켓과 `ctx`는
+가짜다). workerd 위에서는 돌리지 않는다 — 런타임에서 확인할 것은 위의 실측이다.

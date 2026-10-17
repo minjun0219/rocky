@@ -90,8 +90,9 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │                                 `agy plugin install` 이 복사한다(링크는 풀림). 근거는 docs/antigravity.md
 ├── bridges/                    수집함 어댑터와 알림 브릿지 — `todo.inbox[]` / `pr.notifiers[]` 에 등록하는 명령
 │                                 (stdout JSON 규약, docs/board.md). 외부 서비스 코드는 여기에만; file/ 이 참조 구현.
-├── cloud/                      클라우드 중계소(싱크 3번 조각). relay/는 Durable Object 안에서 도는 순수 코어(사본·변경함·전파)이고
-│                                 Worker 껍데기는 아직 없다. web/sync/replica.ts 의 타입을 같이 쓴다. 규칙은 docs/features/sync.md
+├── cloud/                      클라우드 중계소(싱크 3번 조각). relay/는 Durable Object 안에서 도는 순수 코어(사본·변경함·전파),
+│                                 그 위의 worker.ts·gate.ts·access.ts·host.ts 가 Worker·DO 껍데기(Access 토큰 검증, 배포 설정은
+│                                 wrangler.jsonc — 배포는 손으로). web/sync/replica.ts 의 타입을 같이 쓴다. 규칙은 docs/features/sync.md
 ├── crates/                     ★ 데몬·CLI(worklog MCP + 훅 포함)·코어(docs/rewrite/ 참고)
 ├── rocky.schema.json           `rocky.json` JSON Schema — crates/rocky-core/src/config.rs 와 함께 움직인다
 ├── biome.json                  린트·포맷(.sisyphus, .claude 제외)
@@ -263,7 +264,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 기능 | 어기면 안 되는 것 | 문서 |
 | --- | --- | --- |
 | 데몬 수명(설치·기동·업데이트·교체·launchd) | 버전은 정확한 문자열로 비교해 교체하고, 옛 데몬을 못 내리면 재기동하지 않는다 — *an old board beats no board*. 새 데몬은 포트를 먼저 잡고 옛 데몬이 끝난 뒤 DB 를 연다. 프로세스는 pid 로만. 커밋 해시(`/api/health` 의 `commit`)는 표시·`daemon restart` 확인용이지 훅의 교체 판단에 넣지 않는다 — main 빌드끼리 버전이 같아 번갈아 교체된다 | [daemon-lifecycle](./docs/features/daemon-lifecycle.md) |
-| 보안 경계 | GitHub 쓰기·프로세스 실행·세션 조종은 로컬 요청 전용(루프백 + 프록시 헤더 없음, fail-closed) — 예외는 원격 제어 탭 하나, 데몬이 Access JWT 를 검증했을 때만. cross-site 변경은 라우팅 전에 403, 읽기는 막지 않는다 | [security](./docs/features/security.md) |
+| 보안 경계 | GitHub 쓰기·프로세스 실행·세션 조종은 로컬 요청 전용(루프백 + 프록시 헤더 없음, fail-closed) — 예외는 원격 제어 탭 하나, 데몬이 Access JWT 를 검증했을 때만. cross-site 변경은 라우팅 전에 403, 읽기는 막지 않는다. 클라우드 중계소 Worker 도 Access JWT 를 직접 검증하고 길이 역할을 정한다(`/api/ws` 사람, `/relay` 서비스 토큰) — 규칙은 `rocky_core::access` 와 함께 움직인다 | [security](./docs/features/security.md) |
 | 보드 모델(메타·ref·노트 CRDT) | 옛 key 는 입력 전용 별칭. 번호는 재사용하지 않는다. 노트는 데몬이 CRDT 피어 — content·state·히스토리는 한 트랜잭션. 삭제 없음 | [board-model](./docs/features/board-model.md) |
 | 싱크(행 순번) | 순번은 트리거가 매긴다 — 쓰기 코드에서 `seq` 를 직접 쓰지 않는다. 대상 테이블을 늘리면 새 마이그레이션으로 열·트리거를 더한다(19 는 고치지 않는다). `epoch` 는 DB 를 열 때마다 새로. 소켓을 깨우는 건 `update_hook` 이지 변경 이벤트가 아니다. 트랜잭션 어휘(`SyncOp`)에 실행으로 이어지는 쓰기를 넣지 않는다. 웹이 계산하는 값(`web/sync/views.ts`)은 Rust 규칙의 사본이다 — 한쪽만 고치지 않는다. 중계소(`cloud/relay`)는 행을 해석하지 않고, 변경함은 답을 받아야 다음을 보낸다 | [sync](./docs/features/sync.md) |
 | 핸드오프·doing 귀속 | 사람이 든 doing 은 자동으로 놓지 않는다. 쉬는 세션은 `poke` 로 깨우고 그 문구를 늘리지 않는다 | [handoff](./docs/features/handoff.md) |

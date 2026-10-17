@@ -3,6 +3,7 @@
 - 날짜: 2026-10-15
 - 결정자: 오너 (방향: 이 문서의 A안, 로컬 싱크부터)
 - 상태: 1·2번 조각은 머지됐다(2026-10-16). 3번 조각은 설계를 더했고 "정한 것" 넷을 오너가 확정했다(2026-10-17).
+  3번 조각의 중계소 코어(②)와 Worker·DO 껍데기(③)가 들어갔고, 실측은 오너가 배포한 뒤에 한다.
   4번 조각은 개요만 있고, 시작할 때 이 문서에 더한다
 
 ## 한 줄
@@ -293,7 +294,8 @@
 - **첫 일은 실측이다.** 서비스 토큰 헤더(`CF-Access-Client-Id`·`CF-Access-Client-Secret`)를 단 WebSocket 업그레이드가
   Access를 지나 Worker에 토큰을 달고 오는지 본다. 문서는 "모든 HTTP 요청에 헤더를 단다"고만 한다. 지나지 못하면
   `/relay`만 Access Bypass 정책으로 열고, Worker가 데몬의 서명(HMAC, 비밀은 Worker secret과 데몬 키체인에 하나씩)을
-  검증한다.
+  검증한다. 절차는 `docs/features/sync.md`의 "배포와 실측"이고, 결과는 이 줄 아래에 적는다.
+  - 결과: 아직 재지 않았다.
 - 브라우저의 WebSocket은 지금도 터널 + Access로 `/api/ws`를 쓰고 있어서 따로 재지 않는다.
 
 ### 중계소가 드는 것
@@ -396,8 +398,8 @@ DO 하나(SQLite)에 넷을 둔다. 중계소는 행을 해석하지 않는다. 
 }
 ```
 
-`url`, `clientId`, 비밀 가운데 하나라도 없으면 연결기는 뜨지 않는다. Worker 설정은 `cloud/wrangler.jsonc`의 변수와
-secret이다(Access 팀, AUD, 허용 이메일, 데몬의 Client ID).
+`url`, `clientId`, 비밀 가운데 하나라도 없으면 연결기는 뜨지 않는다. Worker 설정은 secret 넷이다(`ACCESS_TEAM`,
+`ACCESS_AUD`, `ACCESS_EMAILS`, `DAEMON_CLIENT_ID`). 레포가 공개라 `cloud/wrangler.jsonc`에는 개인 값과 주소를 적지 않는다(③).
 
 ### 실패 처리
 
