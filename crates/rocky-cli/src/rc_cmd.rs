@@ -75,6 +75,9 @@ pub fn cmd_rc(
             printer.emit(&raw, || render_status(&raw));
             Ok(())
         }
+        Some("start") if flags.bool_flag("all") && flags.bool_flag("new-session") => {
+            Err("--all 은 서버만 띄운다 — --new-session 은 이름 하나를 띄울 때만 쓴다".into())
+        }
         Some("start") if flags.bool_flag("all") => start_all(ctx, rest.get(1).map(String::as_str)),
         Some("agy") => {
             let raw = match rest.get(1).map(String::as_str) {
