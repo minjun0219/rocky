@@ -270,6 +270,7 @@ export class SyncClient {
         this.clearTimer(timer);
       }
       this.resyncTimer = null; // 다시 붙으면 처음부터 `sync` 한다
+      this.deadlineTimer = null; // 이 소켓에 물은 `ping` 의 기다림 — 남으면 다음 연결이 `ping` 을 보내지 못한다
       this.live = false;
       if (this.openedAt !== null && this.now() - this.openedAt >= STABLE_MS) {
         this.retryMs = 1_000; // 오래 붙어 있던 연결 — 처음부터 다시
@@ -401,14 +402,20 @@ export class SyncClient {
 
   /**
    * 사본을 차례로 저장한다. 한 번 실패하면 다음 저장은 사본 전체를 통째로 쓴다 — 델타만 쓰면 실패한 프레임의 행이
-   * 머리(`seq`) 뒤에 숨어 다음 부팅이 그 행을 다시 받지 못한다.
+   * 머리(`seq`) 뒤에 숨어 다음 부팅이 그 행을 다시 받지 못한다. 통째로 쓸지는 앞 저장이 끝난 뒤에 정한다 — 앞 저장이
+   * 실패하기 전에 줄 선 델타도 통째로 바뀌어야 한다.
    */
   private persist(frame: RowsFrame): void {
     const replica = this.replica;
-    const toSave = this.saveDirty ? fullFrameOf(replica) : frame;
-    this.saveDirty = false;
     this.saving = this.saving
-      .then(() => (this.stopped ? undefined : this.options.store.save(toSave, replica)))
+      .then(() => {
+        if (this.stopped) {
+          return undefined;
+        }
+        const toSave = this.saveDirty ? fullFrameOf(replica) : frame;
+        this.saveDirty = false;
+        return this.options.store.save(toSave, replica);
+      })
       .catch(() => {
         this.saveDirty = true;
       });
