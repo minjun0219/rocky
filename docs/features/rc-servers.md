@@ -8,6 +8,14 @@
   띄우거나 다시 띄운다(`POST /api/rc/servers/:label/{start,restart}` — 로컬 전용, `rocky rc start|restart`). 원격 제어 탭의 동작(띄우기 · 재시작 ·
   닫기 · 야간)은 `access.remoteControl` 이면 검증된 Access 로그인에게도 열린다 — 판정은 [security](security.md)의 예외 절. 꺼진 고정
   서버는 감시가 되살린다(아래).
+- **대상 목록 고치기**(`rocky rc targets [add|rm]`, `rocky rc reload` → `POST /api/rc/reload`, 로컬 전용이고 Access 원격 제어
+  범위도 아니다): CLI 가 rocky.json 의 `rc.pinned` · `rc.targets` 를 고치고(판정 `rocky_core::rc_targets` — 가장 짧은 꼴로 적고,
+  라벨이 같은 다른 폴더와 없는 폴더는 거절, 키 순서 · 들여쓰기 단위를 지키고 같은 폴더의 임시 파일을 이름 바꿔 덮는다, 링크면 가리키는
+  파일을 고친다) 데몬에 다시 읽으라고 한다. 데몬은 **대상 목록(`root` · `pinned` · `targets`)만** 바로 쓴다(`RcSettings` — 현황
+  캐시와 기동기가 같은 칸을 보고, 세대가 바뀌면 현황이 TTL 안이라도 새로 잰다). 기능 스위치(`enabled` · `supervise` · `nightly`)는
+  기동기 · 루프가 기동 때 정해지므로 `restartNeeded` 로 알리기만 한다(`plan_reload`). 못 읽거나 JSON 이 아닌 파일은 422 이고
+  **하던 목록을 그대로 쓴다**. 뺀 대상의 서버는 내리지 않는다 — 대상 밖 서버가 되고 `rocky rc stop` 으로 닫는다. 다시 읽기는 이벤트
+  `reload`. *EN: reload applies the target lists only; switches wait for a daemon restart; a broken file keeps the running list.*
 - **서버 판정은 argv 구조**(`claude` + `rc`/`remote-control` + `--name`). 자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로.
 - **맞대기는 cwd 문자열**이라 정규화하지 않는다.
 - 블록이 없거나 `enabled: false`(rc 를 못 쓰는 기기)면 **`claude rc` 프로브를 돌리지 않는다**. *EN: match by the raw cwd string;
@@ -131,11 +139,13 @@
 | 무엇 | 어디 |
 | --- | --- |
 | 판정(순수) | `crates/rocky-core/src/rc.rs` |
-| 프로브·기동기(`RcController`)·감시(`supervise_tick`)·라우트·agy 손잡이 | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
+| 대상 목록 고치기 · 다시 읽기 판정(순수 — `add_target` · `remove_target` · `plan_reload`) | `crates/rocky-core/src/rc_targets.rs` |
+| 프로브·기동기(`RcController`)·감시(`supervise_tick`)·라우트·agy 손잡이·설정 다시 읽기(`RcSettings`) | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
 | 야간 재시작(`run_nightly` · `spawn_rc_nightly` · 리허설 `nightly_preview`) | `crates/rockyd/src/rc/nightly.rs` |
-| CLI | `crates/rocky-cli/src/rc_cmd.rs` |
+| CLI | `crates/rocky-cli/src/rc_cmd.rs`, `crates/rocky-cli/src/rc_targets_cmd.rs`(`targets` · `reload`, 설정 파일 쓰기) |
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
 테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인), `crates/rockyd/tests/it/rc_log_test.rs`(커진 로그만 비움 · 비운 뒤 append 로 처음부터),
 `crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계 — canary · 회복 · 마감 · 네트워크 · 바쁨 · 일정),
-`crates/rocky-cli/tests/it/rc_cmd_test.rs`.
+`crates/rocky-core/tests/it/rc_targets_test.rs`, `crates/rockyd/tests/it/rc_reload_test.rs`(다시 읽은 목록으로 현황 · 기동 · 못 읽은 파일 ·
+스위치), `crates/rocky-cli/tests/it/rc_cmd_test.rs`, `crates/rocky-cli/tests/it/rc_targets_cmd_test.rs`(출력 · 링크와 권한을 지키는 쓰기).

@@ -244,7 +244,7 @@ pub async fn run_daemon(
     pr_watch: rocky_core::config::PrWatchConfig,
     tokens: TokensRuntime,
     verify: rocky_core::verify::VerifyConfig,
-    rc: Option<rocky_core::config::RcConfig>,
+    rc_settings: crate::rc::RcSettings,
     access: Option<rocky_core::access::AccessConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
@@ -303,16 +303,19 @@ pub async fn run_daemon(
     if integrity != "ok" {
         eprintln!("rocky: ⚠ DB 무결성 이상 — {integrity}");
     }
+    // 기동 때의 rc 설정 — 띄우기 · 감시 · 야간을 켤지는 이것으로 정한다. 대상 목록은 `rocky rc reload` 로 바뀔 수 있어
+    // 현황 · 기동기는 같은 `rc_settings` 를 본다.
+    let rc = rc_settings.get();
     let (rc_status, agy_control) = crate::rc::rc_handles(
         crate::runner::default_runner(),
-        rc.clone(),
+        rc_settings.clone(),
         std::env::var("HOME").unwrap_or_default(),
         crate::rc::RC_CACHE_TTL,
     );
     // 띄우기 · 재시작 — rc 가 켜진 기기에서만. 기동 로그와 이벤트는 todo 폴더의 rc/ 에.
-    let rc_control = rc.clone().map(|config| {
+    let rc_control = rc.is_some().then(|| {
         Arc::new(crate::rc::RcController::new(
-            Some(config),
+            rc_settings.clone(),
             std::env::var("HOME").unwrap_or_default(),
             runtime.dir.join("rc"),
             crate::runner::default_runner(),
@@ -331,6 +334,7 @@ pub async fn run_daemon(
         rc: Some(rc_status),
         agy_control: Some(agy_control),
         rc_control: rc_control.clone(),
+        rc_settings: Some(rc_settings),
         // Cloudflare Access 로 들어온 사람의 원격 제어 — `access` 블록이 있을 때만 공개키를 받는다(첫 요청 때).
         access: access.map(|config| {
             Arc::new(crate::access::AccessGate::new(
@@ -545,8 +549,12 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
         recommend: tokens_block.recommend,
     };
     let verify = rocky_core::verify::load_verify_block(&config_path);
-    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다.
-    let rc = rocky_core::config::load_rc_block(&config_path);
+    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다. 대상 목록은 `rocky rc reload` 가 같은 파일에서 다시 읽는다.
+    let rc = crate::rc::RcSettings::new(
+        rocky_core::config::load_rc_block(&config_path),
+        config_path.clone(),
+        std::env::var("HOME").unwrap_or_default(),
+    );
     let access = rocky_core::config::load_access_block(&config_path);
     run_daemon(
         runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc, access,

@@ -20,6 +20,7 @@ mod note_doc_test;
 mod notify_test;
 mod peer_inbox_test;
 mod prwatch_test;
+mod rc_targets_test;
 mod rc_test;
 mod refs_test;
 mod sessions_test;

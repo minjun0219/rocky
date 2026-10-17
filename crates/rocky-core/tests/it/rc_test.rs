@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use rocky_core::config::{load_rc_block, NightlyConfig, RcConfig};
+use rocky_core::config::{load_rc_block, read_rc_block, NightlyConfig, RcConfig};
 use rocky_core::rc::*;
 
 #[test]
@@ -276,6 +276,28 @@ fn rc_block_is_optional_and_lenient() {
     assert_eq!(
         load_rc_block(&path).map(|c| c.pinned),
         Some(vec!["a".to_string()])
+    );
+}
+
+/// 다시 읽기(`rocky rc reload`)는 못 읽은 파일과 rc 가 없는 파일을 가른다 — 못 읽었으면 하던 대상 목록을 그대로 쓴다.
+#[test]
+fn read_rc_block_tells_unreadable_from_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    let err = read_rc_block(&path).unwrap_err();
+    assert!(err.starts_with("설정 파일을 읽지 못했다("), "{err}");
+    assert!(err.contains(&path.display().to_string()), "{err}");
+    std::fs::write(&path, r#"{"rc":{"targets":["a","#).unwrap();
+    let err = read_rc_block(&path).unwrap_err();
+    assert!(err.starts_with("설정 파일이 JSON이 아니다("), "{err}");
+    std::fs::write(&path, r#"{"todo":{}}"#).unwrap();
+    assert_eq!(read_rc_block(&path), Ok(None));
+    std::fs::write(&path, r#"{"rc":{"enabled":false,"targets":["a"]}}"#).unwrap();
+    assert_eq!(read_rc_block(&path), Ok(None));
+    std::fs::write(&path, r#"{"rc":{"targets":["a"]}}"#).unwrap();
+    assert_eq!(
+        read_rc_block(&path).map(|c| c.map(|c| c.targets)),
+        Ok(Some(vec!["a".to_string()]))
     );
 }
 
