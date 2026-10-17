@@ -38,7 +38,7 @@ impl RcController {
     /// 띄우기 전 점검 — 현황을 못 읽거나, 데몬 맥락의 claude 가 로그아웃이거나, 그 폴더에 rc 서버가 이미 있으면(대상이든
     /// 아니든 — 할 일당 서버 하나) 사유. 그때는 띄우지 않는다.
     pub async fn check_handoff_dir(&self, dir: &str) -> Result<(), String> {
-        let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(format!("rc 현황을 못 읽어 띄우지 않았다({dir}) — {err}"));
         }
@@ -346,7 +346,7 @@ impl RcController {
                 let _ = std::fs::remove_file(path);
             }
         };
-        let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(RcRefusal::Busy(format!(
                 "rc 현황을 못 읽어 닫지 않았다 — {err}"
@@ -384,7 +384,7 @@ impl RcController {
     /// 대상 밖 서버를 닫는다 — pid 나 라벨(폴더 이름)로 고르고, 캐시 없이 다시 재서 그 pid 가 지금 그 폴더의 rc 서버일 때만
     /// pid 로 내린다(SIGTERM → 유예 → SIGKILL). 설정 대상은 여기서 내리지 않는다(대상 밖이 아니다). 프로브가 실패하면 손대지 않는다.
     pub async fn stop_stray(&self, key: &str) -> Result<(rc::StrayRow, bool), RcRefusal> {
-        let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(RcRefusal::Busy(format!(
                 "rc 현황을 못 읽어 닫지 않았다 — {err}"

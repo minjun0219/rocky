@@ -244,7 +244,7 @@ pub async fn run_daemon(
     pr_watch: rocky_core::config::PrWatchConfig,
     tokens: TokensRuntime,
     verify: rocky_core::verify::VerifyConfig,
-    rc: Arc<crate::rc::RcConfigLive>,
+    rc_settings: crate::rc::RcSettings,
     access: Option<rocky_core::access::AccessConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
@@ -303,18 +303,19 @@ pub async fn run_daemon(
     if integrity != "ok" {
         eprintln!("rocky: ⚠ DB 무결성 이상 — {integrity}");
     }
-    let (rc_status, agy_control) = crate::rc::rc_handles_live(
+    // 기동 때의 rc 설정 — 띄우기 · 감시 · 야간을 켤지는 이것으로 정한다. 대상 목록은 `rocky rc reload` 로 바뀔 수 있어
+    // 현황 · 기동기는 같은 `rc_settings` 를 본다.
+    let rc = rc_settings.get();
+    let (rc_status, agy_control) = crate::rc::rc_handles(
         crate::runner::default_runner(),
-        rc.clone(),
+        rc_settings.clone(),
         std::env::var("HOME").unwrap_or_default(),
         crate::rc::RC_CACHE_TTL,
     );
     // 띄우기 · 재시작 — rc 가 켜진 기기에서만. 기동 로그와 이벤트는 todo 폴더의 rc/ 에.
-    // 대상 목록은 `rocky.json` 이 바뀌면 다시 읽는다(`RcConfigLive`) — 켜고 끄기 · 감시 · 야간은 기동 때 값.
-    let rc_start = rc.current();
-    let rc_control = rc_start.is_some().then(|| {
-        Arc::new(crate::rc::RcController::new_live(
-            rc.clone(),
+    let rc_control = rc.is_some().then(|| {
+        Arc::new(crate::rc::RcController::new(
+            rc_settings.clone(),
             std::env::var("HOME").unwrap_or_default(),
             runtime.dir.join("rc"),
             crate::runner::default_runner(),
@@ -333,6 +334,7 @@ pub async fn run_daemon(
         rc: Some(rc_status),
         agy_control: Some(agy_control),
         rc_control: rc_control.clone(),
+        rc_settings: Some(rc_settings),
         // Cloudflare Access 로 들어온 사람의 원격 제어 — `access` 블록이 있을 때만 공개키를 받는다(첫 요청 때).
         access: access.map(|config| {
             Arc::new(crate::access::AccessGate::new(
@@ -353,7 +355,7 @@ pub async fn run_daemon(
     }
     // rc 감시 — `rc.supervise` 일 때만. 꺼진 고정 서버를 2분마다 되살리고, 데몬 맥락의 자격이 끊기거나 돌아오면 배너 한 번.
     // 야간 재시작 — `rc.nightly` 일 때만. 못 띄운 서버는 표식을 남기고 감시가 살리므로 둘을 함께 켠다.
-    if let (Some(control), Some(config)) = (rc_control, rc_start.as_ref()) {
+    if let (Some(control), Some(config)) = (rc_control, rc.as_ref()) {
         let verify_notify =
             crate::verify::osascript_verify_notifier(crate::runner::default_runner());
         let notify: crate::rc::RcNotifier = Arc::new(move |title, body| verify_notify(title, body));
@@ -547,10 +549,11 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
         recommend: tokens_block.recommend,
     };
     let verify = rocky_core::verify::load_verify_block(&config_path);
-    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다.
-    let rc = crate::rc::RcConfigLive::watch(
-        config_path.clone(),
+    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다. 대상 목록은 `rocky rc reload` 가 같은 파일에서 다시 읽는다.
+    let rc = crate::rc::RcSettings::new(
         rocky_core::config::load_rc_block(&config_path),
+        config_path.clone(),
+        std::env::var("HOME").unwrap_or_default(),
     );
     let access = rocky_core::config::load_access_block(&config_path);
     run_daemon(

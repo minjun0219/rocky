@@ -1,137 +1,463 @@
-use rocky_core::rc_targets::{edit_rc_targets, RcEdit};
+use rocky_core::config::{NightlyConfig, RcConfig};
+use rocky_core::rc_targets::*;
 use serde_json::{json, Value};
 
 const HOME: &str = "/home/u";
+const ROOT: &str = "/home/u/dev/workspaces";
 
-fn config(rc: Value) -> String {
-    serde_json::to_string_pretty(&json!({ "todo": { "port": 8636 }, "rc": rc, "pr": {} })).unwrap()
+fn any_dir(_: &str) -> bool {
+    true
 }
 
-fn lists(out: &str) -> (Value, Value) {
-    let v: Value = serde_json::from_str(out).unwrap();
-    (v["rc"]["pinned"].clone(), v["rc"]["targets"].clone())
+fn no_dir(_: &str) -> bool {
+    false
 }
 
-#[test]
-fn add_appends_and_keeps_the_rest_of_the_file() {
-    let raw = config(json!({ "enabled": true, "pinned": [], "targets": ["rocky"] }));
-    let out = edit_rc_targets(&raw, HOME, "ogpeek", RcEdit::Add { pin: false }).unwrap();
-    assert_eq!(lists(&out.json), (json!([]), json!(["rocky", "ogpeek"])));
-    assert_eq!(out.dir, "/home/u/dev/workspaces/ogpeek");
-    // rc 밖의 키와 순서는 그대로.
-    let keys: Vec<String> = serde_json::from_str::<Value>(&out.json)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
-    assert_eq!(keys, vec!["todo", "rc", "pr"]);
-    assert!(out.json.ends_with('\n'));
-}
-
-#[test]
-fn add_pin_goes_to_pinned_and_paths_under_root_become_relative() {
-    let raw = config(json!({ "pinned": [], "targets": [] }));
-    let out = edit_rc_targets(
-        &raw,
+fn add(doc: &mut Value, input: &str, pin: bool) -> Result<Edit, String> {
+    add_target(
+        doc,
+        input,
+        pin,
+        "/home/u/dev/workspaces/beta",
         HOME,
-        "~/dev/workspaces/cabinet/",
-        RcEdit::Add { pin: true },
+        &any_dir,
     )
-    .unwrap();
-    assert_eq!(lists(&out.json), (json!(["cabinet"]), json!([])));
-    // root 밖은 받은 그대로.
-    let out = edit_rc_targets(&raw, HOME, "/srv/x", RcEdit::Add { pin: false }).unwrap();
-    assert_eq!(lists(&out.json).1, json!(["/srv/x"]));
+}
+
+fn rm(doc: &mut Value, key: &str) -> Result<Edit, String> {
+    remove_target(doc, key, "/home/u/dev/workspaces/beta", HOME)
+}
+
+fn edit(change: Change, label: &str, dir: &str, entry: &str, pinned: bool) -> Edit {
+    Edit {
+        change,
+        label: label.into(),
+        dir: dir.into(),
+        entry: entry.into(),
+        pinned,
+        disabled: false,
+    }
 }
 
 #[test]
-fn add_refuses_what_is_already_there() {
-    let raw = config(json!({ "pinned": ["cabinet"], "targets": ["rocky"] }));
-    for (name, pin) in [("rocky", false), ("cabinet", false), ("cabinet", true)] {
-        assert!(
-            edit_rc_targets(&raw, HOME, name, RcEdit::Add { pin }).is_err(),
-            "{name} {pin}"
+fn entry_is_written_in_the_shortest_form() {
+    let cases = [
+        ("맨 이름", "ogpeek", ROOT, "ogpeek"),
+        ("끝 슬래시", "ogpeek/", ROOT, "ogpeek"),
+        ("겹친 조각", "a//b/./c/../d", ROOT, "a/b/d"),
+        (
+            "root 아래 절대 경로(셸이 ~ 를 푼 꼴)",
+            "/home/u/dev/workspaces/ogpeek",
+            ROOT,
+            "ogpeek",
+        ),
+        ("root 아래 ~ 꼴", "~/dev/workspaces/ogpeek", ROOT, "ogpeek"),
+        ("홈 아래", "/home/u/notes", ROOT, "~/notes"),
+        ("홈", "~", ROOT, "~"),
+        ("root 자신", "~/dev/workspaces", ROOT, "~/dev/workspaces"),
+        ("홈 밖", "/srv/x/../y", ROOT, "/srv/y"),
+        ("지금 폴더", ".", "/home/u/dev/workspaces/beta", "beta"),
+        ("윗 폴더", "..", "/home/u/dev/workspaces/beta/sub", "beta"),
+        (
+            "옆 폴더",
+            "../alpha",
+            "/home/u/dev/workspaces/beta",
+            "alpha",
+        ),
+        ("홈 아래 지금 폴더", ".", "/home/u/other/", "~/other"),
+        ("홈 밖 지금 폴더", "./x", "/srv", "/srv/x"),
+    ];
+    for (what, input, cwd, want) in cases {
+        assert_eq!(
+            entry_for(input, cwd, HOME, ROOT).as_deref(),
+            Ok(want),
+            "{what}: {input}"
         );
     }
-    // 대상을 고정으로 넣는 것은 받는다(고정에 더한다).
-    let out = edit_rc_targets(&raw, HOME, "rocky", RcEdit::Add { pin: true }).unwrap();
     assert_eq!(
-        lists(&out.json),
-        (json!(["cabinet", "rocky"]), json!(["rocky"]))
+        entry_for("  ", ROOT, HOME, ROOT),
+        Err("대상 이름이 비었다".into())
     );
 }
 
 #[test]
-fn remove_by_label_drops_both_lists() {
-    let raw = config(json!({
-        "pinned": ["cabinet/notes"],
-        "targets": ["rocky", "cabinet/notes"]
-    }));
-    let out = edit_rc_targets(&raw, HOME, "notes", RcEdit::Remove).unwrap();
-    assert_eq!(lists(&out.json), (json!([]), json!(["rocky"])));
-    assert!(
-        out.message.contains("rocky rc stop notes"),
-        "{}",
-        out.message
-    );
-    assert!(edit_rc_targets(&raw, HOME, "nope", RcEdit::Remove).is_err());
-}
-
-#[test]
-fn ambiguous_label_is_refused() {
-    let raw = config(json!({ "pinned": [], "targets": ["a/web", "b/web"] }));
-    let err = edit_rc_targets(&raw, HOME, "web", RcEdit::Remove).unwrap_err();
-    assert!(err.contains("둘 이상"), "{err}");
-    // 경로로 고르면 된다.
-    let out = edit_rc_targets(&raw, HOME, "a/web", RcEdit::Remove).unwrap();
-    assert_eq!(lists(&out.json).1, json!(["b/web"]));
-}
-
-#[test]
-fn pin_and_unpin() {
-    let raw = config(json!({ "pinned": ["only-pinned"], "targets": ["rocky"] }));
-    let out = edit_rc_targets(&raw, HOME, "rocky", RcEdit::Pin).unwrap();
+fn add_creates_the_block_after_existing_keys() {
+    let mut doc = json!({ "$schema": "s", "todo": { "port": 1 } });
     assert_eq!(
-        lists(&out.json),
-        (json!(["only-pinned", "rocky"]), json!(["rocky"]))
+        add(&mut doc, "ogpeek", false),
+        Ok(edit(
+            Change::Added,
+            "ogpeek",
+            "/home/u/dev/workspaces/ogpeek",
+            "ogpeek",
+            false
+        ))
     );
-    assert!(edit_rc_targets(&raw, HOME, "only-pinned", RcEdit::Pin).is_err());
-    // 고정에만 있던 것을 풀면 대상으로 남긴다.
-    let out = edit_rc_targets(&raw, HOME, "only-pinned", RcEdit::Unpin).unwrap();
     assert_eq!(
-        lists(&out.json),
-        (json!([]), json!(["rocky", "only-pinned"]))
+        add(&mut doc, ".", true).map(|e| (e.change, e.entry, e.pinned)),
+        Ok((Change::Added, "beta".into(), true))
     );
-    assert!(edit_rc_targets(&raw, HOME, "rocky", RcEdit::Unpin).is_err());
+    assert_eq!(
+        serde_json::to_string(&doc).unwrap(),
+        r#"{"$schema":"s","todo":{"port":1},"rc":{"targets":["ogpeek"],"pinned":["beta"]}}"#
+    );
 }
 
 #[test]
-fn refuses_without_rc_block_or_on_broken_json() {
-    let no_rc = serde_json::to_string(&json!({ "todo": {} })).unwrap();
-    let err = edit_rc_targets(&no_rc, HOME, "x", RcEdit::Add { pin: false }).unwrap_err();
-    assert!(err.contains("rc 블록이 없다"), "{err}");
-    assert!(edit_rc_targets("{", HOME, "x", RcEdit::Add { pin: false }).is_err());
-    assert!(edit_rc_targets(&no_rc, HOME, "  ", RcEdit::Remove).is_err());
+fn add_keeps_existing_entries_and_only_promotes_to_pinned() {
+    let mut doc = json!({ "rc": { "pinned": ["alpha"], "targets": ["~/dev/workspaces/beta"] } });
+    let before = doc.clone();
+    // 꼴이 달라도 같은 폴더면 그대로 — 적힌 이름을 돌려준다.
+    assert_eq!(
+        add(&mut doc, "beta", false),
+        Ok(edit(
+            Change::Unchanged,
+            "beta",
+            "/home/u/dev/workspaces/beta",
+            "~/dev/workspaces/beta",
+            false
+        ))
+    );
+    assert_eq!(
+        add(&mut doc, "/home/u/dev/workspaces/alpha", true).map(|e| (e.change, e.pinned)),
+        Ok((Change::Unchanged, true))
+    );
+    // --pin 없이 다시 더해도 고정을 풀지 않는다.
+    assert_eq!(
+        add(&mut doc, "alpha", false).map(|e| (e.change, e.pinned)),
+        Ok((Change::Unchanged, true))
+    );
+    assert_eq!(doc, before);
+    assert_eq!(
+        add(&mut doc, "beta", true),
+        Ok(edit(
+            Change::Pinned,
+            "beta",
+            "/home/u/dev/workspaces/beta",
+            "~/dev/workspaces/beta",
+            true
+        ))
+    );
+    assert_eq!(
+        doc,
+        json!({ "rc": { "pinned": ["alpha", "~/dev/workspaces/beta"], "targets": [] } })
+    );
 }
 
 #[test]
-fn custom_root_is_respected() {
-    let raw = config(json!({ "root": "ws", "pinned": [], "targets": [] }));
-    let out = edit_rc_targets(&raw, HOME, "/home/u/ws/app", RcEdit::Add { pin: false }).unwrap();
-    assert_eq!(lists(&out.json).1, json!(["app"]));
-    assert_eq!(out.dir, "/home/u/ws/app");
+fn add_refuses_a_label_clash_and_a_missing_folder() {
+    let mut doc = json!({ "rc": { "targets": ["/srv/ogpeek"] } });
+    let before = doc.clone();
+    assert_eq!(
+        add(&mut doc, "ogpeek", false),
+        Err("이름이 같은 대상이 이미 있다: ogpeek(/srv/ogpeek). rc 는 폴더 이름으로 부르므로 둘을 함께 둘 수 없다".into())
+    );
+    let cwd = "/home/u/dev/workspaces/beta";
+    assert_eq!(
+        add_target(&mut doc, "nope", false, cwd, HOME, &no_dir),
+        Err("폴더가 없다: /home/u/dev/workspaces/nope. 맨 이름은 root 아래로 푼다: /home/u/dev/workspaces".into())
+    );
+    assert_eq!(
+        add_target(&mut doc, "/srv/nope", false, cwd, HOME, &no_dir),
+        Err("폴더가 없다: /srv/nope".into())
+    );
+    // 고정으로 옮길 때도 폴더를 본다.
+    assert_eq!(
+        add_target(&mut doc, "/srv/ogpeek", true, cwd, HOME, &no_dir),
+        Err("폴더가 없다: /srv/ogpeek".into())
+    );
+    assert_eq!(
+        add(&mut doc, "/", false),
+        Err("rc 대상으로 쓸 수 없는 폴더다: /".into())
+    );
+    assert_eq!(doc, before);
 }
 
 #[test]
-fn label_outside_root_keeps_the_original_entry() {
-    // 라벨로 고른 칸이 root 밖이면 라벨이 아니라 원래 경로를 적는다 — 라벨은 `<root>/<라벨>` 로 풀린다.
-    let raw = config(json!({ "pinned": ["/srv/foo"], "targets": [] }));
-    let out = edit_rc_targets(&raw, HOME, "foo", RcEdit::Unpin).unwrap();
-    assert_eq!(lists(&out.json), (json!([]), json!(["/srv/foo"])));
-    let raw = config(json!({ "pinned": [], "targets": ["/srv/foo"] }));
-    let out = edit_rc_targets(&raw, HOME, "foo", RcEdit::Pin).unwrap();
-    assert_eq!(lists(&out.json), (json!(["/srv/foo"]), json!(["/srv/foo"])));
-    assert_eq!(out.dir, "/srv/foo");
+fn add_follows_root_and_reports_a_disabled_block() {
+    let mut doc = json!({ "rc": { "root": "~/src", "enabled": false } });
+    let got = add(&mut doc, "x", false).unwrap();
+    assert_eq!((got.dir.as_str(), got.disabled), ("/home/u/src/x", true));
+    assert_eq!(doc["rc"]["targets"], json!(["x"]));
+}
+
+#[test]
+fn add_refuses_hand_broken_shapes() {
+    let cases = [
+        (json!([]), "rocky.json의 맨 위가 객체가 아니다"),
+        (
+            json!({ "rc": "x" }),
+            "rocky.json의 rc가 객체가 아니다. 손으로 고친 뒤 다시 한다",
+        ),
+        (
+            json!({ "rc": { "targets": "x" } }),
+            "rocky.json의 rc.targets가 배열이 아니다. 손으로 고친 뒤 다시 한다",
+        ),
+    ];
+    for (mut doc, want) in cases {
+        assert_eq!(add(&mut doc, "a", false), Err(want.to_string()));
+    }
+}
+
+#[test]
+fn remove_matches_a_label_or_a_path_and_clears_both_lists() {
+    // 손으로 고치다 두 목록에 같은 폴더가 들어간 경우 — 둘 다 지운다.
+    let mut doc = json!({ "rc": {
+        "pinned": ["alpha", "~/dev/workspaces/beta"],
+        "targets": ["beta/", "/srv/gamma"]
+    } });
+    assert_eq!(
+        rm(&mut doc, "beta"),
+        Ok(edit(
+            Change::Removed,
+            "beta",
+            "/home/u/dev/workspaces/beta",
+            "~/dev/workspaces/beta",
+            true
+        ))
+    );
+    assert_eq!(
+        rm(&mut doc, "/srv/gamma").map(|e| (e.label, e.pinned)),
+        Ok(("gamma".into(), false))
+    );
+    assert_eq!(
+        remove_target(&mut doc, ".", "/home/u/dev/workspaces/alpha", HOME).map(|e| e.label),
+        Ok("alpha".into())
+    );
+    assert_eq!(doc, json!({ "rc": { "pinned": [], "targets": [] } }));
+}
+
+#[test]
+fn remove_explains_what_it_could_not_match() {
+    assert_eq!(
+        rm(&mut json!({}), "x"),
+        Err("rc 대상이 아니다: x. rocky.json에 rc 블록이 없다".into())
+    );
+    assert_eq!(
+        rm(&mut json!({ "rc": {} }), "x"),
+        Err("rc 대상이 아니다: x. 대상이 하나도 없다".into())
+    );
+    assert_eq!(
+        rm(
+            &mut json!({ "rc": { "pinned": ["a"], "targets": ["b"] } }),
+            "c"
+        ),
+        Err("rc 대상이 아니다: c. 지금 대상: a, b".into())
+    );
+    let mut doc = json!({ "rc": { "targets": ["/srv/x", "/opt/x"] } });
+    assert_eq!(
+        rm(&mut doc, "x"),
+        Err("이름이 같은 대상이 둘 이상이다: x. 경로로 고른다: /srv/x, /opt/x".into())
+    );
+    // 경로가 든 열쇠는 라벨로 맞대지 않는다 — 그 경로만 뺀다.
+    assert_eq!(rm(&mut doc, "/opt/x").map(|e| e.dir), Ok("/opt/x".into()));
+    assert_eq!(doc, json!({ "rc": { "targets": ["/srv/x"] } }));
+}
+
+#[test]
+fn list_follows_the_daemon_order_and_flags_problems() {
+    let doc = json!({ "rc": { "pinned": ["a"], "targets": ["/srv/x", "a", "/opt/x"] } });
+    let list = list_targets(&doc, HOME, &|d: &str| d != "/opt/x");
+    assert_eq!((list.configured, list.enabled), (true, true));
+    assert_eq!(list.root, ROOT);
+    let rows: Vec<(&str, &str, bool, bool, bool)> = list
+        .targets
+        .iter()
+        .map(|t| {
+            (
+                t.label.as_str(),
+                t.entry.as_str(),
+                t.pinned,
+                t.exists,
+                t.ambiguous,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("a", "a", true, true, false),
+            ("x", "/srv/x", false, true, true),
+            ("x", "/opt/x", false, false, true),
+        ]
+    );
+    let none = list_targets(&json!({}), HOME, &any_dir);
+    assert_eq!(
+        (none.configured, none.enabled, none.targets.len()),
+        (false, false, 0)
+    );
+    let off = list_targets(
+        &json!({ "rc": { "enabled": false, "targets": ["a"] } }),
+        HOME,
+        &any_dir,
+    );
+    assert_eq!(
+        (off.configured, off.enabled, off.targets.len()),
+        (true, false, 1)
+    );
+}
+
+#[test]
+fn render_keeps_the_indent_unit_and_key_order() {
+    let original = "{\n    \"z\": 1,\n    \"rc\": { \"targets\": [\"a\"] }\n}";
+    let doc: Value = serde_json::from_str(original).unwrap();
+    assert_eq!(
+        render_config(&doc, Some(original)),
+        "{\n    \"z\": 1,\n    \"rc\": {\n        \"targets\": [\n            \"a\"\n        ]\n    }\n}\n"
+    );
+    let tabs = "{\n\t\"a\": 1\n}\n";
+    assert_eq!(
+        render_config(&serde_json::from_str(tabs).unwrap(), Some(tabs)),
+        tabs
+    );
+    // 들여쓰기를 못 찾으면(한 줄 파일 · 새 파일) 두 칸.
+    assert_eq!(
+        render_config(&json!({ "a": 1 }), Some(r#"{"a":1}"#)),
+        "{\n  \"a\": 1\n}\n"
+    );
+    assert_eq!(render_config(&json!({}), None), "{}\n");
+}
+
+#[test]
+fn new_config_is_the_init_template() {
+    let doc = new_config();
+    assert_eq!(
+        doc,
+        serde_json::from_str::<Value>(&rocky_core::setup::default_config_json()).unwrap()
+    );
+    assert!(doc.get("rc").is_none());
+}
+
+fn rc(pinned: &[&str], targets: &[&str]) -> RcConfig {
+    RcConfig {
+        pinned: pinned.iter().map(|s| s.to_string()).collect(),
+        targets: targets.iter().map(|s| s.to_string()).collect(),
+        ..RcConfig::default()
+    }
+}
+
+#[test]
+fn reload_applies_the_lists_and_keeps_the_switches() {
+    let current = RcConfig {
+        supervise: true,
+        ..rc(&["a"], &["b", "c"])
+    };
+    let file = RcConfig {
+        supervise: true,
+        nightly: Some(NightlyConfig::default()),
+        root: Some("~/dev/workspaces/".into()),
+        ..rc(&["b"], &["a", "d"])
+    };
+    let (next, report) = plan_reload(Some(&current), Some(&file), HOME);
+    assert_eq!(
+        next,
+        Some(RcConfig {
+            root: Some("~/dev/workspaces/".into()),
+            pinned: vec!["b".into()],
+            targets: vec!["a".into(), "d".into()],
+            supervise: true,
+            nightly: None,
+        })
+    );
+    assert_eq!(
+        report,
+        Reload {
+            active: true,
+            supervise: true,
+            applied: true,
+            added: vec!["d".into()],
+            removed: vec!["c".into()],
+            pinned: vec!["b".into()],
+            unpinned: vec!["a".into()],
+            restart_needed: vec!["nightly"],
+        }
+    );
+}
+
+#[test]
+fn reload_without_list_changes_applies_nothing() {
+    let current = rc(&["a"], &["b"]);
+    let same = plan_reload(Some(&current), Some(&current.clone()), HOME);
+    assert_eq!(
+        same,
+        (
+            None,
+            Reload {
+                active: true,
+                ..Reload::default()
+            }
+        )
+    );
+    // 감시만 바뀌었다 — 대상 목록은 그대로, 감시는 재시작 몫.
+    let file = RcConfig {
+        supervise: true,
+        ..current.clone()
+    };
+    let (next, report) = plan_reload(Some(&current), Some(&file), HOME);
+    assert_eq!(next, None);
+    assert_eq!(
+        (report.applied, report.supervise, report.restart_needed),
+        (false, false, vec!["supervise"])
+    );
+    // root 가 바뀌면 맨 이름은 다른 폴더다 — 뺀 것과 더한 것으로 보인다.
+    let moved = RcConfig {
+        root: Some("~/src".into()),
+        ..current.clone()
+    };
+    let (next, report) = plan_reload(Some(&current), Some(&moved), HOME);
+    assert_eq!(next.and_then(|c| c.root), Some("~/src".into()));
+    assert_eq!(
+        (report.added, report.removed),
+        (vec!["a".into(), "b".into()], vec!["a".into(), "b".into()])
+    );
+}
+
+#[test]
+fn reload_defers_turning_rc_on_or_off() {
+    let config = RcConfig {
+        supervise: true,
+        ..rc(&["a"], &[])
+    };
+    assert_eq!(
+        plan_reload(None, Some(&config), HOME),
+        (
+            None,
+            Reload {
+                restart_needed: vec!["enabled"],
+                ..Reload::default()
+            }
+        )
+    );
+    assert_eq!(
+        plan_reload(Some(&config), None, HOME),
+        (
+            None,
+            Reload {
+                active: true,
+                supervise: true,
+                restart_needed: vec!["enabled"],
+                ..Reload::default()
+            }
+        )
+    );
+    assert_eq!(plan_reload(None, None, HOME), (None, Reload::default()));
+}
+
+#[test]
+fn reload_report_serializes_camel_case() {
+    let report = Reload {
+        restart_needed: vec!["supervise"],
+        ..Reload::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        json!({
+            "active": false, "supervise": false, "applied": false, "added": [], "removed": [],
+            "pinned": [], "unpinned": [], "restartNeeded": ["supervise"]
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(Change::Unchanged).unwrap(),
+        json!("unchanged")
+    );
 }

@@ -106,6 +106,7 @@ const LITERAL_THIRD: &[&str] = &[
     "handoffs",
     "strays",
     "doing",
+    "reload",
 ];
 
 /// 기록하지 않는 라우트 — 1초마다 도는 것과 스트림, 그리고 로그 자신.
@@ -360,6 +361,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Rest, "POST /api/rc/nightly"),
     (UsageSource::Rest, "POST /api/rc/handoffs/:ref/stop"),
     (UsageSource::Rest, "POST /api/rc/strays/:ref/stop"),
+    (UsageSource::Rest, "POST /api/rc/reload"),
     (UsageSource::Mcp, "todo_list"),
     (UsageSource::Mcp, "todo_write"),
     (UsageSource::Mcp, "todo_status"),
@@ -430,11 +432,9 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky rc nightly"),
     (UsageSource::Cli, "rocky rc report"),
     (UsageSource::Cli, "rocky rc stop"),
+    (UsageSource::Cli, "rocky rc targets"),
+    (UsageSource::Cli, "rocky rc reload"),
     (UsageSource::Cli, "rocky rc help"),
-    (UsageSource::Cli, "rocky rc add"),
-    (UsageSource::Cli, "rocky rc remove"),
-    (UsageSource::Cli, "rocky rc pin"),
-    (UsageSource::Cli, "rocky rc unpin"),
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),

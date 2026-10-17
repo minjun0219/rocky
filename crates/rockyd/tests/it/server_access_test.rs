@@ -138,6 +138,16 @@ async fn a_verified_owner_gets_remote_control_but_nothing_else_local() {
     )
     .await;
     assert_eq!(status, 403);
+    // 설정 파일을 다시 읽는 것도 이 범위가 아니다(대상 목록은 이 기기에서 고친다).
+    let (status, _) = call(
+        &f.state,
+        "POST",
+        "/api/rc/reload",
+        None,
+        via_access(&t, "127.0.0.1"),
+    )
+    .await;
+    assert_eq!(status, 403);
     // 부를 때마다 프로세스를 띄우는 읽기(리허설 · 최근 활동)도 이 범위가 아니다.
     let (status, _) = call(
         &f.state,

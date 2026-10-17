@@ -142,3 +142,11 @@ fn rc_wait_and_fresh_are_boolean_flags() {
     assert!(parsed.bool_flag("wait"));
     assert_eq!(parsed.positionals, vec!["rc", "restart", "repo-a"]);
 }
+
+#[test]
+fn rc_targets_pin_does_not_swallow_the_target() {
+    // `rocky rc targets add --pin ogpeek` — 앞에 와도 대상 이름을 값으로 먹지 않는다.
+    let parsed = parse_flags(&argv(&["rc", "targets", "add", "--pin", "ogpeek"])).unwrap();
+    assert!(parsed.bool_flag("pin"));
+    assert_eq!(parsed.positionals, vec!["rc", "targets", "add", "ogpeek"]);
+}

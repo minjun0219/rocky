@@ -485,19 +485,6 @@ pub struct RcConfig {
     pub nightly: Option<NightlyConfig>,
 }
 
-impl RcConfig {
-    /// 다시 읽은 설정에서 목록(`root` · `pinned` · `targets`)만 받는다 — 감시 · 야간은 데몬이 기동 때 잡을 띄울지
-    /// 정하므로 바꿔도 다음 기동까지 그대로다(`rockyd::rc::RcConfigLive`).
-    pub fn with_lists_from(&self, fresh: &RcConfig) -> RcConfig {
-        RcConfig {
-            root: fresh.root.clone(),
-            pinned: fresh.pinned.clone(),
-            targets: fresh.targets.clone(),
-            ..self.clone()
-        }
-    }
-}
-
 /// `rc.nightly` — 매일 `at` 에 `claude update` 뒤 구버전이면서 쉬는 서버만 다시 띄운다(`rocky_core::rc` 의 야간 판정).
 /// 시각은 이 기기의 현지 시각이다.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -548,12 +535,30 @@ fn parse_nightly(value: &serde_json::Value) -> Option<NightlyConfig> {
 /// 파일 없음 / 파싱 실패 / 블록 없음 / `enabled: false` 는 None(꺼짐, fail-open). 모양이 틀린 칸은 빈 값으로
 /// 읽는다. `enabled` 는 목록을 남긴 채 이 기기에서만 끄는 스위치다 — rc 를 못 쓰는 기기가 있다.
 pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
-    let raw = std::fs::read_to_string(config_path).ok()?;
-    let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
-    let block = parsed.get("rc")?.as_object()?;
-    if block.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
-        return None;
-    }
+    read_rc_block(config_path).ok().flatten()
+}
+
+/// `load_rc_block` 의 엄격한 판 — 파일을 못 읽거나 JSON 이 아니면 Err(경로와 원인). 블록이 없거나 꺼져 있으면 Ok(None).
+/// 떠 있는 데몬이 설정을 다시 읽을 때(`rocky rc reload`) 쓴다 — 고치다 만 파일을 "rc 꺼짐" 으로 읽지 않게.
+pub fn read_rc_block(config_path: &Path) -> Result<Option<RcConfig>, String> {
+    let raw = std::fs::read_to_string(config_path)
+        .map_err(|e| format!("설정 파일을 읽지 못했다({}): {e}", config_path.display()))?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw)
+        .map_err(|e| format!("설정 파일이 JSON이 아니다({}): {e}", config_path.display()))?;
+    Ok(parsed
+        .get("rc")
+        .and_then(|v| v.as_object())
+        .filter(|block| rc_enabled(block))
+        .map(parse_rc_block))
+}
+
+/// `rc` 블록이 이 기기에서 켜져 있나 — `enabled: false` 일 때만 꺼진다.
+pub fn rc_enabled(block: &serde_json::Map<String, serde_json::Value>) -> bool {
+    block.get("enabled").and_then(|v| v.as_bool()) != Some(false)
+}
+
+/// `rc` 블록 → 설정. `enabled` 는 보지 않는다 — 대상 목록을 고칠 때(`rocky rc targets`)는 꺼진 블록도 읽는다.
+pub fn parse_rc_block(block: &serde_json::Map<String, serde_json::Value>) -> RcConfig {
     let names = |key: &str| -> Vec<String> {
         block
             .get(key)
@@ -568,7 +573,7 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
             })
             .unwrap_or_default()
     };
-    Some(RcConfig {
+    RcConfig {
         root: block
             .get("root")
             .and_then(|v| v.as_str())
@@ -579,7 +584,7 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
         targets: names("targets"),
         supervise: block.get("supervise").and_then(|v| v.as_bool()) == Some(true),
         nightly: block.get("nightly").and_then(parse_nightly),
-    })
+    }
 }
 
 /// `rocky.json` 의 `access` 블록 — Cloudflare Access 로 들어온 사람에게 원격 제어를 여는 설정. 데몬은 사용자 설정만

@@ -79,7 +79,7 @@
     "build:tui": "bun scripts/build-tui.ts",
     "tui": "bun tui/main.tsx",
     "e2e": "playwright test",
-    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./plugin/hooks ./bridges ./web",
+    "test:unit": "bun test --path-ignore-patterns='**/*.test.tsx' ./scripts ./plugin/scripts ./plugin/hooks ./bridges ./cloud ./web",
     "test:dom": "bun test --preload ./web/happydom.ts --path-ignore-patterns='**/*.test.ts' ./web",
     "test:tui": "bun test ./tui",
     "test:panel": "bun scripts/panel-check.ts"
