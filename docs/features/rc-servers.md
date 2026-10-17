@@ -24,7 +24,9 @@
   서버도 그대로 떠 있고, 감시는 고정으로 되살리지 않는다(야간이 남긴 되살림 표식은 그대로라 그 한 번은 띄운다 — 아래).
   재시작 · 띄우기 도중 그 폴더가 목록에서 빠져도 떠 있는 서버는 대상 밖 서버에서 찾는다(`RcStatus::live_server`) — 꺼진 것으로 보고
   같은 폴더에 하나 더 띄우지 않는다. 다시 읽기 응답의 `path` 가 CLI 의 설정 파일과 다르면(`ROCKY_CONFIG` 가 다른 셸)
-  CLI 는 두 경로를 알리고, 고친 대상을 데몬에 반영했다고 하지 않는다. *EN: reload applies the target lists only; a changed file (mtime ·
+  CLI 는 두 경로를 알리고, 고친 대상을 데몬에 반영했다고 하지 않는다. 에이전트가 부를 때의 확인은 `permissions.ask` 에
+  `Bash(rocky rc targets add:*)` · `Bash(rocky rc targets rm:*)` · `Bash(rocky rc targets unpin:*)` 로 받는다(보기와 `rocky rc reload` 는
+  묻지 않는다). *EN: reload applies the target lists only; a changed file (mtime ·
   size · inode) is re-read on the next look; switches wait for a daemon restart; a broken file keeps the running list.*
 - **서버 판정은 argv 구조**(`claude` + `rc`/`remote-control` + `--name`). 자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로.
 - **맞대기는 cwd 문자열**이라 정규화하지 않는다.
@@ -149,13 +151,13 @@
 | 무엇 | 어디 |
 | --- | --- |
 | 판정(순수) | `crates/rocky-core/src/rc.rs` |
-| 대상 목록 고치기 · 다시 읽기 판정(순수 — `add_target` · `remove_target` · `plan_reload`) | `crates/rocky-core/src/rc_targets.rs` |
+| 대상 목록 고치기 · 다시 읽기 판정(순수 — `add_target` · `remove_target` · `unpin_target` · `plan_reload` · `auto_reload_line`) | `crates/rocky-core/src/rc_targets.rs` |
 | 프로브·기동기(`RcController`)·감시(`supervise_tick`)·라우트·agy 손잡이·설정 다시 읽기(`RcSettings`) | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
 | 야간 재시작(`run_nightly` · `spawn_rc_nightly` · 리허설 `nightly_preview`) | `crates/rockyd/src/rc/nightly.rs` |
 | CLI | `crates/rocky-cli/src/rc_cmd.rs`, `crates/rocky-cli/src/rc_targets_cmd.rs`(`targets` · `reload`, 설정 파일 쓰기) |
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
-테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인), `crates/rockyd/tests/it/rc_log_test.rs`(커진 로그만 비움 · 비운 뒤 append 로 처음부터),
+테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인 · 재시작 도중 목록에서 빠진 대상), `crates/rockyd/tests/it/rc_log_test.rs`(커진 로그만 비움 · 비운 뒤 append 로 처음부터),
 `crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계 — canary · 회복 · 마감 · 네트워크 · 바쁨 · 일정),
 `crates/rocky-core/tests/it/rc_targets_test.rs`, `crates/rockyd/tests/it/rc_reload_test.rs`(다시 읽은 목록으로 현황 · 기동 · 못 읽은 파일 ·
-스위치), `crates/rocky-cli/tests/it/rc_cmd_test.rs`, `crates/rocky-cli/tests/it/rc_targets_cmd_test.rs`(출력 · 링크와 권한을 지키는 쓰기).
+스위치 · 손으로 고친 파일 · 고치다 만 파일), `crates/rocky-cli/tests/it/rc_cmd_test.rs`, `crates/rocky-cli/tests/it/rc_targets_cmd_test.rs`(출력 · 링크와 권한을 지키는 쓰기).
