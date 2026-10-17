@@ -1,12 +1,14 @@
 //! `rocky rc targets` · `rocky rc reload` — rocky.json 의 rc 대상 목록(`pinned` · `targets`)을 고치는 판정과, 떠 있는
 //! 데몬이 고친 목록을 다시 읽을 때 무엇을 바로 쓰고 무엇을 데몬 재시작으로 미루는지. 파일 읽기 · 쓰기는 CLI, 다시 읽기는
-//! 데몬(`rockyd::rc::RcSettings`)이 한다.
+//! 데몬(`rockyd::rc::RcSettings` — 파일이 바뀌면 알아서, `rocky rc reload` 면 바로)이 한다.
 
 use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::config::{parse_rc_block, rc_enabled, RcConfig};
-use crate::rc::{label_of, resolve_dir, resolve_entries, resolve_root, resolve_targets, Target};
+use crate::rc::{
+    label_of, resolve_dir, resolve_entries, resolve_root, resolve_targets, Target, TargetEntry,
+};
 
 /// 대상 목록을 고친 결과.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -16,12 +18,14 @@ pub enum Change {
     Added,
     /// 일반 대상을 고정으로 옮겼다.
     Pinned,
-    /// 이미 있어 파일을 고치지 않았다. 고정을 풀지는 않는다(풀려면 빼고 다시 더한다).
+    /// 고정 대상을 일반 대상으로 옮겼다(`rocky rc targets unpin`).
+    Unpinned,
+    /// 이미 있어 파일을 고치지 않았다. 더하기는 고정을 풀지 않는다(풀려면 `unpin`).
     Unchanged,
     Removed,
 }
 
-/// `add_target` · `remove_target` 의 결과 — 무엇을 바꿨고 그 대상이 무엇인지.
+/// `add_target` · `remove_target` · `unpin_target` 의 결과 — 무엇을 바꿨고 그 대상이 무엇인지.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edit {
@@ -170,46 +174,13 @@ pub fn add_target(
 /// `rocky rc targets rm` — 라벨(폴더 이름)이나 경로로 대상을 골라 rocky.json 문서에서 뺀다. 그 폴더로 풀리는 이름은
 /// `pinned` · `targets` 양쪽에서 모두 지운다. 라벨이 같은 대상이 둘 이상이면 거절한다(경로로 고르게).
 pub fn remove_target(doc: &mut Value, key: &str, cwd: &str, home: &str) -> Result<Edit, String> {
-    let key = key.trim();
-    let Some(block) = doc.get_mut("rc").and_then(Value::as_object_mut) else {
-        return Err(format!(
-            "rc 대상이 아니다: {key}. rocky.json에 rc 블록이 없다"
-        ));
-    };
-    let config = parse_rc_block(block);
-    let disabled = !rc_enabled(block);
-    let root = resolve_root(&config, home);
-    let entries = resolve_entries(&config, home);
-    let by_dir = entry_for(key, cwd, home, &root)
-        .ok()
-        .map(|e| resolve_dir(&e, home, &root));
-    let matched: Vec<_> = entries
-        .iter()
-        .filter(|e| {
-            by_dir.as_deref() == Some(e.target.dir.as_str())
-                || (!key.contains('/') && e.target.label == key)
-        })
-        .collect();
-    let found = match matched.as_slice() {
-        [one] => (*one).clone(),
-        [] if entries.is_empty() => {
-            return Err(format!("rc 대상이 아니다: {key}. 대상이 하나도 없다"))
-        }
-        [] => {
-            let labels: Vec<&str> = entries.iter().map(|e| e.target.label.as_str()).collect();
-            return Err(format!(
-                "rc 대상이 아니다: {key}. 지금 대상: {}",
-                labels.join(", ")
-            ));
-        }
-        many => {
-            let dirs: Vec<&str> = many.iter().map(|e| e.target.dir.as_str()).collect();
-            return Err(format!(
-                "이름이 같은 대상이 둘 이상이다: {key}. 경로로 고른다: {}",
-                dirs.join(", ")
-            ));
-        }
-    };
+    let Picked {
+        block,
+        disabled,
+        root,
+        found,
+        ..
+    } = pick_in(doc, key, cwd, home)?;
     remove_dir(block, "pinned", &found.target.dir, home, &root);
     remove_dir(block, "targets", &found.target.dir, home, &root);
     Ok(Edit {
@@ -220,6 +191,126 @@ pub fn remove_target(doc: &mut Value, key: &str, cwd: &str, home: &str) -> Resul
         pinned: found.target.pinned,
         disabled,
     })
+}
+
+/// `rocky rc targets unpin` — 고정 대상을 라벨(폴더 이름)이나 경로로 골라(`rm` 과 같은 규칙) 일반 대상으로 옮긴다. 적힌
+/// 이름은 그대로 옮겨 적는다. 떠 있는 서버는 그대로이고, 감시가 고정으로 되살리지 않을 뿐이다. 고정 대상이 아니면
+/// 거절한다 — 고칠 것이 없다.
+pub fn unpin_target(doc: &mut Value, key: &str, cwd: &str, home: &str) -> Result<Edit, String> {
+    let Picked {
+        block,
+        config,
+        disabled,
+        root,
+        entries,
+        found,
+    } = pick_in(doc, key, cwd, home)?;
+    if !found.target.pinned {
+        let pinned: Vec<&str> = entries
+            .iter()
+            .filter(|e| e.target.pinned)
+            .map(|e| e.target.label.as_str())
+            .collect();
+        let hint = if pinned.is_empty() {
+            "고정 대상이 하나도 없다".to_string()
+        } else {
+            format!("고정 대상: {}", pinned.join(", "))
+        };
+        return Err(format!(
+            "고정 대상이 아니다: {}. {hint}",
+            found.target.label
+        ));
+    }
+    let dir = found.target.dir;
+    remove_dir(block, "pinned", &dir, home, &root);
+    // 손으로 고치다 일반 목록에도 같은 폴더가 들어가 있으면 하나 더 적지 않는다.
+    if !config
+        .targets
+        .iter()
+        .any(|name| resolve_dir(name, home, &root) == dir)
+    {
+        push(block, "targets", &found.entry)?;
+    }
+    Ok(Edit {
+        change: Change::Unpinned,
+        label: found.target.label,
+        dir,
+        entry: found.entry,
+        pinned: false,
+        disabled,
+    })
+}
+
+/// `rm` · `unpin` 이 고를 자리 — 문서의 rc 블록과 그 설정, 꺼짐 여부, root, 풀린 대상들, 고른 대상.
+struct Picked<'a> {
+    block: &'a mut Map<String, Value>,
+    config: RcConfig,
+    disabled: bool,
+    root: String,
+    entries: Vec<TargetEntry>,
+    found: TargetEntry,
+}
+
+/// rocky.json 문서에서 대상 하나를 고른다(`rm` · `unpin`). rc 블록이 없으면 거절한다.
+fn pick_in<'a>(doc: &'a mut Value, key: &str, cwd: &str, home: &str) -> Result<Picked<'a>, String> {
+    let key = key.trim();
+    let Some(block) = doc.get_mut("rc").and_then(Value::as_object_mut) else {
+        return Err(format!(
+            "rc 대상이 아니다: {key}. rocky.json에 rc 블록이 없다"
+        ));
+    };
+    let config = parse_rc_block(block);
+    let disabled = !rc_enabled(block);
+    let root = resolve_root(&config, home);
+    let entries = resolve_entries(&config, home);
+    let found = pick_target(&entries, key, cwd, home, &root)?;
+    Ok(Picked {
+        block,
+        config,
+        disabled,
+        root,
+        entries,
+        found,
+    })
+}
+
+/// 라벨(폴더 이름)이나 경로로 대상 하나를 고른다. 경로가 든 열쇠는 라벨로 맞대지 않는다. 라벨이 같은 대상이 둘 이상이면
+/// 거절한다(경로로 고르게).
+fn pick_target(
+    entries: &[TargetEntry],
+    key: &str,
+    cwd: &str,
+    home: &str,
+    root: &str,
+) -> Result<TargetEntry, String> {
+    let by_dir = entry_for(key, cwd, home, root)
+        .ok()
+        .map(|e| resolve_dir(&e, home, root));
+    let matched: Vec<_> = entries
+        .iter()
+        .filter(|e| {
+            by_dir.as_deref() == Some(e.target.dir.as_str())
+                || (!key.contains('/') && e.target.label == key)
+        })
+        .collect();
+    match matched.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] if entries.is_empty() => Err(format!("rc 대상이 아니다: {key}. 대상이 하나도 없다")),
+        [] => {
+            let labels: Vec<&str> = entries.iter().map(|e| e.target.label.as_str()).collect();
+            Err(format!(
+                "rc 대상이 아니다: {key}. 지금 대상: {}",
+                labels.join(", ")
+            ))
+        }
+        many => {
+            let dirs: Vec<&str> = many.iter().map(|e| e.target.dir.as_str()).collect();
+            Err(format!(
+                "이름이 같은 대상이 둘 이상이다: {key}. 경로로 고른다: {}",
+                dirs.join(", ")
+            ))
+        }
+    }
 }
 
 /// 문서의 `rc` 블록 — 없으면 만든다(파일 끝에 붙는다).
@@ -340,7 +431,8 @@ fn indent_unit(text: &str) -> Option<&str> {
     })
 }
 
-/// `rocky rc reload` 의 보고 — 데몬이 대상 목록을 바꿨나, 무엇이 바뀌었나(라벨), 데몬을 다시 띄워야 반영되는 칸은 무엇인가.
+/// 다시 읽기(`rocky rc reload` · 파일이 바뀌었을 때)의 보고 — 데몬이 대상 목록을 바꿨나, 무엇이 바뀌었나(라벨), 데몬을 다시
+/// 띄워야 반영되는 칸은 무엇인가.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reload {
@@ -356,6 +448,47 @@ pub struct Reload {
     /// 파일과 다르지만 데몬을 다시 띄워야 반영되는 칸 — `enabled` · `supervise` · `nightly`. 기동기와 감시 · 야간 루프는
     /// 기동 때 정해진다.
     pub restart_needed: Vec<&'static str>,
+}
+
+impl Reload {
+    /// 바뀐 대상 목록을 사람이 읽을 꼴로(`더함: a, b`) — 빈 칸은 뺀다. `rocky rc reload` 의 보고와 데몬이 알아서 다시 읽었을
+    /// 때의 로그가 같이 쓴다.
+    pub fn changes(&self) -> Vec<String> {
+        [
+            ("더함", &self.added),
+            ("뺌", &self.removed),
+            ("고정", &self.pinned),
+            ("고정 풂", &self.unpinned),
+        ]
+        .iter()
+        .filter(|(_, labels)| !labels.is_empty())
+        .map(|(name, labels)| format!("{name}: {}", labels.join(", ")))
+        .collect()
+    }
+}
+
+/// 데몬이 바뀐 파일을 알아서 다시 읽었을 때의 로그 한 줄 — 대상 목록을 바꿨거나, 데몬을 다시 띄워야 반영되는 칸이 기동 때와
+/// 다를 때(그동안은 파일을 저장할 때마다 다시 알린다). 둘 다 아니면(다른 블록만 고쳤으면) None.
+pub fn auto_reload_line(report: &Reload) -> Option<String> {
+    let mut parts = Vec::new();
+    if report.applied {
+        let changes = report.changes();
+        parts.push(if changes.is_empty() {
+            "바뀐 rocky.json 의 rc 대상 목록을 다시 읽었다".to_string()
+        } else {
+            format!(
+                "바뀐 rocky.json 의 rc 대상 목록을 다시 읽었다({})",
+                changes.join(" · ")
+            )
+        });
+    }
+    if !report.restart_needed.is_empty() {
+        parts.push(format!(
+            "rc 의 {} 는 데몬을 다시 띄워야 반영된다",
+            report.restart_needed.join(" · ")
+        ));
+    }
+    (!parts.is_empty()).then(|| parts.join(". "))
 }
 
 /// 지금 쓰는 설정(`current` — 기동 때 rc 가 꺼져 있었으면 None)에 파일에서 다시 읽은 블록(`file` — 없거나 꺼졌으면 None)을

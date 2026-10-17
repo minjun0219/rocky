@@ -43,6 +43,7 @@ fn edit_line_names_what_changed() {
         (Change::Added, false, "✓ 대상을 더했다"),
         (Change::Added, true, "✓ 고정 대상을 더했다"),
         (Change::Pinned, true, "✓ 고정 대상으로 바꿨다"),
+        (Change::Unpinned, false, "✓ 고정을 풀었다"),
         (Change::Unchanged, false, "= 이미 대상이다"),
         (Change::Unchanged, true, "= 이미 고정 대상이다"),
         (Change::Removed, true, "✓ 대상을 뺐다"),
@@ -85,6 +86,15 @@ fn reload_after_an_edit_says_what_to_do_next() {
         reload_lines(&raw, PATH, Some(&edit(Change::Removed, false))),
         ["  데몬에 반영했다"]
     );
+    // 고정을 풀면 띄울 것이 없다 — 감시가 켜져 있으면 더는 되살리지 않는다고만 알린다.
+    assert_eq!(
+        reload_lines(&raw, PATH, Some(&edit(Change::Unpinned, false))),
+        ["  데몬에 반영했다"]
+    );
+    assert_eq!(
+        reload_lines(&watched, PATH, Some(&edit(Change::Unpinned, false))),
+        ["  데몬에 반영했다. 꺼져도 감시가 고정으로 되살리지 않는다"]
+    );
 }
 
 #[test]
@@ -101,7 +111,7 @@ fn reload_on_its_own_lists_the_changes() {
     assert_eq!(
         reload_lines(&same, PATH, None),
         [
-            "= 대상 목록은 그대로다",
+            "= 데몬의 대상 목록이 이미 파일과 같다",
             "  데몬을 다시 띄워야 반영되는 설정이 바뀌었다(supervise · nightly): rocky daemon restart",
         ]
     );

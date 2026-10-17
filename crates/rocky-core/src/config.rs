@@ -539,7 +539,7 @@ pub fn load_rc_block(config_path: &Path) -> Option<RcConfig> {
 }
 
 /// `load_rc_block` 의 엄격한 판 — 파일을 못 읽거나 JSON 이 아니면 Err(경로와 원인). 블록이 없거나 꺼져 있으면 Ok(None).
-/// 떠 있는 데몬이 설정을 다시 읽을 때(`rocky rc reload`) 쓴다 — 고치다 만 파일을 "rc 꺼짐" 으로 읽지 않게.
+/// 떠 있는 데몬이 설정을 다시 읽을 때(파일이 바뀌었을 때 · `rocky rc reload`) 쓴다 — 고치다 만 파일을 "rc 꺼짐" 으로 읽지 않게.
 pub fn read_rc_block(config_path: &Path) -> Result<Option<RcConfig>, String> {
     let raw = std::fs::read_to_string(config_path)
         .map_err(|e| format!("설정 파일을 읽지 못했다({}): {e}", config_path.display()))?;

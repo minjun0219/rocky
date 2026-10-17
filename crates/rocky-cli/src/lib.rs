@@ -91,8 +91,8 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky rc                                원격 제어(claude rc) 서버 현황 — 문제가 있으면 맨 위 ⚠ 에 푸는 법까지
   rocky rc start|restart <이름>            서버를 띄운다 · 다시 띄운다(붙은 원격 세션이 끊긴다)
   rocky rc stop <할 일 | 대상 밖 서버>      핸드오프 서버나 rocky.json 에 없는 서버를 닫는다(폴더는 남긴다)
-  rocky rc targets [add|rm <이름|경로>]   rc 대상 보기 · 더하기 · 빼기(rocky.json 을 고치고 데몬이 바로 다시 읽는다)
-  rocky rc reload                         손으로 고친 rocky.json 의 대상 목록을 데몬이 다시 읽는다
+  rocky rc targets [add|rm|unpin <이름|경로>]  rc 대상 보기 · 더하기 · 빼기 · 고정 풀기(rocky.json 을 고치고 데몬이 바로 다시 읽는다)
+  rocky rc reload                         데몬이 rocky.json 의 대상 목록을 지금 다시 읽는다(손으로 고친 파일은 알아서 읽는다)
   rocky rc agy [start|stop] · rc report · rc nightly   Antigravity 원격 제어 · 마지막 야간 보고 · 야간 재시작을 지금
   rocky rc help                           rc 의 옵션 전부(--activity · --wait · --fresh · --session · --all · --dry-run)
   rocky mcp setup                         호스트별 MCP 등록 안내

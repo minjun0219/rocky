@@ -13,7 +13,7 @@
 //! - `rocky rc stop <할 일 | 대상 밖 서버>` — 핸드오프 서버(새 세션 띄우기가 띄운 것)나 대상 밖 서버를 닫는다(pid 로만, 폴더는 남긴다).
 //! - `rocky rc report` — 마지막 야간 보고(서버마다 결과 · rocky · agy). 읽기만 해서 `nightly` 와 이름을 갈랐다 —
 //!   `permissions.ask` 의 `rocky rc nightly:*` 확인에 걸리지 않게.
-//! - `rocky rc targets [add|rm]` · `rocky rc reload` — 대상 목록 고치기와 데몬 다시 읽기(`rc_targets_cmd`).
+//! - `rocky rc targets [add|rm|unpin]` · `rocky rc reload` — 대상 목록 고치기와 데몬 다시 읽기(`rc_targets_cmd`).
 //! - `rocky rc help` — 옵션 전부. 최상위 도움말(`rocky --help`)은 사람이 쓰는 줄만 둔다 — 옵션은 대부분 에이전트가 쓴다.
 
 use std::time::{Duration, Instant};
@@ -46,7 +46,8 @@ usage: rocky rc [하위 명령] [옵션]
   rocky rc targets [--json]                 rocky.json 의 rc 대상(이름 · 고정 · 폴더)
   rocky rc targets add <이름|경로> [--pin]  대상을 더한다(. 은 지금 폴더, --pin 은 고정). 데몬이 바로 다시 읽는다
   rocky rc targets rm <이름|경로>           대상을 뺀다. 떠 있는 서버는 그대로 둔다(대상 밖 서버가 된다)
-  rocky rc reload                           손으로 고친 rocky.json 의 대상 목록을 데몬이 다시 읽는다";
+  rocky rc targets unpin <이름|경로>        고정을 푼다. 대상으로 남고 떠 있는 서버도 그대로다
+  rocky rc reload                           데몬이 rocky.json 의 대상 목록을 지금 다시 읽는다(손으로 고친 파일은 알아서 읽는다)";
 /// `--wait` 상한 — 턴 대기 10분 + 정지 유예 20초 + `already served` 재시도 60·120초 + 등록 판정 40초를 덮는다.
 const WAIT_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// `--activity` 응답 한도 — 데몬이 대상마다 git 을 띄워 기다렸다 답한다.

@@ -28,6 +28,10 @@ fn rm(doc: &mut Value, key: &str) -> Result<Edit, String> {
     remove_target(doc, key, "/home/u/dev/workspaces/beta", HOME)
 }
 
+fn unpin(doc: &mut Value, key: &str) -> Result<Edit, String> {
+    unpin_target(doc, key, "/home/u/dev/workspaces/beta", HOME)
+}
+
 fn edit(change: Change, label: &str, dir: &str, entry: &str, pinned: bool) -> Edit {
     Edit {
         change,
@@ -255,6 +259,78 @@ fn remove_explains_what_it_could_not_match() {
 }
 
 #[test]
+fn unpin_moves_the_written_name_to_targets() {
+    let mut doc = json!({ "rc": {
+        "pinned": ["alpha", "~/dev/workspaces/beta"],
+        "targets": ["/srv/gamma"]
+    } });
+    // 라벨로 골라도 적힌 이름을 그대로 옮긴다 — 라벨을 적으면 root 아래의 다른 폴더로 풀린다.
+    assert_eq!(
+        unpin(&mut doc, "beta"),
+        Ok(edit(
+            Change::Unpinned,
+            "beta",
+            "/home/u/dev/workspaces/beta",
+            "~/dev/workspaces/beta",
+            false
+        ))
+    );
+    assert_eq!(
+        doc,
+        json!({ "rc": {
+            "pinned": ["alpha"],
+            "targets": ["/srv/gamma", "~/dev/workspaces/beta"]
+        } })
+    );
+    // 경로로도 고른다(`.` 은 지금 폴더). 일반 목록이 없으면 만든다.
+    let mut doc = json!({ "rc": { "enabled": false, "pinned": ["alpha"] } });
+    assert_eq!(
+        unpin_target(&mut doc, ".", "/home/u/dev/workspaces/alpha", HOME)
+            .map(|e| (e.change, e.entry, e.disabled)),
+        Ok((Change::Unpinned, "alpha".into(), true))
+    );
+    assert_eq!(
+        doc,
+        json!({ "rc": { "enabled": false, "pinned": [], "targets": ["alpha"] } })
+    );
+}
+
+#[test]
+fn unpin_does_not_list_a_folder_twice() {
+    // 손으로 고치다 두 목록에 같은 폴더가 들어간 경우 — 고정만 지우고 일반 목록에 또 적지 않는다.
+    let mut doc = json!({ "rc": { "pinned": ["beta"], "targets": ["beta/"] } });
+    assert_eq!(
+        unpin(&mut doc, "beta").map(|e| e.change),
+        Ok(Change::Unpinned)
+    );
+    assert_eq!(doc, json!({ "rc": { "pinned": [], "targets": ["beta/"] } }));
+}
+
+#[test]
+fn unpin_refuses_what_is_not_pinned() {
+    let mut doc = json!({ "rc": { "pinned": ["alpha"], "targets": ["beta"] } });
+    let before = doc.clone();
+    assert_eq!(
+        unpin(&mut doc, "beta"),
+        Err("고정 대상이 아니다: beta. 고정 대상: alpha".into())
+    );
+    assert_eq!(
+        unpin(&mut json!({ "rc": { "targets": ["beta"] } }), "beta"),
+        Err("고정 대상이 아니다: beta. 고정 대상이 하나도 없다".into())
+    );
+    // 대상이 아니면 rm 과 같은 말로 거절한다.
+    assert_eq!(
+        unpin(&mut doc, "c"),
+        Err("rc 대상이 아니다: c. 지금 대상: alpha, beta".into())
+    );
+    assert_eq!(
+        unpin(&mut json!({}), "x"),
+        Err("rc 대상이 아니다: x. rocky.json에 rc 블록이 없다".into())
+    );
+    assert_eq!(doc, before);
+}
+
+#[test]
 fn list_follows_the_daemon_order_and_flags_problems() {
     let doc = json!({ "rc": { "pinned": ["a"], "targets": ["/srv/x", "a", "/opt/x"] } });
     let list = list_targets(&doc, HOME, &|d: &str| d != "/opt/x");
@@ -460,4 +536,39 @@ fn reload_report_serializes_camel_case() {
         serde_json::to_value(Change::Unchanged).unwrap(),
         json!("unchanged")
     );
+}
+
+#[test]
+fn reload_changes_name_each_list_in_order() {
+    let report = Reload {
+        applied: true,
+        unpinned: vec!["b".into(), "c".into()],
+        added: vec!["a".into()],
+        ..Reload::default()
+    };
+    assert_eq!(report.changes(), ["더함: a", "고정 풂: b, c"]);
+    assert!(Reload::default().changes().is_empty());
+}
+
+#[test]
+fn auto_reload_logs_list_changes_and_pending_switches_only() {
+    let applied = Reload {
+        applied: true,
+        pinned: vec!["a".into()],
+        ..Reload::default()
+    };
+    assert_eq!(
+        auto_reload_line(&applied).as_deref(),
+        Some("바뀐 rocky.json 의 rc 대상 목록을 다시 읽었다(고정: a)")
+    );
+    let both = Reload {
+        restart_needed: vec!["supervise", "nightly"],
+        ..applied
+    };
+    assert_eq!(
+        auto_reload_line(&both).as_deref(),
+        Some("바뀐 rocky.json 의 rc 대상 목록을 다시 읽었다(고정: a). rc 의 supervise · nightly 는 데몬을 다시 띄워야 반영된다")
+    );
+    // 다른 블록만 고쳤다.
+    assert_eq!(auto_reload_line(&Reload::default()), None);
 }
