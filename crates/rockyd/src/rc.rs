@@ -237,9 +237,18 @@ pub fn rc_handles(
     home: String,
     ttl: Duration,
 ) -> (RcProvider, AgyControl) {
+    rc_handles_live(runner, RcConfigLive::fixed(config), home, ttl)
+}
+
+/// `rc_handles` 와 같되 설정을 다시 읽는다 — 컨트롤러와 같은 `RcConfigLive` 를 넘기면 현황과 명령이 같은 목록을 본다.
+pub fn rc_handles_live(
+    runner: Runner,
+    config: Arc<RcConfigLive>,
+    home: String,
+    ttl: Duration,
+) -> (RcProvider, AgyControl) {
     let cache: Arc<tokio::sync::Mutex<Option<(Instant, RcStatus)>>> =
         Arc::new(tokio::sync::Mutex::new(None));
-    let config = Arc::new(config);
     let home = Arc::new(home);
     let provider: RcProvider = {
         let (runner, config, home, cache) =
@@ -254,7 +263,7 @@ pub fn rc_handles(
                         return status.clone();
                     }
                 }
-                let status = probe(&runner, config.as_ref().as_ref(), &home).await;
+                let status = probe(&runner, config.current().as_ref(), &home).await;
                 *slot = Some((Instant::now(), status.clone()));
                 status
             })
@@ -268,14 +277,14 @@ pub fn rc_handles(
             let done = agy_control(&runner, action).await;
             // 실패해도 다시 잰다 — 반쯤 바뀐 상태(등록만 됨 등)가 화면에 남지 않게. 성공했으면 자리 잡을 때까지
             // 몇 번 더 잰다(못 잡아도 마지막 값을 낸다).
-            let mut status = probe(&runner, config.as_ref().as_ref(), &home).await;
+            let mut status = probe(&runner, config.current().as_ref(), &home).await;
             if done.is_ok() {
                 for _ in 1..AGY_SETTLE_TRIES {
                     if action.settled(status.antigravity.as_ref()) {
                         break;
                     }
                     tokio::time::sleep(AGY_SETTLE_GAP).await;
-                    status = probe(&runner, config.as_ref().as_ref(), &home).await;
+                    status = probe(&runner, config.current().as_ref(), &home).await;
                 }
             }
             *slot = Some((Instant::now(), status.clone()));
@@ -293,8 +302,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod handoff;
+mod live;
 mod nightly;
 pub use handoff::{HandoffWait, SESSION_WAIT as HANDOFF_SESSION_WAIT};
+pub use live::RcConfigLive;
 pub use nightly::{spawn_rc_nightly, NIGHTLY_CHECK};
 
 use rocky_core::rc::{LaunchMode, RcAction, RcResult, Registration, Target};
@@ -435,7 +446,7 @@ pub enum RcRefusal {
 }
 
 pub struct RcController {
-    config: Option<RcConfig>,
+    config: Arc<RcConfigLive>,
     home: String,
     log_dir: PathBuf,
     runner: Runner,
@@ -476,6 +487,17 @@ pub type RcNotifier = Arc<dyn Fn(String, String) + Send + Sync>;
 impl RcController {
     pub fn new(
         config: Option<RcConfig>,
+        home: String,
+        log_dir: PathBuf,
+        runner: Runner,
+        ops: RcOps,
+    ) -> Self {
+        Self::new_live(RcConfigLive::fixed(config), home, log_dir, runner, ops)
+    }
+
+    /// 설정을 다시 읽는 컨트롤러 — 데몬은 `RcConfigLive::watch` 로 `rocky.json` 을 지켜본다.
+    pub fn new_live(
+        config: Arc<RcConfigLive>,
         home: String,
         log_dir: PathBuf,
         runner: Runner,
@@ -522,10 +544,10 @@ impl RcController {
 
     /// 요청을 받는다 — 대상을 찾고 진행 중 표시를 건다. 실제 일은 `run` 이 백그라운드에서 한다.
     pub fn begin(&self, label: &str, command: RcCommand) -> Result<Target, RcRefusal> {
-        let Some(config) = &self.config else {
+        let Some(config) = self.config.current() else {
             return Err(RcRefusal::NotFound("이 기기에서는 rc 가 꺼져 있다".into()));
         };
-        let matches: Vec<Target> = rc::resolve_targets(config, &self.home)
+        let matches: Vec<Target> = rc::resolve_targets(&config, &self.home)
             .into_iter()
             .filter(|t| t.label == label)
             .collect();
@@ -632,7 +654,7 @@ impl RcController {
     /// 재시작 중인 대상은 `Busy` 로 자연히 건너뛴다.
     pub async fn supervise_tick(self: &Arc<Self>, notify: &RcNotifier) -> Vec<String> {
         let now = chrono::Utc::now().timestamp();
-        let mut status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        let mut status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
         self.decorate(&mut status);
 
         let mark = {
@@ -838,7 +860,7 @@ impl RcController {
             Some(v) => Some(v.to_string()),
             None => self.claude_version().await,
         };
-        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(format!("현황을 못 읽어 손대지 않았다 — {err}"));
         }
@@ -962,7 +984,7 @@ impl RcController {
         while waited < limit {
             (self.ops.sleep)(rc::TURN_POLL).await;
             waited += rc::TURN_POLL;
-            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
             if let Some(err) = status.probe_error {
                 probe_error = Some(err);
                 continue;

@@ -80,8 +80,8 @@ enum Attempted {
 impl RcController {
     fn nightly_config(&self) -> NightlyConfig {
         self.config
-            .as_ref()
-            .and_then(|c| c.nightly.clone())
+            .current()
+            .and_then(|c| c.nightly)
             .unwrap_or_default()
     }
 
@@ -158,7 +158,7 @@ impl RcController {
 
     /// 야간을 시작한다(일정이든 손이든) — 이미 돌고 있으면 Busy, rc 가 꺼진 기기면 NotFound. 리허설은 받지 않아도 된다.
     pub fn begin_nightly(&self) -> Result<(), RcRefusal> {
-        if self.config.is_none() {
+        if self.config.current().is_none() {
             return Err(RcRefusal::NotFound("이 기기에서는 rc 가 꺼져 있다".into()));
         }
         let mut run = self.nightly.lock().unwrap_or_else(|e| e.into_inner());
@@ -204,7 +204,7 @@ impl RcController {
         };
         let current = self.nightly_update(&mut report).await;
         report.version = current.clone();
-        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
         if let Some(reason) = rc::nightly_blocked(&status) {
             report.blocked = Some(reason.into());
             self.event("nightly-skip", "", serde_json::json!({ "reason": reason }));
@@ -579,7 +579,7 @@ impl RcController {
             return Attempted::Up;
         }
         // 잠근 동안 띄울 수 있는 것은 이 기동기뿐이고, 등록에 실패한 서버는 기동기가 이미 내렸다 — 지금 떠 있으면 옛 서버다.
-        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
         let still_up = status.probe_error.is_none()
             && status.servers.iter().any(|s| s.label == label && s.running);
         if still_up {
@@ -598,7 +598,7 @@ impl RcController {
 
     /// 못 띄운 서버를 누가 살리나 — 감시가 꺼져 있으면 표식만 남는다.
     fn down_hint(&self) -> &'static str {
-        if self.config.as_ref().is_some_and(|c| c.supervise) {
+        if self.config.current().is_some_and(|c| c.supervise) {
             "감시가 되살린다"
         } else {
             "감시가 꺼져 있다 — rocky rc start 로 띄운다"
@@ -629,7 +629,7 @@ impl RcController {
             if !self.wait_online("recover").await || (self.ops.now)() >= deadline {
                 continue;
             }
-            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
             let mut still = Vec::new();
             for r in down {
                 let label = r.target.label.clone();
@@ -725,7 +725,7 @@ impl RcController {
             if (self.ops.now)() >= deadline {
                 break;
             }
-            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            let status = probe(&self.runner, self.config.current().as_ref(), &self.home).await;
             if rc::nightly_blocked(&status).is_some() {
                 continue;
             }
@@ -859,9 +859,10 @@ impl RcController {
     pub async fn nightly_preview(&self) -> NightlyReport {
         let cfg = self.nightly_config();
         // 둘은 서로 기다릴 이유가 없다 — 새 바이너리의 첫 실행이 멎어도 응답이 그만큼만 늦다.
+        let config = self.config.current();
         let (current, status) = tokio::join!(
             self.installed_version(),
-            probe(&self.runner, self.config.as_ref(), &self.home)
+            probe(&self.runner, config.as_ref(), &self.home)
         );
         let mut report = NightlyReport {
             started_at: chrono::Utc::now().to_rfc3339(),

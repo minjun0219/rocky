@@ -485,6 +485,19 @@ pub struct RcConfig {
     pub nightly: Option<NightlyConfig>,
 }
 
+impl RcConfig {
+    /// 다시 읽은 설정에서 목록(`root` · `pinned` · `targets`)만 받는다 — 감시 · 야간은 데몬이 기동 때 잡을 띄울지
+    /// 정하므로 바꿔도 다음 기동까지 그대로다(`rockyd::rc::RcConfigLive`).
+    pub fn with_lists_from(&self, fresh: &RcConfig) -> RcConfig {
+        RcConfig {
+            root: fresh.root.clone(),
+            pinned: fresh.pinned.clone(),
+            targets: fresh.targets.clone(),
+            ..self.clone()
+        }
+    }
+}
+
 /// `rc.nightly` — 매일 `at` 에 `claude update` 뒤 구버전이면서 쉬는 서버만 다시 띄운다(`rocky_core::rc` 의 야간 판정).
 /// 시각은 이 기기의 현지 시각이다.
 #[derive(Debug, Clone, PartialEq, Eq)]

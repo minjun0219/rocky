@@ -25,6 +25,7 @@ pub mod notify;
 pub mod peer_inbox;
 pub mod prwatch;
 pub mod rc;
+pub mod rc_targets;
 pub mod refs;
 pub mod sessions;
 pub mod setup;

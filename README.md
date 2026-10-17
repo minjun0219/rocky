@@ -92,7 +92,7 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 ### rc 서버 현황
 
-사용자 설정(`~/.config/rocky/rocky.json`)의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 주고, 사람이 부르면 띄우거나 다시 띄운다. `supervise` 를 켜면 꺼진 고정 서버를 스스로 되살린다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)). 띄울 때마다 그때 설치된 claude 버전을 `rc/<라벨>.version` 에 남긴다(야간 재시작이 구버전을 가리는 기록).
+사용자 설정(`~/.config/rocky/rocky.json`)의 `rc` 블록에 폴더를 적으면 데몬이 폴더마다 떠 있는 `claude rc`(Remote Control) 서버를 그 목록과 맞대어 보여 주고, 사람이 부르면 띄우거나 다시 띄운다. 대상 목록(`targets` · `pinned` · `root`)은 파일이 바뀌면 데몬이 다시 읽는다 — 켜고 끄기 · `supervise` · `nightly` 는 데몬을 다시 띄울 때 반영된다. `supervise` 를 켜면 꺼진 고정 서버를 스스로 되살린다([설계](./docs/design/specs/2026-10-05-rc-server-design.md)). 띄울 때마다 그때 설치된 claude 버전을 `rc/<라벨>.version` 에 남긴다(야간 재시작이 구버전을 가리는 기록).
 
 웹 UI에서는 피드 머리 아래 한 줄(`원격 제어 7/13 · 세션 4`)과 **원격 제어** 탭으로 본다(⋯ 메뉴에서 탭을 끌 수 있다). rc 블록이 없거나 `enabled: false`면 둘 다 없다.
 
@@ -107,6 +107,9 @@ rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으�
                                  # 막 대화하는 중이면 턴이 끝날 때까지(최대 10분) 기다렸다 내린다
                                  # 이 세션이 붙은 서버는 거절한다(재시작이 이 턴을 끊는다 — 웹이나 다른 세션에서)
 rocky rc restart repo-a --session cse_…  # 이어받을 세션을 claude.ai 쪽 id 로 못 박는다
+rocky rc add ogpeek [--pin]      # 대상에 넣는다(이름은 rc.root 기준, 경로도 된다) — 데몬이 바로 다시 읽는다(재기동 없음)
+rocky rc remove ogpeek           # 대상에서 뺀다 — 떠 있으면 대상 밖 서버로 남는다(닫기는 rocky rc stop)
+rocky rc pin ogpeek              # 고정(꺼지면 감시가 되살린다) · unpin 은 풀기
 rocky rc --activity              # 대상마다 최근 활동(마지막 커밋 · *작업중 · @곁가지), 꺼진 비고정 중 오래 조용한 것은 정박
 rocky rc start --all             # 꺼진 대상 전부를 서버만 — 비상용
 rocky rc agy                     # Antigravity 원격 제어 상태 한 줄

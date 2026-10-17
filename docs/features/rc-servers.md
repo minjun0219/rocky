@@ -8,6 +8,12 @@
   띄우거나 다시 띄운다(`POST /api/rc/servers/:label/{start,restart}` — 로컬 전용, `rocky rc start|restart`). 원격 제어 탭의 동작(띄우기 · 재시작 ·
   닫기 · 야간)은 `access.remoteControl` 이면 검증된 Access 로그인에게도 열린다 — 판정은 [security](security.md)의 예외 절. 꺼진 고정
   서버는 감시가 되살린다(아래).
+- **대상 목록은 다시 읽는다**(`rockyd::rc::RcConfigLive`): 현황 · 명령이 설정을 볼 때마다 `rocky.json` 의 mtime 을 재고, 바뀌었으면
+  `root` · `pinned` · `targets` 만 다시 받는다 — 손편집이든 `rocky rc add|remove|pin|unpin`(판정 `rocky_core::rc_targets`)이든 데몬을
+  다시 띄우지 않는다. `enabled` · `supervise` · `nightly` 는 **기동 때 값**이다(잡을 띄울지 기동 때 정한다). 기동 때 꺼져 있었으면
+  계속 꺼진 채, 다시 읽다 실패하면(깨진 JSON · 블록 지움 · `enabled: false`) 마지막 목록을 지킨다. 현황 캐시(5초) 때문에 반영까지
+  최대 그만큼 늦다. CLI 는 같은 폴더의 임시 파일에 쓰고 rename 한다(반쯤 쓴 파일을 읽지 않게), 넣는 폴더가 없으면 쓰지 않는다.
+  빼도 떠 있는 서버는 내리지 않는다 — 대상 밖 서버로 남고 `rocky rc stop` 으로 닫는다.
 - **서버 판정은 argv 구조**(`claude` + `rc`/`remote-control` + `--name`). 자식 세션은 같은 `ps` 한 번의 ppid 로, cwd 는 `lsof` 한 번으로.
 - **맞대기는 cwd 문자열**이라 정규화하지 않는다.
 - 블록이 없거나 `enabled: false`(rc 를 못 쓰는 기기)면 **`claude rc` 프로브를 돌리지 않는다**. *EN: match by the raw cwd string;
@@ -133,9 +139,10 @@
 | 판정(순수) | `crates/rocky-core/src/rc.rs` |
 | 프로브·기동기(`RcController`)·감시(`supervise_tick`)·라우트·agy 손잡이 | `crates/rockyd/src/rc.rs`, `crates/rockyd/src/server.rs` |
 | 야간 재시작(`run_nightly` · `spawn_rc_nightly` · 리허설 `nightly_preview`) | `crates/rockyd/src/rc/nightly.rs` |
+| 설정 다시 읽기(`RcConfigLive`) · 대상 목록 고치기(순수) | `crates/rockyd/src/rc/live.rs`, `crates/rocky-core/src/rc_targets.rs` |
 | CLI | `crates/rocky-cli/src/rc_cmd.rs` |
 | 웹 | `web/components/RcPane.tsx`, `web/lib.ts`(`rcVisible`) |
 
-테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인), `crates/rockyd/tests/it/rc_log_test.rs`(커진 로그만 비움 · 비운 뒤 append 로 처음부터),
+테스트: `crates/rocky-core/tests/it/rc_test.rs`, `crates/rocky-core/tests/it/rc_targets_test.rs`(넣기 · 빼기 · 고정 · 라벨 · 키 순서), `crates/rockyd/tests/it/rc_test.rs`, `crates/rockyd/tests/it/rc_launch_test.rs`(가짜 프로세스 세계 + 진짜 `sleep` 으로 새 그룹 확인), `crates/rockyd/tests/it/rc_log_test.rs`(커진 로그만 비움 · 비운 뒤 append 로 처음부터),
 `crates/rockyd/tests/it/rc_nightly_test.rs`(가짜 프로세스 세계 + 가짜 시계 — canary · 회복 · 마감 · 네트워크 · 바쁨 · 일정),
 `crates/rocky-cli/tests/it/rc_cmd_test.rs`.

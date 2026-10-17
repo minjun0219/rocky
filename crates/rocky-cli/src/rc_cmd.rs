@@ -13,6 +13,8 @@
 //! - `rocky rc stop <할 일 | 대상 밖 서버>` — 핸드오프 서버(새 세션 띄우기가 띄운 것)나 대상 밖 서버를 닫는다(pid 로만, 폴더는 남긴다).
 //! - `rocky rc report` — 마지막 야간 보고(서버마다 결과 · rocky · agy). 읽기만 해서 `nightly` 와 이름을 갈랐다 —
 //!   `permissions.ask` 의 `rocky rc nightly:*` 확인에 걸리지 않게.
+//! - `rocky rc add <이름|경로> [--pin]` · `remove <이름>` · `pin|unpin <이름>` — 사용자 설정의 `rc.targets` · `rc.pinned` 를
+//!   고친다(판정은 `rocky_core::rc_targets`). 데몬은 파일이 바뀌면 다음 현황부터 목록을 다시 읽는다 — 다시 띄울 필요가 없다.
 //! - `rocky rc help` — 옵션 전부. 최상위 도움말(`rocky --help`)은 사람이 쓰는 줄만 둔다 — 옵션은 대부분 에이전트가 쓴다.
 
 use std::time::{Duration, Instant};
@@ -38,6 +40,9 @@ usage: rocky rc [하위 명령] [옵션]
                                             다시 띄운다 — 붙은 원격 세션이 끊긴다. 대화 중이면 턴이 끝날 때까지
                                             기다리고, 이 세션이 붙은 서버는 거절한다. --fresh 는 세션을 이어받지
                                             않고, --session 은 이어받을 claude.ai 쪽 세션 id 를 못 박는다
+  rocky rc add <이름|경로> [--pin]          대상에 넣는다(--pin 은 고정 — 꺼지면 감시가 되살린다). 이름은 rc.root 기준
+  rocky rc remove <이름>                    대상에서 뺀다 — 떠 있는 서버는 내리지 않는다(대상 밖 서버로 남는다)
+  rocky rc pin|unpin <이름>                 고정하기 · 풀기 — 고치면 데몬이 바로 다시 읽는다(재기동 없음)
   rocky rc stop <할 일 | 대상 밖 서버>       핸드오프 서버(할 일 참조)나 대상 밖 서버(이름 · pid)를 닫는다
   rocky rc agy [start|stop]                 Antigravity 원격 제어 보기 · 켜기 · 끄기(로컬 전용)
   rocky rc report [--json]                  마지막 야간 보고 — 서버마다 결과, rocky · agy 버전
@@ -73,6 +78,22 @@ pub fn cmd_rc(
                 request_value(ctx, "GET", "/api/rc/servers", None)?
             };
             printer.emit(&raw, || render_status(&raw));
+            Ok(())
+        }
+        Some(verb @ ("add" | "remove" | "pin" | "unpin")) => {
+            let entry = rest
+                .get(1)
+                .ok_or_else(|| format!("이름이 필요하다\n\n{USAGE}"))?;
+            let edit = match verb {
+                "add" => rocky_core::rc_targets::RcEdit::Add {
+                    pin: flags.bool_flag("pin"),
+                },
+                "remove" => rocky_core::rc_targets::RcEdit::Remove,
+                "pin" => rocky_core::rc_targets::RcEdit::Pin,
+                _ => rocky_core::rc_targets::RcEdit::Unpin,
+            };
+            let message = edit_targets(&rocky_core::config::user_config_path(), entry, edit)?;
+            println!("{message}");
             Ok(())
         }
         Some("start") if flags.bool_flag("all") && flags.bool_flag("new-session") => {
@@ -734,6 +755,31 @@ fn refuse_own_server(ctx: &CliContext, label: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// 사용자 설정의 대상 목록을 고친다 — 판정은 `rocky_core::rc_targets`, 여기는 읽기 · 폴더 확인 · 쓰기만. 넣는 폴더가
+/// 없으면 쓰지 않는다. 같은 폴더의 임시 파일에 쓰고 rename 한다 — 데몬이 반쯤 쓴 파일을 읽지 않게.
+fn edit_targets(
+    path: &std::path::Path,
+    entry: &str,
+    edit: rocky_core::rc_targets::RcEdit,
+) -> Result<String, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("{} 을(를) 읽지 못했다 — {e}", path.display()))?;
+    let home = std::env::var("HOME").unwrap_or_default();
+    let out = rocky_core::rc_targets::edit_rc_targets(&raw, &home, entry, edit)?;
+    let adds = matches!(
+        edit,
+        rocky_core::rc_targets::RcEdit::Add { .. } | rocky_core::rc_targets::RcEdit::Pin
+    );
+    if adds && !std::path::Path::new(&out.dir).is_dir() {
+        return Err(format!("폴더가 없다: {}", out.dir));
+    }
+    let tmp = path.with_extension("json.rocky-tmp");
+    std::fs::write(&tmp, &out.json)
+        .and_then(|()| std::fs::rename(&tmp, path))
+        .map_err(|e| format!("{} 에 쓰지 못했다 — {e}", path.display()))?;
+    Ok(format!("{} — 데몬은 다음 현황부터 반영한다", out.message))
 }
 
 /// `start --all` 이 띄울 것 — 꺼짐이 확실한 대상(`running: false`)의 라벨. 고정이든 아니든 서버만 띄운다.

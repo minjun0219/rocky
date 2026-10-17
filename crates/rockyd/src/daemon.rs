@@ -244,7 +244,7 @@ pub async fn run_daemon(
     pr_watch: rocky_core::config::PrWatchConfig,
     tokens: TokensRuntime,
     verify: rocky_core::verify::VerifyConfig,
-    rc: Option<rocky_core::config::RcConfig>,
+    rc: Arc<crate::rc::RcConfigLive>,
     access: Option<rocky_core::access::AccessConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 단일 인스턴스 가드 — 포트 자체가 락.
@@ -303,16 +303,18 @@ pub async fn run_daemon(
     if integrity != "ok" {
         eprintln!("rocky: ⚠ DB 무결성 이상 — {integrity}");
     }
-    let (rc_status, agy_control) = crate::rc::rc_handles(
+    let (rc_status, agy_control) = crate::rc::rc_handles_live(
         crate::runner::default_runner(),
         rc.clone(),
         std::env::var("HOME").unwrap_or_default(),
         crate::rc::RC_CACHE_TTL,
     );
     // 띄우기 · 재시작 — rc 가 켜진 기기에서만. 기동 로그와 이벤트는 todo 폴더의 rc/ 에.
-    let rc_control = rc.clone().map(|config| {
-        Arc::new(crate::rc::RcController::new(
-            Some(config),
+    // 대상 목록은 `rocky.json` 이 바뀌면 다시 읽는다(`RcConfigLive`) — 켜고 끄기 · 감시 · 야간은 기동 때 값.
+    let rc_start = rc.current();
+    let rc_control = rc_start.is_some().then(|| {
+        Arc::new(crate::rc::RcController::new_live(
+            rc.clone(),
             std::env::var("HOME").unwrap_or_default(),
             runtime.dir.join("rc"),
             crate::runner::default_runner(),
@@ -351,7 +353,7 @@ pub async fn run_daemon(
     }
     // rc 감시 — `rc.supervise` 일 때만. 꺼진 고정 서버를 2분마다 되살리고, 데몬 맥락의 자격이 끊기거나 돌아오면 배너 한 번.
     // 야간 재시작 — `rc.nightly` 일 때만. 못 띄운 서버는 표식을 남기고 감시가 살리므로 둘을 함께 켠다.
-    if let (Some(control), Some(config)) = (rc_control, rc.as_ref()) {
+    if let (Some(control), Some(config)) = (rc_control, rc_start.as_ref()) {
         let verify_notify =
             crate::verify::osascript_verify_notifier(crate::runner::default_runner());
         let notify: crate::rc::RcNotifier = Arc::new(move |title, body| verify_notify(title, body));
@@ -546,7 +548,10 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
     };
     let verify = rocky_core::verify::load_verify_block(&config_path);
     // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다.
-    let rc = rocky_core::config::load_rc_block(&config_path);
+    let rc = crate::rc::RcConfigLive::watch(
+        config_path.clone(),
+        rocky_core::config::load_rc_block(&config_path),
+    );
     let access = rocky_core::config::load_access_block(&config_path);
     run_daemon(
         runtime, ui_dist, usage, usage_dir, pr_watch, tokens, verify, rc, access,

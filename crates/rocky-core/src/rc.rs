@@ -379,7 +379,7 @@ pub fn resolve_targets(config: &RcConfig, home: &str) -> Vec<Target> {
     out
 }
 
-fn label_of(dir: &str) -> String {
+pub(crate) fn label_of(dir: &str) -> String {
     let trimmed = dir.trim_end_matches('/');
     trimmed.rsplit('/').next().unwrap_or(trimmed).to_string()
 }
