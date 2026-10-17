@@ -3,6 +3,9 @@
 useDefault = true
 
 [allowlist]
-description = "작업로그 프로젝트 키(<레포>-<sha1 8자>) — 비밀이 아니다"
+description = "비밀이 아닌 고정값 — 작업로그 프로젝트 키, RFC 6455 의 예시 웹소켓 키"
 # 값으로 거른다: .gitleaksignore 의 지문은 커밋 SHA 를 담아 스택을 리베이스하면 다시 걸린다.
-regexes = ['''rocky-4745b950''']
+regexes = [
+  '''rocky-4745b950''', # 작업로그 프로젝트 키(<레포>-<sha1 8자>)
+  '''dGhlIHNhbXBsZSBub25jZQ''', # Sec-WebSocket-Key 예시("the sample nonce") — docs/features/sync.md 의 실측 절차
+]

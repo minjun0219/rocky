@@ -39,3 +39,7 @@ __pycache__/
 # Playwright E2E 산출물
 playwright-report/
 test-results/
+
+# wrangler(cloud/) 산출물. .dev.vars 는 로컬 secret 이다 — 공개 레포
+.wrangler/
+.dev.vars*
