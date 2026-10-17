@@ -93,6 +93,10 @@ function b64url(part: string): Uint8Array<ArrayBuffer> {
     .replaceAll('_', '/')
     .padEnd(Math.ceil(bare.length / 4) * 4, '=');
   const binary = atob(padded);
+  // 데몬의 `URL_SAFE_NO_PAD`처럼 마지막 글자의 남는 비트가 0인 글만 받는다. `atob`은 그 비트를 버려 한 값을 여러 글로 받는다.
+  if (btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '') !== bare) {
+    throw malformed();
+  }
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);

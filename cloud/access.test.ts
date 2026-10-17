@@ -131,6 +131,18 @@ describe('verifyToken', () => {
       expect(await refusal(verify(bad))).toBe(ACCESS_MESSAGES.malformed);
     }
   });
+
+  test('base64url은 마지막 글자의 남는 비트가 0인 글만 받는다(데몬과 같게)', async () => {
+    const token = await signToken(KEY, personClaims());
+    const signature = token.slice(token.lastIndexOf('.') + 1);
+    // 2048비트 서명(256바이트)은 342글자이고, 마지막 글자의 아래 4비트가 남는다. 그 비트를 켜도 바이트는 같다.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const last = alphabet.indexOf(signature.at(-1) ?? '');
+    expect(signature.length % 4).toBe(2);
+    const loose = `${token.slice(0, -1)}${alphabet[last | 1]}`;
+    expect(await verify(token)).toMatchObject({ kind: 'person' });
+    expect(await refusal(verify(loose))).toBe(ACCESS_MESSAGES.malformed);
+  });
 });
 
 describe('importJwks', () => {

@@ -141,7 +141,8 @@ security find-generic-password -s rocky-sync -w \
 | JSON `{"error": …}` | Access 는 지났고 Worker 가 거절했다. 이유가 본문에 있다(`wrangler tail`에도 `rocky relay:` 줄로 남는다) |
 | 그 밖(로그인 페이지로 가는 302, JSON 이 아닌 401·403) | Access 가 업그레이드를 막았다. 스펙의 대안(`/relay`만 Bypass, Worker 가 HMAC 검증)으로 간다 |
 
-결과는 스펙 3번 조각의 "인증"에 적는다. 연결이 5초 뒤 끊기는 것(curl 의 28)은 `--max-time` 때문이다.
+결과는 스펙 3번 조각의 "인증"에 적는다. 연결이 5초 뒤 끊기는 것(curl 의 28)은 `--max-time` 때문이다. curl 도 데몬 자리에
+붙으므로, 데몬 연결기가 붙어 있을 때 다시 재면 그 연결이 밀려난다(4000).
 
 ## 코드
 
