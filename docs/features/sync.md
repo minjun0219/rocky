@@ -72,6 +72,24 @@
 - **저장 사본으로 그렸으면 주소는 따라잡은 뒤에 푼다**(`boot.ts` 의 `caughtUp`). 낡은 사본에 없는 새 항목의 링크를 지우지 않게.
 - 바뀌지 않은 묶음은 같은 배열로 둔다(`memoized`) — 노트 본문 편집처럼 잦은 변경에도 바뀌지 않은 화면은 다시 그리지 않는다.
 
+## 클라우드 중계소(3번 조각)
+
+설계는 스펙의 3번 조각. 지금 있는 것은 중계소 코어(`cloud/relay/`)뿐이고, Worker·DO 껍데기와 데몬 연결기는 아직 없다.
+
+- **중계소는 행을 해석하지 않는다.** 데몬이 보낸 행을 JSON 그대로 `mirror`에 두고 `seq`만 꺼내 쓴다. 보드 규칙과 거르기
+  (올리지 않는 보드, 기계 필드)는 데몬 쪽 일이다. 중계소가 행 모양을 알아야 하는 일이 생기면 설계부터 다시 본다.
+- **폰에게 주는 `epoch`는 `<데몬 epoch>.<세대>`다.** 데몬에게 통째 사본을 받을 때마다 세대를 올린다. 삭제 프레임이 없어서,
+  거르기로 사본에서 빠진 행은 폰이 통째로 다시 받아야 사라진다. 통째 판정은 `needs_full`과 같은 규칙이다.
+- **변경함은 답을 받아야 다음을 보낸다.** 도착 순서가 충돌 규칙이고(결정 5), 끊겼을 때 답을 모르는 쓰기가 하나뿐이어야
+  한다. 답을 기다리는 쓰기는 `sent_to`로 가리고, 다른 데몬 연결이 붙으면 같은 id로 다시 보낸다. 두 번 적용을 막는 것은
+  데몬의 몫이다(`relay_ops`, 스펙의 PR ⑤).
+- **같은 만들기는 합친다.** 웹은 끊겼다 붙으면 만들기를 같은 id로 다시 보낸다. 변경함에 같은 만들기가 있으면 새 칸을 만들지
+  않고 답을 받을 폰 연결만 바꾼다. 만들기가 아닌 쓰기는 같아도 따로 쌓는다.
+- **에이전트 actor, 모르는 op, 빈 `ops`, 꽉 찬 변경함(`OUTBOX_LIMIT`)은 변경함에 넣지 않고 바로 `reject`한다.** op 이름은
+  웹의 `SyncOp`에서 타입으로 묶여 있어 어휘가 늘면 `relay.ts`의 `OP_NAMES`가 컴파일되지 않는다.
+- **상태는 SQLite와 소켓 첨부에만 둔다.** DO가 잠들었다 깨면 `Relay` 객체는 새로 만들어진다. 객체 필드에 상태를 두지 않는다.
+- 웹에 보이는 문구(`MESSAGES`)는 웹과 같은 말투로 쓴다. 닫힘 사유(`CLOSE_*`)는 데몬 연결기가 읽는 영어다.
+
 ## 코드
 
 | 무엇 | 어디 |
@@ -87,6 +105,8 @@
 | 웹이 계산하는 값 · 화면용 목록(순수) | `web/sync/views.ts` |
 | 소켓 클라이언트 · IndexedDB 저장 · 부팅 | `web/sync/client.ts` · `persist.ts` · `boot.ts` |
 | 스토어 연결(`syncing`, `tx` 쓰기) | `web/store.ts` |
+| 중계소 사본 · 변경함 · 프레임 처리(순수) | `cloud/relay/mirror.ts` · `outbox.ts` · `relay.ts`, 저장소 모양은 `storage.ts` |
 
 테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절), `web/sync/*.test.ts`,
-`web/store-sync.test.tsx`, `e2e/sync.spec.ts`(IndexedDB 는 실제 브라우저에서만).
+`web/store-sync.test.tsx`, `e2e/sync.spec.ts`(IndexedDB 는 실제 브라우저에서만), `cloud/relay/*.test.ts`(DO의
+SQLite는 `bun:sqlite`로 흉내 낸다).
