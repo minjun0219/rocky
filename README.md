@@ -140,7 +140,7 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 
 **새 세션 띄우기**(`rocky spawn REF`, 웹은 할 일 상세의 "에이전트에게 보내기" 패널 첫 대상 "새 세션", 로컬 전용): rc 가 켜진 기기에서는 데몬이 그 할 일의 워크트리(`<보드 경로>/.claude/worktrees/todo-<번호>`, 없으면 `origin` 기본 브랜치에서 딴다)에 **단일 세션 rc 서버**(`<보드>-<번호>: <제목 앞부분>`)를 띄우고, 그 세션에 핸드오프를 넣어 깨운다 — 폰 · 웹의 원격 제어 목록에서 그 이름으로 이어 본다. 할 일당 서버 하나이고, **서버는 저절로 내려가지 않는다** — 세션이 끝났다고 알리면 사람이 닫는다(`rocky rc stop <할 일>`, 감시 · 야간도 건드리지 않는다). `rocky rc` 에는 "핸드오프:" 로 따로 보인다(띄울 때 남긴 기록 `rc/handoff/<라벨>.json` 과 pid · 폴더가 맞는 서버). rc 가 꺼진 기기는 `claude --bg` 로 띄우는데, 그 세션은 로그인 세션 밖에서 돌아 ssh · 자격이 끊길 수 있어 응답에 경고가 붙는다. 자세한 규칙은 [`docs/board.md`](./docs/board.md)의 spawn 절.
 
-**에이전트가 부를 때의 확인**: 서버를 바꾸는 명령은 사용자 설정(`~/.claude/settings.json`)의 `permissions.ask` 로 사람 확인을 받는다 — `"Bash(rocky rc start:*)"`, `"Bash(rocky rc restart:*)"`, `"Bash(rocky rc nightly:*)"`, `"Bash(rocky rc agy start:*)"`, `"Bash(rocky rc agy stop:*)"`, `"Bash(rocky rc stop:*)"`. `sh -c` 같은 래퍼나 `curl` 로는 비켜 가지만, 데몬 라우트가 로컬 전용이라 노출된 화면에서는 막힌다(위 `access` 블록을 켠 경우의 원격 제어 탭만 예외).
+**에이전트가 부를 때의 확인**: 서버를 바꾸는 명령은 사용자 설정(`~/.claude/settings.json`)의 `permissions.ask` 로 사람 확인을 받는다 — `"Bash(rocky rc start:*)"`, `"Bash(rocky rc restart:*)"`, `"Bash(rocky rc nightly:*)"`, `"Bash(rocky rc agy start:*)"`, `"Bash(rocky rc agy stop:*)"`, `"Bash(rocky rc stop:*)"`, `"Bash(rocky rc add:*)"`, `"Bash(rocky rc remove:*)"`, `"Bash(rocky rc pin:*)"`, `"Bash(rocky rc unpin:*)"`(마지막 넷은 `rocky.json` 의 대상 목록을 고친다). `sh -c` 같은 래퍼나 `curl` 로는 비켜 가지만, 데몬 라우트가 로컬 전용이라 노출된 화면에서는 막힌다(위 `access` 블록을 켠 경우의 원격 제어 탭만 예외).
 
 
 | API | 내용 |
