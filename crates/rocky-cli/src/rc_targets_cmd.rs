@@ -240,6 +240,11 @@ pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<Str
             lines.push(format!(
                 "  ⚠ 데몬은 다른 설정 파일을 읽는다: {daemon_path}. 이 셸의 설정 파일: {cli_path}"
             ));
+            // 데몬은 제 파일을 다시 읽었을 뿐이라 고친 대상이 닿지 않았다 — 반영했다 · 띄우라고 하지 않는다.
+            if edit.is_some() {
+                lines.push("  이 셸의 파일을 고쳐도 데몬에는 반영되지 않는다. 데몬이 읽는 파일을 고치려면 ROCKY_CONFIG 를 그 경로로 설정하고 다시 한다".into());
+                return lines;
+            }
         }
     }
     let restart = labels("restartNeeded");

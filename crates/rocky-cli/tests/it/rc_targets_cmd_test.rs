@@ -138,11 +138,22 @@ fn reload_points_at_a_restart_when_rc_turns_on_or_off() {
 #[test]
 fn reload_warns_when_the_daemon_reads_another_file() {
     let raw = reloaded(json!({ "path": "/other/rocky.json", "applied": false }));
-    let lines = reload_lines(&raw, PATH, None);
-    assert_eq!(
-        lines[0],
-        format!("  ⚠ 데몬은 다른 설정 파일을 읽는다: /other/rocky.json. 이 셸의 설정 파일: {PATH}")
-    );
+    let warning =
+        format!("  ⚠ 데몬은 다른 설정 파일을 읽는다: /other/rocky.json. 이 셸의 설정 파일: {PATH}");
+    assert_eq!(reload_lines(&raw, PATH, None)[0], warning);
+
+    // 고친 파일은 데몬이 읽지 않는다 — 반영했다 · 띄우라는 안내도, 데몬 파일의 재시작 안내도 붙이지 않는다.
+    let other = reloaded(json!({ "path": "/other/rocky.json", "restartNeeded": ["supervise"] }));
+    for change in [Change::Added, Change::Removed] {
+        assert_eq!(
+            reload_lines(&other, PATH, Some(&edit(change, false))),
+            [
+                warning.as_str(),
+                "  이 셸의 파일을 고쳐도 데몬에는 반영되지 않는다. 데몬이 읽는 파일을 고치려면 ROCKY_CONFIG 를 그 경로로 설정하고 다시 한다",
+            ],
+            "{change:?}"
+        );
+    }
 }
 
 #[test]
