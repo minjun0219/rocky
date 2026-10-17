@@ -2393,7 +2393,8 @@ async fn dispatch(
             .and_then(|rest| rest.split_once('/'))
         {
             if verb == "start" {
-                // `serverOnly` — 세션 없이 서버만, 떠 있으면 그대로(`rocky rc start --all`, 옛 CLI `-a`). 본문보다 로컬부터.
+                // 기본은 서버만(`rc::START_MODE`). `newSession` — 새 세션과 함께(`rocky rc start --new-session`).
+                // `serverOnly` — 서버만, 떠 있으면 그대로(`rocky rc start --all`, 옛 CLI `-a`). 본문보다 로컬부터.
                 if !remote_control {
                     return Ok(error_response(
                         NON_LOCAL_SPAWN_MESSAGE,
@@ -2406,10 +2407,23 @@ async fn dispatch(
                     .and_then(|b| b.get("serverOnly"))
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                let command = if server_only {
-                    crate::rc::RcCommand::Revive(rocky_core::rc::LaunchMode::Server)
-                } else {
-                    crate::rc::RcCommand::Start
+                let new_session = body
+                    .as_ref()
+                    .and_then(|b| b.get("newSession"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let command = match (new_session, server_only) {
+                    (true, true) => {
+                        return Ok(error_response(
+                            "newSession(새 세션과 함께)과 serverOnly(서버만)는 같이 줄 수 없다",
+                            StatusCode::BAD_REQUEST,
+                        ))
+                    }
+                    (true, false) => crate::rc::RcCommand::StartSession,
+                    (false, true) => {
+                        crate::rc::RcCommand::Revive(rocky_core::rc::LaunchMode::Server)
+                    }
+                    (false, false) => crate::rc::RcCommand::Start,
                 };
                 return Ok(rc_command_route(state, label, command, remote_control));
             }

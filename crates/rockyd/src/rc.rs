@@ -410,7 +410,10 @@ const DAY: Policy<'static> = Policy {
 /// 띄우기인가 재시작인가.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RcCommand {
+    /// 꺼진 대상을 서버만 띄운다(`rc::START_MODE`).
     Start,
+    /// 꺼진 대상을 새 세션과 함께 띄운다 — 사람이 고를 때만(`rocky rc start --new-session`).
+    StartSession,
     Restart {
         fresh: bool,
     },
@@ -542,7 +545,7 @@ impl RcController {
             )));
         }
         let action = match command {
-            RcCommand::Start | RcCommand::Revive(_) => RcAction::Starting,
+            RcCommand::Start | RcCommand::StartSession | RcCommand::Revive(_) => RcAction::Starting,
             RcCommand::Restart { .. } | RcCommand::Pin(_) => RcAction::Restarting,
         };
         busy.insert(label.to_string(), action);
@@ -862,10 +865,11 @@ impl RcController {
             rc::START_MODE
         };
         let mode = match (&command, live) {
-            (RcCommand::Start, Some((pid, _))) => {
+            (RcCommand::Start | RcCommand::StartSession, Some((pid, _))) => {
                 return Err(format!("이미 떠 있다(pid {pid}) — 다시 띄우려면 재시작"))
             }
             (RcCommand::Start, None) => rc::START_MODE,
+            (RcCommand::StartSession, None) => LaunchMode::Session,
             (RcCommand::Revive(_), Some((pid, _))) => {
                 return Ok(format!("이미 떠 있다(pid {pid}) — 그대로 둔다"))
             }
@@ -881,9 +885,7 @@ impl RcController {
                             version = self.claude_version().await;
                         }
                         let mut mode = match &command {
-                            RcCommand::Restart { fresh } => {
-                                rc::restart_mode(target.pinned, sessions > 0, *fresh)
-                            }
+                            RcCommand::Restart { fresh } => rc::restart_mode(sessions > 0, *fresh),
                             _ => LaunchMode::Pin,
                         };
                         // `-c` 는 서버가 처음 만든 세션을 되살린다 — 나중에 열린 대화를 놓친다. 열린 세션의 id 를 읽어 못 박는다.
@@ -1050,7 +1052,7 @@ impl RcController {
                     // 프로세스가 사라졌다.
                     if rc::may_fail_to_start(mode) && !retried_mode {
                         retried_mode = true;
-                        mode = rc::retry_mode(target.pinned);
+                        mode = rc::retry_mode();
                         self.set_action(&target.label, RcAction::Retrying);
                         self.event(
                             "retry",

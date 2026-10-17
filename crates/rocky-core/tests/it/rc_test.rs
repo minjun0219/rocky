@@ -334,21 +334,17 @@ fn read_registration_cases() {
 #[test]
 fn restart_resumes_only_with_live_session() {
     // 열린 세션이 있을 때만 -c — 세션 없이 -c 로 뜬 서버는 할 일이 없어 내려간다(단일 세션 모드).
-    assert_eq!(restart_mode(true, true, false), LaunchMode::Resume);
-    assert_eq!(restart_mode(false, true, false), LaunchMode::Resume);
-    assert_eq!(restart_mode(true, false, false), LaunchMode::Session);
-    assert_eq!(restart_mode(false, false, false), LaunchMode::Server);
-    // fresh 면 세션이 있어도 이어받지 않는다.
-    assert_eq!(restart_mode(true, true, true), LaunchMode::Session);
-    assert_eq!(restart_mode(false, true, true), LaunchMode::Server);
-    // 이름으로 띄우면 고정이 아니어도 세션까지.
-    assert_eq!(START_MODE, LaunchMode::Session);
+    assert_eq!(restart_mode(true, false), LaunchMode::Resume);
+    assert_eq!(restart_mode(false, false), LaunchMode::Server);
+    // fresh 면 세션이 있어도 이어받지 않는다 — 서버만.
+    assert_eq!(restart_mode(true, true), LaunchMode::Server);
+    // 이름으로 띄워도 서버만 — 세션은 사람이 고를 때만(`StartSession`).
+    assert_eq!(START_MODE, LaunchMode::Server);
 }
 
 #[test]
 fn retry_after_failed_resume() {
-    assert_eq!(retry_mode(true), LaunchMode::Session);
-    assert_eq!(retry_mode(false), LaunchMode::Server);
+    assert_eq!(retry_mode(), LaunchMode::Server);
     assert!(may_fail_to_start(LaunchMode::Resume));
     assert!(!may_fail_to_start(LaunchMode::Session));
     assert!(!may_fail_to_start(LaunchMode::Server));
@@ -625,7 +621,7 @@ fn supervise_is_off_unless_set() {
 }
 
 #[test]
-fn revives_marked_unpinned_as_server_only() {
+fn revives_pinned_and_marked_as_server_only() {
     let status = status_with(vec![
         row("pin", true, false),
         row("marked", false, false),
@@ -636,12 +632,12 @@ fn revives_marked_unpinned_as_server_only() {
     assert_eq!(
         got,
         vec![
-            // 표식이 있어도 고정은 원래대로 새 세션.
+            // 고정도 서버만 — 세션은 앱에서 연다.
             Revive {
                 label: "pin".into(),
-                mode: LaunchMode::Session
+                mode: LaunchMode::Server
             },
-            // 야간이 내리고 못 띄운 비고정은 서버만 — 사람이 부른 기동이 아니다.
+            // 야간이 내리고 못 띄운 비고정도 서버만.
             Revive {
                 label: "marked".into(),
                 mode: LaunchMode::Server
@@ -754,10 +750,10 @@ fn nightly_decision_follows_the_old_order() {
     let cases: Vec<(&str, NightlyState, NightlyReason, Option<LaunchMode>)> = vec![
         ("서버만 — 쉰다", stale.clone(), Restart, Some(Server)),
         (
-            "고정 · 서버만 — 새 세션",
+            "고정 · 서버만 — 서버만",
             with(&|s| s.pinned = true),
             Restart,
-            Some(Session),
+            Some(Server),
         ),
         (
             "세션 · 61분 조용 — 이어받기",

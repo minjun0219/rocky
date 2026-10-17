@@ -337,7 +337,7 @@ async fn preview_says_what_the_night_would_do_and_touches_nothing() {
         outcome(&report, "repo-a"),
         (
             NightlyOutcome::WouldRestart,
-            "2.1.200 → 2.1.300 · 새 세션과 함께".into()
+            "2.1.200 → 2.1.300 · 서버만(세션은 앱에서)".into()
         )
     );
     assert_eq!(
@@ -472,7 +472,7 @@ async fn restarts_stale_idle_servers_canary_first() {
         log(&f),
         vec![
             "stop repo-a",
-            "spawn repo-a",
+            "spawn repo-a --no-create-session-in-dir",
             "stop repo-b",
             "spawn repo-b --no-create-session-in-dir",
         ],
@@ -610,7 +610,7 @@ async fn the_last_recovery_before_the_deadline_starts_fresh() {
     );
     let (o, note) = outcome(&report, "repo-a");
     assert_eq!(o, NightlyOutcome::Restarted);
-    assert!(note.contains("새 세션과 함께"), "{note}");
+    assert!(note.contains("서버만"), "{note}");
 }
 
 #[tokio::test]
@@ -797,7 +797,7 @@ async fn nothing_starts_once_the_last_wait_reaches_the_deadline() {
     assert_eq!(outcome(&report, "repo-a").0, NightlyOutcome::Down);
     assert_eq!(
         log(&f),
-        vec!["stop repo-a", "spawn repo-a"],
+        vec!["stop repo-a", "spawn repo-a --no-create-session-in-dir"],
         "한 번만 띄웠다"
     );
 }

@@ -102,13 +102,13 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 rocky rc                         # 현황 표(이름 · 고정 · 떠 있음 · 세션 · 메모), 핸드오프 · 대상 밖 서버, 감시 · 야간 · Antigravity
                                  # 로그아웃 같은 기기 전체 문제는 맨 위 ⚠ 에 한 번 — 푸는 법까지(새 로그인이 키체인 대신 파일로 갔으면 그렇다고)
 rocky rc help                    # 아래 옵션 전부
-rocky rc start repo-a --wait     # 꺼진 대상을 띄운다(세션까지)
+rocky rc start repo-a --wait     # 꺼진 대상을 서버만 띄운다(세션은 앱에서 — 새 세션과 함께면 --new-session)
 rocky rc restart repo-a --wait   # 다시 띄운다 — 열린 세션이 있으면 그 세션을 이어받기(가장 최근에 대화한 것, --session-id), --fresh 면 새로. 붙은 원격 세션은 끊긴다
                                  # 막 대화하는 중이면 턴이 끝날 때까지(최대 10분) 기다렸다 내린다
                                  # 이 세션이 붙은 서버는 거절한다(재시작이 이 턴을 끊는다 — 웹이나 다른 세션에서)
 rocky rc restart repo-a --session cse_…  # 이어받을 세션을 claude.ai 쪽 id 로 못 박는다
 rocky rc --activity              # 대상마다 최근 활동(마지막 커밋 · *작업중 · @곁가지), 꺼진 비고정 중 오래 조용한 것은 정박
-rocky rc start --all             # 꺼진 대상 전부 — 비고정은 서버만(세션 없이), 고정은 세션과 함께 — 비상용
+rocky rc start --all             # 꺼진 대상 전부를 서버만 — 비상용
 rocky rc agy                     # Antigravity 원격 제어 상태 한 줄
 rocky rc agy stop                # agy remote-control stop(정지 + 등록 해제) — start 는 등록 + 기동
 rocky rc nightly --dry-run       # 야간 재시작 리허설 — 지금 설치 버전으로 서버마다 무엇을 할지(손대지 않는다)
@@ -142,7 +142,7 @@ rocky rc report                  # 마지막 야간 보고 — 서버마다 결�
 
 | API | 내용 |
 | --- | --- |
-| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다 — `access.remoteControl` 이면 검증된 Access 로그인도). 바로 202, `start` 본문 `{"serverOnly": true}` 는 세션 없이 서버만(떠 있으면 그대로), 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않고, `{"session": "cse_…"}` 는 그 세션으로 이어받는다(claude.ai 쪽 id 만 — 아니면 400). 막 대화하는 중이면 턴이 끝날 때까지 `waiting` 으로 기다린다 |
+| `POST /api/rc/servers/:label/start` · `/restart` | 로컬 전용(프로세스를 띄운다 — `access.remoteControl` 이면 검증된 Access 로그인도). 바로 202, `start` 는 서버만 띄운다 — 본문 `{"newSession": true}` 는 새 세션과 함께, `{"serverOnly": true}` 는 떠 있으면 그대로(둘을 같이 주면 400), 진행은 현황 행의 `action`(`starting`·`restarting`·`retrying`)과 `lastResult` 로 본다. `restart` 본문 `{"fresh": true}` 는 이어받지 않고, `{"session": "cse_…"}` 는 그 세션으로 이어받는다(claude.ai 쪽 id 만 — 아니면 400). 막 대화하는 중이면 턴이 끝날 때까지 `waiting` 으로 기다린다 |
 | `GET /api/rc/servers` | 대상 행(`servers` — 기동 버전 기록이 설치 버전과 다르면 `stale`), 목록에 없는 폴더에서 도는 서버(`strays`) — 그중 데몬이 띄운 핸드오프 서버는 `handoffs`(이름 · 할 일 참조) 로 따로, `claude auth status` 결과(`auth`) — 로그아웃이면서 새 로그인이 키체인 대신 `.credentials.json` 에만 간 것을 알아채면(macOS) `authHint: "credentialsFileNewer"`, 원인을 못 짚으면 그 필드는 없다, `agy remote-control status`(`antigravity`, `agy`가 없으면 `null` — rc 블록이 없어도 잰다). `ps`·`lsof`가 실패하면 `probeError`에 사유가 실리고, 그때 꺼짐은 "모름"이다. 감시가 켜졌으면 `supervise`(마지막 바퀴 · 데몬 자격 끊김), 야간 재시작이 켜졌거나 돈 적이 있으면 `nightly`(시각 · 도는 중 · 마지막 결과). 5초 캐시. `?activity=1` 이면 행마다 최근 활동(`activity` — git 을 띄우므로 로컬 전용) |
 | `GET /api/rc/nightly/preview` | 야간 재시작 리허설 — 지금 설치 버전으로 떠 있는 설정 대상마다 다시 띄울지(`would-restart`) · 기다릴지(`would-wait`) · 최신(`current`) · 건너뜀(`skipped`, 사유는 `note`). 손대지 않고 기록도 남기지 않는다. 캐시 없이 `claude --version`(한도 40초)과 프로브를 띄우므로 로컬 전용(403). rc 가 꺼진 기기면 404 |
 | `POST /api/rc/nightly` | 야간 재시작을 지금 한 번 — 로컬 전용(403, 서버를 내리고 띄운다 — Access 원격 제어는 허용). 바로 202, 결과는 현황의 `nightly.last`. 이미 도는 중이면 409, rc 가 꺼진 기기면 404. 배너를 띄우지 않고 일정의 날짜 기록도 건드리지 않는다 |

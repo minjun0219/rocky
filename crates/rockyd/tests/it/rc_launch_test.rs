@@ -222,8 +222,14 @@ async fn fresh_restart_does_not_resume() {
     assert!(result.ok);
     assert_eq!(
         f.world.lock().unwrap().spawns,
-        vec![vec!["claude", "rc", "--name", "repo-a"]],
-        "고정은 세션까지 새로"
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--no-create-session-in-dir"
+        ]],
+        "고정이어도 서버만 새로"
     );
 }
 
@@ -265,9 +271,15 @@ async fn resume_that_dies_falls_back_to_fresh_once() {
         f.world.lock().unwrap().spawns,
         vec![
             vec!["claude", "rc", "--name", "repo-a", "--session-id", "cse_1"],
-            vec!["claude", "rc", "--name", "repo-a"],
+            vec![
+                "claude",
+                "rc",
+                "--name",
+                "repo-a",
+                "--no-create-session-in-dir"
+            ],
         ],
-        "못 박은 세션이 안 뜨면 새로 한 번 더"
+        "못 박은 세션이 안 뜨면 서버만 한 번 더"
     );
 }
 
@@ -304,13 +316,42 @@ async fn stubborn_server_gets_sigkill_after_grace() {
 
 #[tokio::test]
 async fn non_pinned_restart_without_session_is_server_only() {
-    // repo-b 는 꺼져 있다 → 재시작은 그냥 띄우기(이름으로 띄우면 세션까지).
+    // repo-b 는 꺼져 있다 → 재시작은 그냥 띄우기(서버만).
     let f = fixture(false, true, vec![CONNECTED]);
     let result = run(&f, "repo-b", RcCommand::Restart { fresh: false }).await;
     assert!(result.ok);
     assert_eq!(
         f.world.lock().unwrap().spawns,
-        vec![vec!["claude", "rc", "--name", "repo-b"]]
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-b",
+            "--no-create-session-in-dir"
+        ]]
+    );
+}
+
+#[tokio::test]
+async fn start_session_opens_a_new_session_only_when_asked() {
+    // 이름으로 띄우면 서버만, `StartSession` 일 때만 세션과 함께.
+    let f = fixture(false, false, vec![CONNECTED]);
+    assert!(run(&f, "repo-a", RcCommand::Start).await.ok);
+    let g = fixture(false, false, vec![CONNECTED]);
+    assert!(run(&g, "repo-a", RcCommand::StartSession).await.ok);
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--no-create-session-in-dir"
+        ]]
+    );
+    assert_eq!(
+        g.world.lock().unwrap().spawns,
+        vec![vec!["claude", "rc", "--name", "repo-a"]]
     );
 }
 
@@ -523,7 +564,14 @@ async fn supervise_revives_only_the_stopped_pinned_server() {
     assert_eq!(started, vec!["repo-a"], "repo-b 는 고정이 아니다");
     assert_eq!(
         world.lock().unwrap().spawns,
-        vec![vec!["claude", "rc", "--name", "repo-a"]]
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--no-create-session-in-dir"
+        ]],
+        "고정을 되살려도 서버만"
     );
     assert!(
         seen.lock().unwrap().is_empty(),
@@ -904,7 +952,7 @@ async fn pinned_session_restart_uses_that_session_or_starts_fresh() {
         ]]
     );
 
-    // 만료됐거나 틀린 세션이면 뜨자마자 내려간다 — 새로 한 번 더(고정은 세션까지).
+    // 만료됐거나 틀린 세션이면 뜨자마자 내려간다 — 서버만 한 번 더.
     let f = fixture(true, true, vec![DIES, CONNECTED]);
     let result = run(&f, "repo-a", RcCommand::Pin("cse_gone".into())).await;
     assert!(result.ok, "{}", result.message);
@@ -919,7 +967,13 @@ async fn pinned_session_restart_uses_that_session_or_starts_fresh() {
                 "--session-id",
                 "cse_gone"
             ],
-            vec!["claude", "rc", "--name", "repo-a"],
+            vec![
+                "claude",
+                "rc",
+                "--name",
+                "repo-a",
+                "--no-create-session-in-dir"
+            ],
         ]
     );
 }
@@ -988,6 +1042,39 @@ async fn restart_route_checks_the_session_id() {
             "--session-id",
             "cse_1"
         ]]
+    );
+}
+
+#[tokio::test]
+async fn new_session_start_route() {
+    // `rocky rc start --new-session` 이 보내는 것 — 새 세션과 함께. serverOnly 와 같이 주면 400.
+    let f = fixture(false, false, vec![READY]);
+    let control = f.control.clone();
+    let fx_ = fx();
+    let state = rebuild(&fx_, move |o| o.rc_control = Some(control));
+    let (code, _) = post(
+        &state,
+        "/api/rc/servers/repo-b/start",
+        json!({"newSession": true, "serverOnly": true}),
+    )
+    .await;
+    assert_eq!(code, 400, "둘은 같이 줄 수 없다");
+    let (code, body) = post(
+        &state,
+        "/api/rc/servers/repo-b/start",
+        json!({"newSession": true}),
+    )
+    .await;
+    assert_eq!(code, 202, "{body}");
+    for _ in 0..200 {
+        if !f.world.lock().unwrap().spawns.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![vec!["claude", "rc", "--name", "repo-b"]]
     );
 }
 

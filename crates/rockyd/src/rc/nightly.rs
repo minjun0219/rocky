@@ -654,7 +654,7 @@ impl RcController {
                     >= deadline;
                 let command = match self.pinned_session(&label) {
                     Some(id) if !last_try => RcCommand::Pin(id),
-                    _ => RcCommand::Revive(rc::retry_mode(r.target.pinned)),
+                    _ => RcCommand::Revive(rc::retry_mode()),
                 };
                 let result = self
                     .attempt(
