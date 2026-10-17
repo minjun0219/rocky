@@ -37,6 +37,10 @@
   actor 의 트랜잭션은 거절한다 — 에이전트의 `start` 앞에서 도는 세션 조회(`drop_gone_handoffs` → `claude agents`)도 소켓으로는
   닿지 않는다. 그래서 소켓이 어디서 열렸든 프로세스 실행에 닿지 않는다. op 를 더할 때는 이 목록부터 본다
   (`docs/features/sync.md`).
+- **보드 사본은 화면을 연 브라우저에 남는다**(`web/sync/persist.ts` 의 IndexedDB). Access·tailscale 로 연 폰 브라우저도 같다 —
+  클라우드 동기화(3번 조각)와 관계없이 원격으로 연 브라우저에는 보드가 남는다. 앱 안에서 지우는 길은 Access 로그아웃 메뉴 하나다
+  (`clearBoardReplica` — 싱크를 멈추고 걸린 저장이 끝난 뒤에 지운다). 로컬·tailscale 로 연 화면과, Access 세션이 끝나 로그인
+  화면으로 넘어간 화면에서는 사본이 그대로 남는다.
 
 ## 코드
 
@@ -47,6 +51,7 @@
 | 공개키 캐시 · 라우트 판정(`access_remote_control`) | `crates/rockyd/src/access.rs`, `crates/rockyd/src/server.rs` |
 | 적용 지점(라우팅 전 가드, 라우트별 로컬 검사) | `crates/rockyd/src/server.rs`, 웹소켓 `crates/rockyd/src/ws.rs` |
 | tailscale serve | `crates/rockyd/src/tailscale.rs`, 수동 명령 `crates/rocky-cli/src/system.rs` |
+| 브라우저의 보드 사본 · 로그아웃 때 지우기 | `web/sync/persist.ts`, `web/sync/boot.ts`(`clearBoardReplica`), `web/components/TopBar.tsx` |
 
 테스트: `crates/rocky-core/tests/it/local_request_test.rs`, `access_test.rs`(테스트 전용 키 `fixtures/access-test-rsa.pk8`),
 `crates/rockyd/tests/it/server_access_test.rs`, `crates/rockyd/tests/it/tailscale_test.rs`, 라우트별 로컬 검사는
