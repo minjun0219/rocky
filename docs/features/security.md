@@ -5,13 +5,14 @@
 ## 규칙
 
 - **로컬 요청 전용 동작.** 이슈 생성, 세션 띄우기, 검증 다시 돌리기, 보드의 `path` / `repo` / `reviewFix` / `prAuthors` 변경, 보드 수집함 설정
-  (`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다), PR·수집함·검증 구독 쓰기(`/api/inbox/subscriptions`·`/api/verify/subscriptions` 의 POST·DELETE), 세션 등록 쓰기(`POST /api/sessions/inbox`·`/doing` — 원격에는 404 로 존재를 숨긴다 —, `/api/sessions/cleared`), 전달 조회·"보내지 않기", 세션에 메시지 보내기(`POST /api/sessions/message`)·세션 멈추기(`POST /api/sessions/stop`)는 `is_local_request` 가
+  (`/api/inbox/adapters`·`sources` 쓰기 — 값이 실행 인자가 된다), PR·수집함·검증 구독 쓰기(`/api/inbox/subscriptions`·`/api/verify/subscriptions` 의 POST·DELETE), 세션 등록 쓰기(`POST /api/sessions/inbox`·`/doing` — 원격에는 404 로 존재를 숨긴다 —, `/api/sessions/cleared`), 전달 조회·"보내지 않기", 세션에 메시지 보내기(`POST /api/sessions/message`)·세션 멈추기(`POST /api/sessions/stop`), rc 설정 다시 읽기(`POST /api/rc/reload` — 띄울 수 있는 폴더가 바뀐다)는 `is_local_request` 가
   필요하다: 루프백 peer **이고** 프록시 헤더(`x-forwarded-*`, `forwarded`, `tailscale-user-*`, `cf-*`)가 없어야 한다. peer 주소가
   없으면 거부(fail-closed). *EN: Anything that writes to GitHub, spawns processes or steers sessions is local-only: loopback peer
   and no proxy headers; fail closed.*
 - **예외 — Access 원격 제어**(`rocky.json` 의 `access` 블록, `remoteControl: true`): 원격 제어 탭의 라우트(`/api/rc/*` 중
-  rc 서버 띄우기·재시작, 핸드오프·대상 밖 서버 닫기, 야간 실행 — **Antigravity 켜기·끄기, 야간 리허설, 최근 활동(`activity=1`)은
-  아니다** — 앞의 것은 이 기계의 원격 접속 데몬을 바꾸고, 뒤의 둘은 부를 때마다 프로세스를 띄우는 읽기라 요청 범위 밖)는
+  rc 서버 띄우기·재시작, 핸드오프·대상 밖 서버 닫기, 야간 실행 — **Antigravity 켜기·끄기, 설정 다시 읽기(`/api/rc/reload`), 야간 리허설,
+  최근 활동(`activity=1`)은 아니다** — 앞의 둘은 이 기계의 원격 접속 데몬 · 띄울 수 있는 폴더를 바꾸고, 뒤의 둘은 부를 때마다 프로세스를
+  띄우는 읽기라 요청 범위 밖)는
   `local` 이거나 Access 로 들어온 허용 이메일이면 받는다(`remote_control`). 판정은 셋 다 맞아야 한다: peer 가 루프백(cloudflared),
   `Cf-Access-Jwt-Assertion` 이 팀 공개키로 RS256 서명 검증, `iss`·`aud`·`exp`(±60초)·`nbf`·허용 이메일 일치
   (`rocky_core::access::verify_token`). 헤더 이름만으로는 믿지 않는다 — tailscale serve·내부망으로 온 사람도 같은 헤더를 써 넣을 수

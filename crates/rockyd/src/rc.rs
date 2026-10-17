@@ -218,67 +218,146 @@ pub async fn agy_control(runner: &Runner, action: AgyAction) -> Result<(), Strin
     }
 }
 
+/// 데몬이 지금 쓰는 rc 설정 — 현황(`rc_handles`)과 기동기(`RcController`)가 같은 칸을 본다. `rocky rc reload`
+/// (`POST /api/rc/reload`)가 설정 파일을 다시 읽어 대상 목록(root · pinned · targets)을 바꾸면 세대가 올라 현황 캐시가 새로
+/// 잰다. 기능 스위치(enabled · supervise · nightly)는 바꾸지 않는다 — 기동기와 루프가 기동 때 정해진다(`rc_targets::plan_reload`).
+#[derive(Clone, Default)]
+pub struct RcSettings {
+    /// (세대, 설정) — 바꿀 때마다 세대가 오른다.
+    current: Arc<std::sync::RwLock<(u64, Option<RcConfig>)>>,
+    /// 다시 읽을 설정 파일과 대상을 풀 홈. 없으면 다시 읽지 못한다(테스트가 설정만 넘긴 경우).
+    source: Option<Arc<(PathBuf, String)>>,
+}
+
+impl From<Option<RcConfig>> for RcSettings {
+    fn from(config: Option<RcConfig>) -> Self {
+        RcSettings {
+            current: Arc::new(std::sync::RwLock::new((0, config))),
+            source: None,
+        }
+    }
+}
+
+impl RcSettings {
+    /// 기동 때 읽은 설정과, 다시 읽을 파일 · 홈.
+    pub fn new(config: Option<RcConfig>, path: PathBuf, home: String) -> Self {
+        RcSettings {
+            source: Some(Arc::new((path, home))),
+            ..RcSettings::from(config)
+        }
+    }
+
+    pub fn get(&self) -> Option<RcConfig> {
+        self.snapshot().1
+    }
+
+    fn snapshot(&self) -> (u64, Option<RcConfig>) {
+        self.current
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// 다시 읽는 설정 파일.
+    pub fn path(&self) -> Option<&Path> {
+        self.source.as_deref().map(|(path, _)| path.as_path())
+    }
+
+    /// 설정 파일을 다시 읽어 대상 목록을 바꾼다. 파일을 못 읽거나 JSON 이 아니면 Err — 하던 설정을 그대로 쓴다.
+    pub fn reload(&self) -> Result<rocky_core::rc_targets::Reload, String> {
+        let Some(source) = self.source.as_deref() else {
+            return Err("이 데몬은 다시 읽을 설정 파일을 모른다".into());
+        };
+        let (path, home) = (&source.0, &source.1);
+        let file = rocky_core::config::read_rc_block(path)?;
+        let mut slot = self.current.write().unwrap_or_else(|e| e.into_inner());
+        let (next, report) =
+            rocky_core::rc_targets::plan_reload(slot.1.as_ref(), file.as_ref(), home);
+        if let Some(next) = next {
+            *slot = (slot.0 + 1, Some(next));
+        }
+        Ok(report)
+    }
+}
+
 /// TTL 캐시를 씌운 조회기. 잠금을 프로브가 끝날 때까지 쥔다 — 만료 직후 겹친 요청은 진행 중인 프로브를
 /// 기다렸다 그 결과를 받는다(요청마다 `ps`·`lsof` 를 새로 띄우지 않고, 늦게 끝난 옛 프로브가 새 결과를 덮지 않는다).
 pub fn cached_rc(
     runner: Runner,
-    config: Option<RcConfig>,
+    settings: impl Into<RcSettings>,
     home: String,
     ttl: Duration,
 ) -> RcProvider {
-    rc_handles(runner, config, home, ttl).0
+    rc_handles(runner, settings, home, ttl).0
 }
 
+/// 잰 시각 · 설정 세대 · 현황.
+type RcCache = Arc<tokio::sync::Mutex<Option<(Instant, u64, RcStatus)>>>;
+
 /// 조회기와 agy 손잡이를 **같은 캐시**로 묶는다. 손잡이는 캐시 잠금을 쥔 채 명령을 돌리고 다시 재서 넣는다 —
-/// 그 사이 조회는 기다렸다 새 값을 받고, 켜기 직전의 옛 값이 5초 동안 남지 않는다.
+/// 그 사이 조회는 기다렸다 새 값을 받고, 켜기 직전의 옛 값이 5초 동안 남지 않는다. 설정을 다시 읽었으면(세대가 다르면)
+/// TTL 안이라도 새로 잰다 — 막 더한 대상이 5초 동안 안 보이지 않게.
 pub fn rc_handles(
     runner: Runner,
-    config: Option<RcConfig>,
+    settings: impl Into<RcSettings>,
     home: String,
     ttl: Duration,
 ) -> (RcProvider, AgyControl) {
-    let cache: Arc<tokio::sync::Mutex<Option<(Instant, RcStatus)>>> =
-        Arc::new(tokio::sync::Mutex::new(None));
-    let config = Arc::new(config);
+    let cache: RcCache = Arc::new(tokio::sync::Mutex::new(None));
+    let settings = settings.into();
     let home = Arc::new(home);
     let provider: RcProvider = {
-        let (runner, config, home, cache) =
-            (runner.clone(), config.clone(), home.clone(), cache.clone());
+        let (runner, settings, home, cache) = (
+            runner.clone(),
+            settings.clone(),
+            home.clone(),
+            cache.clone(),
+        );
         Arc::new(move || {
-            let (runner, config, home, cache) =
-                (runner.clone(), config.clone(), home.clone(), cache.clone());
+            let (runner, settings, home, cache) = (
+                runner.clone(),
+                settings.clone(),
+                home.clone(),
+                cache.clone(),
+            );
             Box::pin(async move {
                 let mut slot = cache.lock().await;
-                if let Some((at, status)) = slot.as_ref() {
-                    if at.elapsed() < ttl {
+                let (generation, config) = settings.snapshot();
+                if let Some((at, seen, status)) = slot.as_ref() {
+                    if at.elapsed() < ttl && *seen == generation {
                         return status.clone();
                     }
                 }
-                let status = probe(&runner, config.as_ref().as_ref(), &home).await;
-                *slot = Some((Instant::now(), status.clone()));
+                let status = probe(&runner, config.as_ref(), &home).await;
+                *slot = Some((Instant::now(), generation, status.clone()));
                 status
             })
         })
     };
     let control: AgyControl = Arc::new(move |action| {
-        let (runner, config, home, cache) =
-            (runner.clone(), config.clone(), home.clone(), cache.clone());
+        let (runner, settings, home, cache) = (
+            runner.clone(),
+            settings.clone(),
+            home.clone(),
+            cache.clone(),
+        );
         Box::pin(async move {
             let mut slot = cache.lock().await;
+            let (generation, config) = settings.snapshot();
             let done = agy_control(&runner, action).await;
             // 실패해도 다시 잰다 — 반쯤 바뀐 상태(등록만 됨 등)가 화면에 남지 않게. 성공했으면 자리 잡을 때까지
             // 몇 번 더 잰다(못 잡아도 마지막 값을 낸다).
-            let mut status = probe(&runner, config.as_ref().as_ref(), &home).await;
+            let mut status = probe(&runner, config.as_ref(), &home).await;
             if done.is_ok() {
                 for _ in 1..AGY_SETTLE_TRIES {
                     if action.settled(status.antigravity.as_ref()) {
                         break;
                     }
                     tokio::time::sleep(AGY_SETTLE_GAP).await;
-                    status = probe(&runner, config.as_ref().as_ref(), &home).await;
+                    status = probe(&runner, config.as_ref(), &home).await;
                 }
             }
-            *slot = Some((Instant::now(), status.clone()));
+            *slot = Some((Instant::now(), generation, status.clone()));
             done.map(|()| status)
         })
     });
@@ -435,7 +514,8 @@ pub enum RcRefusal {
 }
 
 pub struct RcController {
-    config: Option<RcConfig>,
+    /// 대상 목록은 `rocky rc reload` 로 바뀔 수 있다 — 쓸 때마다 `config()` 로 읽는다.
+    settings: RcSettings,
     home: String,
     log_dir: PathBuf,
     runner: Runner,
@@ -475,14 +555,14 @@ pub type RcNotifier = Arc<dyn Fn(String, String) + Send + Sync>;
 
 impl RcController {
     pub fn new(
-        config: Option<RcConfig>,
+        settings: impl Into<RcSettings>,
         home: String,
         log_dir: PathBuf,
         runner: Runner,
         ops: RcOps,
     ) -> Self {
         RcController {
-            config,
+            settings: settings.into(),
             home,
             log_dir,
             runner,
@@ -496,6 +576,11 @@ impl RcController {
             nightly: std::sync::Mutex::new(nightly::NightlyRun::default()),
             inboxes: std::sync::OnceLock::new(),
         }
+    }
+
+    /// 지금 쓰는 설정 — 다시 읽기(`RcSettings::reload`)가 대상 목록을 바꿨으면 그것.
+    fn config(&self) -> Option<RcConfig> {
+        self.settings.get()
     }
 
     /// 받은편지함 등록을 읽는 함수를 잇는다 — 한 번만(두 번째부터는 무시).
@@ -522,10 +607,10 @@ impl RcController {
 
     /// 요청을 받는다 — 대상을 찾고 진행 중 표시를 건다. 실제 일은 `run` 이 백그라운드에서 한다.
     pub fn begin(&self, label: &str, command: RcCommand) -> Result<Target, RcRefusal> {
-        let Some(config) = &self.config else {
+        let Some(config) = self.config() else {
             return Err(RcRefusal::NotFound("이 기기에서는 rc 가 꺼져 있다".into()));
         };
-        let matches: Vec<Target> = rc::resolve_targets(config, &self.home)
+        let matches: Vec<Target> = rc::resolve_targets(&config, &self.home)
             .into_iter()
             .filter(|t| t.label == label)
             .collect();
@@ -632,7 +717,7 @@ impl RcController {
     /// 재시작 중인 대상은 `Busy` 로 자연히 건너뛴다.
     pub async fn supervise_tick(self: &Arc<Self>, notify: &RcNotifier) -> Vec<String> {
         let now = chrono::Utc::now().timestamp();
-        let mut status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        let mut status = probe(&self.runner, self.config().as_ref(), &self.home).await;
         self.decorate(&mut status);
 
         let mark = {
@@ -838,7 +923,7 @@ impl RcController {
             Some(v) => Some(v.to_string()),
             None => self.claude_version().await,
         };
-        let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+        let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
         if let Some(err) = status.probe_error {
             return Err(format!("현황을 못 읽어 손대지 않았다 — {err}"));
         }
@@ -962,7 +1047,7 @@ impl RcController {
         while waited < limit {
             (self.ops.sleep)(rc::TURN_POLL).await;
             waited += rc::TURN_POLL;
-            let status = probe(&self.runner, self.config.as_ref(), &self.home).await;
+            let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
             if let Some(err) = status.probe_error {
                 probe_error = Some(err);
                 continue;
@@ -1253,6 +1338,11 @@ impl RcController {
             serde_json::json!({ "pid": pid, "kill": false, "down": true }),
         );
         true
+    }
+
+    /// 설정을 다시 읽은 기록(`reload` 이벤트) — 대상 목록에서 무엇이 바뀌었고 무엇이 재시작을 기다리는지.
+    pub fn record_reload(&self, report: &rocky_core::rc_targets::Reload) {
+        self.event("reload", "", serde_json::json!(report));
     }
 
     /// `<todo dir>/rc/events.jsonl` 에 한 줄 — 옛 CLI 결과와 맞대는 기록이다. 쓰기 실패는 삼킨다(기록이 동작을 막지 않게).

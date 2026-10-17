@@ -351,9 +351,28 @@ pub fn resolve_dir(name: &str, home: &str, root: &str) -> String {
 
 /// 설정 → 대상 목록. 고정이 먼저, 같은 디렉터리는 한 번(고정이 이긴다), 빈 이름은 버린다.
 pub fn resolve_targets(config: &RcConfig, home: &str) -> Vec<Target> {
-    let root_raw = config.root.as_deref().unwrap_or(DEFAULT_ROOT);
-    // 상대 경로 root 는 홈 기준으로 읽는다(`"ws"` → `~/ws`).
-    let root = resolve_dir(root_raw, home, home);
+    resolve_entries(config, home)
+        .into_iter()
+        .map(|e| e.target)
+        .collect()
+}
+
+/// 대상 하나와 rocky.json 에 그것을 적은 이름 — `rocky rc targets` 가 둘을 같이 다룬다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetEntry {
+    /// 적힌 이름(앞뒤 공백만 뗐다).
+    pub entry: String,
+    pub target: Target,
+}
+
+/// 상대 이름의 기준 폴더 — `root`(없으면 `DEFAULT_ROOT`)를 푼 것. 상대 경로 root 는 홈 기준으로 읽는다(`"ws"` → `~/ws`).
+pub fn resolve_root(config: &RcConfig, home: &str) -> String {
+    resolve_dir(config.root.as_deref().unwrap_or(DEFAULT_ROOT), home, home)
+}
+
+/// `resolve_targets` 와 같은 순서 · 같은 규칙으로, 대상마다 처음 적힌 이름을 함께.
+pub fn resolve_entries(config: &RcConfig, home: &str) -> Vec<TargetEntry> {
+    let root = resolve_root(config, home);
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let named = config
@@ -370,16 +389,20 @@ pub fn resolve_targets(config: &RcConfig, home: &str) -> Vec<Target> {
         if !seen.insert(dir.clone()) {
             continue;
         }
-        out.push(Target {
-            label: label_of(&dir),
-            dir,
-            pinned,
+        out.push(TargetEntry {
+            entry: name.to_string(),
+            target: Target {
+                label: label_of(&dir),
+                dir,
+                pinned,
+            },
         });
     }
     out
 }
 
-fn label_of(dir: &str) -> String {
+/// 대상의 라벨 — 폴더 이름(basename). `/` 는 빈 문자열이다.
+pub fn label_of(dir: &str) -> String {
     let trimmed = dir.trim_end_matches('/');
     trimmed.rsplit('/').next().unwrap_or(trimmed).to_string()
 }

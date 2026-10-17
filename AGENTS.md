@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | **맡긴다** | 보드(할 일 · 노트 · 섹션), 핸드오프와 doing 귀속, 새 세션 띄우기, 수집함(외부 앱은 읽기만), `/rocky:next` | board-model · handoff · spawn · inbox |
 | **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
-| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel (화면은 `web/DESIGN.md`) |
+| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel (화면은 `web/DESIGN.md`) |
 | **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
 | 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 · 클라우드 중계소) | daemon-lifecycle · sync |
 
@@ -272,7 +272,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 로그 색인 | JSONL 이 진실, `logs.db` 는 지워도 다시 만드는 파생물 — *never route writes through the daemon* | [log-index](./docs/features/log-index.md) |
 | 토큰 색인 | 훅을 걸지 않는다(트랜스크립트만). 같은 `message.id` 는 한 번만 센다 | [tokens](./docs/features/tokens.md) |
 | 기본 브랜치 검증 | opt-in, 명령은 설정 파일에만. 보드 레포의 작업 트리·브랜치를 건드리지 않는다(detached 워크트리). 준비 실패는 커밋 탓으로 남기지 않는다 | [verify](./docs/features/verify.md) |
-| rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
+| rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다. 설정 다시 읽기(`rocky rc targets` · `rocky rc reload`)는 대상 목록만 바꾸고 스위치(`enabled` · `supervise` · `nightly`)는 재시작 몫, 못 읽은 파일은 하던 목록을 지킨다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | TUI(`tui/`) | 웹은 `types.ts`·`lib.ts`(순수)만 가져다 쓴다 — 웹 store 는 브라우저에 묶여 있다. 쓰기는 REST 로 보내고 화면은 SSE 를 기다린다. 번들은 `react-devtools-core` 를 빈 모듈로, 실행은 늘 `bun --no-install` | [tui](./docs/features/tui.md) |
 | 보드 패널(mod) | 저절로 열지 않는다 — `/rocky-board` 로만 열고, 데몬은 패널이 열려 있는 동안만 묻는다(매 바퀴 `$.ui.panes()` 로 확인). 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬을 거치지 않는다. 하위 프로세스(git·`extraCommands`)는 마감을 넘기면 프로세스 그룹째 끊고 그 줄만 뺀다 | [statusline](./docs/features/statusline.md) |

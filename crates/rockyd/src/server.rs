@@ -99,6 +99,8 @@ pub struct ServerOptions {
     pub agy_control: Option<crate::rc::AgyControl>,
     /// rc 서버 띄우기 · 재시작. 없으면 그 라우트는 404(rc 가 꺼진 기기와 같다).
     pub rc_control: Option<Arc<crate::rc::RcController>>,
+    /// `rc`·`rc_control` 이 보는 rc 설정 — `POST /api/rc/reload` 가 설정 파일을 다시 읽는다. 없으면 그 라우트는 404.
+    pub rc_settings: Option<crate::rc::RcSettings>,
     /// Cloudflare Access 토큰 확인(`rocky.json` 의 `access` 블록). 없으면 Access 로 온 요청은 원격 제어를 못 한다.
     pub access: Option<Arc<crate::access::AccessGate>>,
 }
@@ -124,6 +126,7 @@ impl ServerOptions {
             rc: None,
             agy_control: None,
             rc_control: None,
+            rc_settings: None,
             access: None,
         }
     }
@@ -163,6 +166,7 @@ pub struct ServerState {
     rc: crate::rc::RcProvider,
     agy_control: Option<crate::rc::AgyControl>,
     rc_control: Option<Arc<crate::rc::RcController>>,
+    rc_settings: Option<crate::rc::RcSettings>,
     access: Option<Arc<crate::access::AccessGate>>,
     /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
     /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
@@ -614,6 +618,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         claude_jobs_dir: options.claude_jobs_dir,
         token_recommend: options.token_recommend,
         rc_control: options.rc_control,
+        rc_settings: options.rc_settings,
         access: options.access,
         rc: options.rc.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { rocky_core::rc::RcStatus::unconfigured() }))
@@ -2244,6 +2249,33 @@ async fn dispatch(
             }
         }
         return Ok(json_response(&status, StatusCode::OK));
+    }
+    // ── rc 설정 다시 읽기 — rocky.json 의 대상 목록(root · pinned · targets)을 떠 있는 데몬에 반영한다(`rocky rc targets` 가
+    // 고친 뒤, 손으로 고쳤으면 `rocky rc reload`). 무엇을 띄울 수 있는지가 바뀌므로 로컬 전용 — Access 원격 제어로도 열지 않는다 ──
+    if *method == Method::POST && path == "/api/rc/reload" {
+        if !local {
+            return Ok(error_response(
+                "rc 설정 다시 읽기는 이 기기(루프백)에서 온 요청만 받는다",
+                StatusCode::FORBIDDEN,
+            ));
+        }
+        let Some(settings) = state.rc_settings.clone() else {
+            return Ok(error_response(
+                "rc 설정이 이 데몬에 연결돼 있지 않다",
+                StatusCode::NOT_FOUND,
+            ));
+        };
+        return Ok(match settings.reload() {
+            Ok(report) => {
+                if let Some(control) = &state.rc_control {
+                    control.record_reload(&report);
+                }
+                let mut body = json!(report);
+                body["path"] = json!(settings.path().map(|p| p.to_string_lossy()));
+                ok_json(&body)
+            }
+            Err(message) => error_response(&message, StatusCode::UNPROCESSABLE_ENTITY),
+        });
     }
     // ── 야간 재시작 리허설 — 지금 설치 버전으로 판정만(손대지 않는다). `claude --version` 과 프로브를 캐시 없이 띄우므로
     // 로컬 전용 — 노출된 화면에서 되풀이해 부르면 그만큼 프로세스가 뜬다 ──
