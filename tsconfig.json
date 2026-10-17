@@ -19,6 +19,7 @@
   },
   "include": [
     "scripts/**/*.ts",
+    "cloud/**/*.ts",
     "e2e/**/*.ts",
     "playwright.config.ts",
     "plugin/scripts/**/*.ts",
