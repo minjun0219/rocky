@@ -158,6 +158,12 @@ rocky rc reload                  # 데몬이 대상 목록을 지금 다시 읽�
 | `POST /api/rc/reload` | 사용자 rocky.json 을 다시 읽어 대상 목록(`root` · `pinned` · `targets`)을 바꾼다. 현황은 5초 캐시를 건너뛰고 바로 새 목록으로 잰다. 응답은 바뀐 라벨(`added` · `removed` · `pinned` · `unpinned`)과 `applied`(바뀐 파일을 데몬이 먼저 알아서 읽었으면 false), 데몬을 다시 띄워야 반영되는 설정(`restartNeeded` — `enabled` · `supervise` · `nightly`), 데몬이 rc 를 쓰는지(`active`) · 감시가 켜졌는지(`supervise`), 읽은 파일(`path`). 파일을 못 읽거나 JSON 이 아니면 422 이고 하던 목록을 그대로 쓴다. 로컬 전용(403, Access 원격 제어도 열지 않는다) |
 | `POST /api/rc/antigravity/start` · `/stop` | `agy remote-control start`·`stop`을 돌리고 새로 잰 현황을 돌려준다(캐시도 바뀐다). 로컬 전용(403), 명령이 실패하면 502와 종료 코드·stderr |
 
+### 클라우드 중계소 (만드는 중)
+
+맥이 잠든 동안 폰에서 한 보드 쓰기를 받아 두었다가 데몬이 붙으면 넘기는 Cloudflare Worker + Durable Object 다(`cloud/`, 싱크 설계의 3번 조각). 데몬은 계속 보드의 정본이다. 지금은 Worker 와 Access 토큰 검증까지 있고, 데몬 연결기와 폰 화면은 아직 없다.
+
+자동 배포는 없다. 소유자가 자기 Cloudflare 계정에 `wrangler`로 올리고, 개인 값은 레포가 아니라 Worker secret 넷(`ACCESS_TEAM` · `ACCESS_AUD` · `ACCESS_EMAILS` · `DAEMON_CLIENT_ID`)에 둔다. Access 앱 · 서비스 토큰 · 주소 달기 · 실측 절차는 [`docs/features/sync.md`](./docs/features/sync.md)의 "배포와 실측"에 있다.
+
 > **작업 목록은 보드 하나다.** rocky는 외부 태스크 서비스와 동기화하지 않는다. 작업 목록은 데몬의 보드(`todo_*`), 작업 기록은 `worklog_*`다. 외부 앱(Todoist 등)은 수집함 어댑터(`bridges/`)로 읽기만 한다.
 
 > **v0.19에서 걷어낸 것**: 소울(페르소나) 주입과 `SessionStart` 훅, statusline 템플릿 3종과 동기화 훅(지금의 `rocky statusline` 은 다른 것이다 — [`docs/features/statusline.md`](./docs/features/statusline.md)), opencode 위임 런타임, `/rocky:codex` · `/rocky:issue` · `/rocky:opencode` · `/rocky:opencode-jobs` 커맨드. 재미로 넣었거나 실사용이 없던 것들이라 정리했다. 전부 git 히스토리에서 꺼낼 수 있다. `rocky.json`의 `soul` / `callsign` / `opencode` 키도 함께 없어져 이제 거부되니, 예전 설정 파일에 남아 있으면 지운다.
