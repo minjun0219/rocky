@@ -1,11 +1,11 @@
-//! `POST /api/rc/reload`(`rocky rc reload` · `rocky rc targets add|rm`) — 떠 있는 데몬이 rocky.json 의 대상 목록을 다시
-//! 읽는다. 현황 캐시와 기동기가 같은 설정을 보는지, 못 읽은 파일 · 기능 스위치는 그대로 두는지 고정한다.
+//! `POST /api/rc/reload`(`rocky rc reload` · `rocky rc targets add|rm|unpin`)와 파일이 바뀌었을 때의 자동 다시 읽기 — 떠 있는
+//! 데몬이 rocky.json 의 대상 목록을 다시 읽는다. 현황 캐시와 기동기가 같은 설정을 보는지, 못 읽은 파일 · 기능 스위치는 그대로
+//! 두는지 고정한다.
 
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rocky_core::config::read_rc_block;
 use rockyd::rc::{cached_rc, RcCommand, RcController, RcRefusal, RcSettings};
 use rockyd::runner::{CmdOutput, Runner};
 use rockyd::server::ServerState;
@@ -36,6 +36,25 @@ fn write(path: &Path, rc: Value) {
     std::fs::write(path, json!({ "todo": {}, "rc": rc }).to_string()).unwrap();
 }
 
+/// 사람이 손으로 고친 것처럼 파일을 바꾼다 — 데몬에 다시 읽으라고 하지 않는다.
+fn edit_by_hand(path: &Path, rc: Value) {
+    edit_text_by_hand(path, &json!({ "todo": {}, "rc": rc }).to_string());
+}
+
+/// 같은 틱에 두 번 쓰면 파일 시스템 시계가 같은 mtime 을 줄 수 있다 — 사람 손은 그렇게 빠르지 않으니 전보다 1초 뒤로 민다.
+fn edit_text_by_hand(path: &Path, text: &str) {
+    let before = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    std::fs::write(path, text).unwrap();
+    if let Some(before) = before {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(before + Duration::from_secs(1))
+            .unwrap();
+    }
+}
+
 struct Fixture {
     f: Fx,
     path: std::path::PathBuf,
@@ -49,11 +68,7 @@ fn fixture(rc: Value) -> Fixture {
     let f = fx();
     let path = f._dir.path().join("rocky.json");
     write(&path, rc);
-    let settings = RcSettings::new(
-        read_rc_block(&path).unwrap(),
-        path.clone(),
-        "/home/u".into(),
-    );
+    let settings = RcSettings::load(path.clone(), "/home/u".into());
     let control = Arc::new(RcController::new(
         settings.clone(),
         "/home/u".into(),
@@ -119,9 +134,6 @@ async fn a_target_added_to_the_file_is_startable_after_reload() {
         &fx.path,
         json!({ "root": "/w", "pinned": ["repo-a"], "targets": ["repo-b", "ogpeek"] }),
     );
-    // 다시 읽기 전에는 기동 때 목록 그대로다(현황은 캐시 안).
-    assert_eq!(labels(&fx.state).await, ["repo-a", "repo-b"]);
-
     let (status, body) = post(&fx.state, "/api/rc/reload", json!({})).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(
@@ -146,6 +158,70 @@ async fn a_target_added_to_the_file_is_startable_after_reload() {
         .collect();
     assert_eq!(reloads.len(), 1, "다시 읽기는 이벤트로 남는다");
     assert_eq!(reloads[0]["fields"]["added"], json!(["ogpeek"]));
+}
+
+/// 손으로 고친 파일은 데몬이 다음에 설정을 볼 때(현황 · 기동기) 알아서 다시 읽는다 — `rocky rc reload` 없이.
+#[tokio::test]
+async fn a_hand_edit_is_picked_up_without_reload() {
+    let fx = fixture(base());
+    assert_eq!(labels(&fx.state).await, ["repo-a", "repo-b"]);
+
+    edit_by_hand(
+        &fx.path,
+        json!({ "root": "/w", "pinned": ["repo-a"], "targets": ["repo-b", "ogpeek"] }),
+    );
+    // 현황은 TTL 안이어도 새로 잰다.
+    assert_eq!(labels(&fx.state).await, ["repo-a", "repo-b", "ogpeek"]);
+    // 이미 읽었으니 `rocky rc reload` 는 바꿀 것이 없다.
+    let (status, body) = post(&fx.state, "/api/rc/reload", json!({})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        (&body["applied"], &body["added"]),
+        (&json!(false), &json!([]))
+    );
+
+    // 기동기도 같다 — 현황을 보기 전에 띄워도 고친 목록으로 받는다.
+    edit_by_hand(
+        &fx.path,
+        json!({ "root": "/w", "targets": ["repo-a", "repo-b", "ogpeek"] }),
+    );
+    let target = fx
+        .control
+        .begin("ogpeek", RcCommand::Start)
+        .expect("고친 목록으로 받는다");
+    assert_eq!(target.dir, "/w/ogpeek");
+    let now = fx.settings.get().unwrap();
+    assert!(
+        now.pinned.is_empty(),
+        "손으로 푼 고정도 반영된다: {:?}",
+        now.pinned
+    );
+}
+
+/// 고치다 만 파일 · 지운 파일 · rc 를 끄는 파일은 하던 목록을 지킨다. 다 고쳐 저장하면 그때 읽는다.
+#[tokio::test]
+async fn a_half_done_hand_edit_keeps_the_running_list() {
+    let fx = fixture(base());
+    edit_text_by_hand(&fx.path, r#"{ "rc": { "targets": ["repo-b", "#);
+    assert_eq!(labels(&fx.state).await, ["repo-a", "repo-b"]);
+    assert!(fx.control.begin("repo-b", RcCommand::Start).is_ok());
+
+    std::fs::remove_file(&fx.path).unwrap();
+    assert_eq!(labels(&fx.state).await, ["repo-a", "repo-b"]);
+
+    // 끄는 것은 재시작 몫이다(`rocky rc reload` 와 같은 규칙).
+    edit_by_hand(
+        &fx.path,
+        json!({ "enabled": false, "root": "/w", "targets": ["other"] }),
+    );
+    assert_eq!(labels(&fx.state).await, ["repo-a", "repo-b"]);
+
+    edit_by_hand(&fx.path, json!({ "root": "/w", "pinned": ["repo-a"] }));
+    assert_eq!(labels(&fx.state).await, ["repo-a"]);
+    assert!(matches!(
+        fx.control.begin("repo-b", RcCommand::Start),
+        Err(RcRefusal::NotFound(_))
+    ));
 }
 
 #[tokio::test]
@@ -226,8 +302,14 @@ async fn switches_wait_for_a_daemon_restart() {
 async fn rc_off_at_startup_asks_for_a_restart() {
     let f = fx();
     let path = f._dir.path().join("rocky.json");
+    write(
+        &path,
+        json!({ "enabled": false, "root": "/w", "targets": ["repo-a"] }),
+    );
+    let settings = RcSettings::load(path.clone(), "/home/u".into());
+    assert!(settings.get().is_none(), "기동 때 꺼져 있었다");
+    // 그 뒤 켰다.
     write(&path, base());
-    let settings = RcSettings::new(None, path.clone(), "/home/u".into());
     let state = rebuild(&f, {
         let settings = settings.clone();
         move |o| o.rc_settings = Some(settings)

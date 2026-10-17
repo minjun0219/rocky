@@ -303,8 +303,8 @@ pub async fn run_daemon(
     if integrity != "ok" {
         eprintln!("rocky: ⚠ DB 무결성 이상 — {integrity}");
     }
-    // 기동 때의 rc 설정 — 띄우기 · 감시 · 야간을 켤지는 이것으로 정한다. 대상 목록은 `rocky rc reload` 로 바뀔 수 있어
-    // 현황 · 기동기는 같은 `rc_settings` 를 본다.
+    // 기동 때의 rc 설정 — 띄우기 · 감시 · 야간을 켤지는 이것으로 정한다. 대상 목록은 다시 읽기(파일이 바뀌면 알아서,
+    // `rocky rc reload`)로 바뀔 수 있어 현황 · 기동기는 같은 `rc_settings` 를 본다.
     let rc = rc_settings.get();
     let (rc_status, agy_control) = crate::rc::rc_handles(
         crate::runner::default_runner(),
@@ -549,9 +549,8 @@ pub async fn start_daemon(ui_dist: Option<PathBuf>) -> Result<(), Box<dyn std::e
         recommend: tokens_block.recommend,
     };
     let verify = rocky_core::verify::load_verify_block(&config_path);
-    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다. 대상 목록은 `rocky rc reload` 가 같은 파일에서 다시 읽는다.
-    let rc = crate::rc::RcSettings::new(
-        rocky_core::config::load_rc_block(&config_path),
+    // rc 서버 현황 — `rc` 블록이 있을 때만 프로브가 돈다. 대상 목록은 같은 파일에서 다시 읽는다(바뀌면 알아서, `rocky rc reload`).
+    let rc = crate::rc::RcSettings::load(
         config_path.clone(),
         std::env::var("HOME").unwrap_or_default(),
     );
