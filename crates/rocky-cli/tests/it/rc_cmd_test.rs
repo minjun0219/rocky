@@ -326,7 +326,7 @@ fn activity_reads_like_the_old_status() {
 }
 
 #[test]
-fn start_all_picks_down_targets_and_keeps_pinned_sessions() {
+fn start_all_picks_down_targets_server_only() {
     let raw = json!({
         "configured": true,
         "servers": [
@@ -338,8 +338,8 @@ fn start_all_picks_down_targets_and_keeps_pinned_sessions() {
     });
     assert_eq!(
         start_all_targets(&raw),
-        vec![("old".to_string(), true), ("pin".to_string(), false)],
-        "꺼짐이 확실한 것만 — 비고정은 서버만, 고정은 세션과 함께"
+        vec!["old".to_string(), "pin".to_string()],
+        "꺼짐이 확실한 것만 — 고정이든 아니든 서버만"
     );
 }
 

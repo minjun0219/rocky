@@ -522,31 +522,23 @@ pub enum LaunchMode {
     Pin,
 }
 
-/// 꺼진 대상을 이름으로 띄울 때의 방식 — 고정이든 아니든 세션을 만들어 둔다(사람이 지금 쓰려고 부른 것이다).
-/// `Server` 는 되살림처럼 사람이 부르지 않은 기동에 쓴다.
-pub const START_MODE: LaunchMode = LaunchMode::Session;
+/// 꺼진 대상을 이름으로 띄울 때의 방식 — 고정이든 아니든 서버만 띄운다. 세션은 앱에서 열거나, 사람이 고를 때만
+/// (`rocky rc start --new-session`, 본문 `newSession`) `Session` 으로 만들어 둔다(2026-10-17 오너 결정).
+pub const START_MODE: LaunchMode = LaunchMode::Server;
 
 /// 재시작 방식. 열린 세션이 있으면 이어받는다 — `-c` 는 세션이 없을 때 쓰면 뜨자마자 할 일이 없어 내려간다.
-/// 없거나 `fresh`(이어받지 않음)면 고정은 세션까지, 그 밖은 서버만.
-pub fn restart_mode(pinned: bool, live_session: bool, fresh: bool) -> LaunchMode {
+/// 없거나 `fresh`(이어받지 않음)면 서버만.
+pub fn restart_mode(live_session: bool, fresh: bool) -> LaunchMode {
     if live_session && !fresh {
         LaunchMode::Resume
     } else {
-        fresh_mode(pinned)
+        START_MODE
     }
 }
 
-/// 이어받기가 안 떴을 때(`-c` 기록은 약 4시간 뒤 만료된다) 한 번 더 띄울 방식.
-pub fn retry_mode(pinned: bool) -> LaunchMode {
-    fresh_mode(pinned)
-}
-
-fn fresh_mode(pinned: bool) -> LaunchMode {
-    if pinned {
-        LaunchMode::Session
-    } else {
-        LaunchMode::Server
-    }
+/// 이어받기가 안 떴을 때(`-c` 기록은 약 4시간 뒤 만료된다) 한 번 더 띄울 방식 — 서버만.
+pub fn retry_mode() -> LaunchMode {
+    START_MODE
 }
 
 /// 안 뜰 수 있는 방식인가 — 그러면 내려간 것을 보고 `retry_mode` 로 한 번 더 띄운다. 못 박은 세션도 만료됐거나 틀린
@@ -673,8 +665,8 @@ pub struct Revive {
     pub mode: LaunchMode,
 }
 
-/// 이번 바퀴에 되살릴 대상 — 꺼졌고 진행 중이 아닌 것 중, 고정(새 세션과 함께)과 야간이 내리고 못 띄워 되살림 표식이
-/// 남은 비고정(`marked`, 서버만 — 사람이 부른 기동이 아니다). 프로브가 실패했거나(꺼짐이 모름) 자격이 확실히
+/// 이번 바퀴에 되살릴 대상 — 꺼졌고 진행 중이 아닌 것 중, 고정과 야간이 내리고 못 띄워 되살림 표식이 남은 비고정
+/// (`marked`). 어느 쪽이든 서버만 띄운다(`START_MODE`). 프로브가 실패했거나(꺼짐이 모름) 자격이 확실히
 /// 로그아웃이면(띄워도 곧 내려간다) 아무것도 고르지 않는다. 표식 없는 비고정은 고르지 않는다 — 옛 CLI 에서 비고정 자동
 /// 기동이 같은 폴더를 계속 띄우던 함정이 있었다.
 pub fn revive_candidates(status: &RcStatus, marked: &HashSet<String>) -> Vec<Revive> {
@@ -686,16 +678,12 @@ pub fn revive_candidates(status: &RcStatus, marked: &HashSet<String>) -> Vec<Rev
         .iter()
         .filter(|s| !s.running && s.action.is_none())
         .filter_map(|s| {
-            let mode = if s.pinned {
-                START_MODE
-            } else if marked.contains(&s.label) {
-                LaunchMode::Server
-            } else {
+            if !s.pinned && !marked.contains(&s.label) {
                 return None;
-            };
+            }
             Some(Revive {
                 label: s.label.clone(),
-                mode,
+                mode: START_MODE,
             })
         })
         .collect()
@@ -947,8 +935,7 @@ pub fn decide_nightly(s: &NightlyState, now: i64, quiet: Duration) -> NightlyDec
         _ if s.offline => NightlyReason::NoNetwork,
         _ => NightlyReason::Restart,
     };
-    let mode =
-        (reason == NightlyReason::Restart).then(|| restart_mode(s.pinned, s.live_session, false));
+    let mode = (reason == NightlyReason::Restart).then(|| restart_mode(s.live_session, false));
     NightlyDecision {
         reason,
         from,

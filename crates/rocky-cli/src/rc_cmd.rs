@@ -1,10 +1,11 @@
 //! `rocky rc` — `claude rc` 서버. 대상 목록은 `rocky.json` 의 `rc` 블록이다.
 //!
 //! - `rocky rc [status] [--json]` — 현황(`GET /api/rc/servers`)
-//! - `rocky rc start <라벨> [--wait]` · `rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait]` — 데몬이 띄우거나
+//! - `rocky rc start <라벨> [--new-session] [--wait]` · `rocky rc restart <라벨> [--fresh | --session <cse_…>] [--wait]` — 데몬이 띄우거나
 //!   다시 띄운다. 재시작은 그 서버에 붙은 원격 세션을 끊는다(막 대화하는 중이면 턴이 끝날 때까지 기다린다). `--session` 은
-//!   이어받을 세션을 claude.ai 쪽 id 로 못 박는다. `--wait` 면 결과가 날 때까지 기다려 찍는다.
-//! - `rocky rc start --all` — 꺼진 대상 전부를 띄운다 — 비고정은 서버만(세션을 만들지 않는다), 고정은 세션과 함께. 비상용(옛 CLI `-a`).
+//!   이어받을 세션을 claude.ai 쪽 id 로 못 박는다. 띄우기는 서버만이 기본이고 `--new-session` 이면 새 세션과 함께.
+//!   `--wait` 면 결과가 날 때까지 기다려 찍는다.
+//! - `rocky rc start --all` — 꺼진 대상 전부를 서버만 띄운다(세션을 만들지 않는다). 비상용(옛 CLI `-a`).
 //! - `rocky rc --activity` — 현황에 대상마다 최근 활동(마지막 커밋 · 작업 중 · 곁가지 브랜치, 꺼진 것은 정박 여부).
 //! - `rocky rc agy [start|stop]` — Antigravity 원격 제어(`agy remote-control`) 보기·켜기·끄기. rc 블록과 상관없다.
 //! - `rocky rc nightly [--dry-run]` — 야간 재시작을 지금 한 번 돌린다(데몬이 백그라운드로, 결과는 `rocky rc`).
@@ -29,8 +30,10 @@ const USAGE: &str = "\
 usage: rocky rc [하위 명령] [옵션]
 
   rocky rc [status] [--activity] [--json]   현황. --activity 는 대상마다 최근 활동(git — 대상 수만큼 걸린다)
-  rocky rc start <이름> [--wait]            띄운다. --wait 는 결과가 날 때까지 기다려 찍는다
-  rocky rc start --all                      꺼진 대상 전부 — 고정은 세션과 함께, 나머지는 서버만
+  rocky rc start <이름> [--new-session] [--wait]
+                                            서버만 띄운다(세션은 앱에서). --new-session 은 새 세션과 함께,
+                                            --wait 는 결과가 날 때까지 기다려 찍는다
+  rocky rc start --all                      꺼진 대상 전부를 서버만
   rocky rc restart <이름> [--fresh | --session <cse_…>] [--wait]
                                             다시 띄운다 — 붙은 원격 세션이 끊긴다. 대화 중이면 턴이 끝날 때까지
                                             기다리고, 이 세션이 붙은 서버는 거절한다. --fresh 는 세션을 이어받지
@@ -72,6 +75,9 @@ pub fn cmd_rc(
             printer.emit(&raw, || render_status(&raw));
             Ok(())
         }
+        Some("start") if flags.bool_flag("all") && flags.bool_flag("new-session") => {
+            Err("--all 은 서버만 띄운다 — --new-session 은 이름 하나를 띄울 때만 쓴다".into())
+        }
         Some("start") if flags.bool_flag("all") => start_all(ctx, rest.get(1).map(String::as_str)),
         Some("agy") => {
             let raw = match rest.get(1).map(String::as_str) {
@@ -95,7 +101,12 @@ pub fn cmd_rc(
                 .ok_or_else(|| format!("이름이 필요하다\n\n{USAGE}"))?;
             if verb == "start" && flags.str_flag("session").is_some() {
                 return Err(
-                    "--session 은 restart 에만 쓴다(그 세션으로 이어받아 다시 띄운다)".into(),
+                    "--session 은 restart 에만 쓴다(그 세션으로 이어받아 다시 띄운다) — 새 세션과 함께 띄우려면 --new-session".into(),
+                );
+            }
+            if verb == "restart" && flags.bool_flag("new-session") {
+                return Err(
+                    "--new-session 은 start 에만 쓴다 — 재시작은 열린 세션을 이어받는다".into(),
                 );
             }
             if verb == "restart" {
@@ -112,7 +123,11 @@ pub fn cmd_rc(
                     ));
                 }
             }
-            let body = serde_json::json!({ "fresh": flags.bool_flag("fresh"), "session": session });
+            let body = if verb == "start" {
+                serde_json::json!({ "newSession": flags.bool_flag("new-session") })
+            } else {
+                serde_json::json!({ "fresh": flags.bool_flag("fresh"), "session": session })
+            };
             let path = format!("/api/rc/servers/{}/{verb}", encode_uri_component(label));
             let accepted = request_value(ctx, "POST", &path, Some(&body))?;
             if let Some(err) = accepted.get("error").and_then(Value::as_str) {
@@ -721,24 +736,20 @@ fn refuse_own_server(ctx: &CliContext, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `start --all` 이 띄울 것 — 꺼진 대상마다 `(라벨, serverOnly)`. 꺼짐이 확실한 행만(`running: false`) 고르고,
-/// 고정은 감시가 되살릴 때처럼 세션과 함께(`serverOnly: false`), 나머지는 서버만.
-pub fn start_all_targets(raw: &Value) -> Vec<(String, bool)> {
+/// `start --all` 이 띄울 것 — 꺼짐이 확실한 대상(`running: false`)의 라벨. 고정이든 아니든 서버만 띄운다.
+pub fn start_all_targets(raw: &Value) -> Vec<String> {
     raw.get("servers")
         .and_then(Value::as_array)
         .map(|rows| {
             rows.iter()
                 .filter(|r| r.get("running").and_then(Value::as_bool) == Some(false))
-                .map(|r| {
-                    let pinned = r.get("pinned").and_then(Value::as_bool) == Some(true);
-                    (str_of(r, "label").to_string(), !pinned)
-                })
+                .map(|r| str_of(r, "label").to_string())
                 .collect()
         })
         .unwrap_or_default()
 }
 
-/// 꺼진 대상 전부를 띄운다 — 비고정은 서버만, 고정은 세션까지(감시가 되살리는 방식과 같게 · 옛 CLI `-a`). 받은 것과 거절된
+/// 꺼진 대상 전부를 서버만 띄운다(감시가 되살리는 방식과 같게 · 옛 CLI `-a`). 받은 것과 거절된
 /// 것을 한 줄씩. 진행은 `rocky rc` 로 본다.
 fn start_all(ctx: &CliContext, extra: Option<&str>) -> Result<(), String> {
     if let Some(label) = extra {
@@ -756,18 +767,12 @@ fn start_all(ctx: &CliContext, extra: Option<&str>) -> Result<(), String> {
         println!("꺼진 대상이 없다");
         return Ok(());
     }
-    for (label, server_only) in down {
+    for label in down {
         let path = format!("/api/rc/servers/{}/start", encode_uri_component(&label));
-        let res = request_value(
-            ctx,
-            "POST",
-            &path,
-            Some(&json!({ "serverOnly": server_only })),
-        )?;
+        let res = request_value(ctx, "POST", &path, Some(&json!({ "serverOnly": true })))?;
         match res.get("error").and_then(Value::as_str) {
             Some(err) => println!("✗ {label}: {err}"),
-            None if server_only => println!("… {label}: 서버만 띄우는 중"),
-            None => println!("… {label}: 고정 — 세션과 함께 띄우는 중"),
+            None => println!("… {label}: 서버만 띄우는 중"),
         }
     }
     println!("진행은 `rocky rc` 로 본다");
