@@ -317,6 +317,24 @@ describe('SyncClient', () => {
     expect(FakeSocket.all).toHaveLength(2);
   });
 
+  test('ping 의 답을 기다리는 사이 닫혀도 다음 연결은 다시 ping 으로 묻는다', async () => {
+    const s = setup();
+    await s.client.start();
+    s.socket().open();
+    s.socket().push({ t: 'rows', id: 'sync', ...full() });
+    s.client.wake(); // 답을 기다리는 ping
+    s.socket().close(); // 그 답이 오기 전에 브라우저가 닫힘을 알린다
+    s.client.wake();
+    s.socket().open();
+    s.socket().push({ t: 'rows', id: 'sync', ...full() });
+    s.tick(10);
+    s.client.wake();
+    expect(s.socket().frames('ping')).toHaveLength(1);
+    s.tick(PING_DEADLINE_MS);
+    s.fire('deadline');
+    expect(s.client.snapshot().live).toBe(false);
+  });
+
   test('저장이 한 번 실패하면 다음 저장은 사본 전체를 쓴다', async () => {
     const saved: RowsFrame[] = [];
     let failNext = true;
@@ -347,5 +365,42 @@ describe('SyncClient', () => {
     expect(saved).toHaveLength(1);
     expect(saved[0]?.full).toBe(true);
     expect(saved[0]?.rows.todos?.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+  });
+
+  test('앞 저장이 실패하기 전에 줄 선 델타도 사본 전체로 쓴다', async () => {
+    const saved: RowsFrame[] = [];
+    let failSlow: (() => void) | undefined;
+    const slow: ReplicaStore = {
+      load: async () => null,
+      save: async (frame) => {
+        if (frame.seq === 6) {
+          await new Promise<void>((_, reject) => {
+            failSlow = () => reject(new Error('aborted'));
+          });
+        }
+        saved.push(frame);
+      },
+      clear: async () => {},
+    };
+    const delta = (seq: number, id: string) => ({
+      t: 'rows',
+      epoch: 'e1',
+      seq,
+      full: false,
+      rows: { todos: [todo({ id })] },
+    });
+    const s = setup({ store: slow });
+    await s.client.start();
+    s.socket().open();
+    s.socket().push({ t: 'rows', id: 'sync', ...full(5) });
+    s.socket().push(delta(6, 't2')); // 이 저장이 걸려 있는 동안
+    s.socket().push(delta(7, 't3')); // 다음 프레임이 온다
+    await Bun.sleep(0);
+    expect(failSlow).toBeDefined();
+    failSlow?.();
+    await s.client.idle();
+    expect(saved).toHaveLength(2);
+    expect(saved[1]?.full).toBe(true);
+    expect(saved[1]?.rows.todos?.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3']);
   });
 });
