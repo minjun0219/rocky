@@ -291,6 +291,9 @@
   - 데몬(`/relay`): 서비스 토큰으로 받은 토큰에는 `email`이 없고 `common_name`에 Client ID가 실린다. 설정한
     Client ID와 같아야 한다.
   - 사람 토큰으로 `/relay`에, 서비스 토큰으로 `/api/ws`에 온 것은 소켓을 열지 않는다.
+  - 폰 소켓은 같은 출처의 페이지가 연 것만 받는다. 데몬의 `is_same_origin_request`와 같은 규칙이다. 웹소켓에는
+    CORS가 없고, Access 쿠키는 같은 등록 도메인의 다른 서브도메인 페이지가 연 소켓에도 실려 온다. 그래서 폰 화면은
+    중계소와 같은 주소에서 낸다(4번 조각)(③).
 - **첫 일은 실측이다.** 서비스 토큰 헤더(`CF-Access-Client-Id`·`CF-Access-Client-Secret`)를 단 WebSocket 업그레이드가
   Access를 지나 Worker에 토큰을 달고 오는지 본다. 문서는 "모든 HTTP 요청에 헤더를 단다"고만 한다. 지나지 못하면
   `/relay`만 Access Bypass 정책으로 열고, Worker가 데몬의 서명(HMAC, 비밀은 Worker secret과 데몬 키체인에 하나씩)을
@@ -344,8 +347,9 @@ DO 하나(SQLite)에 넷을 둔다. 중계소는 행을 해석하지 않는다. 
 
 ### 폰과 중계소 사이
 
-- 웹이 데몬과 쓰는 프레임 그대로다(`sync`·`rows`·`tx`·`ack`·`reject`·`ping`·`pong`). `web/sync/client.ts`는 주소만
-  바꿔 붙는다.
+- 웹이 데몬과 쓰는 프레임 그대로다(`sync`·`rows`·`tx`·`ack`·`reject`·`ping`·`pong`). `web/sync/client.ts`가 그대로
+  붙는다. 폰 소켓은 같은 출처의 페이지만 받으므로("인증") 폰 화면을 중계소 주소에서 내고, 소켓 주소는 지금처럼 페이지
+  주소에서 나온다(`web/sync/boot.ts`). 터널 주소에서 뜬 화면은 중계소에 붙지 못한다(③).
 - `sync`: 중계소 사본의 머리로 `needs_full`과 같은 규칙을 쓴다. 데몬에게 `rows`를 받으면 붙어 있는 폰마다 그 연결의
   커서 이후를 민다. 커서는 소켓 첨부(`serializeAttachment`)에 두어 DO가 잠들었다 깨도 남는다.
 - 사본이 비어 있으면(데몬이 한 번도 붙지 않았다) `sync`에 답하지 않고 기다렸다가, 데몬의 첫 행이 오면 통째로 민다.
@@ -388,7 +392,7 @@ DO 하나(SQLite)에 넷을 둔다. 중계소는 행을 해석하지 않는다. 
 {
   "todo": {
     "sync": {
-      "url": "wss://board.example.com/relay",
+      "url": "wss://relay.example.com/relay",
       "boards": ["rocky", "home"],
       "clientId": "<서비스 토큰 Client ID>",
       "keychainService": "rocky-sync",
@@ -440,6 +444,8 @@ DO 하나(SQLite)에 넷을 둔다. 중계소는 행을 해석하지 않는다. 
 ## 4번 조각 — 클라우드 화면 (개요)
 
 - 클라우드 화면은 피드·할 일·노트만 보인다. 머리줄에 맥 연결 상태와 보낼 변경 개수를 둔다.
+- 화면은 중계소 주소에서 낸다. 폰 소켓은 같은 출처의 페이지만 받는다(3번 조각 "인증"). 어떻게 낼지는 이 조각에서
+  정한다.
 - 변경함을 화면에 보인다. 중계소가 `{t:"outbox"}`로 변경함과 거절된 op를 알리고, 웹은 보낼 op를 IndexedDB에 남긴다.
 - 홈 화면 앱(PWA).
 

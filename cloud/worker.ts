@@ -27,7 +27,11 @@ export class RelayObject extends DurableObject<RelayEnv> {
   async fetch(request: Request): Promise<Response> {
     const who = whoFrom(request.url);
     if (who === null) {
-      return new Response(null, { status: 400 });
+      // 문만 이 DO를 부르므로 오지 않는 길이다. 실측 표에서 Access가 막은 것으로 읽히지 않게 이유를 싣는다.
+      return Response.json(
+        { error: `중계소 DO가 모르는 내부 주소다 — ${request.url}` },
+        { status: 400 },
+      );
     }
     const pair = new WebSocketPair();
     this.host.accept(pair[1], who);
