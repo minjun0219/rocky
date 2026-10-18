@@ -15,6 +15,8 @@ pub const MARKETPLACE: &str = "rocky-marketplace";
 pub const PLUGIN: &str = "rocky@rocky-marketplace";
 /// main-src 를 처음 만들 때의 원격 — 공개 레포라 인증 없이 받는다.
 pub const CLONE_URL: &str = "https://github.com/minjun0219/rocky.git";
+/// `CLONE_URL` 의 레포(owner/name) — 보드 `repo` 와 견준다(검증 통과 커밋 자동 배포는 이 레포만).
+pub const REPO: &str = "minjun0219/rocky";
 
 /// `current` 링크가 가리키는 이름이 main 빌드 모드인가.
 pub fn is_main_mode(current_target: Option<&str>) -> bool {
