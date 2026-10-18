@@ -90,7 +90,7 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 결과를 기다리는 세션(배포 등)은 세션 안에서 `rocky verify subscribe [보드] [--branch B]` 로 구독하면 끝난 실행마다(통과도) 받은편지함으로 한 줄을 받는다 — 같은 커밋은 한 번, 다시 돌려 결과가 바뀌면 다시. 대상마다 세션 하나(다시 구독하면 넘겨받는다)이고 `rocky verify unsubscribe`·`rocky verify subscriptions` 로 해지·조회한다. `/clear` 뒤의 구독은 웹 "세션 전달" 카드에서 PR·수집함 구독과 같이 정한다.
 
-main 빌드 모드 기기(`rocky update --main`)에서는 rocky 보드의 `main` 대상에 `"deploy": true` 를 더하면 통과한 커밋을 데몬이 직접 `rocky update --main <sha>` 로 올린다. 배포를 맡을 세션이 따로 필요 없다. 깔린 빌드보다 앞선 커밋만 올리고, 같은 커밋은 성공이든 실패든 한 번만 올린다(실패한 커밋은 고친 커밋이 통과할 때까지 그대로다). 다른 `rocky update --main` 이 도는 중이면 끝나기를 기다린다. 실패만 배너로 알리고, `rocky verify` 가 대상 아래에 배포 한 줄(도는 중 · 올린 커밋과 시각 · 실패 이유와 로그)을 보여 준다. 이 대상을 구독한 세션에는 통과 알림이 "데몬이 배포한다"로 간다. 바꾼 설정은 `rocky daemon restart` 뒤에 적용된다. update 는 데몬의 PATH(`rocky daemon install` 때 구운 것)에서 git · cargo · bun · claude 를 찾는다.
+main 빌드 모드 기기(`rocky update --main`)에서는 rocky 보드의 `main` 대상에 `"deploy": true` 를 더하면 통과한 커밋을 데몬이 직접 `rocky update --main <sha>` 로 올린다. 배포를 맡을 세션이 따로 필요 없다. 깔린 빌드보다 앞선 커밋만 올리고, 같은 커밋은 성공이든 실패든 한 번만 올린다(실패한 커밋은 고친 커밋이 통과할 때까지 그대로다). 다른 `rocky update --main` 이 도는 중이면 끝나기를 기다린다. 실패(90분 안에 끝나지 않은 것도)만 배너로 알리고, `rocky verify` 가 대상 아래에 배포 한 줄(도는 중 · 올린 커밋과 시각 · 실패 이유와 로그)을 보여 준다. 이 대상을 구독한 세션에는 통과 알림이 "데몬이 배포한다"로 간다. 바꾼 설정은 `rocky daemon restart` 뒤에 적용된다. update 는 데몬의 PATH(`rocky daemon install` 때 구운 것)에서 git · cargo · bun · claude 를 찾는다.
 
 ### rc 서버 현황
 

@@ -8,8 +8,10 @@ use std::sync::{Arc, Mutex};
 use crate::common::*;
 use rocky_core::config::CommandBridge;
 use rocky_core::verify::{DeployRecord, DeployState, VerifyConfig, VerifyState, VerifyTarget};
-use rockyd::runner::default_runner;
-use rockyd::verify::{tick, verify_target, verify_target_with, DeployEnv, VerifyNotifier};
+use rockyd::runner::{default_runner, BoxFut, CmdOutput, Runner};
+use rockyd::verify::{
+    rocky_beside, tick, verify_target, verify_target_with, DeployEnv, VerifyNotifier,
+};
 
 fn git(dir: &Path, args: &[&str]) {
     let out = std::process::Command::new("git")
@@ -843,7 +845,7 @@ async fn until_settled(
 }
 
 #[tokio::test]
-async fn a_passed_commit_is_deployed_once_by_the_cli_beside_the_daemon() {
+async fn a_passed_commit_is_deployed_once_and_quietly() {
     let f = fx();
     let tmp = tempfile::tempdir().unwrap();
     let (_origin, work) = repos(tmp.path());
@@ -988,9 +990,14 @@ async fn deploys_wait_for_the_build_lock_and_verification_waits_for_the_deploy()
     std::fs::remove_dir(&lock).unwrap();
     std::fs::write(env.data_root.join("hold"), "").unwrap();
     tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let running = deploy_status(&f).deploy.unwrap();
+    assert_eq!(running.state, DeployState::Running);
+    let pid = running.pid.unwrap() as libc::pid_t;
+    // SAFETY: 그룹 번호를 읽기만 한다.
     assert_eq!(
-        deploy_status(&f).deploy.unwrap().state,
-        DeployState::Running
+        unsafe { libc::getpgid(pid) },
+        pid,
+        "update 는 자기 프로세스 그룹으로 뜬다(데몬이 교체돼도 끝까지 가게)"
     );
     assert!(deploy_status(&f).deploy_note.is_none());
     commit(&work, "B", |w| {
@@ -1119,5 +1126,115 @@ async fn nothing_is_deployed_off_main_build_mode_and_the_reason_shows() {
         "{:?}",
         status.deploy_note
     );
+    assert_eq!(calls(&env), "");
+}
+
+#[test]
+fn the_cli_beside_the_daemon_is_found_through_the_current_link() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("main")).unwrap();
+    std::fs::write(tmp.path().join("main/rockyd"), "").unwrap();
+    std::os::unix::fs::symlink("main", tmp.path().join("current")).unwrap();
+    assert_eq!(
+        rocky_beside(&tmp.path().join("current/rockyd")),
+        std::fs::canonicalize(tmp.path().join("main"))
+            .unwrap()
+            .join("rocky"),
+        "링크로 떴으면 실제 파일 옆이다"
+    );
+}
+
+#[tokio::test]
+async fn a_deploy_past_its_limit_stops_holding_verification_and_is_left_running() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let env = deploy_env(tmp.path(), &head(&work));
+    let root = tmp.path().join("verify");
+    let target = deploy_target();
+    let dir = rockyd::verify::target_dir(&root, &target);
+    std::fs::create_dir_all(&dir).unwrap();
+    let cfg = VerifyConfig {
+        targets: vec![target],
+        ..VerifyConfig::default()
+    };
+    let (notifier, seen) = capture();
+    commit(&work, "새 커밋", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+    let sha = head(&work);
+    // 두 시간 전에 띄운 update 가 아직 돈다(매달렸다).
+    let mut stuck = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    let started = (chrono::Utc::now() - chrono::TimeDelta::hours(2))
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    std::fs::write(
+        dir.join("deploy.json"),
+        serde_json::json!({ "sha": sha, "state": "running", "pid": stuck.id(),
+                            "startedAt": started, "log": "/tmp/deploy.log" })
+        .to_string(),
+    )
+    .unwrap();
+
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let alive = stuck.try_wait().unwrap().is_none();
+    let _ = stuck.kill();
+    let _ = stuck.wait();
+    assert!(alive, "기다리기만 그만두고 프로세스는 건드리지 않는다");
+    let status = deploy_status(&f);
+    assert_eq!(
+        status.record.unwrap().state,
+        VerifyState::Passed,
+        "같은 바퀴에 검증을 다시 연다"
+    );
+    let given_up = status.deploy.unwrap();
+    assert_eq!(given_up.state, DeployState::Failed);
+    assert!(
+        given_up.reason.as_deref().unwrap_or("").contains("분 넘게"),
+        "{given_up:?}"
+    );
+    assert_eq!(seen.lock().unwrap().len(), 1, "실패처럼 배너로");
+    assert_eq!(calls(&env), "", "같은 커밋은 다시 띄우지 않는다");
+}
+
+#[tokio::test]
+async fn an_ancestry_check_git_cannot_answer_is_not_read_as_backwards() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let env = deploy_env(tmp.path(), &head(&work));
+    let root = tmp.path().join("verify");
+    let cfg = VerifyConfig {
+        targets: vec![deploy_target()],
+        ..VerifyConfig::default()
+    };
+    let (notifier, _seen) = capture();
+    commit(&work, "새 커밋", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+    // 러너는 git 을 띄우지 못해도 종료 코드 1 을 돌려준다 — "조상 아님"(말없는 1)과 갈라야 한다.
+    let real = default_runner();
+    let runner: Runner = Arc::new(move |argv: Vec<String>, stdin, timeout| {
+        if argv.iter().any(|a| a == "merge-base") {
+            Box::pin(async { CmdOutput::failure("No such file or directory (os error 2)") })
+                as BoxFut<CmdOutput>
+        } else {
+            real(argv, stdin, timeout)
+        }
+    });
+    tick(&f.state, &runner, &notifier, &root, &cfg, &env).await;
+    let status = deploy_status(&f);
+    assert_eq!(status.record.unwrap().state, VerifyState::Passed);
+    assert!(status.deploy.is_none());
+    let note = status.deploy_note.unwrap_or_default();
+    assert!(
+        note.contains("확인하지 못했다") && note.contains("os error 2"),
+        "{note}"
+    );
+    assert!(!note.contains("조상이 아니어서"), "{note}");
     assert_eq!(calls(&env), "");
 }

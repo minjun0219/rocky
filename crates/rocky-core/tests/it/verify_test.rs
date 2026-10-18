@@ -1,10 +1,10 @@
 //! 기본 브랜치 검증의 순수 판정 — 설정 모양, 원격 커밋 읽기, 다시 돌지, 알릴지, 통과한 커밋을 배포할지.
 
 use rocky_core::verify::{
-    deploy_base, deploy_notification, deploy_plan, dir_name, is_branch_name, load_verify_block,
-    notification, parse_ls_remote, session_notice, settle_deploy, should_run, DeployInput,
-    DeployPlan, DeployRecord, DeploySkip, DeployState, VerifyRecord, VerifyRun, VerifyRunEvent,
-    VerifyState,
+    deploy_base, deploy_notification, deploy_plan, deploy_timed_out, dir_name, is_branch_name,
+    load_verify_block, notification, parse_ls_remote, session_notice, settle_deploy, should_run,
+    DeployInput, DeployPlan, DeployRecord, DeploySkip, DeployState, VerifyRecord, VerifyRun,
+    VerifyRunEvent, VerifyState, DEPLOY_TIMEOUT_MINUTES,
 };
 
 fn config(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -428,6 +428,19 @@ fn deploys_a_passed_commit_only_forward_and_once() {
         }),
         DeployPlan::Skip(DeploySkip::Unknown(_))
     ));
+    let DeployPlan::Skip(why) = plan(DeployInput {
+        ancestor: None,
+        ancestry_error: Some("/repo 에서 git merge-base 종료 코드 128: fatal: bad object"),
+        ..ready.clone()
+    }) else {
+        panic!("조상을 못 보면 띄우지 않는다");
+    };
+    assert!(
+        why.note()
+            .unwrap()
+            .ends_with("— /repo 에서 git merge-base 종료 코드 128: fatal: bad object"),
+        "못 본 이유를 붙인다: {why:?}"
+    );
     assert!(matches!(
         plan(DeployInput {
             finished_build: None,
@@ -545,5 +558,50 @@ fn deploy_lines_join_the_run_history() {
     assert_eq!(
         serde_json::to_value(&failed).unwrap()["event"],
         "deploy-failed"
+    );
+}
+
+#[test]
+fn a_deploy_running_past_its_limit_is_given_up_as_failed() {
+    let at = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    };
+    let running = deploy_record(PASSED, DeployState::Running);
+    // 시작 2026-10-18T01:00:00Z
+    assert_eq!(deploy_timed_out(&running, at("2026-10-18T02:29:59Z")), None);
+    let given_up = deploy_timed_out(&running, at("2026-10-18T02:30:00Z")).expect("한도를 넘겼다");
+    assert_eq!(given_up.state, DeployState::Failed);
+    assert_eq!(
+        given_up.sha, PASSED,
+        "같은 커밋으로 남아 다시 띄우지 않는다"
+    );
+    assert_eq!(
+        given_up.finished_at.as_deref(),
+        Some("2026-10-18T02:30:00.000Z")
+    );
+    assert_eq!(
+        given_up.reason.as_deref(),
+        Some(format!(
+            "update(pid 4242)가 {DEPLOY_TIMEOUT_MINUTES}분 넘게 끝나지 않아 기다리지 않는다(프로세스는 그대로)"
+        ))
+        .as_deref()
+    );
+    assert!(
+        deploy_notification("rocky", &given_up).is_some(),
+        "실패처럼 배너로"
+    );
+
+    let done = deploy_record(PASSED, DeployState::Succeeded);
+    assert_eq!(deploy_timed_out(&done, at("2026-10-19T00:00:00Z")), None);
+    let unreadable = DeployRecord {
+        started_at: "어제".into(),
+        ..running
+    };
+    assert_eq!(
+        deploy_timed_out(&unreadable, at("2026-10-19T00:00:00Z")),
+        None,
+        "시작 시각을 못 읽으면 끝내지 않는다"
     );
 }

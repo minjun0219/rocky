@@ -56,9 +56,11 @@
   → 깔린 커밋을 못 읽음(`.finished`, 없으면 `.sha`) → 앞으로만 → 잠금 → 띄운다. 조상 여부와 잠금은 띄울 수 있을 때만 본다(평소에는
   git 을 부르지 않는다).
 - **앞으로만 간다.** 깔린 빌드가 통과한 커밋의 조상일 때만 띄운다(보드 레포에서 `git merge-base --is-ancestor`). 확인하지 못하면 띄우지
-  않는다. 사람이 더 새 커밋을 손으로 올렸으면 옛 통과 커밋으로 되돌리지 않는다.
+  않고 git 의 이유(레포·종료 코드·stderr)를 보인다. 러너는 띄우지 못함·시간 초과도 종료 코드 1 로 돌려주므로 "조상 아님"은 git 이 말없이
+  1 로 끝난 것만이다. 사람이 더 새 커밋을 손으로 올렸으면 옛 통과 커밋으로 되돌리지 않는다.
 - **같은 커밋은 한 번만 띄운다.** 성공이든 실패든 다시 띄우지 않고, 사람이 `.finished` 를 그보다 옛 커밋으로 되돌려도 다시 덮지 않는다.
-  다음 커밋이 통과하면 그 커밋이 대상이다. 실패한 커밋을 다시 올리는 것은 사람의 `rocky update --main <sha>` 다.
+  다음 커밋이 통과하면 그 커밋이 대상이다. 실패한 커밋을 다시 올리는 것은 사람의 `rocky update --main <sha>` 다. 기록은 대상마다라
+  rocky main 을 배포하는 대상은 하나만 둔다(둘이면 실패한 커밋을 대상마다 한 번씩 띄운다).
 - **다른 main 빌드가 `main-sync.lock` 을 쥐면 기다린다**(`main_build::lock_busy`). update 의 잠금과 같은 규칙이다: pid 가 없거나 못
   읽으면 쥔 것, 죽은 pid 면 빈 것. 그때 띄우면 잠금에 걸린 실패가 그 커밋에 남아 다시 띄우지 못한다.
 - **실행**: 고정 argv `<데몬 옆 rocky> update --main <sha>`(데몬 실행 파일의 실제 경로 옆). `--yes` 는 넘기지 않는다(마켓플레이스를
@@ -66,10 +68,16 @@
   `XPC_SERVICE_NAME` 지움, stdin 비움, cwd 는 `<데이터 홈>/rocky`. 출력은 대상 디렉터리의 `deploy-<sha12>.log`(0600, 최근 5개).
   REST·화면에는 배포를 시작하는 길이 없다.
 - **띄우자마자 기록한다**: `deploy.json` 에 `running`, pid, 그 프로세스의 시작 시각(`ps -o lstart=`). 띄우지 못하면 그 자리에서 `failed`.
-- **배포가 도는 동안 검증 잡은 새 실행을 시작하지 않는다.** 배포를 켠 대상 전부를 본다(main 빌드는 기기에 하나다). 시작해도 update 가
-  데몬을 교체하면서 끊긴다. 도는지는 pid 와 시작 시각으로 본다(재사용된 pid 를 도는 것으로 보지 않는다).
+- **배포가 도는 동안 검증 잡은 새 실행을 시작하지 않는다.** 대상 전부의 `deploy.json` 을 본다(main 빌드는 기기에 하나다). 스위치를 끈
+  대상도 본다 — 이미 띄운 update 는 스위치와 상관없이 데몬을 교체한다. 시작해도 update 가 데몬을 교체하면서 끊긴다. 도는지는 pid 와 그
+  시작 시각(`ps -o lstart=` 를 `LC_ALL=C`·`TZ=UTC0` 로 — 띄운 데몬과 판정하는 데몬의 환경이 달라도 같게)으로 본다. 재사용된 pid 를 도는
+  것으로 보지 않는다.
+- **배포는 90분(`DEPLOY_TIMEOUT_MINUTES`)까지만 기다린다.** update 의 fetch·`bun install`·`claude plugin` 에는 시간 상한이 없어서,
+  매달리면 모든 대상의 검증이 멈춘다. 넘기면 실패로 끝내고(배너, 같은 커밋으로 남아 다시 띄우지 않는다) 검증을 다시 연다. 프로세스는
+  건드리지 않는다 — launchd 없이 뜬 새 데몬이 update 의 프로세스 그룹에 들어 있을 수 있다. 그 update 가 잠금을 쥐고 있으면 다음 배포는
+  잠금을 기다린다.
 - **끝 판정**(`settle_deploy`): 띄운 데몬은 종료 코드를 받는다(기다리는 스레드가 잡을 깨운다). update 가 교체한 새 데몬은 종료 코드를
-  모르고 다음 바퀴에 `main/.finished` 만 본다. 그 커밋이면 `succeeded`, 아니면 `failed` 다(이유는 종료 코드, 또는 끝났는데 `.finished`
+  모르고 첫 바퀴(기동 2분 뒤)부터 `main/.finished` 만 본다. 그 커밋이면 `succeeded`, 아니면 `failed` 다(이유는 종료 코드, 또는 끝났는데 `.finished`
   가 다름 — 플러그인·agy 단계).
 - **알림**: 실패만 배너 한 번(`deploy_notification`, 다시 하는 명령을 싣는다). 성공은 알리지 않는다. 데몬이 배포하는 대상(조건 넷을
   채움)이면 구독한 세션의 통과 문구가 세션에게 `rocky update` 를 돌리지 말라고 한다(같은 커밋을 둘이 올리지 않게). 구독은 그대로다.
@@ -103,9 +111,12 @@
 - `cargo test` 단계 뒤 그룹에 프로세스가 남는 기록이 반복된다 — 남기는 테스트를 찾는 중(`signals.log` 의 `남은 손자`).
 - 검증 트리의 `target/` 은 수 GB 다.
 - **배포는 launchd 데몬의 환경에서 돈다.** plist 는 설치 때의 PATH 만 굽고(`crates/rocky-cli/src/launchd.rs`), update 의
-  `daemon restart` 는 데몬에게 물려받은 그 PATH 로 다시 굽는다(같은 항목은 한 번만, `join_path`). update 가 부르는
-  git·cargo·bun·claude·agy 가 그 PATH 에 없으면 배포가 실패한다(로그에 남는다) — PATH 가 맞는 셸에서 `rocky daemon install` 을 다시 한다.
+  `daemon restart` 는 데몬에게 물려받은 그 PATH 로 다시 굽는다(같은 항목은 한 번만, `join_path`). update 가 부르는 git·cargo·bun·claude 가
+  그 PATH 에 없으면 배포가 실패한다(로그에 남는다. agy 는 없으면 건너뛴다) — PATH 가 맞는 셸에서 `rocky daemon install` 을 다시 한다.
   셸의 `XDG_DATA_HOME` 도 plist 에 굽지 않아서, 데이터 홈을 바꾼 기기에서는 데몬이 `~/.local/share/rocky` 를 보고 "main 빌드 모드가
   아니다" 로 건너뛴다.
-- **배포 결과는 대개 한 바퀴 늦게 보인다.** update 가 데몬을 교체하면 새 데몬은 종료 코드를 모르고 다음 바퀴(`intervalSeconds`)에
-  `.finished` 로 판정한다.
+- **배포 결과는 대개 늦게 보인다.** update 가 데몬을 교체하면 새 데몬은 종료 코드를 모르고 기동 2분 뒤 첫 바퀴에 `.finished` 로
+  판정한다. 그때까지 `rocky verify` 는 배포 중으로 보인다.
+- **잠금 확인과 update 가 잠금을 잡는 사이에 틈이 있다**(update 가 git·cargo·bun·claude 를 찾는 동안). 그 틈에 사람의
+  `rocky update --main` 이 잠금을 먼저 잡으면 그 커밋은 실패로 남고 배너가 뜬다. 사람의 update 가 최신 main 을 올리므로 기기는 뒤처지지
+  않는다.

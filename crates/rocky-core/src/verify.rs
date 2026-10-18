@@ -6,6 +6,7 @@
 //!
 //! **명령은 설정 파일에만 있다**(수집함 어댑터와 같은 원칙) — 화면이나 REST 가 실행할 명령을 바꾸지 않는다.
 
+use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 
 pub use crate::config::{load_verify_block, VerifyConfig, VerifyTarget};
@@ -440,6 +441,8 @@ pub struct DeployInput<'a> {
     /// 깔린 빌드(`deploy_base`)가 통과한 커밋의 조상인가 — 호출자가 `git merge-base --is-ancestor` 로. 둘이 같거나 못 봤으면
     /// None.
     pub ancestor: Option<bool>,
+    /// 조상 여부를 못 본 이유(레포·git 의 종료 코드와 stderr) — 건너뛴 이유에 붙인다.
+    pub ancestry_error: Option<&'a str>,
 }
 
 /// 배포가 켜질 수 있는 대상·기기인가 — 기록과 빌드를 보기 전의 조건이다. 세션 알림 문구도 이걸로 정한다(데몬이 맡은
@@ -521,8 +524,12 @@ pub fn deploy_plan(input: &DeployInput) -> DeployPlan {
             Some(false) => return skip(NotForward(base.to_string())),
             None => {
                 return skip(Unknown(format!(
-                    "깔린 빌드 {} 가 통과한 커밋의 조상인지 확인하지 못했다",
-                    short(base)
+                    "깔린 빌드 {} 가 통과한 커밋의 조상인지 확인하지 못했다{}",
+                    short(base),
+                    input
+                        .ancestry_error
+                        .map(|e| format!(" — {e}"))
+                        .unwrap_or_default()
                 )))
             }
         }
@@ -558,6 +565,31 @@ pub fn settle_deploy(
             _ => "update 가 끝났는데 main/.finished 가 이 커밋이 아니다".into(),
         });
     }
+    Some(settled)
+}
+
+/// 데몬이 띄운 배포를 기다리는 한도(분). update 의 fetch·`bun install`·`claude plugin` 에는 시간 상한이 없어서, 매달리면
+/// 배포가 끝나지 않고 그동안 모든 대상의 검증이 멈춘다.
+pub const DEPLOY_TIMEOUT_MINUTES: i64 = 90;
+
+/// 도는 배포가 한도(`DEPLOY_TIMEOUT_MINUTES`)를 넘겼으면 실패로 끝낸 기록. 기다리기만 그만두고 프로세스는 건드리지 않는다
+/// (launchd 없이 뜬 새 데몬이 update 의 프로세스 그룹에 들어 있을 수 있다). 시작 시각을 못 읽으면 None — 모르는 채로
+/// 끝내지 않는다.
+pub fn deploy_timed_out(record: &DeployRecord, now: DateTime<Utc>) -> Option<DeployRecord> {
+    if record.state != DeployState::Running {
+        return None;
+    }
+    let started = DateTime::parse_from_rfc3339(&record.started_at).ok()?;
+    if now.signed_duration_since(started) < TimeDelta::minutes(DEPLOY_TIMEOUT_MINUTES) {
+        return None;
+    }
+    let mut settled = record.clone();
+    settled.state = DeployState::Failed;
+    settled.finished_at = Some(now.to_rfc3339_opts(SecondsFormat::Millis, true));
+    settled.reason = Some(format!(
+        "update{}가 {DEPLOY_TIMEOUT_MINUTES}분 넘게 끝나지 않아 기다리지 않는다(프로세스는 그대로)",
+        record.pid.map(|p| format!("(pid {p})")).unwrap_or_default()
+    ));
     Some(settled)
 }
 

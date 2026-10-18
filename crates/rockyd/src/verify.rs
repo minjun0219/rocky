@@ -21,10 +21,10 @@ use std::time::Duration;
 
 use rocky_core::config::CommandBridge;
 use rocky_core::verify::{
-    deploy_base, deploy_gate, deploy_notification, deploy_plan, dir_name, notification,
-    parse_ls_remote, settle_deploy, should_run, DeployInput, DeployPlan, DeployRecord, DeployState,
-    VerifyConfig, VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState, VerifyTarget,
-    DEFAULT_STEP_TIMEOUT_MS, MAX_ATTEMPTS,
+    deploy_base, deploy_gate, deploy_notification, deploy_plan, deploy_timed_out, dir_name,
+    notification, parse_ls_remote, settle_deploy, should_run, DeployInput, DeployPlan,
+    DeployRecord, DeployState, VerifyConfig, VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState,
+    VerifyTarget, DEFAULT_STEP_TIMEOUT_MS, MAX_ATTEMPTS,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -91,14 +91,11 @@ impl DeployEnv {
         }
     }
 
-    /// 데몬 옆 `rocky` 와 데이터 홈(`rocky_core::config::data_home`). 링크(`current/rockyd`)로 떴으면 실제 파일 옆이다 — CLI 의
-    /// `sibling_binary` 와 같다.
+    /// 데몬 옆 `rocky`(`rocky_beside`)와 데이터 홈(`rocky_core::config::data_home`).
     pub fn beside_daemon() -> Self {
         let rocky = std::env::current_exe()
-            .ok()
-            .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe))
-            .and_then(|exe| exe.parent().map(|dir| dir.join("rocky")))
-            .unwrap_or_else(|| PathBuf::from("rocky"));
+            .map(|exe| rocky_beside(&exe))
+            .unwrap_or_else(|_| PathBuf::from("rocky"));
         Self::new(rocky_core::config::data_home().join("rocky"), rocky)
     }
 
@@ -126,6 +123,14 @@ impl DeployEnv {
     fn exited(&self, pid: u32) -> bool {
         self.exits.lock().is_ok_and(|e| e.contains_key(&pid))
     }
+}
+
+/// 데몬 실행 파일 옆의 `rocky` — 링크(`current/rockyd`)로 떴으면 실제 파일 옆이다(CLI 의 `sibling_binary` 와 같다).
+pub fn rocky_beside(exe: &Path) -> PathBuf {
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    exe.parent()
+        .map(|dir| dir.join("rocky"))
+        .unwrap_or_else(|| PathBuf::from("rocky"))
 }
 
 /// 사람에게 알리는 함수 — (제목, 본문). 기본은 osascript, 테스트는 붙잡는다.
@@ -184,10 +189,9 @@ pub fn load_statuses(cfg: &VerifyConfig, root: &Path) -> Vec<VerifyTargetStatus>
             branch: t.branch.clone(),
             record: read_record(&target_dir(root, t), "last.json"),
             logged_error: last_logged_error(&target_dir(root, t)),
-            deploy: t
-                .deploy
-                .then(|| read_record(&target_dir(root, t), "deploy.json"))
-                .flatten(),
+            // 스위치를 끈 대상도 도는 배포는 보인다(그동안 검증이 멈춘다).
+            deploy: read_record::<DeployRecord>(&target_dir(root, t), "deploy.json")
+                .filter(|d| t.deploy || d.state == DeployState::Running),
             ..Default::default()
         })
         .collect()
@@ -346,10 +350,13 @@ impl Drop for GroupGuard {
     }
 }
 
-/// 프로세스의 시작 시각(`ps -o lstart=`) — pid 가 재사용됐는지 가르는 열쇠. 프로세스가 없으면 `None`.
+/// 프로세스의 시작 시각(`ps -o lstart=`) — pid 가 재사용됐는지 가르는 열쇠. 프로세스가 없으면 `None`. 글자가 로캘·시간대를
+/// 따르므로 둘을 고정한다 — 적은 데몬과 견주는 데몬(교체된 새 데몬)의 환경이 달라도 같은 프로세스면 같은 값이 나오게.
 async fn started_at(pid: i32) -> Option<String> {
     let out = tokio::process::Command::new("ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC0")
         .output()
         .await
         .ok()?;
@@ -851,7 +858,8 @@ fn finish_deploy(
 }
 
 /// 끝난 배포를 판정한다(도는 것은 그대로). 아직 도는 배포가 있으면 true — 그동안 검증 잡은 새 실행을 시작하지 않는다
-/// (update 가 데몬을 교체하면서 끊긴다).
+/// (update 가 데몬을 교체하면서 끊긴다). 스위치를 끈 대상도 본다 — 이미 띄운 update 는 스위치와 상관없이 데몬을 교체한다.
+/// 한도(`DEPLOY_TIMEOUT_MINUTES`)를 넘긴 배포는 실패로 끝내고 더 기다리지 않는다(프로세스는 그대로).
 async fn settle_deploys(
     state: &Arc<ServerState>,
     notifier: &VerifyNotifier,
@@ -860,7 +868,7 @@ async fn settle_deploys(
     env: &DeployEnv,
 ) -> bool {
     let mut running = false;
-    for target in cfg.targets.iter().filter(|t| t.deploy) {
+    for target in &cfg.targets {
         let dir = target_dir(root, target);
         let Some(record) = read_record::<DeployRecord>(&dir, "deploy.json") else {
             continue;
@@ -869,7 +877,10 @@ async fn settle_deploys(
             continue;
         }
         if deploy_running(env, &record).await {
-            running = true;
+            match deploy_timed_out(&record, chrono::Utc::now()) {
+                Some(given_up) => finish_deploy(state, notifier, &dir, target, given_up),
+                None => running = true,
+            }
             continue;
         }
         // 종료 코드는 그 update 를 띄운 데몬만 안다 — 교체된 새 데몬은 `main/.finished` 만 본다.
@@ -882,8 +893,9 @@ async fn settle_deploys(
     running
 }
 
-/// `base` 가 `sha` 의 조상인가 — 보드 레포에서(검증이 그 커밋을 fetch 해 두었다). 못 보면 None.
-async fn is_ancestor(runner: &Runner, repo: &str, base: &str, sha: &str) -> Option<bool> {
+/// `base` 가 `sha` 의 조상인가 — 보드 레포에서(검증이 그 커밋을 fetch 해 두었다). git 이 답하지 못하면(없음·시간 초과·모르는
+/// 커밋) 그 이유. 러너는 띄우지 못함·시간 초과도 종료 코드 1 로 돌려주므로 "조상 아님"은 git 이 말없이 1 로 끝난 것만이다.
+async fn is_ancestor(runner: &Runner, repo: &str, base: &str, sha: &str) -> Result<bool, String> {
     let argv = [
         "git",
         "-c",
@@ -897,10 +909,14 @@ async fn is_ancestor(runner: &Runner, repo: &str, base: &str, sha: &str) -> Opti
     ]
     .map(String::from)
     .to_vec();
-    match runner(argv, String::new(), GIT_TIMEOUT).await.code {
-        0 => Some(true),
-        1 => Some(false),
-        _ => None,
+    let out = runner(argv, String::new(), GIT_TIMEOUT).await;
+    match out.code {
+        0 => Ok(true),
+        1 if out.stderr.trim().is_empty() => Ok(false),
+        code => Err(format!(
+            "{repo} 에서 git merge-base 종료 코드 {code}: {}",
+            out.stderr.lines().next().unwrap_or("").trim()
+        )),
     }
 }
 
@@ -935,9 +951,11 @@ async fn deploy_target(
         finished_build: finished_build.as_deref(),
         built: built.as_deref(),
         ancestor: Some(true),
+        ancestry_error: None,
     };
     // 조상 여부(git)와 잠금은 띄울 수 있을 때만 본다 — 평소(이미 깔림·이미 시도함)에는 git 을 부르지 않는다. 그 앞에서
     // 건너뛰는 판정은 둘과 상관없다.
+    let mut ancestry_error = None;
     let plan = match deploy_plan(&input) {
         DeployPlan::Start(sha) => {
             input.ancestor = match (
@@ -945,20 +963,28 @@ async fn deploy_target(
                 board.as_ref().and_then(|b| b.path.as_deref()),
             ) {
                 (Some(base), Some(repo)) if base != sha => {
-                    is_ancestor(runner, repo, base, &sha).await
+                    match is_ancestor(runner, repo, base, &sha).await {
+                        Ok(yes) => Some(yes),
+                        Err(why) => {
+                            ancestry_error = Some(why);
+                            None
+                        }
+                    }
+                }
+                (Some(base), None) if base != sha => {
+                    ancestry_error = Some("보드에 path 가 없다".to_string());
+                    None
                 }
                 _ => None,
             };
+            input.ancestry_error = ancestry_error.as_deref();
             input.busy = env.busy();
             deploy_plan(&input)
         }
         skip => skip,
     };
     match plan {
-        DeployPlan::Start(sha) => {
-            start_deploy(state, notifier, &dir, target, env, sha).await;
-            true
-        }
+        DeployPlan::Start(sha) => start_deploy(state, notifier, &dir, target, env, sha).await,
         DeployPlan::Skip(why) => {
             let message = why.message();
             let logged = state
@@ -982,7 +1008,7 @@ async fn deploy_target(
     }
 }
 
-/// 배포를 띄우고 pid 와 함께 기록한다. 띄우지 못하면 그 자리에서 실패로 남긴다(배너).
+/// 배포를 띄우고 pid 와 함께 기록한다. 띄우지 못하면 그 자리에서 실패로 남긴다(배너). 띄웠으면 true.
 async fn start_deploy(
     state: &Arc<ServerState>,
     notifier: &VerifyNotifier,
@@ -990,7 +1016,7 @@ async fn start_deploy(
     target: &VerifyTarget,
     env: &DeployEnv,
     sha: String,
-) {
+) -> bool {
     let _ = std::fs::create_dir_all(dir);
     let log = dir.join(format!("deploy-{}.log", &sha[..12]));
     let started = iso_now();
@@ -1024,6 +1050,7 @@ async fn start_deploy(
                 s.deploy_note = None;
                 s.logged_deploy = None;
             });
+            true
         }
         Err(reason) => {
             let record = DeployRecord {
@@ -1037,6 +1064,7 @@ async fn start_deploy(
                 log: log.to_string_lossy().to_string(),
             };
             finish_deploy(state, notifier, dir, target, record);
+            false
         }
     }
 }
