@@ -4,14 +4,17 @@
 //! - `rocky rc targets [--json]` — 설정 파일에 적힌 대상(데몬이 쓰는 순서 · 규칙 그대로)
 //! - `rocky rc targets add <이름|경로> [--pin]` — 대상을 더한다. `.` 은 지금 폴더, `--pin` 은 고정
 //! - `rocky rc targets rm <이름|경로>` — 대상을 뺀다. 떠 있는 서버는 그대로 둔다(대상 밖 서버로 보인다)
-//! - `rocky rc reload` — 손으로 고친 rocky.json 을 데몬이 다시 읽는다
+//! - `rocky rc targets unpin <이름|경로>` — 고정을 푼다. 대상으로 남고 떠 있는 서버도 그대로다
+//! - `rocky rc reload` — 데몬이 rocky.json 의 대상 목록을 지금 다시 읽는다. 손으로 고친 파일은 데몬이 다음에 설정을 볼 때
+//!   알아서 읽으므로, 이 명령은 무엇이 바뀌었고 무엇이 재시작 몫인지 바로 보려고 부른다
 //!
-//! 더하거나 뺀 뒤에는 파일이 그대로여도 데몬에 다시 읽으라고 한다 — 손으로 고치고 다시 읽히지 않은 목록도 이참에 맞춘다.
+//! 고친 뒤에는 파일이 그대로여도 데몬에 바로 다시 읽으라고 한다 — 데몬이 다른 파일을 읽는지, 재시작해야 반영되는 칸이
+//! 있는지를 그 답으로 알린다.
 
 use std::path::Path;
 
 use rocky_core::config::user_config_path;
-use rocky_core::rc_targets::{self, Change, Edit, TargetList};
+use rocky_core::rc_targets::{self, Change, Edit, Reload, TargetList};
 use rocky_core::statusline::width::display_width;
 use serde_json::{json, Value};
 
@@ -26,7 +29,8 @@ const USAGE: &str = "\
 usage: rocky rc targets [--json]                 rocky.json 의 rc 대상(이름 · 고정 · 폴더)
        rocky rc targets add <이름|경로> [--pin]  대상을 더한다(. 은 지금 폴더, --pin 은 고정)
        rocky rc targets rm <이름|경로>           대상을 뺀다(떠 있는 서버는 그대로 둔다)
-       rocky rc reload                           손으로 고친 rocky.json 을 데몬이 다시 읽는다";
+       rocky rc targets unpin <이름|경로>        고정을 푼다(대상으로 남고 떠 있는 서버도 그대로다)
+       rocky rc reload                           데몬이 rocky.json 의 대상 목록을 지금 다시 읽는다";
 
 pub fn cmd_targets(
     ctx: &CliContext,
@@ -48,14 +52,14 @@ pub fn cmd_targets(
             });
             Ok(())
         }
-        Some(verb @ ("add" | "rm")) => {
+        Some(verb @ ("add" | "rm" | "unpin")) => {
             let key = rest
                 .get(1)
                 .ok_or_else(|| format!("대상 이름이나 경로가 필요하다\n\n{USAGE}"))?;
             if rest.len() > 2 {
                 return Err(format!("대상은 하나씩 고친다: {}", rest[1..].join(" ")));
             }
-            if verb == "rm" && flags.bool_flag("pin") {
+            if verb != "add" && flags.bool_flag("pin") {
                 return Err("--pin 은 add 에만 쓴다".into());
             }
             let cwd = std::env::current_dir()
@@ -63,11 +67,13 @@ pub fn cmd_targets(
                 .to_string_lossy()
                 .to_string();
             let (original, mut doc) = read_config(&path)?;
-            let edit = if verb == "add" {
-                let pin = flags.bool_flag("pin");
-                rc_targets::add_target(&mut doc, key, pin, &cwd, &home, &is_dir)?
-            } else {
-                rc_targets::remove_target(&mut doc, key, &cwd, &home)?
+            let edit = match verb {
+                "add" => {
+                    let pin = flags.bool_flag("pin");
+                    rc_targets::add_target(&mut doc, key, pin, &cwd, &home, &is_dir)?
+                }
+                "rm" => rc_targets::remove_target(&mut doc, key, &cwd, &home)?,
+                _ => rc_targets::unpin_target(&mut doc, key, &cwd, &home)?,
             };
             let written = edit.change != Change::Unchanged;
             if written {
@@ -213,6 +219,7 @@ pub fn edit_line(edit: &Edit, home: &str) -> String {
         (Change::Added, false) => "✓ 대상을 더했다",
         (Change::Added, true) => "✓ 고정 대상을 더했다",
         (Change::Pinned, _) => "✓ 고정 대상으로 바꿨다",
+        (Change::Unpinned, _) => "✓ 고정을 풀었다",
         (Change::Unchanged, false) => "= 이미 대상이다",
         (Change::Unchanged, true) => "= 이미 고정 대상이다",
         (Change::Removed, _) => "✓ 대상을 뺐다",
@@ -220,7 +227,7 @@ pub fn edit_line(edit: &Edit, home: &str) -> String {
     format!("{what}: {} ({})", edit.label, tilde(&edit.dir, home))
 }
 
-/// 데몬의 다시 읽기 응답 → 사람이 읽을 줄. `edit` 이 있으면(targets add · rm) 그 대상에 맞춘 다음 할 일을 붙인다.
+/// 데몬의 다시 읽기 응답 → 사람이 읽을 줄. `edit` 이 있으면(targets add · rm · unpin) 그 대상에 맞춘 다음 할 일을 붙인다.
 /// 줄은 두 칸 들여 쓴다(앞의 결과 줄 아래에 붙는다).
 pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<String> {
     let mut lines = Vec::new();
@@ -271,7 +278,10 @@ pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<Str
     let supervise = raw.get("supervise").and_then(Value::as_bool) == Some(true);
     match edit {
         Some(edit) => lines.push(match edit.change {
-            Change::Removed => "  데몬에 반영했다".to_string(),
+            Change::Unpinned if supervise => {
+                "  데몬에 반영했다. 꺼져도 감시가 고정으로 되살리지 않는다".to_string()
+            }
+            Change::Removed | Change::Unpinned => "  데몬에 반영했다".to_string(),
             _ if edit.pinned && supervise => {
                 "  데몬에 반영했다. 꺼져 있으면 감시가 띄운다(2분마다 잰다)".to_string()
             }
@@ -279,23 +289,20 @@ pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<Str
         }),
         None if applied => {
             lines.push("✓ 데몬이 대상 목록을 다시 읽었다".into());
-            let changes: Vec<String> = [
-                ("더함", "added"),
-                ("뺌", "removed"),
-                ("고정", "pinned"),
-                ("고정 풂", "unpinned"),
-            ]
-            .iter()
-            .filter_map(|(name, key)| {
-                let list = labels(key);
-                (!list.is_empty()).then(|| format!("{name}: {}", list.join(", ")))
-            })
-            .collect();
+            let changes = Reload {
+                added: labels("added"),
+                removed: labels("removed"),
+                pinned: labels("pinned"),
+                unpinned: labels("unpinned"),
+                ..Reload::default()
+            }
+            .changes();
             if !changes.is_empty() {
                 lines.push(format!("  {}", changes.join(" · ")));
             }
         }
-        None => lines.push("= 대상 목록은 그대로다".into()),
+        // 손으로 고친 파일은 데몬이 이미 알아서 읽었을 수 있다 — "그대로다" 가 아니라 "이미 같다" 다.
+        None => lines.push("= 데몬의 대상 목록이 이미 파일과 같다".into()),
     }
     let rest: Vec<&str> = restart.iter().map(String::as_str).collect();
     if !rest.is_empty() {
@@ -307,7 +314,7 @@ pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<Str
     lines
 }
 
-/// 다시 읽기 요청이 실패했을 때의 줄(targets add · rm) — 파일은 이미 고쳤다. 옛 데몬(라우트 없음)이면 재시작을 권한다.
+/// 다시 읽기 요청이 실패했을 때의 줄(targets add · rm · unpin) — 파일은 이미 고쳤다. 옛 데몬(라우트 없음)이면 재시작을 권한다.
 pub fn reload_failure(err: &str) -> Vec<String> {
     if old_daemon(err) {
         return vec![format!("  {OLD_DAEMON}")];

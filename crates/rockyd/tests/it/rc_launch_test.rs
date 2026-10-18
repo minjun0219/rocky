@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use rocky_core::config::RcConfig;
 use rocky_core::rc::RcAction;
-use rockyd::rc::{RcCommand, RcController, RcOps, RcRefusal};
+use rockyd::rc::{RcCommand, RcController, RcOps, RcRefusal, RcSettings};
 use rockyd::runner::{CmdOutput, Runner};
 use serde_json::json;
 
@@ -185,6 +185,41 @@ fn events(f: &Fixture) -> Vec<String> {
             v["event"].as_str().unwrap().to_string()
         })
         .collect()
+}
+
+/// 재시작을 받은 뒤 사람이 rocky.json 에서 그 대상을 뺐다 — 데몬은 바뀐 파일을 알아서 다시 읽으니 그 뒤의 프로브에는 대상 밖
+/// 서버로 보인다. 그래도 떠 있는 서버로 보고 내린 뒤 띄운다(꺼진 것으로 보고 같은 폴더에 하나 더 띄우지 않는다).
+#[tokio::test]
+async fn a_target_dropped_mid_restart_is_still_stopped_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    let rc = |pinned: Vec<&str>| json!({ "rc": { "root": "/w", "pinned": pinned, "targets": ["repo-b"] } });
+    std::fs::write(&path, rc(vec!["repo-a"]).to_string()).unwrap();
+    let world = Arc::new(Mutex::new(World {
+        alive: [100].into(),
+        next_pid: 200,
+        script: vec![READY].into(),
+        ..Default::default()
+    }));
+    let control = Arc::new(RcController::new(
+        RcSettings::load(path.clone(), "/home/u".into()),
+        "/home/u".into(),
+        dir.path().join("rc"),
+        probe_runner(false, true),
+        ops(world.clone()),
+    ));
+    let command = RcCommand::Restart { fresh: true };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    std::fs::write(&path, rc(vec![]).to_string()).unwrap();
+    let result = control.run(target, command).await;
+    assert!(result.ok, "{}", result.message);
+    let w = world.lock().unwrap();
+    assert_eq!(
+        w.signals.first(),
+        Some(&(100, libc::SIGTERM)),
+        "옛 서버를 먼저 내린다"
+    );
+    assert_eq!(w.spawns.len(), 1, "{:?}", w.spawns);
 }
 
 #[tokio::test]

@@ -2250,8 +2250,9 @@ async fn dispatch(
         }
         return Ok(json_response(&status, StatusCode::OK));
     }
-    // ── rc 설정 다시 읽기 — rocky.json 의 대상 목록(root · pinned · targets)을 떠 있는 데몬에 반영한다(`rocky rc targets` 가
-    // 고친 뒤, 손으로 고쳤으면 `rocky rc reload`). 무엇을 띄울 수 있는지가 바뀌므로 로컬 전용 — Access 원격 제어로도 열지 않는다 ──
+    // ── rc 설정 다시 읽기 — rocky.json 의 대상 목록(root · pinned · targets)을 지금 떠 있는 데몬에 반영하고 무엇이 바뀌었는지
+    // 답한다(`rocky rc targets` 가 고친 뒤, `rocky rc reload` — 손으로 고친 파일은 데몬이 다음에 설정을 볼 때 알아서 읽는다).
+    // 무엇을 띄울 수 있는지가 바뀌므로 로컬 전용 — Access 원격 제어로도 열지 않는다 ──
     if *method == Method::POST && path == "/api/rc/reload" {
         if !local {
             return Ok(error_response(

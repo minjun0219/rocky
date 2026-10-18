@@ -218,15 +218,34 @@ pub async fn agy_control(runner: &Runner, action: AgyAction) -> Result<(), Strin
     }
 }
 
-/// 데몬이 지금 쓰는 rc 설정 — 현황(`rc_handles`)과 기동기(`RcController`)가 같은 칸을 본다. `rocky rc reload`
-/// (`POST /api/rc/reload`)가 설정 파일을 다시 읽어 대상 목록(root · pinned · targets)을 바꾸면 세대가 올라 현황 캐시가 새로
-/// 잰다. 기능 스위치(enabled · supervise · nightly)는 바꾸지 않는다 — 기동기와 루프가 기동 때 정해진다(`rc_targets::plan_reload`).
+/// 데몬이 지금 쓰는 rc 설정 — 현황(`rc_handles`)과 기동기(`RcController`)가 같은 칸을 본다. 설정 파일이 바뀌었으면(mtime ·
+/// 크기) 볼 때마다 알아서 다시 읽고, `rocky rc reload`(`POST /api/rc/reload`)는 지금 다시 읽어 무엇이 바뀌었는지 돌려준다.
+/// 어느 쪽이든 대상 목록(root · pinned · targets)이 바뀌면 세대가 올라 현황 캐시가 새로 잰다. 기능 스위치(enabled · supervise ·
+/// nightly)는 바꾸지 않는다 — 기동기와 루프가 기동 때 정해진다(`rc_targets::plan_reload`).
 #[derive(Clone, Default)]
 pub struct RcSettings {
     /// (세대, 설정) — 바꿀 때마다 세대가 오른다.
     current: Arc<std::sync::RwLock<(u64, Option<RcConfig>)>>,
-    /// 다시 읽을 설정 파일과 대상을 풀 홈. 없으면 다시 읽지 못한다(테스트가 설정만 넘긴 경우).
-    source: Option<Arc<(PathBuf, String)>>,
+    /// 다시 읽을 설정 파일. 없으면 다시 읽지 못한다(테스트가 설정만 넘긴 경우).
+    source: Option<Arc<RcSource>>,
+}
+
+/// 다시 읽을 설정 파일과 대상을 풀 홈, 마지막으로 읽은 파일의 지문.
+struct RcSource {
+    path: PathBuf,
+    home: String,
+    /// 기동 때나 마지막으로 다시 읽을 때 잰 지문. 다시 읽기는 이 잠금을 쥐고 하나씩 한다(잠그는 순서는 이것 → `current`).
+    seen: std::sync::Mutex<Stamp>,
+}
+
+/// 설정 파일이 바뀌었는지 가르는 지문 — mtime · 크기 · inode. 임시 파일을 이름 바꿔 덮는 저장(`rocky rc targets` · 대개의
+/// 편집기)은 inode 가 바뀌어 mtime 이 같은 틱이어도 잡힌다. 파일이 없거나 재지 못하면 None.
+type Stamp = Option<(std::time::SystemTime, u64, u64)>;
+
+fn stamp(path: &Path) -> Stamp {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len(), meta.ino()))
 }
 
 impl From<Option<RcConfig>> for RcSettings {
@@ -239,10 +258,13 @@ impl From<Option<RcConfig>> for RcSettings {
 }
 
 impl RcSettings {
-    /// 기동 때 읽은 설정과, 다시 읽을 파일 · 홈.
-    pub fn new(config: Option<RcConfig>, path: PathBuf, home: String) -> Self {
+    /// 기동 때 설정 파일을 읽어 꾸린다 — 못 읽거나 JSON 이 아니면 rc 꺼짐(`load_rc_block`). 다시 읽기와 같이 지문을 읽기
+    /// **전에** 잰다 — 그 사이에 바뀌면 처음 볼 때 한 번 더 읽을 뿐, 바뀐 것을 놓치지는 않는다.
+    pub fn load(path: PathBuf, home: String) -> Self {
+        let seen = std::sync::Mutex::new(stamp(&path));
+        let config = rocky_core::config::load_rc_block(&path);
         RcSettings {
-            source: Some(Arc::new((path, home))),
+            source: Some(Arc::new(RcSource { path, home, seen })),
             ..RcSettings::from(config)
         }
     }
@@ -251,7 +273,9 @@ impl RcSettings {
         self.snapshot().1
     }
 
+    /// 지금의 (세대, 설정). 설정 파일이 바뀌었으면 먼저 다시 읽는다 — stat 한 번이라 현황 · 기동기가 볼 때마다 불러도 싸다.
     fn snapshot(&self) -> (u64, Option<RcConfig>) {
+        self.refresh();
         self.current
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -260,19 +284,48 @@ impl RcSettings {
 
     /// 다시 읽는 설정 파일.
     pub fn path(&self) -> Option<&Path> {
-        self.source.as_deref().map(|(path, _)| path.as_path())
+        self.source.as_deref().map(|source| source.path.as_path())
     }
 
-    /// 설정 파일을 다시 읽어 대상 목록을 바꾼다. 파일을 못 읽거나 JSON 이 아니면 Err — 하던 설정을 그대로 쓴다.
+    /// 설정 파일을 지금 다시 읽어 대상 목록을 바꾼다. 파일을 못 읽거나 JSON 이 아니면 Err — 하던 설정을 그대로 쓴다.
     pub fn reload(&self) -> Result<rocky_core::rc_targets::Reload, String> {
         let Some(source) = self.source.as_deref() else {
             return Err("이 데몬은 다시 읽을 설정 파일을 모른다".into());
         };
-        let (path, home) = (&source.0, &source.1);
-        let file = rocky_core::config::read_rc_block(path)?;
+        let mut seen = source.seen.lock().unwrap_or_else(|e| e.into_inner());
+        // 읽기 **전에** 잰다 — 재고 읽는 사이에 바뀌면 다음에 한 번 더 읽을 뿐, 바뀐 것을 놓치지는 않는다.
+        *seen = stamp(&source.path);
+        self.apply(source)
+    }
+
+    /// 설정 파일의 지문이 바뀌었으면 다시 읽는다 — 손으로 고친 rocky.json 도 `rocky rc reload` 없이 반영된다. 못 읽거나 JSON 이
+    /// 아니면(고치는 중인 파일) 하던 목록을 그대로 쓰고 그 지문을 기억한다 — 다시 바뀌면 그때 다시 읽는다. 한 일은 데몬 로그에 한 줄.
+    fn refresh(&self) {
+        let Some(source) = self.source.as_deref() else {
+            return;
+        };
+        let mut seen = source.seen.lock().unwrap_or_else(|e| e.into_inner());
+        let now = stamp(&source.path);
+        if now == *seen {
+            return;
+        }
+        *seen = now;
+        match self.apply(source) {
+            Ok(report) => {
+                if let Some(line) = rocky_core::rc_targets::auto_reload_line(&report) {
+                    eprintln!("rocky: {line} — {}", source.path.display());
+                }
+            }
+            Err(e) => eprintln!("rocky: 바뀐 rc 설정을 읽지 못해 하던 대상 목록을 쓴다 — {e}"),
+        }
+    }
+
+    /// 파일의 rc 블록을 읽어 대상 목록을 얹는다. `seen` 잠금을 쥔 채 부른다.
+    fn apply(&self, source: &RcSource) -> Result<rocky_core::rc_targets::Reload, String> {
+        let file = rocky_core::config::read_rc_block(&source.path)?;
         let mut slot = self.current.write().unwrap_or_else(|e| e.into_inner());
         let (next, report) =
-            rocky_core::rc_targets::plan_reload(slot.1.as_ref(), file.as_ref(), home);
+            rocky_core::rc_targets::plan_reload(slot.1.as_ref(), file.as_ref(), &source.home);
         if let Some(next) = next {
             *slot = (slot.0 + 1, Some(next));
         }
@@ -514,7 +567,7 @@ pub enum RcRefusal {
 }
 
 pub struct RcController {
-    /// 대상 목록은 `rocky rc reload` 로 바뀔 수 있다 — 쓸 때마다 `config()` 로 읽는다.
+    /// 대상 목록은 다시 읽기(파일이 바뀌면 알아서, `rocky rc reload`)로 바뀔 수 있다 — 쓸 때마다 `config()` 로 읽는다.
     settings: RcSettings,
     home: String,
     log_dir: PathBuf,
@@ -578,7 +631,7 @@ impl RcController {
         }
     }
 
-    /// 지금 쓰는 설정 — 다시 읽기(`RcSettings::reload`)가 대상 목록을 바꿨으면 그것.
+    /// 지금 쓰는 설정 — 다시 읽기가 대상 목록을 바꿨으면 그것. 설정 파일이 바뀌었으면 여기서 먼저 다시 읽는다.
     fn config(&self) -> Option<RcConfig> {
         self.settings.get()
     }
@@ -933,12 +986,7 @@ impl RcController {
         if status.auth == rc::AuthState::Out {
             return Err(rc::LOGGED_OUT_REFUSAL.into());
         }
-        let live = status
-            .servers
-            .iter()
-            .find(|s| s.dir == target.dir)
-            .filter(|s| s.running)
-            .and_then(|s| s.pid.map(|pid| (pid, s.sessions)));
+        let live = status.live_server(&target.dir);
         let mut session = match &command {
             RcCommand::Pin(id) => Some(id.clone()),
             _ => None,
@@ -1053,12 +1101,7 @@ impl RcController {
                 continue;
             }
             probe_error = None;
-            let live = status
-                .servers
-                .iter()
-                .find(|s| s.dir == target.dir && s.running)
-                .and_then(|s| s.pid.map(|pid| (pid, s.sessions)));
-            let Some((pid, sessions)) = live else {
+            let Some((pid, sessions)) = status.live_server(&target.dir) else {
                 self.set_action(&target.label, RcAction::Restarting);
                 return Ok(None);
             };

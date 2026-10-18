@@ -248,6 +248,40 @@ fn rows_match_by_dir_string_and_list_strays() {
 }
 
 #[test]
+fn a_live_server_is_found_even_off_the_target_list() {
+    let targets = vec![Target {
+        label: "a".into(),
+        dir: "/w/a".into(),
+        pinned: true,
+    }];
+    let live = vec![
+        LiveServer {
+            pid: 10,
+            dir: "/w/a".into(),
+            uptime_secs: None,
+            sessions: 1,
+        },
+        // 하던 일 도중 목록에서 빠진 폴더 — 대상 밖 서버로 보인다.
+        LiveServer {
+            pid: 20,
+            dir: "/w/b".into(),
+            uptime_secs: None,
+            sessions: 2,
+        },
+    ];
+    let (servers, strays) = build_rows(&targets, &live);
+    let status = RcStatus {
+        configured: true,
+        servers,
+        strays,
+        ..RcStatus::unconfigured()
+    };
+    assert_eq!(status.live_server("/w/a"), Some((10, 1)));
+    assert_eq!(status.live_server("/w/b"), Some((20, 2)));
+    assert_eq!(status.live_server("/w/c"), None);
+}
+
+#[test]
 fn rc_block_is_optional_and_lenient() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rocky.json");

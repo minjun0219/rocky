@@ -222,6 +222,22 @@ impl RcStatus {
             nightly: None,
         }
     }
+
+    /// `dir` 폴더에 떠 있는 서버(pid, 열린 세션 수) — 대상 행에서 먼저, 없으면 대상 밖 서버에서 찾는다. 대상 목록은 하던 일
+    /// 도중에도 바뀐다(파일이 바뀌면 데몬이 알아서 다시 읽는다). 재시작 · 띄우기 도중 그 폴더가 목록에서 빠져도 떠 있는 서버를
+    /// 꺼진 것으로 보고 같은 폴더에 하나 더 띄우지 않게.
+    pub fn live_server(&self, dir: &str) -> Option<(u32, usize)> {
+        self.servers
+            .iter()
+            .filter(|s| s.dir == dir && s.running)
+            .find_map(|s| s.pid.map(|pid| (pid, s.sessions)))
+            .or_else(|| {
+                self.strays
+                    .iter()
+                    .find(|s| s.dir == dir)
+                    .map(|s| (s.pid, s.sessions))
+            })
+    }
 }
 
 /// 명령줄 하나가 상주 rc 서버인지를 **구조로** 판정한다: argv[0] basename 이 `claude`, argv[1] 이 `rc` /
