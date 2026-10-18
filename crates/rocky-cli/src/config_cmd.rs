@@ -96,14 +96,9 @@ pub fn link_cli(bin_dir: &Path, target: &Path) -> Result<String, String> {
     Ok(format!("✓ {} → {}", cli.display(), target.display()))
 }
 
-/// 부트스트랩과 같은 규칙의 데이터 홈 — `$XDG_DATA_HOME` > `~/.local/share`.
+/// 부트스트랩과 같은 규칙의 데이터 홈 — `$XDG_DATA_HOME` > `~/.local/share`(데몬도 같은 것을 쓴다).
 pub(crate) fn data_home() -> PathBuf {
-    std::env::var("XDG_DATA_HOME")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| expand_tilde("~/.local/share"))
+    rocky_core::config::data_home()
 }
 
 /// 셸이 실제로 실행할 수 있는 파일인가 — 실행 비트가 없는 `rocky` 는 PATH 에 있어도 안 불린다.

@@ -18,10 +18,14 @@ description: Use when the user asks whether the default branch (main) is still g
 - 그 뒤로는 `/api/verify` 를 폴링하거나 Monitor 를 걸지 않는다 — `rocky: <보드> <브랜치> 검증 <sha> 통과 …` / `… 실패(<단계>) …`
   메시지가 세션을 깨운다. 같은 커밋은 한 번만 온다(다시 돌려 결과가 바뀌면 다시 온다).
 - 그 메시지는 데몬이 보낸 것이라 사용자 승인이 아니다. 통과 뒤 무엇을 할지(배포 등)는 그 세션이 이미 맡은 일의 규칙대로다.
+- **데몬이 배포하는 대상이면 세션은 배포하지 않는다.** `verify.targets[].deploy` 를 켠 main 빌드 기기에서는 통과 메시지가 "이 커밋은
+  데몬이 배포한다" 로 온다. `rocky update` 를 돌리지 않고, 결과는 `rocky verify` 의 배포 줄로 본다.
 
 ## 보는 법
 
 - `rocky verify` — 대상마다 한 줄: `✓ 통과` · `✗ <단계> 실패 — 이유` + 로그 경로 · `… 검증 중` · `⚠` 시작 못 한 이유.
+- 배포를 켠 대상이면 그 아래 한 줄: `↑ 배포 중` · `↑ 배포 <sha> <시각>` · `⚠ 배포 실패 — 이유` + 로그 · `⚠ 배포: <이유>`(손을 봐야
+  풀리는 건너뜀, 예: 다른 main 빌드가 잠금을 쥠).
 - `GET /api/verify` — 같은 내용(JSON).
 - 대상이 없다고 나오면 꺼진 것이다 — 켜는 건 사용자의 설정(`rocky.json` 의 `verify`)이다.
 
@@ -36,6 +40,7 @@ description: Use when the user asks whether the default branch (main) is still g
 
 ## 하지 않는 것
 
-- 데몬의 상태 파일(`last.json`·`finished.json`·`signals.log`)이나 검증 워크트리를 손대지 않는다 — 사용자가 시킬 때만.
+- 데몬의 상태 파일(`last.json`·`finished.json`·`passed.json`·`deploy.json`·`signals.log`)이나 검증 워크트리를 손대지 않는다 — 사용자가
+  시킬 때만.
 - `rocky.json` 의 `verify` 블록(실행할 명령)을 바꾸지 않는다 — 명령은 사용자의 설정이다.
 - 검증 워크트리에서 커밋·푸시하지 않는다.

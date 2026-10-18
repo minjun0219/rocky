@@ -1,10 +1,10 @@
 //! 기본 브랜치 검증의 순수 판정 — 설정 모양, 원격 커밋 읽기, 다시 돌지, 알릴지, 통과한 커밋을 배포할지.
 
 use rocky_core::verify::{
-    deploy_base, deploy_notification, deploy_plan, dir_name, is_branch_name, load_verify_block,
-    notification, parse_ls_remote, session_notice, settle_deploy, should_run, DeployInput,
-    DeployPlan, DeployRecord, DeploySkip, DeployState, VerifyRecord, VerifyRun, VerifyRunEvent,
-    VerifyState,
+    deploy_base, deploy_notification, deploy_plan, deploy_timed_out, dir_name, is_branch_name,
+    load_verify_block, notification, parse_ls_remote, session_notice, settle_deploy, should_run,
+    DeployInput, DeployPlan, DeployRecord, DeploySkip, DeployState, VerifyRecord, VerifyRun,
+    VerifyRunEvent, VerifyState, DEPLOY_TIMEOUT_MINUTES,
 };
 
 fn config(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -39,6 +39,7 @@ fn verify_block_is_opt_in_and_drops_bad_targets() {
     );
     assert_eq!(c.targets[0].branch, "main");
     assert_eq!(c.targets[0].steps[0].timeout_ms, Some(1000));
+    assert!(!c.targets[0].deploy, "배포는 켜야만 돈다");
 
     let (_d, path) = config(
         r#"{ "verify": { "enabled": false, "targets": [ { "board": "r", "steps": [ { "name": "t", "command": ["true"] } ] } ] } }"#,
@@ -201,7 +202,7 @@ fn run_lines_name_the_outcome_and_stay_flat_for_errors() {
 fn subscribed_sessions_hear_every_finished_run_once_per_commit() {
     let passed = record("aaaaaaa111", VerifyState::Passed);
     // 첫 판정 — 배너와 달리 통과도 보낸다(배포를 맡은 세션이 기다린다)
-    let (kind, text) = session_notice(None, &passed).unwrap();
+    let (kind, text) = session_notice(None, &passed, false).unwrap();
     assert_eq!(kind, "verify-passed");
     assert!(
         text.contains("rocky main 검증 aaaaaaa 통과 · feat: x"),
@@ -209,18 +210,45 @@ fn subscribed_sessions_hear_every_finished_run_once_per_commit() {
     );
     assert!(text.contains("사용자가 직접 쓴 것이 아니다"));
     // 같은 커밋·같은 결과(다시 돌렸는데 그대로)는 보내지 않는다
-    assert!(session_notice(Some(&passed), &passed).is_none());
+    assert!(session_notice(Some(&passed), &passed, false).is_none());
     // 다시 돌려 결과가 바뀌면 보낸다
     let failed_same = record("aaaaaaa111", VerifyState::Failed);
-    let (kind, text) = session_notice(Some(&passed), &failed_same).unwrap();
+    let (kind, text) = session_notice(Some(&passed), &failed_same, false).unwrap();
     assert_eq!(kind, "verify-failed");
     assert!(text.contains("실패(cargo-test) — 종료 코드 101"), "{text}");
     assert!(text.contains("/tmp/x.log"), "실패면 로그 자리를 싣는다");
     // 새 커밋은 결과가 같아도 보낸다
     let next = record("bbbbbbb222", VerifyState::Passed);
-    assert!(session_notice(Some(&passed), &next).is_some());
+    assert!(session_notice(Some(&passed), &next, false).is_some());
     // 도는 중은 판정이 아니다
-    assert!(session_notice(None, &record("c", VerifyState::Running)).is_none());
+    assert!(session_notice(None, &record("c", VerifyState::Running), false).is_none());
+}
+
+#[test]
+fn a_session_is_told_not_to_deploy_what_the_daemon_deploys() {
+    let passed = record("aaaaaaa111", VerifyState::Passed);
+    let (_, text) = session_notice(None, &passed, true).unwrap();
+    assert!(text.contains("데몬이 배포한다"), "{text}");
+    assert!(!text.contains("배포를 맡은 세션이면"), "{text}");
+    let failed = record("aaaaaaa111", VerifyState::Failed);
+    let (_, text) = session_notice(None, &failed, true).unwrap();
+    assert!(
+        text.contains("배포하지 않는다"),
+        "실패 문구는 그대로: {text}"
+    );
+}
+
+#[test]
+fn the_deploy_switch_is_read_per_target() {
+    let (_d, path) = config(
+        r#"{ "verify": { "targets": [
+            { "board": "rocky", "deploy": true, "steps": [ { "name": "t", "command": ["true"] } ] },
+            { "board": "web", "deploy": "yes", "steps": [ { "name": "t", "command": ["true"] } ] }
+        ] } }"#,
+    );
+    let c = load_verify_block(&path);
+    assert!(c.targets[0].deploy);
+    assert!(!c.targets[1].deploy, "불리언이 아니면 꺼진 것으로 읽는다");
 }
 
 const PASSED: &str = "1111111111111111111111111111111111111111";
@@ -400,6 +428,19 @@ fn deploys_a_passed_commit_only_forward_and_once() {
         }),
         DeployPlan::Skip(DeploySkip::Unknown(_))
     ));
+    let DeployPlan::Skip(why) = plan(DeployInput {
+        ancestor: None,
+        ancestry_error: Some("/repo 에서 git merge-base 종료 코드 128: fatal: bad object"),
+        ..ready.clone()
+    }) else {
+        panic!("조상을 못 보면 띄우지 않는다");
+    };
+    assert!(
+        why.note()
+            .unwrap()
+            .ends_with("— /repo 에서 git merge-base 종료 코드 128: fatal: bad object"),
+        "못 본 이유를 붙인다: {why:?}"
+    );
     assert!(matches!(
         plan(DeployInput {
             finished_build: None,
@@ -517,5 +558,50 @@ fn deploy_lines_join_the_run_history() {
     assert_eq!(
         serde_json::to_value(&failed).unwrap()["event"],
         "deploy-failed"
+    );
+}
+
+#[test]
+fn a_deploy_running_past_its_limit_is_given_up_as_failed() {
+    let at = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    };
+    let running = deploy_record(PASSED, DeployState::Running);
+    // 시작 2026-10-18T01:00:00Z
+    assert_eq!(deploy_timed_out(&running, at("2026-10-18T02:29:59Z")), None);
+    let given_up = deploy_timed_out(&running, at("2026-10-18T02:30:00Z")).expect("한도를 넘겼다");
+    assert_eq!(given_up.state, DeployState::Failed);
+    assert_eq!(
+        given_up.sha, PASSED,
+        "같은 커밋으로 남아 다시 띄우지 않는다"
+    );
+    assert_eq!(
+        given_up.finished_at.as_deref(),
+        Some("2026-10-18T02:30:00.000Z")
+    );
+    assert_eq!(
+        given_up.reason.as_deref(),
+        Some(format!(
+            "update(pid 4242)가 {DEPLOY_TIMEOUT_MINUTES}분 넘게 끝나지 않아 기다리지 않는다(프로세스는 그대로)"
+        ))
+        .as_deref()
+    );
+    assert!(
+        deploy_notification("rocky", &given_up).is_some(),
+        "실패처럼 배너로"
+    );
+
+    let done = deploy_record(PASSED, DeployState::Succeeded);
+    assert_eq!(deploy_timed_out(&done, at("2026-10-19T00:00:00Z")), None);
+    let unreadable = DeployRecord {
+        started_at: "어제".into(),
+        ..running
+    };
+    assert_eq!(
+        deploy_timed_out(&unreadable, at("2026-10-19T00:00:00Z")),
+        None,
+        "시작 시각을 못 읽으면 끝내지 않는다"
     );
 }

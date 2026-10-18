@@ -4,7 +4,8 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use rocky_cli::launchd::{
-    ownership_warning, parse_job, register_job, stalled_job_warning, LaunchdJob, LAUNCHD_LABEL,
+    join_path, ownership_warning, parse_job, register_job, stalled_job_warning, LaunchdJob,
+    LAUNCHD_LABEL,
 };
 
 const DOMAIN: &str = "gui/501";
@@ -201,4 +202,15 @@ fn a_job_that_keeps_dying_is_flagged_with_its_log() {
     );
     assert!(warning.contains("rocky daemon restart"), "{warning}");
     assert_eq!(stalled_job_warning(&parse_job(PRINT_RUNNING)), None);
+}
+
+#[test]
+fn rebaking_the_daemons_own_path_does_not_grow_it() {
+    let fallback = "/opt/homebrew/bin:/usr/bin:/bin";
+    let once = join_path("/Users/me/.cargo/bin:/usr/bin", fallback);
+    assert_eq!(once, "/Users/me/.cargo/bin:/usr/bin:/opt/homebrew/bin:/bin");
+    // 데몬이 띄운 update 는 이미 구운 PATH 를 물려받아 다시 굽는다.
+    assert_eq!(join_path(&once, fallback), once);
+    assert_eq!(join_path("", fallback), fallback);
+    assert_eq!(join_path("/a::/b:", "/b"), "/a:/b");
 }

@@ -1,4 +1,4 @@
-//! `rocky verify` 렌더링 — 통과·실패·도는 중·시작 못 함.
+//! `rocky verify` 렌더링 — 통과·실패·도는 중·시작 못 함·배포.
 
 use rocky_cli::verify_cmd::{render_rerun, render_verify};
 use serde_json::json;
@@ -47,6 +47,40 @@ fn marks_records_that_needed_the_automatic_retry() {
     );
     assert!(
         text.contains("… web main 1234567 검증 중(자동 재시도)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn shows_the_deploy_under_its_target() {
+    let raw = json!({ "targets": [
+        { "board": "rocky", "branch": "main", "record": { "sha": "abcdef1234", "state": "passed", "subject": "s" },
+          "deploy": { "sha": "abcdef1234", "state": "succeeded", "finishedAt": "2026-10-18T01:10:00.000Z", "log": "/tmp/d.log" } },
+        { "board": "next", "branch": "main", "record": { "sha": "1234567abc", "state": "passed", "subject": "s" },
+          "deploy": { "sha": "1234567abc", "state": "running", "log": "/tmp/r.log" } },
+        { "board": "web", "branch": "main", "record": { "sha": "9999999aaa", "state": "passed", "subject": "s" },
+          "deploy": { "sha": "9999999aaa", "state": "failed", "reason": "update 종료 코드 1", "log": "/tmp/f.log" },
+          "deployNote": "다른 main 빌드가 돌고 있다(main-sync.lock) — 끝나면 다음 바퀴에 다시 본다" }
+    ]});
+    let text = render_verify(&raw);
+    let local = chrono::DateTime::parse_from_rfc3339("2026-10-18T01:10:00.000Z")
+        .unwrap()
+        .with_timezone(&chrono::Local)
+        .format("%H:%M")
+        .to_string();
+    assert!(
+        text.contains(&format!(
+            "✓ rocky main abcdef1 통과  · s\n    ↑ 배포 abcdef1 {local}"
+        )),
+        "{text}"
+    );
+    assert!(text.contains("↑ 배포 중 1234567"), "{text}");
+    assert!(
+        text.contains("⚠ 배포 실패 9999999 — update 종료 코드 1\n    로그 /tmp/f.log"),
+        "{text}"
+    );
+    assert!(
+        text.contains("⚠ 배포: 다른 main 빌드가 돌고 있다(main-sync.lock)"),
         "{text}"
     );
 }

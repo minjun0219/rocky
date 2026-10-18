@@ -37,6 +37,9 @@
   main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 재시작이 성공했는지와 데몬이
   최신 릴리스 버전을 보고하는지를 같이 확인한다. `--main` 과 같은 잠금을 잡는다.
   다른 폴더 마켓플레이스(개발용)는 건드리지 않는다. `main/`·`main-src/` 는 남긴다.
+- **검증 통과 커밋 자동 배포.** `verify.targets[].deploy` 를 켠 main 빌드 기기에서는 검증 잡이 통과한 커밋을
+  `<데몬 옆 rocky> update --main <sha>` 로 올린다. update 가 이 데몬을 교체하므로 떨어진 프로세스 그룹으로 띄우고, 끝은 대개 새 데몬이
+  `main/.finished` 로 판정한다. 다른 main 빌드가 `main-sync.lock` 을 쥐면 기다린다. 규칙은 [verify](./verify.md) "배포".
 - **버전 인식 재기동.** 훅이 `/api/health` 의 `version` 을 자기 `CARGO_PKG_VERSION` 과 **정확한 문자열**로 비교해 낡은 데몬을
   교체한다 — pid 로 SIGTERM, 상주 중이면 launchd job 을 다시 설치. `name` 은 `"rocky"` 여야 한다. 버전이 같으면 경로가 달라도
   두는 것이 의도다. `UserPromptSubmit`(`notify-todo`)이 `RestartPolicy::OnlyIfOlder` 로 같은 검사를 해서 `/reload-plugins` 가
