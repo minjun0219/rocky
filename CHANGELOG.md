@@ -1,5 +1,37 @@
 # @minjun0219/rocky
 
+## 0.52.0
+
+### Minor Changes
+
+- [#469](https://github.com/minjun0219/rocky/pull/469) [`f4b09d2`](https://github.com/minjun0219/rocky/commit/f4b09d2189fe831b0f1ca3f9a1b23d7a0896eaf8) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션 옆 패널에 이 폴더의 rocky 보드를 띄운다(Claude Code function hooks). 진행 중을 먼저, 그다음 할 일을 보이고 좁은 패널에서는 제목이 다음 줄로 내려간다. `/rocky-board` 로 열고 저절로 열지는 않는다. 읽기만 하고, 열려 있는 동안 바뀐 게 있을 때만 다시 읽는다.
+
+- [#490](https://github.com/minjun0219/rocky/pull/490) [`c05f350`](https://github.com/minjun0219/rocky/commit/c05f350b21524f57c76e5179b4f801d368939104) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 서버를 띄울 때 세션을 만들지 않는다 — `rocky rc start` · 감시의 되살림 · `--all` · 재시작이 모두 서버만 띄우고(세션은 앱에서 연다), 새 세션과 함께 띄우려면 `rocky rc start <이름> --new-session`(본문 `newSession`).
+
+- [#494](https://github.com/minjun0219/rocky/pull/494) [`ebb6c92`](https://github.com/minjun0219/rocky/commit/ebb6c9219b8e1c606a574f4a5beeec0a3a06a832) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc targets unpin <이름|경로>` 로 rc 대상의 고정을 푼다. 적힌 이름을 그대로 일반 대상으로 옮기고, 떠 있는 서버는 그대로 둔다(감시가 고정으로 되살리지 않는다). 전에는 빼고 다시 더해야 했다. 떠 있는 데몬은 손으로 고친 rocky.json 의 대상 목록도 알아서 다시 읽는다. 설정을 볼 때마다 파일이 바뀌었는지(mtime · 크기 · inode) 재서 바뀌었으면 `rocky rc reload` 와 같은 규칙(대상 목록만, 깨진 파일이면 하던 목록)으로 읽는다. 그래서 `rocky rc reload` 는 바로 반영하고 무엇이 바뀌었는지 보는 명령이 됐다.
+
+- [#492](https://github.com/minjun0219/rocky/pull/492) [`6e66e6c`](https://github.com/minjun0219/rocky/commit/6e66e6cceff87f8e740b5b0c66a40fc56e5e9e0c) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 대상 목록을 CLI 로 고친다. `rocky rc targets` 로 rocky.json 의 대상(이름 · 고정 · 폴더)을 보고, `rocky rc targets add <이름|경로> [--pin]` · `rocky rc targets rm <이름|경로>` 로 더하고 뺀다. 고친 목록은 떠 있는 데몬이 바로 다시 읽는다. 전에는 손으로 고친 대상을 데몬을 다시 띄울 때까지 "rc 대상이 아니다" 로 거절했다. 손으로 고쳤으면 `rocky rc reload`. 바로 바뀌는 것은 대상 목록(`root` · `pinned` · `targets`)뿐이고 `enabled` · `supervise` · `nightly` 는 데몬을 다시 띄워야 반영된다(명령이 알려 준다). 파일이 JSON 이 아니면 데몬은 하던 목록을 그대로 쓴다.
+
+- [#473](https://github.com/minjun0219/rocky/pull/473) [`65b4902`](https://github.com/minjun0219/rocky/commit/65b4902bd811feb12cf170c09faec328f81cc2de) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline` 이 늘 경로·git·모델·ctx·한도 줄(예전 `--full`)을 그린다 — `--full` 은 그대로 받는다. 데몬이 그리던 보드 줄을 걷었다: `GET /api/statusline`, `todo.statusline` 템플릿, `ROCKY_TODO_STATUSLINE`, `statusline.board`. 보드 줄을 끼우던 `rocky statusline --cwd/--session` 과 `extraCommands` 안의 `rocky statusline` 은 아무것도 그리지 않는다. statusline 스크립트 안에서 `rocky statusline` 을 끼워 부르던 설정은 이제 줄 전체가 한 번 더 나오니 statusLine 을 바로 `rocky statusline` 으로 건다. rocky.json 에 남은 `todo.statusline` 은 무시되고, `statusline.board` 는 남아 있으면 지운다(실행은 무시하지만 편집기 스키마가 모르는 키로 잡는다). `rocky config show` 는 옛 `curl …/api/statusline` 조각을 짚고 `settings.json` 에 넣을 조각을 보여 준다.
+
+- [#488](https://github.com/minjun0219/rocky/pull/488) [`05234b7`](https://github.com/minjun0219/rocky/commit/05234b7250d01f40691c4925eb75f2085eb31765) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 가 보드를 브라우저에 사본으로 두고 그린다. 보드를 바꾸거나 할 일·댓글·노트를 고치면 서버 응답을 기다리지 않고 바로 보이고, 다시 연 화면은 저장한 사본으로 먼저 그린다. 다른 곳(CLI·MCP·다른 브라우저)에서 바뀐 것은 바뀐 행만 소켓으로 밀려온다. 소켓을 쓸 수 없는 환경에서는 예전처럼 다시 읽는다. Access 로그아웃은 브라우저에 남은 사본을 지운다.
+
+### Patch Changes
+
+- [#470](https://github.com/minjun0219/rocky/pull/470) [`66cf065`](https://github.com/minjun0219/rocky/commit/66cf065ec2b81ce4e836b1952c540eaa9730868c) Thanks [@minjun0219](https://github.com/minjun0219)! - 원격 제어 세션에서도 `/rocky-board` 로 보드 패널을 연다. 앱(데스크톱·모바일)이 세션에 붙으면 그때 명령을 등록한다 — 전에는 터미널 세션에서만 등록해, SDK 로 도는 원격 제어 세션에서는 패널을 열 수 없었다. 아무 화면도 붙지 않는 `-p` 실행은 그대로 건너뛴다.
+
+- [#481](https://github.com/minjun0219/rocky/pull/481) [`743d339`](https://github.com/minjun0219/rocky/commit/743d339b6e512545111fa65e619bfd53e7da2aa1) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드에서 가장 큰 번호의 할 일을 다른 보드로 옮기면, 원래 보드의 다음 할 일이 그 번호를 다시 받던 문제를 고쳤다. 이제 할 일이 보드를 떠날 때 그 번호를 기억해 다시 주지 않으므로, 댓글·PR 본문에 남은 옛 참조(`rocky-12` 같은)가 다른 할 일을 가리키지 않는다. 업데이트 전에 이미 옮겨진 번호도 옮기기 기록에서 찾아 다시 주지 않는다.
+
+- [#467](https://github.com/minjun0219/rocky/pull/467) [`0d30b08`](https://github.com/minjun0219/rocky/commit/0d30b088d2ae0e8a89695dadae2cdaa6477926fd) Thanks [@minjun0219](https://github.com/minjun0219)! - PR 감시가 이미 머지·닫힘으로 저장된 PR 의 구독을 걷지 못해, 그 PR 을 3분마다 계속 조회하던 문제를 고쳤다. 이제 머지·닫힘 전이가 다시 나지 않아도 지금 상태로 구독을 걷는다(알림 없이).
+
+- [#483](https://github.com/minjun0219/rocky/pull/483) [`ad08c01`](https://github.com/minjun0219/rocky/commit/ad08c01a8ecb4bd657bc3d7d73584e5ae59efd23) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky rc` 현황을 사람이 읽는 표로 바꿨다. 로그아웃처럼 기기 전체에 걸린 문제는 맨 위 ⚠ 에 한 번만 푸는 법과 함께 나오고, 그 아래 머리글 있는 표(이름 · 고정 · 떠 있음 · 세션 · 메모)와 기호 설명이 이어진다. 데몬 쪽 claude 가 로그아웃일 때 새 로그인이 키체인이 아니라 `~/.claude/.credentials.json` 에만 저장된 경우를 알아채 그렇다고 알려 준다(CLI · 웹 원격 제어 탭). 최상위 도움말에는 사람이 쓰는 줄만 남기고, 옵션 전부는 `rocky rc help` 로 옮겼다.
+
+- [#472](https://github.com/minjun0219/rocky/pull/472) [`f1347f9`](https://github.com/minjun0219/rocky/commit/f1347f99b4c8705eecb2f47c586c7ad4f157b7b2) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline --full` 의 ctx 가 75% 부터 노랑, 91% 부터 굵은 빨강으로 바뀐다(Claude 화면의 컨텍스트 경고와 같은 구간). 구간 안에서는 차오를수록 진해진다. 전에는 끝까지 조금씩 밝아지는 파랑이라, 자동 압축(1M 창은 97% 언저리)이 다가와도 눈에 띄지 않았다.
+
+- [#476](https://github.com/minjun0219/rocky/pull/476) [`3d7c9b0`](https://github.com/minjun0219/rocky/commit/3d7c9b0d430cd69faaf728e64aba57058f5a787c) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 소켓(`/api/ws`)에 보드 싱크 프레임을 더했다. `{t:"sync", since?, epoch?}` 를 보내면 보드 행 사본(처음이면 통째로, 아니면 그 순번 이후)을 받고, 그 뒤로는 보드 행이 바뀔 때마다 데몬이 바뀐 행만 먼저 보낸다. 아직 웹 화면은 쓰지 않는다(다음 조각).
+
+- [#479](https://github.com/minjun0219/rocky/pull/479) [`46079e4`](https://github.com/minjun0219/rocky/commit/46079e43d69b06ede54047fd54842a335a00d35e) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 소켓(`/api/ws`)에 트랜잭션 프레임을 더했다. `{t:"tx", id, ops:[…]}` 로 할 일·댓글·섹션·노트·보드 제목을 고치면 결과 행(`rows`)이 먼저 오고 `ack` 가 뒤따른다. 할 일·노트·댓글 만들기는 클라이언트가 정한 id 를 써서 다시 보내도 두 번 만들어지지 않는다. 사람의 쓰기 전용이라 에이전트 actor 는 거절하고, 세션 띄우기·이슈·핸드오프처럼 실행으로 이어지는 쓰기는 이 프레임으로 할 수 없다. 아직 웹 화면은 쓰지 않는다(다음 조각).
+
 ## 0.51.0
 
 ### Minor Changes
