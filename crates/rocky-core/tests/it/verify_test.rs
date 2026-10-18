@@ -247,7 +247,7 @@ fn deploys_a_passed_commit_only_forward_and_once() {
         branch: "main",
         repo: Some("minjun0219/rocky"),
         main_mode: true,
-        finished: Some(&passed),
+        passed: Some(&passed),
         finished_build: Some(INSTALLED),
         built: Some(INSTALLED),
         ancestor: Some(true),
@@ -303,7 +303,7 @@ fn deploys_a_passed_commit_only_forward_and_once() {
         skip(DeploySkip::NotMainMode)
     );
 
-    // 실행 중·통과 아님·해시 모양
+    // 실행 중·잠금·통과 아님·해시 모양
     assert_eq!(
         plan(DeployInput {
             running: true,
@@ -311,11 +311,28 @@ fn deploys_a_passed_commit_only_forward_and_once() {
         }),
         skip(DeploySkip::Running)
     );
+    assert_eq!(
+        plan(DeployInput {
+            busy: true,
+            ..ready.clone()
+        }),
+        skip(DeploySkip::Busy),
+        "세션·사람의 update 가 잠금을 쥐고 있으면 띄우지 않는다(띄우면 잠금에 걸려 실패로 남는다)"
+    );
+    assert_eq!(
+        plan(DeployInput {
+            busy: true,
+            finished_build: Some(PASSED),
+            ..ready.clone()
+        }),
+        skip(DeploySkip::Installed),
+        "띄울 일이 없으면 잠금은 이유가 아니다"
+    );
     for state in [VerifyState::Failed, VerifyState::Running] {
         let r = record(PASSED, state);
         assert_eq!(
             plan(DeployInput {
-                finished: Some(&r),
+                passed: Some(&r),
                 ..ready.clone()
             }),
             skip(DeploySkip::NotPassed),
@@ -324,7 +341,7 @@ fn deploys_a_passed_commit_only_forward_and_once() {
     }
     assert_eq!(
         plan(DeployInput {
-            finished: None,
+            passed: None,
             ..ready.clone()
         }),
         skip(DeploySkip::NotPassed)
@@ -332,7 +349,7 @@ fn deploys_a_passed_commit_only_forward_and_once() {
     let abbreviated = record("1111111", VerifyState::Passed);
     assert!(matches!(
         plan(DeployInput {
-            finished: Some(&abbreviated),
+            passed: Some(&abbreviated),
             ..ready.clone()
         }),
         DeployPlan::Skip(DeploySkip::Unknown(_))
@@ -403,6 +420,11 @@ fn deploys_a_passed_commit_only_forward_and_once() {
     );
     assert_eq!(deploy_base(Some(" "), Some(INSTALLED)), Some(INSTALLED));
     assert_eq!(deploy_base(Some(PASSED), Some(INSTALLED)), Some(PASSED));
+    assert_eq!(
+        deploy_base(Some("--output=/tmp/x"), None),
+        None,
+        "git argv 에 들어가므로 커밋 해시만"
+    );
 }
 
 #[test]
@@ -418,6 +440,10 @@ fn only_skips_that_need_a_hand_show_under_the_target() {
     }
     let note = DeploySkip::NotMainMode.note().unwrap();
     assert!(note.contains("main 빌드 모드가 아니어서"), "{note}");
+    assert!(
+        DeploySkip::Busy.note().unwrap().contains("main-sync.lock"),
+        "죽은 스크립트가 남긴 잠금이면 사람이 지워야 한다"
+    );
     assert!(DeploySkip::NotForward(INSTALLED.into())
         .note()
         .unwrap()
@@ -432,15 +458,19 @@ fn only_skips_that_need_a_hand_show_under_the_target() {
 fn a_finished_deploy_is_judged_by_the_finished_build() {
     let running = deploy_record(PASSED, DeployState::Running);
     let at = "2026-10-18T01:10:00.000Z".to_string();
-    let ok = settle_deploy(&running, Some(&format!("{PASSED}\n")), None, at.clone());
+    let ok = settle_deploy(&running, Some(&format!("{PASSED}\n")), None, at.clone()).unwrap();
     assert_eq!(ok.state, DeployState::Succeeded);
     assert_eq!(ok.finished_at.as_deref(), Some(at.as_str()));
     assert!(
         deploy_notification("rocky", &ok).is_none(),
         "성공은 조용하다"
     );
+    assert!(
+        settle_deploy(&ok, None, Some(1), at.clone()).is_none(),
+        "끝난 기록은 다시 판정하지 않는다(배너·이력은 한 번)"
+    );
 
-    let failed = settle_deploy(&running, Some(INSTALLED), Some(1), at.clone());
+    let failed = settle_deploy(&running, Some(INSTALLED), Some(1), at.clone()).unwrap();
     assert_eq!(failed.state, DeployState::Failed);
     assert_eq!(failed.reason.as_deref(), Some("update 종료 코드 1"));
     let (title, body) = deploy_notification("rocky", &failed).unwrap();
@@ -451,9 +481,16 @@ fn a_finished_deploy_is_judged_by_the_finished_build() {
     );
 
     // 데몬이 교체돼 종료 코드를 모른다 — .finished 만 본다
-    let unknown = settle_deploy(&running, None, None, at);
+    let unknown = settle_deploy(&running, None, None, at.clone()).unwrap();
     assert_eq!(unknown.state, DeployState::Failed);
     assert!(unknown.reason.unwrap().contains("main/.finished"));
+
+    let never = DeployRecord {
+        pid: None,
+        ..running.clone()
+    };
+    let never = settle_deploy(&never, None, None, at).unwrap();
+    assert_eq!(never.reason.as_deref(), Some("update 를 띄운 기록이 없다"));
 }
 
 #[test]

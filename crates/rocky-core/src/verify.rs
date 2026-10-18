@@ -178,7 +178,7 @@ impl VerifyRun {
         }
     }
 
-    /// 끝난 배포 — 성공이면 `deployed`, 아니면 `deploy-failed`. 판정(`settle_deploy`)한 뒤에 남긴다.
+    /// 끝난 배포 — 성공이면 `deployed`, 아니면 `deploy-failed`. 판정(`settle_deploy`)한 기록이나 띄우지 못한 기록을 남긴다.
     pub fn deploy(at: String, record: DeployRecord) -> Self {
         let event = if record.state == DeployState::Succeeded {
             VerifyRunEvent::Deployed
@@ -299,7 +299,7 @@ pub enum DeployState {
 pub struct DeployRecord {
     pub sha: String,
     pub state: DeployState,
-    /// update 프로세스. 띄우기 전에 기록부터 남기므로, 그 사이에 데몬이 죽으면 비어 있다.
+    /// update 프로세스. 띄우지 못했으면 없다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
     /// 그 프로세스의 시작 시각(`ps -o lstart=`) — 재사용된 pid 를 실행 중으로 보지 않으려고(검증의 `running.pgid` 와 같다).
@@ -326,9 +326,12 @@ pub enum DeploySkip {
     NotRocky(Option<String>),
     /// 이 기기가 main 빌드 모드가 아니다 — 모드 전환은 마켓플레이스를 바꾸므로 사람이 한 번 한다.
     NotMainMode,
-    /// 지난 배포가 아직 돈다.
+    /// 데몬이 띄운 배포가 아직 돈다.
     Running,
-    /// 마지막으로 끝난 검증이 통과가 아니다(아직 안 돎·main 이 빨강).
+    /// 다른 main 빌드(세션·사람의 `rocky update --main`, 기기의 빌드 스크립트)가 `main-sync.lock` 을 쥐고 있다. 지금 띄우면
+    /// 잠금에 걸려 그 커밋의 실패로 남는다 — 다음 바퀴에 다시 본다.
+    Busy,
+    /// 통과한 검증이 아직 없다.
     NotPassed,
     /// 통과한 커밋이 이미 끝까지 깔렸다(`main/.finished`).
     Installed,
@@ -360,7 +363,10 @@ impl DeploySkip {
                 "이 기기는 main 빌드 모드가 아니어서 배포하지 않는다 — 처음 한 번은 사람이 rocky update --main".into()
             }
             Self::Running => "지난 배포가 아직 돈다".into(),
-            Self::NotPassed => "마지막으로 끝난 검증이 통과가 아니다".into(),
+            Self::Busy => {
+                "다른 main 빌드가 돌고 있다(main-sync.lock) — 끝나면 다음 바퀴에 다시 본다".into()
+            }
+            Self::NotPassed => "통과한 검증이 아직 없다".into(),
             Self::Installed => "통과한 커밋이 이미 깔려 있다".into(),
             Self::AlreadyTried(state) => format!(
                 "이 커밋은 이미 자동 배포했다({}) — 같은 커밋은 한 번만",
@@ -378,8 +384,8 @@ impl DeploySkip {
         }
     }
 
-    /// `rocky verify` 가 대상 아래에 보일 이유 — 손을 봐야 풀리는 것만. 꺼짐·정상(이미 깔림·통과 기다림)·실행 중·이미 한
-    /// 커밋은 보이지 않는다(배포 기록 줄이 말한다).
+    /// `rocky verify` 가 대상 아래에 보일 이유 — 손을 봐야 풀릴 수 있는 것만. 꺼짐·정상(이미 깔림·통과 기다림)·실행 중·이미
+    /// 한 커밋은 보이지 않는다(배포 기록 줄이 말한다). 잠금 기다림은 보인다 — 죽은 스크립트가 남긴 잠금이면 사람이 지워야 한다.
     pub fn note(&self) -> Option<String> {
         match self {
             Self::Off
@@ -410,17 +416,21 @@ pub struct DeployInput<'a> {
     pub repo: Option<&'a str>,
     /// 이 기기가 main 빌드 모드인가(`current` → `main`).
     pub main_mode: bool,
-    /// 지난 배포가 아직 도는가(pid 와 그 시작 시각으로 본다).
+    /// 데몬이 띄운 배포가 아직 도는가(pid 와 그 시작 시각으로 본다). main 빌드는 기기에 하나라 대상을 가리지 않는다.
     pub running: bool,
-    /// 마지막으로 끝난 검증(`finished.json`).
-    pub finished: Option<&'a VerifyRecord>,
+    /// `main-sync.lock` 을 살아 있는 프로세스가 쥐고 있나(pid 가 없는 잠금도 쥔 것으로 본다 — `update --main` 과 같다).
+    pub busy: bool,
+    /// 마지막으로 통과한 검증. 그 뒤에 끝난 실행이 실패여도 이 커밋은 배포 대상이다(설계 3번 — 배포가 잠깐 막힌 사이 다음
+    /// 커밋이 빨강이 돼도 그 앞의 초록은 올린다).
+    pub passed: Option<&'a VerifyRecord>,
     /// 마지막 배포(`deploy.json`) — 끝난 것으로 판정한 뒤의 기록.
     pub last_deploy: Option<&'a DeployRecord>,
     /// `main/.finished` — 지난 update 가 끝까지 간 커밋.
     pub finished_build: Option<&'a str>,
     /// `main/.sha` — 깔린 빌드의 커밋(뒤 단계에서 실패했으면 `.finished` 가 없다).
     pub built: Option<&'a str>,
-    /// 깔린 빌드(`deploy_base`)가 통과한 커밋의 조상인가 — 호출자가 `git merge-base --is-ancestor` 로. 둘이 같거나 못 봤으면 None.
+    /// 깔린 빌드(`deploy_base`)가 통과한 커밋의 조상인가 — 호출자가 `git merge-base --is-ancestor` 로. 둘이 같거나 못 봤으면
+    /// None.
     pub ancestor: Option<bool>,
 }
 
@@ -448,9 +458,10 @@ pub fn deploy_gate(
     Ok(())
 }
 
-/// 깔린 빌드의 커밋 — 끝까지 간 것(`main/.finished`)이 먼저, 없으면 빌드만 된 것(`main/.sha`).
+/// 깔린 빌드의 커밋 — 끝까지 간 것(`main/.finished`)이 먼저, 없으면 빌드만 된 것(`main/.sha`). 호출자가 git argv 에 넣으므로
+/// 40자 16진만 받는다.
 pub fn deploy_base<'a>(finished_build: Option<&'a str>, built: Option<&'a str>) -> Option<&'a str> {
-    let clean = |s: Option<&'a str>| s.map(str::trim).filter(|s| !s.is_empty());
+    let clean = |s: Option<&'a str>| s.map(str::trim).filter(|s| is_full_sha(s));
     clean(finished_build).or_else(|| clean(built))
 }
 
@@ -475,7 +486,7 @@ pub fn deploy_plan(input: &DeployInput) -> DeployPlan {
         return skip(Running);
     }
     let Some(sha) = input
-        .finished
+        .passed
         .filter(|r| r.state == VerifyState::Passed)
         .map(|r| r.sha.as_str())
     else {
@@ -491,43 +502,55 @@ pub fn deploy_plan(input: &DeployInput) -> DeployPlan {
         return skip(AlreadyTried(last.state));
     }
     let Some(base) = deploy_base(input.finished_build, input.built) else {
-        return skip(Unknown("main 빌드가 없다(main/.sha)".into()));
+        return skip(Unknown(
+            "깔린 main 빌드의 커밋을 읽지 못했다(main/.sha)".into(),
+        ));
     };
-    // 빌드는 있고 뒤 단계(데몬 재시작·플러그인)가 남았다 — update 가 빌드 없이 마저 한다.
-    if base == sha {
-        return DeployPlan::Start(sha.to_string());
+    // base == sha 는 빌드는 있고 뒤 단계(데몬 재시작·플러그인)가 남은 것 — update 가 빌드 없이 마저 한다.
+    if base != sha {
+        match input.ancestor {
+            Some(true) => {}
+            Some(false) => return skip(NotForward(base.to_string())),
+            None => {
+                return skip(Unknown(format!(
+                    "깔린 빌드 {} 가 통과한 커밋의 조상인지 확인하지 못했다",
+                    short(base)
+                )))
+            }
+        }
     }
-    match input.ancestor {
-        Some(true) => DeployPlan::Start(sha.to_string()),
-        Some(false) => skip(NotForward(base.to_string())),
-        None => skip(Unknown(format!(
-            "깔린 빌드 {} 가 통과한 커밋의 조상인지 확인하지 못했다",
-            short(base)
-        ))),
+    if input.busy {
+        return skip(Busy);
     }
+    DeployPlan::Start(sha.to_string())
 }
 
 /// 끝난 배포를 판정한다 — update 는 끝까지 갔을 때만 `main/.finished` 에 그 커밋을 쓴다. 종료 코드는 그 update 를 띄운
-/// 데몬만 안다(교체된 새 데몬은 모른다).
+/// 데몬만 안다(교체된 새 데몬은 모른다). 도는 중(`running`)인 기록만 판정한다 — 이미 끝난 기록이면 None(배너·이력을 두 번
+/// 남기지 않게).
 pub fn settle_deploy(
-    running: &DeployRecord,
+    record: &DeployRecord,
     finished_build: Option<&str>,
     exit_code: Option<i32>,
     at: String,
-) -> DeployRecord {
-    let mut record = running.clone();
-    record.finished_at = Some(at);
-    if finished_build.map(str::trim) == Some(running.sha.as_str()) {
-        record.state = DeployState::Succeeded;
-        record.reason = None;
+) -> Option<DeployRecord> {
+    if record.state != DeployState::Running {
+        return None;
+    }
+    let mut settled = record.clone();
+    settled.finished_at = Some(at);
+    if finished_build.map(str::trim) == Some(record.sha.as_str()) {
+        settled.state = DeployState::Succeeded;
+        settled.reason = None;
     } else {
-        record.state = DeployState::Failed;
-        record.reason = Some(match exit_code {
-            Some(0) | None => "update 가 끝났는데 main/.finished 가 이 커밋이 아니다".into(),
-            Some(code) => format!("update 종료 코드 {code}"),
+        settled.state = DeployState::Failed;
+        settled.reason = Some(match (record.pid, exit_code) {
+            (None, _) => "update 를 띄운 기록이 없다".into(),
+            (_, Some(code)) if code != 0 => format!("update 종료 코드 {code}"),
+            _ => "update 가 끝났는데 main/.finished 가 이 커밋이 아니다".into(),
         });
     }
-    record
+    Some(settled)
 }
 
 /// 배포 결과를 사람에게 — 실패만 배너로 알린다(성공은 조용하다). (제목, 본문)
