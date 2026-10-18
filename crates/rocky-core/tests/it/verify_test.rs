@@ -1,8 +1,10 @@
-//! 기본 브랜치 검증의 순수 판정 — 설정 모양, 원격 커밋 읽기, 다시 돌지, 알릴지.
+//! 기본 브랜치 검증의 순수 판정 — 설정 모양, 원격 커밋 읽기, 다시 돌지, 알릴지, 통과한 커밋을 배포할지.
 
 use rocky_core::verify::{
-    dir_name, is_branch_name, load_verify_block, notification, parse_ls_remote, session_notice,
-    should_run, VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState,
+    deploy_base, deploy_notification, deploy_plan, dir_name, is_branch_name, load_verify_block,
+    notification, parse_ls_remote, session_notice, settle_deploy, should_run, DeployInput,
+    DeployPlan, DeployRecord, DeploySkip, DeployState, VerifyRecord, VerifyRun, VerifyRunEvent,
+    VerifyState,
 };
 
 fn config(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -219,4 +221,264 @@ fn subscribed_sessions_hear_every_finished_run_once_per_commit() {
     assert!(session_notice(Some(&passed), &next).is_some());
     // 도는 중은 판정이 아니다
     assert!(session_notice(None, &record("c", VerifyState::Running)).is_none());
+}
+
+const PASSED: &str = "1111111111111111111111111111111111111111";
+const INSTALLED: &str = "0000000000000000000000000000000000000000";
+
+fn deploy_record(sha: &str, state: DeployState) -> DeployRecord {
+    DeployRecord {
+        sha: sha.into(),
+        state,
+        pid: Some(4242),
+        pid_started: Some("Sun Oct 18 10:00:00 2026".into()),
+        started_at: "2026-10-18T01:00:00.000Z".into(),
+        finished_at: None,
+        reason: None,
+        log: "/tmp/deploy-111111111111.log".into(),
+    }
+}
+
+#[test]
+fn deploys_a_passed_commit_only_forward_and_once() {
+    let passed = record(PASSED, VerifyState::Passed);
+    let ready = DeployInput {
+        enabled: true,
+        branch: "main",
+        repo: Some("minjun0219/rocky"),
+        main_mode: true,
+        finished: Some(&passed),
+        finished_build: Some(INSTALLED),
+        built: Some(INSTALLED),
+        ancestor: Some(true),
+        ..DeployInput::default()
+    };
+    let plan = |input: DeployInput| deploy_plan(&input);
+    let skip = |why: DeploySkip| DeployPlan::Skip(why);
+    assert_eq!(plan(ready.clone()), DeployPlan::Start(PASSED.into()));
+
+    // 켜질 수 있는 대상·기기
+    assert_eq!(
+        plan(DeployInput {
+            enabled: false,
+            ..ready.clone()
+        }),
+        skip(DeploySkip::Off)
+    );
+    assert_eq!(
+        plan(DeployInput {
+            branch: "release",
+            ..ready.clone()
+        }),
+        skip(DeploySkip::NotMainBranch("release".into())),
+        "update --main 은 origin/main 위의 커밋만 받는다"
+    );
+    assert_eq!(
+        plan(DeployInput {
+            repo: Some("someone/else"),
+            ..ready.clone()
+        }),
+        skip(DeploySkip::NotRocky(Some("someone/else".into())))
+    );
+    assert_eq!(
+        plan(DeployInput {
+            repo: None,
+            ..ready.clone()
+        }),
+        skip(DeploySkip::NotRocky(None))
+    );
+    assert_eq!(
+        plan(DeployInput {
+            repo: Some("MinJun0219/Rocky"),
+            ..ready.clone()
+        }),
+        DeployPlan::Start(PASSED.into()),
+        "GitHub 레포 이름은 대소문자를 가리지 않는다"
+    );
+    assert_eq!(
+        plan(DeployInput {
+            main_mode: false,
+            ..ready.clone()
+        }),
+        skip(DeploySkip::NotMainMode)
+    );
+
+    // 실행 중·통과 아님·해시 모양
+    assert_eq!(
+        plan(DeployInput {
+            running: true,
+            ..ready.clone()
+        }),
+        skip(DeploySkip::Running)
+    );
+    for state in [VerifyState::Failed, VerifyState::Running] {
+        let r = record(PASSED, state);
+        assert_eq!(
+            plan(DeployInput {
+                finished: Some(&r),
+                ..ready.clone()
+            }),
+            skip(DeploySkip::NotPassed),
+            "{state:?}"
+        );
+    }
+    assert_eq!(
+        plan(DeployInput {
+            finished: None,
+            ..ready.clone()
+        }),
+        skip(DeploySkip::NotPassed)
+    );
+    let abbreviated = record("1111111", VerifyState::Passed);
+    assert!(matches!(
+        plan(DeployInput {
+            finished: Some(&abbreviated),
+            ..ready.clone()
+        }),
+        DeployPlan::Skip(DeploySkip::Unknown(_))
+    ));
+
+    // 이미 깔림·같은 커밋은 한 번만
+    assert_eq!(
+        plan(DeployInput {
+            finished_build: Some(PASSED),
+            ..ready.clone()
+        }),
+        skip(DeploySkip::Installed)
+    );
+    for state in [DeployState::Failed, DeployState::Succeeded] {
+        let last = deploy_record(PASSED, state);
+        assert_eq!(
+            plan(DeployInput {
+                last_deploy: Some(&last),
+                ..ready.clone()
+            }),
+            skip(DeploySkip::AlreadyTried(state)),
+            "{state:?}"
+        );
+    }
+    let older = deploy_record(INSTALLED, DeployState::Failed);
+    assert_eq!(
+        plan(DeployInput {
+            last_deploy: Some(&older),
+            ..ready.clone()
+        }),
+        DeployPlan::Start(PASSED.into()),
+        "다른 커밋의 실패는 새 커밋을 막지 않는다"
+    );
+
+    // 앞으로만
+    assert_eq!(
+        plan(DeployInput {
+            ancestor: Some(false),
+            ..ready.clone()
+        }),
+        skip(DeploySkip::NotForward(INSTALLED.into())),
+        "사람이 손으로 올린 더 새 빌드를 되돌리지 않는다"
+    );
+    assert!(matches!(
+        plan(DeployInput {
+            ancestor: None,
+            ..ready.clone()
+        }),
+        DeployPlan::Skip(DeploySkip::Unknown(_))
+    ));
+    assert!(matches!(
+        plan(DeployInput {
+            finished_build: None,
+            built: None,
+            ..ready.clone()
+        }),
+        DeployPlan::Skip(DeploySkip::Unknown(_))
+    ));
+    assert_eq!(
+        plan(DeployInput {
+            finished_build: None,
+            built: Some(PASSED),
+            ancestor: None,
+            ..ready.clone()
+        }),
+        DeployPlan::Start(PASSED.into()),
+        "빌드만 있고 뒤 단계가 남았으면 마저 한다"
+    );
+    assert_eq!(deploy_base(Some(" "), Some(INSTALLED)), Some(INSTALLED));
+    assert_eq!(deploy_base(Some(PASSED), Some(INSTALLED)), Some(PASSED));
+}
+
+#[test]
+fn only_skips_that_need_a_hand_show_under_the_target() {
+    for quiet in [
+        DeploySkip::Off,
+        DeploySkip::Running,
+        DeploySkip::NotPassed,
+        DeploySkip::Installed,
+        DeploySkip::AlreadyTried(DeployState::Failed),
+    ] {
+        assert!(quiet.note().is_none(), "{quiet:?}");
+    }
+    let note = DeploySkip::NotMainMode.note().unwrap();
+    assert!(note.contains("main 빌드 모드가 아니어서"), "{note}");
+    assert!(DeploySkip::NotForward(INSTALLED.into())
+        .note()
+        .unwrap()
+        .contains("0000000"));
+    // main/.sha 가 깨져 있어도 자르다 패닉하지 않는다
+    assert!(DeploySkip::NotForward("가나다라".into())
+        .message()
+        .contains("가나다라"));
+}
+
+#[test]
+fn a_finished_deploy_is_judged_by_the_finished_build() {
+    let running = deploy_record(PASSED, DeployState::Running);
+    let at = "2026-10-18T01:10:00.000Z".to_string();
+    let ok = settle_deploy(&running, Some(&format!("{PASSED}\n")), None, at.clone());
+    assert_eq!(ok.state, DeployState::Succeeded);
+    assert_eq!(ok.finished_at.as_deref(), Some(at.as_str()));
+    assert!(
+        deploy_notification("rocky", &ok).is_none(),
+        "성공은 조용하다"
+    );
+
+    let failed = settle_deploy(&running, Some(INSTALLED), Some(1), at.clone());
+    assert_eq!(failed.state, DeployState::Failed);
+    assert_eq!(failed.reason.as_deref(), Some("update 종료 코드 1"));
+    let (title, body) = deploy_notification("rocky", &failed).unwrap();
+    assert_eq!(title, "rocky: rocky 배포 실패");
+    assert!(
+        body.contains("1111111 update 종료 코드 1") && body.contains("rocky update --main 1111111"),
+        "{body}"
+    );
+
+    // 데몬이 교체돼 종료 코드를 모른다 — .finished 만 본다
+    let unknown = settle_deploy(&running, None, None, at);
+    assert_eq!(unknown.state, DeployState::Failed);
+    assert!(unknown.reason.unwrap().contains("main/.finished"));
+}
+
+#[test]
+fn deploy_lines_join_the_run_history() {
+    let at = "2026-10-18T01:10:00.000Z".to_string();
+    let done = DeployRecord {
+        state: DeployState::Succeeded,
+        ..deploy_record(PASSED, DeployState::Running)
+    };
+    let line = serde_json::to_value(VerifyRun::deploy(at.clone(), done.clone())).unwrap();
+    assert_eq!(line["event"], "deployed");
+    assert_eq!(line["deploy"]["pidStarted"], "Sun Oct 18 10:00:00 2026");
+    assert!(line.get("record").is_none());
+    let failed = VerifyRun::deploy(
+        at,
+        DeployRecord {
+            state: DeployState::Failed,
+            ..done
+        },
+    );
+    assert_eq!(failed.event, VerifyRunEvent::DeployFailed);
+    let back: VerifyRun = serde_json::from_value(serde_json::to_value(&failed).unwrap()).unwrap();
+    assert_eq!(back, failed);
+    assert_eq!(
+        serde_json::to_value(&failed).unwrap()["event"],
+        "deploy-failed"
+    );
 }

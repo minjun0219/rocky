@@ -1,12 +1,19 @@
 //! main 빌드 모드 — 모드 판정·다시 빌드할지·마켓플레이스 원천 읽기.
 
-use rocky_core::main_build::{is_main_mode, parse_marketplace, plan, BuildPlan, MarketplaceSource};
+use rocky_core::main_build::{
+    is_main_mode, parse_marketplace, plan, BuildPlan, MarketplaceSource, CLONE_URL, REPO,
+};
 
 #[test]
 fn main_mode_is_the_current_link_pointing_at_main() {
     assert!(is_main_mode(Some("main")));
     assert!(!is_main_mode(Some("v0.49.0")));
     assert!(!is_main_mode(None));
+}
+
+#[test]
+fn the_repo_is_the_one_main_builds_clone() {
+    assert_eq!(CLONE_URL, format!("https://github.com/{REPO}.git"));
 }
 
 #[test]
