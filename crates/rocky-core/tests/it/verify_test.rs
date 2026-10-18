@@ -39,6 +39,7 @@ fn verify_block_is_opt_in_and_drops_bad_targets() {
     );
     assert_eq!(c.targets[0].branch, "main");
     assert_eq!(c.targets[0].steps[0].timeout_ms, Some(1000));
+    assert!(!c.targets[0].deploy, "배포는 켜야만 돈다");
 
     let (_d, path) = config(
         r#"{ "verify": { "enabled": false, "targets": [ { "board": "r", "steps": [ { "name": "t", "command": ["true"] } ] } ] } }"#,
@@ -201,7 +202,7 @@ fn run_lines_name_the_outcome_and_stay_flat_for_errors() {
 fn subscribed_sessions_hear_every_finished_run_once_per_commit() {
     let passed = record("aaaaaaa111", VerifyState::Passed);
     // 첫 판정 — 배너와 달리 통과도 보낸다(배포를 맡은 세션이 기다린다)
-    let (kind, text) = session_notice(None, &passed).unwrap();
+    let (kind, text) = session_notice(None, &passed, false).unwrap();
     assert_eq!(kind, "verify-passed");
     assert!(
         text.contains("rocky main 검증 aaaaaaa 통과 · feat: x"),
@@ -209,18 +210,45 @@ fn subscribed_sessions_hear_every_finished_run_once_per_commit() {
     );
     assert!(text.contains("사용자가 직접 쓴 것이 아니다"));
     // 같은 커밋·같은 결과(다시 돌렸는데 그대로)는 보내지 않는다
-    assert!(session_notice(Some(&passed), &passed).is_none());
+    assert!(session_notice(Some(&passed), &passed, false).is_none());
     // 다시 돌려 결과가 바뀌면 보낸다
     let failed_same = record("aaaaaaa111", VerifyState::Failed);
-    let (kind, text) = session_notice(Some(&passed), &failed_same).unwrap();
+    let (kind, text) = session_notice(Some(&passed), &failed_same, false).unwrap();
     assert_eq!(kind, "verify-failed");
     assert!(text.contains("실패(cargo-test) — 종료 코드 101"), "{text}");
     assert!(text.contains("/tmp/x.log"), "실패면 로그 자리를 싣는다");
     // 새 커밋은 결과가 같아도 보낸다
     let next = record("bbbbbbb222", VerifyState::Passed);
-    assert!(session_notice(Some(&passed), &next).is_some());
+    assert!(session_notice(Some(&passed), &next, false).is_some());
     // 도는 중은 판정이 아니다
-    assert!(session_notice(None, &record("c", VerifyState::Running)).is_none());
+    assert!(session_notice(None, &record("c", VerifyState::Running), false).is_none());
+}
+
+#[test]
+fn a_session_is_told_not_to_deploy_what_the_daemon_deploys() {
+    let passed = record("aaaaaaa111", VerifyState::Passed);
+    let (_, text) = session_notice(None, &passed, true).unwrap();
+    assert!(text.contains("데몬이 배포한다"), "{text}");
+    assert!(!text.contains("배포를 맡은 세션이면"), "{text}");
+    let failed = record("aaaaaaa111", VerifyState::Failed);
+    let (_, text) = session_notice(None, &failed, true).unwrap();
+    assert!(
+        text.contains("배포하지 않는다"),
+        "실패 문구는 그대로: {text}"
+    );
+}
+
+#[test]
+fn the_deploy_switch_is_read_per_target() {
+    let (_d, path) = config(
+        r#"{ "verify": { "targets": [
+            { "board": "rocky", "deploy": true, "steps": [ { "name": "t", "command": ["true"] } ] },
+            { "board": "web", "deploy": "yes", "steps": [ { "name": "t", "command": ["true"] } ] }
+        ] } }"#,
+    );
+    let c = load_verify_block(&path);
+    assert!(c.targets[0].deploy);
+    assert!(!c.targets[1].deploy, "불리언이 아니면 꺼진 것으로 읽는다");
 }
 
 const PASSED: &str = "1111111111111111111111111111111111111111";

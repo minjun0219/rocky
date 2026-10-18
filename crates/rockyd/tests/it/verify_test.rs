@@ -1,4 +1,5 @@
-//! 기본 브랜치 검증 잡 — 임시 원격(bare) + 보드 레포(clone)로 끝까지 돈다: 통과·실패·같은 커밋 생략·복구 알림·시간 초과.
+//! 기본 브랜치 검증 잡 — 임시 원격(bare) + 보드 레포(clone)로 끝까지 돈다: 통과·실패·같은 커밋 생략·복구 알림·시간 초과,
+//! 통과한 커밋의 배포(가짜 `rocky` 로).
 
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -6,9 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::common::*;
 use rocky_core::config::CommandBridge;
-use rocky_core::verify::{VerifyState, VerifyTarget};
+use rocky_core::verify::{DeployRecord, DeployState, VerifyConfig, VerifyState, VerifyTarget};
 use rockyd::runner::default_runner;
-use rockyd::verify::{verify_target, VerifyNotifier};
+use rockyd::verify::{tick, verify_target, verify_target_with, DeployEnv, VerifyNotifier};
 
 fn git(dir: &Path, args: &[&str]) {
     let out = std::process::Command::new("git")
@@ -88,6 +89,7 @@ async fn verifies_new_commits_in_its_own_worktree_and_notifies_failure_and_recov
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![
             step("has-ok", "test -f ok.txt", None),
             step("echo", "echo hi", None),
@@ -172,6 +174,7 @@ async fn a_step_past_its_timeout_fails_and_a_board_without_path_is_reported() {
     let slow = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("slow", "sleep 30", Some(300))],
     };
     let started = std::time::Instant::now();
@@ -188,6 +191,7 @@ async fn a_step_past_its_timeout_fails_and_a_board_without_path_is_reported() {
     let nopath = VerifyTarget {
         board: "bare".into(),
         branch: "main".into(),
+        deploy: false,
         steps: slow.steps.clone(),
     };
     verify_target(&f.state, &default_runner(), &notifier, &root, &nopath).await;
@@ -214,6 +218,7 @@ async fn a_timed_out_step_takes_its_grandchildren_with_it() {
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("slow", &script, Some(500))],
     };
     verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
@@ -250,6 +255,7 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("has-ok", "test -f ok.txt", None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -345,6 +351,7 @@ async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("env", &format!("test -f {}", flag.display()), None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -477,6 +484,7 @@ async fn a_failure_that_passes_on_the_automatic_retry_stays_green_and_quiet() {
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("flaky", &script, None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -507,6 +515,7 @@ async fn the_same_reason_for_not_verifying_is_kept_once() {
     let target = VerifyTarget {
         board: "bare".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("noop", "true", None)],
     };
     let (notifier, _seen) = capture();
@@ -541,6 +550,7 @@ async fn a_recorded_group_whose_number_was_reused_is_left_alone_and_logged() {
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("ok", "true", None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -585,6 +595,7 @@ async fn subscribed_session_hears_each_finished_run() {
     let target = VerifyTarget {
         board: "proj".into(),
         branch: "main".into(),
+        deploy: false,
         steps: vec![step("has-ok", "test -f ok.txt", None)],
     };
     let runner = default_runner();
@@ -640,14 +651,33 @@ async fn subscribed_session_hears_each_finished_run() {
     verify_target(&f.state, &runner, &notifier, &root, &target).await;
     let line = second.await.unwrap();
     assert!(line.contains("실패(has-ok)"), "{line}");
+    assert!(line.contains("배포하지 않는다"), "{line}");
     let (_, deliveries) = get(&f.state, "/api/deliveries").await;
     assert_eq!(deliveries["recent"][0]["kind"], "verify-failed");
     assert_eq!(deliveries["recent"][1]["kind"], "verify-passed");
 
-    // 받을 등록이 없는 세션으로 넘어가면 — 사유만 남긴다
-    f.store.subscribe_verify("proj", "main", "gone").unwrap();
+    // 데몬이 배포하는 대상(rocky 레포·main 빌드 모드·deploy)이면 통과 문구가 세션에게 배포하지 말라고 한다
+    f.store
+        .set_board_repo("proj", "minjun0219/rocky", "t")
+        .unwrap();
+    let env = deploy_env(tmp.path(), &head(&work));
+    let deploying = VerifyTarget {
+        deploy: true,
+        ..target.clone()
+    };
     commit(&work, "ok 를 되살린다", |w| {
         std::fs::write(w.join("ok.txt"), "1").unwrap()
+    });
+    let third = read_one(listener.clone());
+    verify_target_with(&f.state, &runner, &notifier, &root, &deploying, Some(&env)).await;
+    let line = third.await.unwrap();
+    assert!(line.contains("데몬이 배포한다"), "{line}");
+    assert!(!line.contains("배포를 맡은 세션이면"), "{line}");
+
+    // 받을 등록이 없는 세션으로 넘어가면 — 사유만 남긴다
+    f.store.subscribe_verify("proj", "main", "gone").unwrap();
+    commit(&work, "c 를 더한다", |w| {
+        std::fs::write(w.join("c.txt"), "1").unwrap()
     });
     verify_target(&f.state, &runner, &notifier, &root, &target).await;
     let (_, deliveries) = get(&f.state, "/api/deliveries").await;
@@ -723,4 +753,371 @@ async fn subscribed_session_hears_each_finished_run() {
     assert_eq!(code, 200);
     assert_eq!(body["removed"], 1);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn head(work: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-C", work.to_str().unwrap(), "rev-parse", "HEAD"])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+/// 배포 손 — main 빌드 모드 데이터 홈(`current` → `main`, 깔린 빌드 `base`)과 가짜 `rocky`. 가짜는 `update --main <sha>` 를
+/// `calls` 에 남기고, `hold` 가 있는 동안 기다렸다가, `fail` 이 있으면 실패하고 아니면 `main/.finished` 에 그 커밋을 쓴다
+/// (update 가 끝까지 간 것처럼). 파일은 전부 데이터 홈 기준이다 — update 는 거기서 뜬다.
+fn deploy_env(tmp: &Path, base: &str) -> DeployEnv {
+    use std::os::unix::fs::PermissionsExt;
+    let data = tmp.join("data");
+    std::fs::create_dir_all(data.join("main")).unwrap();
+    std::os::unix::fs::symlink("main", data.join("current")).unwrap();
+    std::fs::write(data.join("main/.sha"), format!("{base}\n")).unwrap();
+    std::fs::write(data.join("main/.finished"), format!("{base}\n")).unwrap();
+    let rocky = tmp.join("fake-rocky");
+    std::fs::write(
+        &rocky,
+        "#!/bin/sh\necho \"$*\" >> calls\nwhile [ -f hold ]; do sleep 0.05; done\n\
+         if [ -f fail ]; then echo 빌드 실패 >&2; exit 1; fi\nprintf '%s\\n' \"$3\" > main/.finished\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&rocky, std::fs::Permissions::from_mode(0o755)).unwrap();
+    DeployEnv::new(data, rocky)
+}
+
+/// rocky 레포 보드 — 배포는 이 레포의 main 대상만 돈다.
+fn rocky_board(f: &Fx, work: &Path) {
+    f.store.ensure_board("rocky", None, "t").unwrap();
+    f.store
+        .set_board_path("rocky", work.to_str().unwrap(), "t")
+        .unwrap();
+    f.store
+        .set_board_repo("rocky", "minjun0219/rocky", "t")
+        .unwrap();
+}
+
+fn deploy_target() -> VerifyTarget {
+    VerifyTarget {
+        board: "rocky".into(),
+        branch: "main".into(),
+        steps: vec![step("has-ok", "test -f ok.txt", None)],
+        deploy: true,
+    }
+}
+
+fn deploy_status(f: &Fx) -> rockyd::verify::VerifyTargetStatus {
+    f.state
+        .verify()
+        .into_iter()
+        .find(|s| s.board == "rocky")
+        .expect("rocky 대상 상태")
+}
+
+fn calls(env: &DeployEnv) -> String {
+    std::fs::read_to_string(env.data_root.join("calls")).unwrap_or_default()
+}
+
+/// 배포가 끝날 때까지 바퀴를 돌린다(10초 안에).
+async fn until_settled(
+    f: &Fx,
+    notifier: &VerifyNotifier,
+    root: &Path,
+    cfg: &VerifyConfig,
+    env: &DeployEnv,
+) -> DeployRecord {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        tick(&f.state, &default_runner(), notifier, root, cfg, env).await;
+        let deploy = deploy_status(f).deploy;
+        if let Some(done) = deploy.clone().filter(|d| d.state != DeployState::Running) {
+            return done;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "배포가 10초 안에 끝나지 않았다: {deploy:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_passed_commit_is_deployed_once_by_the_cli_beside_the_daemon() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let env = deploy_env(tmp.path(), &head(&work));
+    let root = tmp.path().join("verify");
+    let cfg = VerifyConfig {
+        targets: vec![deploy_target()],
+        ..VerifyConfig::default()
+    };
+    let (notifier, seen) = capture();
+    commit(&work, "새 커밋", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+    let sha = head(&work);
+
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let status = deploy_status(&f);
+    assert_eq!(status.record.unwrap().state, VerifyState::Passed);
+    let started = status.deploy.expect("통과하면 같은 바퀴에 배포를 띄운다");
+    assert_eq!(started.sha, sha);
+    assert!(started.pid.is_some());
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&started.log)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600,
+        "배포 로그는 소유자만 읽는다"
+    );
+
+    let done = until_settled(&f, &notifier, &root, &cfg, &env).await;
+    assert_eq!(done.state, DeployState::Succeeded, "{done:?}");
+    assert_eq!(
+        calls(&env),
+        format!("update --main {sha}\n"),
+        "--yes 는 넘기지 않는다"
+    );
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "첫 통과와 배포 성공은 조용하다"
+    );
+    let dir = rockyd::verify::target_dir(&root, &deploy_target());
+    let events: Vec<String> = runs(&dir)
+        .iter()
+        .map(|r| r["event"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(events, ["passed", "deployed"]);
+
+    // 깔린 커밋은 다시 띄우지 않는다.
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    assert_eq!(calls(&env).lines().count(), 1);
+    let (_, body) = get(&f.state, "/api/verify").await;
+    assert_eq!(body["targets"][0]["deploy"]["state"], "succeeded");
+    assert!(body["targets"][0].get("deployNote").is_none(), "{body}");
+}
+
+#[tokio::test]
+async fn a_failed_deploy_is_announced_once_and_not_retried() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let env = deploy_env(tmp.path(), &head(&work));
+    std::fs::write(env.data_root.join("fail"), "").unwrap();
+    let root = tmp.path().join("verify");
+    let cfg = VerifyConfig {
+        targets: vec![deploy_target()],
+        ..VerifyConfig::default()
+    };
+    let (notifier, seen) = capture();
+    commit(&work, "새 커밋", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let done = until_settled(&f, &notifier, &root, &cfg, &env).await;
+    assert_eq!(done.state, DeployState::Failed);
+    assert_eq!(done.reason.as_deref(), Some("update 종료 코드 1"));
+    assert!(std::fs::read_to_string(&done.log)
+        .unwrap()
+        .contains("빌드 실패"));
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert!(seen[0].contains("배포 실패"), "{seen:?}");
+    }
+
+    // 같은 커밋은 다시 띄우지 않고 배너도 한 번뿐이다.
+    for _ in 0..2 {
+        tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    }
+    assert_eq!(calls(&env).lines().count(), 1);
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    let status = deploy_status(&f);
+    assert_eq!(status.deploy.unwrap().state, DeployState::Failed);
+    assert!(
+        status.deploy_note.is_none(),
+        "이미 시도한 커밋은 이유를 따로 보이지 않는다"
+    );
+}
+
+#[tokio::test]
+async fn deploys_wait_for_the_build_lock_and_verification_waits_for_the_deploy() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let env = deploy_env(tmp.path(), &head(&work));
+    let root = tmp.path().join("verify");
+    let cfg = VerifyConfig {
+        targets: vec![deploy_target()],
+        ..VerifyConfig::default()
+    };
+    let (notifier, _seen) = capture();
+    commit(&work, "A", |w| {
+        std::fs::write(w.join("a.txt"), "1").unwrap()
+    });
+    let a = head(&work);
+
+    // 세션의 update 가 잠금을 쥐고 있다(pid 없는 잠금은 쥔 것으로 본다) — 띄우지 않고 이유를 보인다.
+    let lock = env.data_root.join("main-sync.lock");
+    std::fs::create_dir(&lock).unwrap();
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let status = deploy_status(&f);
+    assert_eq!(status.record.unwrap().sha, a);
+    assert!(status.deploy.is_none());
+    assert!(
+        status
+            .deploy_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("main-sync.lock"),
+        "{:?}",
+        status.deploy_note
+    );
+    assert_eq!(calls(&env), "");
+
+    // 잠금이 풀리면 띄운다. 도는 동안 들어온 커밋은 검증하지 않는다(update 가 데몬을 교체한다).
+    std::fs::remove_dir(&lock).unwrap();
+    std::fs::write(env.data_root.join("hold"), "").unwrap();
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    assert_eq!(
+        deploy_status(&f).deploy.unwrap().state,
+        DeployState::Running
+    );
+    assert!(deploy_status(&f).deploy_note.is_none());
+    commit(&work, "B", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+    let b = head(&work);
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    assert_eq!(
+        deploy_status(&f).record.unwrap().sha,
+        a,
+        "배포가 도는 동안 새 검증을 시작하지 않는다"
+    );
+
+    // 끝나면 같은 바퀴에 다음 커밋을 검증하고, 깔린 A 가 B 의 조상이라 B 도 올린다.
+    std::fs::remove_file(env.data_root.join("hold")).unwrap();
+    let last = until_settled(&f, &notifier, &root, &cfg, &env).await;
+    assert_eq!(
+        (last.sha.as_str(), last.state),
+        (b.as_str(), DeployState::Succeeded)
+    );
+    let dir = rockyd::verify::target_dir(&root, &deploy_target());
+    let deployed: Vec<String> = runs(&dir)
+        .iter()
+        .filter(|r| r["event"] == "deployed")
+        .map(|r| r["deploy"]["sha"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(deployed, [a.clone(), b.clone()]);
+    assert_eq!(
+        calls(&env),
+        format!("update --main {a}\nupdate --main {b}\n")
+    );
+}
+
+#[tokio::test]
+async fn a_new_daemon_settles_a_deploy_it_did_not_start_by_the_finished_build() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let sha = head(&work);
+    let env = deploy_env(tmp.path(), &sha);
+    let root = tmp.path().join("verify");
+    let target = deploy_target();
+    let dir = rockyd::verify::target_dir(&root, &target);
+    std::fs::create_dir_all(&dir).unwrap();
+    let cfg = VerifyConfig {
+        targets: vec![target],
+        ..VerifyConfig::default()
+    };
+    let (notifier, seen) = capture();
+    // 옛 데몬이 띄운 update — 끝났고(이 데몬은 종료 코드를 모른다) main/.finished 가 그 커밋이다.
+    let mut gone = std::process::Command::new("true").spawn().unwrap();
+    let gone_pid = gone.id();
+    gone.wait().unwrap();
+    let running = |pid: u32, started: &str| {
+        serde_json::json!({ "sha": sha, "state": "running", "pid": pid, "pidStarted": started,
+                            "startedAt": "2026-10-18T00:00:00.000Z", "log": "/tmp/deploy.log" })
+        .to_string()
+    };
+    std::fs::write(dir.join("deploy.json"), running(gone_pid, "x")).unwrap();
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let done = deploy_status(&f).deploy.unwrap();
+    assert_eq!(done.state, DeployState::Succeeded, "{done:?}");
+
+    // 살아 있는 프로세스라도 시작 시각이 다르면 번호를 재사용한 남이다 — 끝난 것으로 판정한다. 이번엔 .finished 가 다르다.
+    let mut other = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    std::fs::write(
+        env.data_root.join("main/.finished"),
+        "0000000000000000000000000000000000000000\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("deploy.json"),
+        running(other.id(), "Thu Jan  1 00:00:00 1970"),
+    )
+    .unwrap();
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let _ = other.kill();
+    let _ = other.wait();
+    let failed = deploy_status(&f).deploy.unwrap();
+    assert_eq!(failed.state, DeployState::Failed, "{failed:?}");
+    assert!(failed.reason.unwrap().contains("main/.finished"));
+    assert_eq!(seen.lock().unwrap().len(), 1, "실패는 배너로");
+    let events: Vec<String> = runs(&dir)
+        .iter()
+        .map(|r| r["event"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        events,
+        ["deployed", "passed", "deploy-failed"],
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn nothing_is_deployed_off_main_build_mode_and_the_reason_shows() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let env = deploy_env(tmp.path(), &head(&work));
+    std::fs::remove_file(env.data_root.join("current")).unwrap();
+    std::os::unix::fs::symlink("v0.52.0", env.data_root.join("current")).unwrap();
+    let root = tmp.path().join("verify");
+    let cfg = VerifyConfig {
+        targets: vec![deploy_target()],
+        ..VerifyConfig::default()
+    };
+    let (notifier, _seen) = capture();
+    commit(&work, "새 커밋", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let status = deploy_status(&f);
+    assert_eq!(status.record.unwrap().state, VerifyState::Passed);
+    assert!(status.deploy.is_none());
+    assert!(
+        status
+            .deploy_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("main 빌드 모드"),
+        "{:?}",
+        status.deploy_note
+    );
+    assert_eq!(calls(&env), "");
 }

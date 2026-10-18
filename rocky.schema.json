@@ -455,6 +455,10 @@
                 "pattern": "^(?!-)(?!.*\\.\\.)[A-Za-z0-9/_.-]+$",
                 "description": "원격 브랜치(기본 main)."
               },
+              "deploy": {
+                "type": "boolean",
+                "description": "통과한 커밋을 데몬이 `rocky update --main <sha>` 로 올린다(기본 false). main 빌드 모드 기기에서 rocky 레포의 main 대상일 때만."
+              },
               "steps": {
                 "type": "array",
                 "minItems": 1,

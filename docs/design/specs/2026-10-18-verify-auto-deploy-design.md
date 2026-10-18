@@ -1,8 +1,8 @@
 # 검증 통과 커밋 자동 배포 설계
 
 - 날짜: 2026-10-18
-- 상태: 제안. 오너가 승인하면 구현 PR에서 규칙 정본을 [`docs/features/verify.md`](../../features/verify.md)와
-  [`docs/features/daemon-lifecycle.md`](../../features/daemon-lifecycle.md)로 옮긴다
+- 상태: 구현됨. 규칙 정본은 [`docs/features/verify.md`](../../features/verify.md) "배포"와
+  [`docs/features/daemon-lifecycle.md`](../../features/daemon-lifecycle.md)로 옮겼다. 이 문서는 결정의 기록이다
 
 ## 한 줄
 

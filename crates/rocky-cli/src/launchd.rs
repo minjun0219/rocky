@@ -45,12 +45,24 @@ const PLIST_PATH_FALLBACK: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bi
 
 /// plist 에 구울 PATH — **설치 시점의 `PATH`** 를 우선한다. 지금 이 셸에서 `gh`/`claude`
 /// 가 보이면 launchd 데몬도 보게 만드는 게 가장 정확하다. 뒤에 흔한 설치 위치를 이어
-/// 붙여, PATH 가 비었거나 비표준 셸에서 설치한 경우도 받친다(중복 항목은 무해하다).
+/// 붙여, PATH 가 비었거나 비표준 셸에서 설치한 경우도 받친다.
 fn path_for_plist() -> String {
-    match std::env::var("PATH") {
-        Ok(inherited) if !inherited.is_empty() => format!("{inherited}:{PLIST_PATH_FALLBACK}"),
-        _ => PLIST_PATH_FALLBACK.to_string(),
-    }
+    join_path(
+        &std::env::var("PATH").unwrap_or_default(),
+        PLIST_PATH_FALLBACK,
+    )
+}
+
+/// `inherited` 뒤에 `fallback` 을 잇되 같은 항목은 처음 것만 남긴다. 데몬이 띄운 `rocky update --main`(검증 통과 배포·rc
+/// 세션)은 데몬의 PATH 를 물려받아 `daemon restart` 로 plist 를 다시 굽는다 — 그대로 이으면 배포마다 `fallback` 이 한 벌씩 는다.
+pub fn join_path(inherited: &str, fallback: &str) -> String {
+    let mut seen = std::collections::HashSet::new();
+    inherited
+        .split(':')
+        .chain(fallback.split(':'))
+        .filter(|dir| !dir.is_empty() && seen.insert(*dir))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// plist 는 XML 이다 — 보간되는 값(PATH, 실행 파일 경로, 로그 경로)에 `&`/`<`/`>` 가

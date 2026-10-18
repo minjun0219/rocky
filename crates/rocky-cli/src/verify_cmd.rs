@@ -193,7 +193,7 @@ fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-/// 대상마다 한 줄 — `✓`/`✗`/`…` + 보드·브랜치·커밋·제목, 실패면 단계·이유·로그.
+/// 대상마다 한 줄 — `✓`/`✗`/`…` + 보드·브랜치·커밋·제목, 실패면 단계·이유·로그. 배포를 켠 대상이면 그 아래 배포 한 줄.
 pub fn render_verify(raw: &Value) -> String {
     let targets = raw
         .get("targets")
@@ -207,16 +207,17 @@ pub fn render_verify(raw: &Value) -> String {
     for t in &targets {
         let head = format!("{} {}", text(t, "board"), text(t, "branch"));
         let Some(r) = t.get("record") else {
-            out.push(format!("· {head} — 아직 돌지 않았다{}", error_suffix(t)));
+            out.push(format!(
+                "· {head} — 아직 돌지 않았다{}{}",
+                error_suffix(t),
+                deploy_suffix(t)
+            ));
             continue;
         };
         let sha = text(r, "sha");
         let short = &sha[..sha.len().min(7)];
         let subject = text(r, "subject");
-        // 기록은 UTC — 사람이 읽는 시각은 이 머신의 로컬 시계로.
-        let when = chrono::DateTime::parse_from_rfc3339(text(r, "finishedAt"))
-            .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
-            .unwrap_or_default();
+        let when = local_time(text(r, "finishedAt"));
         // 자동 재시도(두 번째 시도)였으면 — 통과여도 한 번은 떨어졌다는 신호다.
         let retried = r.get("attempt").and_then(Value::as_u64).unwrap_or(1) > 1;
         let line = match text(r, "state") {
@@ -231,9 +232,39 @@ pub fn render_verify(raw: &Value) -> String {
             _ if retried => format!("… {head} {short} 검증 중(자동 재시도) · {subject}"),
             _ => format!("… {head} {short} 검증 중 · {subject}"),
         };
-        out.push(format!("{line}{}", error_suffix(t)));
+        out.push(format!("{line}{}{}", error_suffix(t), deploy_suffix(t)));
     }
     out.join("\n")
+}
+
+/// 기록은 UTC — 사람이 읽는 시각은 이 머신의 로컬 시계로(`HH:MM`). 못 읽으면 빈 문자열.
+fn local_time(at: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(at)
+        .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// 데몬이 띄운 배포(`deploy`) — 도는 중·끝난 시각·실패 이유와 로그. 배포하지 않는 이유(`deployNote`)는 손을 봐야 풀릴 수 있는
+/// 것만 온다.
+fn deploy_suffix(t: &Value) -> String {
+    let mut out = String::new();
+    if let Some(d) = t.get("deploy").filter(|d| d.is_object()) {
+        let sha = text(d, "sha");
+        let short = &sha[..sha.len().min(7)];
+        out.push_str(&match text(d, "state") {
+            "running" => format!("\n    ↑ 배포 중 {short} — rocky update --main"),
+            "succeeded" => format!("\n    ↑ 배포 {short} {}", local_time(text(d, "finishedAt"))),
+            _ => format!(
+                "\n    ⚠ 배포 실패 {short} — {}\n    로그 {}",
+                text(d, "reason"),
+                text(d, "log")
+            ),
+        });
+    }
+    if let Some(note) = t.get("deployNote").and_then(Value::as_str) {
+        out.push_str(&format!("\n    ⚠ 배포: {note}"));
+    }
+    out
 }
 
 fn error_suffix(t: &Value) -> String {

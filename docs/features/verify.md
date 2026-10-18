@@ -42,19 +42,59 @@
 - **끝난 세션의 구독은 걷지 않는다** — 다음 세션이 다시 구독하면 넘겨받고, 그 사이 결과는 전달 기록에 "받을 세션 등록 없음" 으로
   남는다(수집함처럼 TTL 로 걷으면 배포 세션이 잠깐 끊긴 사이에 구독이 사라진다).
 
+## 배포(`deploy`)
+
+검증을 통과한 커밋을 데몬이 `rocky update --main <sha>` 로 올린다. 결정과 버린 것은
+[설계](../design/specs/2026-10-18-verify-auto-deploy-design.md)에 있고 규칙의 정본은 여기다.
+
+- **조건 넷을 모두 채울 때만**(`deploy_gate`): 대상의 `deploy: true`, main 빌드 모드(`current` → `main`), 보드 `repo` 가
+  `main_build::REPO`, 브랜치 `main`(`update --main` 은 origin/main 위의 커밋만 받는다). 데몬은 다른 블록처럼 사용자 `rocky.json` 만
+  읽고, 스위치는 기동 때 읽는다(바꾸면 `rocky daemon restart`).
+- **대상은 마지막으로 통과한 커밋**(`passed.json`, 없으면 통과로 끝난 `finished.json`)이다. 뒤 커밋이 실패해도 그대로 대상이다. 통과한
+  순간이 아니라 바퀴마다 검증 뒤에 맞춘다(데몬이 다시 떠도 놓치지 않게).
+- **판정 순서**(`deploy_plan`): 조건 → 도는 배포 → 통과 없음 → 40자 16진이 아님 → 이미 깔림(`main/.finished`) → 이미 띄움(`deploy.json`)
+  → 깔린 커밋을 못 읽음(`.finished`, 없으면 `.sha`) → 앞으로만 → 잠금 → 띄운다. 조상 여부와 잠금은 띄울 수 있을 때만 본다(평소에는
+  git 을 부르지 않는다).
+- **앞으로만 간다.** 깔린 빌드가 통과한 커밋의 조상일 때만 띄운다(보드 레포에서 `git merge-base --is-ancestor`). 확인하지 못하면 띄우지
+  않는다. 사람이 더 새 커밋을 손으로 올렸으면 옛 통과 커밋으로 되돌리지 않는다.
+- **같은 커밋은 한 번만 띄운다.** 성공이든 실패든 다시 띄우지 않고, 사람이 `.finished` 를 그보다 옛 커밋으로 되돌려도 다시 덮지 않는다.
+  다음 커밋이 통과하면 그 커밋이 대상이다. 실패한 커밋을 다시 올리는 것은 사람의 `rocky update --main <sha>` 다.
+- **다른 main 빌드가 `main-sync.lock` 을 쥐면 기다린다**(`main_build::lock_busy`). update 의 잠금과 같은 규칙이다: pid 가 없거나 못
+  읽으면 쥔 것, 죽은 pid 면 빈 것. 그때 띄우면 잠금에 걸린 실패가 그 커밋에 남아 다시 띄우지 못한다.
+- **실행**: 고정 argv `<데몬 옆 rocky> update --main <sha>`(데몬 실행 파일의 실제 경로 옆). `--yes` 는 넘기지 않는다(마켓플레이스를
+  바꿔야 하는 기기에서는 확인을 받지 못해 실패한다). rc 서버처럼 떨어뜨린다: `process_group(0)`, `kill_on_drop` 없음,
+  `XPC_SERVICE_NAME` 지움, stdin 비움, cwd 는 `<데이터 홈>/rocky`. 출력은 대상 디렉터리의 `deploy-<sha12>.log`(0600, 최근 5개).
+  REST·화면에는 배포를 시작하는 길이 없다.
+- **띄우자마자 기록한다**: `deploy.json` 에 `running`, pid, 그 프로세스의 시작 시각(`ps -o lstart=`). 띄우지 못하면 그 자리에서 `failed`.
+- **배포가 도는 동안 검증 잡은 새 실행을 시작하지 않는다.** 배포를 켠 대상 전부를 본다(main 빌드는 기기에 하나다). 시작해도 update 가
+  데몬을 교체하면서 끊긴다. 도는지는 pid 와 시작 시각으로 본다(재사용된 pid 를 도는 것으로 보지 않는다).
+- **끝 판정**(`settle_deploy`): 띄운 데몬은 종료 코드를 받는다(기다리는 스레드가 잡을 깨운다). update 가 교체한 새 데몬은 종료 코드를
+  모르고 다음 바퀴에 `main/.finished` 만 본다. 그 커밋이면 `succeeded`, 아니면 `failed` 다(이유는 종료 코드, 또는 끝났는데 `.finished`
+  가 다름 — 플러그인·agy 단계).
+- **알림**: 실패만 배너 한 번(`deploy_notification`, 다시 하는 명령을 싣는다). 성공은 알리지 않는다. 데몬이 배포하는 대상(조건 넷을
+  채움)이면 구독한 세션의 통과 문구가 세션에게 `rocky update` 를 돌리지 말라고 한다(같은 커밋을 둘이 올리지 않게). 구독은 그대로다.
+- **보이기**: `GET /api/verify` 의 대상에 `deploy`(마지막 배포)와 `deployNote`(손을 봐야 풀릴 수 있는 건너뜀 이유만, `DeploySkip::note`).
+  `rocky verify` 는 대상 아래에 한 줄(`↑ 배포 중`·`↑ 배포 <sha> HH:MM`·`⚠ 배포 실패`와 이유·로그·`⚠ 배포: <이유>`). 데몬 로그에는 건너뛴
+  이유가 바뀔 때만(기동 뒤 처음 한 번 포함) 한 줄.
+- **이력**: `runs.jsonl` 의 `deployed`·`deploy-failed` 줄(기록은 `deploy` 칸). 검증을 못 한 이유를 기동 때 되살릴 때 배포 줄은 건너뛴다.
+  사람이 부르는 표면이 없어 사용 로그에는 넣지 않고, 쓰임은 이 줄로 센다.
+
 ## 코드
 
 | 무엇 | 어디 |
 | --- | --- |
-| 판정(원격 커밋·다시 돌지·알릴지·디렉터리 이름) | `crates/rocky-core/src/verify.rs` |
+| 판정(원격 커밋·다시 돌지·알릴지·디렉터리 이름·배포 `deploy_plan`·`settle_deploy`) | `crates/rocky-core/src/verify.rs` |
+| 배포의 잠금 판정(`lock_busy`)·레포 이름(`REPO`) | `crates/rocky-core/src/main_build.rs` |
 | 설정 | `crates/rocky-core/src/config.rs`(`load_verify_block`) + `rocky.schema.json` |
-| 잡·git·프로세스 그룹·기록 | `crates/rockyd/src/verify.rs` |
+| 잡·git·프로세스 그룹·기록·배포(`DeployEnv`·`spawn_update`·`settle_deploys`) | `crates/rockyd/src/verify.rs` |
 | CLI | `crates/rocky-cli/src/verify_cmd.rs` |
 | 구독 저장·`/clear` | `crates/rocky-core/src/store.rs`(`subscribe_verify` · `cleared_sessions`) |
 | 구독한 세션에 보내기 | `crates/rockyd/src/server.rs`(`notify_verify_subscriber` · 구독 라우트) |
 
 테스트: `crates/rocky-core/tests/it/verify_test.rs`, `crates/rockyd/tests/it/verify_test.rs`(임시 bare 원격 + clone 으로 통과·실패·
-같은 커밋 생략·복구·시간 초과·손자 정리·번호 재사용·준비 실패, `subscribed_session_hears_each_finished_run`), `crates/rocky-cli/tests/it/verify_cmd_test.rs`.
+같은 커밋 생략·복구·시간 초과·손자 정리·번호 재사용·준비 실패, `subscribed_session_hears_each_finished_run`, 배포는 가짜 `rocky` 로
+한 번만 띄움·실패 배너·잠금 기다림과 배포 중 검증 멈춤·새 데몬의 판정·main 빌드 모드 아님), `crates/rocky-cli/tests/it/verify_cmd_test.rs`,
+`crates/rocky-core/tests/it/main_build_test.rs`(`the_build_lock_is_held_like_update_main_takes_it`).
 
 ## 함정
 
@@ -62,3 +102,10 @@
   2026-10-05)를 줄이려고 감수했다.
 - `cargo test` 단계 뒤 그룹에 프로세스가 남는 기록이 반복된다 — 남기는 테스트를 찾는 중(`signals.log` 의 `남은 손자`).
 - 검증 트리의 `target/` 은 수 GB 다.
+- **배포는 launchd 데몬의 환경에서 돈다.** plist 는 설치 때의 PATH 만 굽고(`crates/rocky-cli/src/launchd.rs`), update 의
+  `daemon restart` 는 데몬에게 물려받은 그 PATH 로 다시 굽는다(같은 항목은 한 번만, `join_path`). update 가 부르는
+  git·cargo·bun·claude·agy 가 그 PATH 에 없으면 배포가 실패한다(로그에 남는다) — PATH 가 맞는 셸에서 `rocky daemon install` 을 다시 한다.
+  셸의 `XDG_DATA_HOME` 도 plist 에 굽지 않아서, 데이터 홈을 바꾼 기기에서는 데몬이 `~/.local/share/rocky` 를 보고 "main 빌드 모드가
+  아니다" 로 건너뛴다.
+- **배포 결과는 대개 한 바퀴 늦게 보인다.** update 가 데몬을 교체하면 새 데몬은 종료 코드를 모르고 다음 바퀴(`intervalSeconds`)에
+  `.finished` 로 판정한다.

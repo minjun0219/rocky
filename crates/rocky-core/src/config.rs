@@ -114,6 +114,17 @@ pub fn expand_tilde(input: &str) -> PathBuf {
     PathBuf::from(input)
 }
 
+/// 부트스트랩과 같은 규칙의 데이터 홈 — `$XDG_DATA_HOME` > `~/.local/share`. 그 아래 `rocky/` 에 설치(`current` 링크)와
+/// main 빌드가 있다.
+pub fn data_home() -> PathBuf {
+    std::env::var("XDG_DATA_HOME")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| expand_tilde("~/.local/share"))
+}
+
 /// user-level config 기본 경로 — `~/.config/rocky/rocky.json`. env `ROCKY_CONFIG` 우선.
 pub fn user_config_path() -> PathBuf {
     if let Ok(p) = std::env::var("ROCKY_CONFIG") {
@@ -413,6 +424,9 @@ pub struct VerifyTarget {
     pub branch: String,
     /// 단계 = 이름 + argv(셸을 거치지 않는다) + 상한. 수집함 소스와 같은 모양이다.
     pub steps: Vec<CommandBridge>,
+    /// 통과한 커밋을 데몬이 `rocky update --main <sha>` 로 올린다(기본 꺼짐). 켜도 main 빌드 모드 기기의
+    /// rocky 레포 main 대상에서만 돈다 — 판정은 `verify::deploy_plan`.
+    pub deploy: bool,
 }
 
 /// `verify` 블록을 읽는다. 파일 없음 / 파싱 실패 / 블록 없음은 기본값(꺼짐). 단계가 하나도 없는 대상은 버린다.
@@ -465,6 +479,7 @@ fn parse_target(value: &serde_json::Value) -> Option<VerifyTarget> {
         board,
         branch,
         steps,
+        deploy: obj.get("deploy").and_then(|v| v.as_bool()).unwrap_or(false),
     })
 }
 

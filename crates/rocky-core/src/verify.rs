@@ -206,10 +206,13 @@ pub struct VerifySubscription {
 }
 
 /// 구독한 세션에 보낼 것 — 배너와 달리 **끝난 실행마다**(통과도) 보낸다: 배포를 맡은 세션이 통과를 기다린다. 같은 커밋은
-/// 한 번 — 직전 판정과 커밋이 같고 결과도 같으면(다시 돌렸는데 그대로) 보내지 않는다. (전달 기록 종류, 본문)
+/// 한 번 — 직전 판정과 커밋이 같고 결과도 같으면(다시 돌렸는데 그대로) 보내지 않는다. `daemon_deploys` 는 이 대상을 데몬이
+/// 배포하는가(`deploy_gate` 통과) — 그러면 통과 문구가 세션에게 배포하지 말라고 한다(같은 커밋을 둘이 올리지 않게).
+/// (전달 기록 종류, 본문)
 pub fn session_notice(
     prev: Option<&VerifyRecord>,
     now: &VerifyRecord,
+    daemon_deploys: bool,
 ) -> Option<(&'static str, String)> {
     if now.state == VerifyState::Running {
         return None;
@@ -223,7 +226,12 @@ pub fn session_notice(
         (
             "verify-passed",
             format!("{short} 통과 · {subject}"),
-            "배포를 맡은 세션이면 이 커밋으로 배포한다.".to_string(),
+            if daemon_deploys {
+                "이 커밋은 데몬이 배포한다(verify.targets[].deploy) — 세션은 rocky update 를 돌리지 않는다. 결과는 `rocky verify`."
+            } else {
+                "배포를 맡은 세션이면 이 커밋으로 배포한다."
+            }
+            .to_string(),
         )
     } else {
         (
@@ -465,8 +473,8 @@ pub fn deploy_base<'a>(finished_build: Option<&'a str>, built: Option<&'a str>) 
     clean(finished_build).or_else(|| clean(built))
 }
 
-/// update 의 argv 에 넣을 커밋 — `git ls-remote` 가 준 40자 16진만.
-fn is_full_sha(sha: &str) -> bool {
+/// update·git 의 argv 에 넣을 커밋 — `git ls-remote` 가 준 40자 16진만.
+pub fn is_full_sha(sha: &str) -> bool {
     sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit())
 }
 

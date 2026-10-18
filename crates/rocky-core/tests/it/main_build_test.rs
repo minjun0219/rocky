@@ -1,7 +1,7 @@
 //! main 빌드 모드 — 모드 판정·다시 빌드할지·마켓플레이스 원천 읽기.
 
 use rocky_core::main_build::{
-    is_main_mode, parse_marketplace, plan, BuildPlan, MarketplaceSource, CLONE_URL, REPO,
+    is_main_mode, lock_busy, parse_marketplace, plan, BuildPlan, MarketplaceSource, CLONE_URL, REPO,
 };
 
 #[test]
@@ -14,6 +14,25 @@ fn main_mode_is_the_current_link_pointing_at_main() {
 #[test]
 fn the_repo_is_the_one_main_builds_clone() {
     assert_eq!(CLONE_URL, format!("https://github.com/{REPO}.git"));
+}
+
+#[test]
+fn the_build_lock_is_held_like_update_main_takes_it() {
+    let alive = |pid: u32| pid == 42;
+    assert!(
+        !lock_busy(false, None, alive),
+        "잠금 폴더가 없으면 비어 있다"
+    );
+    assert!(lock_busy(true, Some("42\n"), alive));
+    assert!(
+        !lock_busy(true, Some("7"), alive),
+        "죽은 pid 의 잠금은 update 가 넘겨받는다"
+    );
+    assert!(
+        lock_busy(true, None, alive),
+        "pid 가 없는 잠금(기기의 다른 빌드 스크립트)은 쥔 것으로 본다"
+    );
+    assert!(lock_busy(true, Some("?"), alive));
 }
 
 #[test]

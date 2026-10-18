@@ -435,6 +435,7 @@ pub async fn run_daemon(
         crate::verify::osascript_verify_notifier(verify_runner),
         runtime.dir.join("verify"),
         verify,
+        crate::verify::DeployEnv::beside_daemon(),
         std::time::Duration::from_secs(120),
     );
     let router = build_router(state, ui_dist.as_deref());

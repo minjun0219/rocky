@@ -18,6 +18,16 @@ pub const CLONE_URL: &str = "https://github.com/minjun0219/rocky.git";
 /// `CLONE_URL` 의 레포(owner/name) — 보드 `repo` 와 견준다(검증 통과 커밋 자동 배포는 이 레포만).
 pub const REPO: &str = "minjun0219/rocky";
 
+/// 다른 main 빌드가 `main-sync.lock` 을 쥐고 있나 — `rocky update --main` 의 잠금 규칙과 같다. 잠금 폴더가 있고 안의
+/// `pid` 가 살아 있으면 쥔 것이다. pid 가 없거나 읽지 못하면(기기의 다른 빌드 스크립트) 살아 있다고 본다. 죽은 pid 의
+/// 잠금은 update 가 넘겨받으므로 비어 있는 것으로 본다.
+pub fn lock_busy(exists: bool, pid: Option<&str>, alive: impl Fn(u32) -> bool) -> bool {
+    exists
+        && pid
+            .and_then(|p| p.trim().parse::<u32>().ok())
+            .is_none_or(alive)
+}
+
 /// `current` 링크가 가리키는 이름이 main 빌드 모드인가.
 pub fn is_main_mode(current_target: Option<&str>) -> bool {
     current_target == Some("main")

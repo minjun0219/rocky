@@ -10,17 +10,23 @@
 //! - **단계는 자기 프로세스 그룹**으로 띄운다(cargo·bun 이 띄운 손자까지 한 번에 끝내려고). 그룹이 남지 않게 세 겹으로:
 //!   시간 초과면 TERM → 유예 → KILL, 데몬이 정상 종료하며 작업을 버리면 가드가 KILL, 데몬이 죽어 남은 그룹은
 //!   `running.pgid` 를 보고 다음 실행 전에 끝낸다(같은 트리에서 겹쳐 돌지 않게).
+//! - **배포**(`verify.targets[].deploy`): 통과한 커밋을 `<데몬 옆 rocky> update --main <sha>` 로 올린다. update 는 데몬을
+//!   교체하므로 떨어진 프로세스 그룹으로 띄우고, 끝은 대개 새 데몬이 `deploy.json` 과 `main/.finished` 로 판정한다.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rocky_core::config::CommandBridge;
 use rocky_core::verify::{
-    dir_name, notification, parse_ls_remote, should_run, VerifyConfig, VerifyRecord, VerifyRun,
-    VerifyState, VerifyTarget, DEFAULT_STEP_TIMEOUT_MS, MAX_ATTEMPTS,
+    deploy_base, deploy_gate, deploy_notification, deploy_plan, dir_name, notification,
+    parse_ls_remote, settle_deploy, should_run, DeployInput, DeployPlan, DeployRecord, DeployState,
+    VerifyConfig, VerifyRecord, VerifyRun, VerifyRunEvent, VerifyState, VerifyTarget,
+    DEFAULT_STEP_TIMEOUT_MS, MAX_ATTEMPTS,
 };
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::runner::Runner;
@@ -32,11 +38,13 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(120);
 const KILL_GRACE: Duration = Duration::from_secs(5);
 /// 대상마다 남기는 로그 파일 수.
 const KEEP_LOGS: usize = 10;
+/// 대상마다 남기는 배포 로그(`deploy-<sha12>.log`) 수.
+const KEEP_DEPLOY_LOGS: usize = 5;
 /// `signals.log`·`runs.jsonl` 이 이만큼 넘으면 `.1` 로 한 번 돌린다.
 const APPEND_LOG_LIMIT: u64 = 256 * 1024;
 
 /// 대상 하나의 지금 상태 — `GET /api/verify` 가 그대로 싣는다.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerifyTargetStatus {
     pub board: String,
@@ -51,6 +59,73 @@ pub struct VerifyTargetStatus {
     /// 데몬이 다시 떠도 이어지는 같은 이유를 다시 쓰지 않는다. 검증이 되면 비운다(다시 나면 다시 쓴다).
     #[serde(skip)]
     pub logged_error: Option<String>,
+    /// 데몬이 띄운 마지막 배포(`deploy.json`) — `verify.targets[].deploy` 를 켠 대상만.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<DeployRecord>,
+    /// 배포하지 않는 이유 중 손을 봐야 풀릴 수 있는 것(`DeploySkip::note`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_note: Option<String>,
+    /// 데몬 로그에 마지막으로 남긴 배포 건너뜀 이유 — 바뀔 때만 남기려고.
+    #[serde(skip)]
+    pub logged_deploy: Option<String>,
+}
+
+/// 검증 통과 커밋 자동 배포의 손 — main 빌드가 있는 곳과 update 를 실행할 CLI. 판정은 `rocky_core::verify::deploy_plan`.
+#[derive(Clone)]
+pub struct DeployEnv {
+    /// `$XDG_DATA_HOME/rocky` — `main/`(빌드·`.sha`·`.finished`), 모드 링크 `current`, 잠금 `main-sync.lock`. update 도
+    /// 여기서 띄운다.
+    pub data_root: PathBuf,
+    /// update 를 실행할 `rocky` — 데몬 옆의 것(main 빌드 모드면 `main/rocky`).
+    pub rocky: PathBuf,
+    /// 이 데몬이 띄운 update 의 끝(pid → 종료 코드, 시그널이면 None) — 기다리는 스레드가 적고 다음 바퀴의 판정이 읽는다.
+    exits: Arc<Mutex<HashMap<u32, Option<i32>>>>,
+}
+
+impl DeployEnv {
+    pub fn new(data_root: PathBuf, rocky: PathBuf) -> Self {
+        Self {
+            data_root,
+            rocky,
+            exits: Arc::default(),
+        }
+    }
+
+    /// 데몬 옆 `rocky` 와 데이터 홈(`rocky_core::config::data_home`). 링크(`current/rockyd`)로 떴으면 실제 파일 옆이다 — CLI 의
+    /// `sibling_binary` 와 같다.
+    pub fn beside_daemon() -> Self {
+        let rocky = std::env::current_exe()
+            .ok()
+            .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe))
+            .and_then(|exe| exe.parent().map(|dir| dir.join("rocky")))
+            .unwrap_or_else(|| PathBuf::from("rocky"));
+        Self::new(rocky_core::config::data_home().join("rocky"), rocky)
+    }
+
+    fn main_mode(&self) -> bool {
+        let link = std::fs::read_link(self.data_root.join("current")).ok();
+        rocky_core::main_build::is_main_mode(link.as_deref().and_then(Path::to_str))
+    }
+
+    /// `main/` 의 표식 파일(`.sha`·`.finished`).
+    fn main_file(&self, name: &str) -> Option<String> {
+        std::fs::read_to_string(self.data_root.join("main").join(name)).ok()
+    }
+
+    fn busy(&self) -> bool {
+        let lock = self.data_root.join("main-sync.lock");
+        let pid = std::fs::read_to_string(lock.join("pid")).ok();
+        rocky_core::main_build::lock_busy(lock.exists(), pid.as_deref(), pid_alive)
+    }
+
+    /// 이 데몬이 띄운 update 가 끝났으면 그 종료 코드(한 번만 꺼낸다).
+    fn take_exit(&self, pid: u32) -> Option<Option<i32>> {
+        self.exits.lock().ok()?.remove(&pid)
+    }
+
+    fn exited(&self, pid: u32) -> bool {
+        self.exits.lock().is_ok_and(|e| e.contains_key(&pid))
+    }
 }
 
 /// 사람에게 알리는 함수 — (제목, 본문). 기본은 osascript, 테스트는 붙잡는다.
@@ -83,13 +158,14 @@ pub fn target_dir(root: &Path, target: &VerifyTarget) -> PathBuf {
         .join(dir_name(&target.branch))
 }
 
-/// `last.json` — 마지막(또는 도는 중인) 기록. `finished.json` — 마지막으로 **끝난** 기록(알림의 비교 기준).
-fn read_record(dir: &Path, file: &str) -> Option<VerifyRecord> {
+/// `last.json` — 마지막(또는 도는 중인) 기록. `finished.json` — 마지막으로 **끝난** 기록(알림의 비교 기준). `passed.json` —
+/// 마지막으로 통과한 기록(배포 대상). `deploy.json` — 데몬이 띄운 마지막 배포.
+fn read_record<T: DeserializeOwned>(dir: &Path, file: &str) -> Option<T> {
     let raw = std::fs::read_to_string(dir.join(file)).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
-fn write_record(dir: &Path, file: &str, record: &VerifyRecord) {
+fn write_record<T: Serialize>(dir: &Path, file: &str, record: &T) {
     let _ = std::fs::create_dir_all(dir);
     if let Ok(text) = serde_json::to_string_pretty(record) {
         let tmp = dir.join(format!("{file}.tmp"));
@@ -107,30 +183,56 @@ pub fn load_statuses(cfg: &VerifyConfig, root: &Path) -> Vec<VerifyTargetStatus>
             board: t.board.clone(),
             branch: t.branch.clone(),
             record: read_record(&target_dir(root, t), "last.json"),
-            error: None,
             logged_error: last_logged_error(&target_dir(root, t)),
+            deploy: t
+                .deploy
+                .then(|| read_record(&target_dir(root, t), "deploy.json"))
+                .flatten(),
+            ..Default::default()
         })
         .collect()
 }
 
-/// `runs.jsonl` 의 마지막 줄이 검증을 못 한 이유면 그 이유.
+/// `runs.jsonl` 의 마지막 검증 줄이 검증을 못 한 이유면 그 이유. 배포 줄(`deployed`·`deploy-failed`)은 건너뛴다.
 fn last_logged_error(dir: &Path) -> Option<String> {
     let text = std::fs::read_to_string(dir.join("runs.jsonl")).ok()?;
-    let run: VerifyRun = serde_json::from_str(text.lines().last()?).ok()?;
-    (run.event == rocky_core::verify::VerifyRunEvent::Error)
+    let run = text
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<VerifyRun>(line).ok())
+        .find(|run| {
+            !matches!(
+                run.event,
+                VerifyRunEvent::Deployed | VerifyRunEvent::DeployFailed
+            )
+        })?;
+    (run.event == VerifyRunEvent::Error)
         .then_some(run.error)
         .flatten()
 }
 
-fn set_status(state: &ServerState, status: VerifyTargetStatus) {
+/// 대상 하나의 상태를 고친다(없으면 만든다) — 검증과 배포가 서로의 칸을 지우지 않게.
+fn update_status(
+    state: &ServerState,
+    target: &VerifyTarget,
+    f: impl FnOnce(&mut VerifyTargetStatus),
+) {
     let mut all = state.verify();
-    match all
-        .iter_mut()
-        .find(|s| s.board == status.board && s.branch == status.branch)
+    let at = match all
+        .iter()
+        .position(|s| s.board == target.board && s.branch == target.branch)
     {
-        Some(slot) => *slot = status,
-        None => all.push(status),
-    }
+        Some(at) => at,
+        None => {
+            all.push(VerifyTargetStatus {
+                board: target.board.clone(),
+                branch: target.branch.clone(),
+                ..Default::default()
+            });
+            all.len() - 1
+        }
+    };
+    f(&mut all[at]);
     state.set_verify(all);
 }
 
@@ -412,18 +514,20 @@ async fn prepare_tree(runner: &Runner, repo: &Path, tree: &Path, sha: &str) -> R
     .map(|_| ())
 }
 
-/// 로그는 대상마다 최근 `KEEP_LOGS` 개만.
-fn prune_logs(dir: &Path) {
+/// 로그는 대상마다 최근 몇 개만 — 검증 로그 `KEEP_LOGS` 개, 배포 로그(`deploy-*.log`, `deploy` 가 true) `KEEP_DEPLOY_LOGS` 개.
+fn prune_logs(dir: &Path, deploy: bool) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
+    let keep = if deploy { KEEP_DEPLOY_LOGS } else { KEEP_LOGS };
     let mut logs: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("log"))
+        .filter(|e| e.file_name().to_string_lossy().starts_with("deploy-") == deploy)
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
     logs.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-    for (_, path) in logs.into_iter().skip(KEEP_LOGS) {
+    for (_, path) in logs.into_iter().skip(keep) {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -435,6 +539,18 @@ pub async fn verify_target(
     notifier: &VerifyNotifier,
     root: &Path,
     target: &VerifyTarget,
+) {
+    verify_target_with(state, runner, notifier, root, target, None).await;
+}
+
+/// `verify_target` 에 배포의 손을 더한 것 — 데몬이 배포하는 대상이면 세션 알림이 세션에게 배포하지 말라고 한다.
+pub async fn verify_target_with(
+    state: &Arc<ServerState>,
+    runner: &Runner,
+    notifier: &VerifyNotifier,
+    root: &Path,
+    target: &VerifyTarget,
+    deploy: Option<&DeployEnv>,
 ) {
     let dir = target_dir(root, target);
     let report = |record: Option<VerifyRecord>, error: Option<String>| {
@@ -448,22 +564,17 @@ pub async fn verify_target(
             println!("rocky: verify {} {} — {e}", target.board, target.branch);
             note_run(&dir, &VerifyRun::error(iso_now(), e.clone()));
         }
-        set_status(
-            state,
-            VerifyTargetStatus {
-                board: target.board.clone(),
-                branch: target.branch.clone(),
-                record,
-                logged_error: error.clone(),
-                error,
-            },
-        );
+        update_status(state, target, |s| {
+            s.record = record;
+            s.logged_error = error.clone();
+            s.error = error;
+        });
     };
     let last = read_record(&dir, "last.json");
     // 보드는 별칭까지 푼다(보드 key 를 바꿔도 설정이 끊기지 않게).
-    let repo = match state.store.get_board(&target.board) {
+    let (repo, repo_name) = match state.store.get_board(&target.board) {
         Ok(Some(board)) => match board.path {
-            Some(p) => PathBuf::from(p),
+            Some(p) => (PathBuf::from(p), board.repo),
             None => {
                 return report(
                     last,
@@ -613,12 +724,26 @@ pub async fn verify_target(
     let finished_before = read_record(&dir, "finished.json");
     write_record(&dir, "last.json", &record);
     write_record(&dir, "finished.json", &record);
+    if record.state == VerifyState::Passed {
+        // 배포 대상 — 뒤 커밋이 빨강이어도 마지막 초록은 남는다.
+        write_record(&dir, "passed.json", &record);
+    }
     note_run(&dir, &VerifyRun::of(iso_now(), record.clone()));
-    prune_logs(&dir);
+    prune_logs(&dir, false);
     report(Some(record.clone()), None);
-    // 구독한 세션에는 끝난 실행마다(통과도) — 배포를 맡은 세션이 폴링하지 않고 이것으로 움직인다.
+    // 구독한 세션에는 끝난 실행마다(통과도) — 배포를 맡은 세션이 폴링하지 않고 이것으로 움직인다. 데몬이 배포하는 대상이면
+    // 세션에게 배포하지 말라고 한다.
+    let daemon_deploys = deploy.is_some_and(|env| {
+        deploy_gate(
+            target.deploy,
+            &target.branch,
+            repo_name.as_deref(),
+            env.main_mode(),
+        )
+        .is_ok()
+    });
     if let Some((kind, text)) =
-        rocky_core::verify::session_notice(finished_before.as_ref(), &record)
+        rocky_core::verify::session_notice(finished_before.as_ref(), &record, daemon_deploys)
     {
         crate::server::notify_verify_subscriber(state, &record, kind, &text).await;
     }
@@ -629,27 +754,325 @@ pub async fn verify_target(
     }
 }
 
-/// 대상들을 차례로 — 하나가 끝나야 다음.
+/// 그 pid 가 살아 있나(`kill(pid, 0)` — `rocky update --main` 의 잠금 확인과 같다).
+fn pid_alive(pid: u32) -> bool {
+    // SAFETY: 시그널 0 은 보내지 않고 있는지만 본다 — 메모리를 건드리지 않는다.
+    libc::pid_t::try_from(pid).is_ok_and(|pid| pid > 0 && unsafe { libc::kill(pid, 0) } == 0)
+}
+
+fn short(sha: &str) -> &str {
+    sha.get(..7).unwrap_or(sha)
+}
+
+/// 데몬이 띄운 배포가 아직 도나 — pid 와 그 시작 시각으로(재사용된 pid 를 도는 것으로 보지 않는다).
+async fn deploy_running(env: &DeployEnv, record: &DeployRecord) -> bool {
+    let Some(pid) = record.pid.filter(|_| record.state == DeployState::Running) else {
+        return false;
+    };
+    if env.exited(pid) {
+        return false;
+    }
+    let Ok(pid_i) = i32::try_from(pid) else {
+        return false;
+    };
+    match started_at(pid_i).await {
+        Some(now) => record.pid_started.as_deref().is_none_or(|at| at == now),
+        None => false,
+    }
+}
+
+/// `<rocky> update --main <sha>` 를 데몬과 떨어진 프로세스 그룹으로 띄운다 — update 가 이 데몬을 교체해도 끝까지 간다
+/// (launchd 는 잡을 내릴 때 잡의 그룹만 정리한다, rc 서버와 같다). `--yes` 는 넘기지 않는다. 출력은 로그 파일로. 끝나면
+/// 종료 코드를 남기고 검증 잡을 깨운다(이 데몬이 그때까지 살아 있으면).
+fn spawn_update(
+    env: &DeployEnv,
+    sha: &str,
+    log: &Path,
+    state: &Arc<ServerState>,
+) -> Result<u32, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::process::CommandExt;
+    let open_err = |e: std::io::Error| format!("로그 파일({}): {e}", log.display());
+    let out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(log)
+        .map_err(open_err)?;
+    let err = out.try_clone().map_err(open_err)?;
+    let mut child = std::process::Command::new(&env.rocky)
+        .args(["update", "--main", sha])
+        .current_dir(&env.data_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(out))
+        .stderr(Stdio::from(err))
+        // 데몬의 launchd 표식을 물려주지 않는다 — 자식이 자기를 launchd 잡으로 오판한다.
+        .env_remove("XPC_SERVICE_NAME")
+        .process_group(0)
+        .spawn()
+        .map_err(|e| format!("{} 를 실행하지 못했다: {e}", env.rocky.display()))?;
+    let pid = child.id();
+    let exits = env.exits.clone();
+    let state = state.clone();
+    std::thread::spawn(move || {
+        let code = child.wait().ok().and_then(|s| s.code());
+        if let Ok(mut exits) = exits.lock() {
+            exits.insert(pid, code);
+        }
+        state.verify_wake.notify_one();
+    });
+    Ok(pid)
+}
+
+/// 끝난 배포를 남긴다 — `deploy.json`, 이력(`runs.jsonl`), 상태, 실패면 배너.
+fn finish_deploy(
+    state: &ServerState,
+    notifier: &VerifyNotifier,
+    dir: &Path,
+    target: &VerifyTarget,
+    record: DeployRecord,
+) {
+    write_record(dir, "deploy.json", &record);
+    note_run(dir, &VerifyRun::deploy(iso_now(), record.clone()));
+    prune_logs(dir, true);
+    match deploy_notification(&target.board, &record) {
+        Some((title, body)) => {
+            println!("{title} — {body}");
+            notifier(title, body);
+        }
+        None => println!(
+            "rocky: verify {} {} 배포 {} 끝",
+            target.board,
+            target.branch,
+            short(&record.sha)
+        ),
+    }
+    update_status(state, target, |s| s.deploy = Some(record));
+}
+
+/// 끝난 배포를 판정한다(도는 것은 그대로). 아직 도는 배포가 있으면 true — 그동안 검증 잡은 새 실행을 시작하지 않는다
+/// (update 가 데몬을 교체하면서 끊긴다).
+async fn settle_deploys(
+    state: &Arc<ServerState>,
+    notifier: &VerifyNotifier,
+    root: &Path,
+    cfg: &VerifyConfig,
+    env: &DeployEnv,
+) -> bool {
+    let mut running = false;
+    for target in cfg.targets.iter().filter(|t| t.deploy) {
+        let dir = target_dir(root, target);
+        let Some(record) = read_record::<DeployRecord>(&dir, "deploy.json") else {
+            continue;
+        };
+        if record.state != DeployState::Running {
+            continue;
+        }
+        if deploy_running(env, &record).await {
+            running = true;
+            continue;
+        }
+        // 종료 코드는 그 update 를 띄운 데몬만 안다 — 교체된 새 데몬은 `main/.finished` 만 본다.
+        let exit = record.pid.and_then(|pid| env.take_exit(pid)).flatten();
+        let finished = env.main_file(".finished");
+        if let Some(done) = settle_deploy(&record, finished.as_deref(), exit, iso_now()) {
+            finish_deploy(state, notifier, &dir, target, done);
+        }
+    }
+    running
+}
+
+/// `base` 가 `sha` 의 조상인가 — 보드 레포에서(검증이 그 커밋을 fetch 해 두었다). 못 보면 None.
+async fn is_ancestor(runner: &Runner, repo: &str, base: &str, sha: &str) -> Option<bool> {
+    let argv = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-C",
+        repo,
+        "merge-base",
+        "--is-ancestor",
+        base,
+        sha,
+    ]
+    .map(String::from)
+    .to_vec();
+    match runner(argv, String::new(), GIT_TIMEOUT).await.code {
+        0 => Some(true),
+        1 => Some(false),
+        _ => None,
+    }
+}
+
+/// 배포를 켠 대상 하나 — 통과한 커밋을 띄울지 판정하고, 띄웠으면 true. `deploying` 은 이 기기에서 도는 배포가 있는가.
+async fn deploy_target(
+    state: &Arc<ServerState>,
+    runner: &Runner,
+    notifier: &VerifyNotifier,
+    root: &Path,
+    target: &VerifyTarget,
+    env: &DeployEnv,
+    deploying: bool,
+) -> bool {
+    let dir = target_dir(root, target);
+    let board = state.store.get_board(&target.board).ok().flatten();
+    let passed: Option<VerifyRecord> = read_record(&dir, "passed.json").or_else(|| {
+        read_record::<VerifyRecord>(&dir, "finished.json")
+            .filter(|r| r.state == VerifyState::Passed)
+    });
+    let last: Option<DeployRecord> = read_record(&dir, "deploy.json");
+    let finished_build = env.main_file(".finished");
+    let built = env.main_file(".sha");
+    let mut input = DeployInput {
+        enabled: target.deploy,
+        branch: &target.branch,
+        repo: board.as_ref().and_then(|b| b.repo.as_deref()),
+        main_mode: env.main_mode(),
+        running: deploying,
+        busy: false,
+        passed: passed.as_ref(),
+        last_deploy: last.as_ref(),
+        finished_build: finished_build.as_deref(),
+        built: built.as_deref(),
+        ancestor: Some(true),
+    };
+    // 조상 여부(git)와 잠금은 띄울 수 있을 때만 본다 — 평소(이미 깔림·이미 시도함)에는 git 을 부르지 않는다. 그 앞에서
+    // 건너뛰는 판정은 둘과 상관없다.
+    let plan = match deploy_plan(&input) {
+        DeployPlan::Start(sha) => {
+            input.ancestor = match (
+                deploy_base(input.finished_build, input.built),
+                board.as_ref().and_then(|b| b.path.as_deref()),
+            ) {
+                (Some(base), Some(repo)) if base != sha => {
+                    is_ancestor(runner, repo, base, &sha).await
+                }
+                _ => None,
+            };
+            input.busy = env.busy();
+            deploy_plan(&input)
+        }
+        skip => skip,
+    };
+    match plan {
+        DeployPlan::Start(sha) => {
+            start_deploy(state, notifier, &dir, target, env, sha).await;
+            true
+        }
+        DeployPlan::Skip(why) => {
+            let message = why.message();
+            let logged = state
+                .verify()
+                .into_iter()
+                .find(|s| s.board == target.board && s.branch == target.branch)
+                .and_then(|s| s.logged_deploy);
+            if logged.as_deref() != Some(message.as_str()) {
+                println!(
+                    "rocky: verify {} {} 배포 안 함 — {message}",
+                    target.board, target.branch
+                );
+            }
+            update_status(state, target, |s| {
+                s.deploy = last;
+                s.deploy_note = why.note();
+                s.logged_deploy = Some(message);
+            });
+            false
+        }
+    }
+}
+
+/// 배포를 띄우고 pid 와 함께 기록한다. 띄우지 못하면 그 자리에서 실패로 남긴다(배너).
+async fn start_deploy(
+    state: &Arc<ServerState>,
+    notifier: &VerifyNotifier,
+    dir: &Path,
+    target: &VerifyTarget,
+    env: &DeployEnv,
+    sha: String,
+) {
+    let _ = std::fs::create_dir_all(dir);
+    let log = dir.join(format!("deploy-{}.log", &sha[..12]));
+    let started = iso_now();
+    match spawn_update(env, &sha, &log, state) {
+        Ok(pid) => {
+            let pid_started = match i32::try_from(pid) {
+                Ok(pid) => started_at(pid).await,
+                Err(_) => None,
+            };
+            println!(
+                "rocky: verify {} {} 배포 시작 — {} update --main {} (pid {pid}, 로그 {})",
+                target.board,
+                target.branch,
+                env.rocky.display(),
+                short(&sha),
+                log.display()
+            );
+            let record = DeployRecord {
+                sha,
+                state: DeployState::Running,
+                pid: Some(pid),
+                pid_started,
+                started_at: started,
+                finished_at: None,
+                reason: None,
+                log: log.to_string_lossy().to_string(),
+            };
+            write_record(dir, "deploy.json", &record);
+            update_status(state, target, |s| {
+                s.deploy = Some(record);
+                s.deploy_note = None;
+                s.logged_deploy = None;
+            });
+        }
+        Err(reason) => {
+            let record = DeployRecord {
+                sha,
+                state: DeployState::Failed,
+                pid: None,
+                pid_started: None,
+                started_at: started,
+                finished_at: Some(iso_now()),
+                reason: Some(reason),
+                log: log.to_string_lossy().to_string(),
+            };
+            finish_deploy(state, notifier, dir, target, record);
+        }
+    }
+}
+
+/// 대상들을 차례로 — 하나가 끝나야 다음. 배포를 켠 대상은 검증 뒤에 배포를 판정한다. 배포가 돌면(update 가 데몬을
+/// 교체한다) 새 검증을 시작하지 않는다.
 pub async fn tick(
     state: &Arc<ServerState>,
     runner: &Runner,
     notifier: &VerifyNotifier,
     root: &Path,
     cfg: &VerifyConfig,
+    deploy: &DeployEnv,
 ) {
+    let mut deploying = settle_deploys(state, notifier, root, cfg, deploy).await;
     for target in &cfg.targets {
-        verify_target(state, runner, notifier, root, target).await;
+        if !deploying {
+            verify_target_with(state, runner, notifier, root, target, Some(deploy)).await;
+        }
+        if target.deploy
+            && deploy_target(state, runner, notifier, root, target, deploy, deploying).await
+        {
+            deploying = true;
+        }
     }
 }
 
 /// 기동 뒤 `first_after` 지나 처음, 이후 바퀴가 끝날 때마다 `interval_seconds` 쉬고 다시. 다시 돌리기 요청이 오면
-/// 쉬는 중이라도(기동 직후의 첫 대기 포함) 바로 다음 바퀴로 간다(`verify_wake`).
+/// 쉬는 중이라도(기동 직후의 첫 대기 포함) 바로 다음 바퀴로 간다(`verify_wake`). 데몬이 띄운 배포가 끝나도 깨운다.
 pub fn spawn_verifier(
     state: Arc<ServerState>,
     runner: Runner,
     notifier: VerifyNotifier,
     root: PathBuf,
     cfg: VerifyConfig,
+    deploy: DeployEnv,
     first_after: Duration,
 ) {
     if !cfg.active() {
@@ -662,7 +1085,7 @@ pub fn spawn_verifier(
             _ = state.verify_wake.notified() => {}
         }
         loop {
-            tick(&state, &runner, &notifier, &root, &cfg).await;
+            tick(&state, &runner, &notifier, &root, &cfg, &deploy).await;
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(cfg.interval_seconds())) => {}
                 _ = state.verify_wake.notified() => {}
