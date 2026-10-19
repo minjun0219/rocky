@@ -303,6 +303,7 @@ fn rc_fixture(
         root: Some("/w".into()),
         pinned: vec![],
         targets: vec!["repo-a".into()],
+        worktree: vec![],
         supervise: false,
         nightly: None,
     };

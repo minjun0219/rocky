@@ -232,6 +232,48 @@ fn remove_matches_a_label_or_a_path_and_clears_both_lists() {
 }
 
 #[test]
+fn list_marks_worktree_targets_and_names_what_matches_none() {
+    // 대상과 같은 폴더로 풀리면 어느 꼴로 적어도 맞는다 — 오타 · 대상 밖 폴더만 남긴다(한 번씩).
+    let doc = json!({ "rc": {
+        "pinned": ["alpha"],
+        "targets": ["beta"],
+        "worktree": ["~/dev/workspaces/alpha", "rokcy", " ", "/srv/other", "rokcy"]
+    } });
+    let list = list_targets(&doc, HOME, &any_dir);
+    let marks: Vec<(&str, bool)> = list
+        .targets
+        .iter()
+        .map(|t| (t.label.as_str(), t.worktree))
+        .collect();
+    assert_eq!(marks, vec![("alpha", true), ("beta", false)]);
+    assert_eq!(list.unmatched_worktree, vec!["rokcy", "/srv/other"]);
+}
+
+#[test]
+fn remove_also_drops_the_folder_from_the_worktree_list() {
+    // 남겨 두면 같은 폴더를 다시 더할 때 말없이 워크트리 모드로 뜬다.
+    let mut doc = json!({ "rc": {
+        "pinned": ["alpha"],
+        "targets": ["beta"],
+        "worktree": ["alpha", "~/dev/workspaces/beta"]
+    } });
+    assert_eq!(rm(&mut doc, "beta").map(|e| e.label), Ok("beta".into()));
+    assert_eq!(
+        doc,
+        json!({ "rc": { "pinned": ["alpha"], "targets": [], "worktree": ["alpha"] } })
+    );
+    // 고정 풀기는 목록만 옮긴다 — 워크트리 모드는 그대로다.
+    assert_eq!(
+        unpin(&mut doc, "alpha").map(|e| e.label),
+        Ok("alpha".into())
+    );
+    assert_eq!(
+        doc,
+        json!({ "rc": { "pinned": [], "targets": ["alpha"], "worktree": ["alpha"] } })
+    );
+}
+
+#[test]
 fn remove_explains_what_it_could_not_match() {
     assert_eq!(
         rm(&mut json!({}), "x"),
@@ -357,6 +399,7 @@ fn list_follows_the_daemon_order_and_flags_problems() {
             ("x", "/opt/x", false, false, true),
         ]
     );
+    assert!(list.unmatched_worktree.is_empty());
     let none = list_targets(&json!({}), HOME, &any_dir);
     assert_eq!(
         (none.configured, none.enabled, none.targets.len()),
@@ -431,6 +474,7 @@ fn reload_applies_the_lists_and_keeps_the_switches() {
             root: Some("~/dev/workspaces/".into()),
             pinned: vec!["b".into()],
             targets: vec!["a".into(), "d".into()],
+            worktree: vec![],
             supervise: true,
             nightly: None,
         })
@@ -445,9 +489,54 @@ fn reload_applies_the_lists_and_keeps_the_switches() {
             removed: vec!["c".into()],
             pinned: vec!["b".into()],
             unpinned: vec!["a".into()],
+            worktree_on: vec![],
+            worktree_off: vec![],
             restart_needed: vec!["nightly"],
         }
     );
+}
+
+#[test]
+fn reload_applies_the_worktree_list_and_names_what_switched() {
+    let current = RcConfig {
+        worktree: vec!["a".into()],
+        ..rc(&["a"], &["b", "c"])
+    };
+    // a 는 끄고 b 는 켜고(고정도 같이), 대상이 아닌 이름(z)은 아무것도 바꾸지 않는다.
+    let file = RcConfig {
+        worktree: vec!["b".into(), "z".into()],
+        ..rc(&["a", "b"], &["c"])
+    };
+    let (next, report) = plan_reload(Some(&current), Some(&file), HOME);
+    assert_eq!(
+        next.map(|c| c.worktree),
+        Some(vec!["b".to_string(), "z".to_string()])
+    );
+    assert_eq!(
+        (
+            report.pinned.clone(),
+            report.worktree_on.clone(),
+            report.worktree_off.clone()
+        ),
+        (vec!["b".into()], vec!["b".into()], vec!["a".into()])
+    );
+    assert_eq!(
+        report.changes(),
+        vec!["고정: b", "워크트리 켬: b", "워크트리 끔: a"]
+    );
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["worktreeOn"], serde_json::json!(["b"]));
+    assert_eq!(json["worktreeOff"], serde_json::json!(["a"]));
+    // 대상 밖 이름만 바뀌었다 — 띄우는 방식은 그대로지만 파일과 맞춘다.
+    let (next, report) = plan_reload(
+        Some(&current),
+        Some(&RcConfig {
+            worktree: vec!["a".into(), "z".into()],
+            ..current.clone()
+        }),
+        HOME,
+    );
+    assert!(next.is_some() && report.changes().is_empty());
 }
 
 #[test]
@@ -529,7 +618,8 @@ fn reload_report_serializes_camel_case() {
         serde_json::to_value(&report).unwrap(),
         json!({
             "active": false, "supervise": false, "applied": false, "added": [], "removed": [],
-            "pinned": [], "unpinned": [], "restartNeeded": ["supervise"]
+            "pinned": [], "unpinned": [], "worktreeOn": [], "worktreeOff": [],
+            "restartNeeded": ["supervise"]
         })
     );
     assert_eq!(

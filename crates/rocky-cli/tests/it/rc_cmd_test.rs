@@ -272,6 +272,33 @@ fn stale_rows_say_so() {
 }
 
 #[test]
+fn worktree_rows_say_so() {
+    // 설정(`worktree`)과 떠 있는 서버의 모드(`liveWorktree`)가 다르면 다시 띄워야 설정대로 뜬다.
+    let raw = json!({
+        "configured": true,
+        "servers": [
+            {"label": "a", "dir": "/w/a", "pinned": true, "worktree": true, "liveWorktree": true, "running": true, "pid": 1, "sessions": 2},
+            {"label": "b", "dir": "/w/b", "pinned": true, "worktree": true, "running": true, "pid": 2, "sessions": 0},
+            {"label": "c", "dir": "/w/c", "pinned": true, "liveWorktree": true, "running": true, "pid": 3, "sessions": 1},
+            {"label": "d", "dir": "/w/d", "pinned": true, "worktree": true, "running": false, "sessions": 0}
+        ],
+        "strays": [],
+        "auth": "in"
+    });
+    let out = render_status(&raw);
+    assert!(has_line(&out, "● a 고정 2 워크트리"), "{out}");
+    assert!(
+        has_line(&out, "● b 고정 워크트리(다시 띄우면 켜짐)"),
+        "{out}"
+    );
+    assert!(
+        has_line(&out, "● c 고정 1 워크트리 끔(다시 띄우면 꺼짐)"),
+        "{out}"
+    );
+    assert!(has_line(&out, "○ d 고정 워크트리"), "{out}");
+}
+
+#[test]
 fn waiting_rows_say_the_turn_is_still_going() {
     let raw = json!({
         "configured": true,

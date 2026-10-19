@@ -14,6 +14,7 @@ fn controller(rc_dir: &Path) -> Arc<RcController> {
             root: Some("/w".into()),
             pinned: vec![],
             targets: vec![],
+            worktree: vec![],
             supervise: false,
             nightly: None,
         }),

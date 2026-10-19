@@ -493,6 +493,9 @@ pub struct RcConfig {
     pub pinned: Vec<String>,
     /// 화면에서 부를 수 있는 폴더.
     pub targets: Vec<String>,
+    /// 워크트리 모드로 띄울 폴더(`pinned` · `targets` 에 적힌 것 중) — 앱 · 프로젝트가 여는 세션마다 제 git 워크트리를
+    /// 받는다(`claude rc --spawn worktree`). 같은 폴더에 세션 여럿이 떠도 작업 트리를 나눠 쓰지 않는다.
+    pub worktree: Vec<String>,
     /// 감시 — 꺼진 고정 서버와, 야간 재시작이 내리고 못 띄워 되살림 표식이 남은 서버를 데몬이 스스로 띄운다. 기본
     /// 꺼짐(옛 주기 잡과 동시에 띄우지 않게 켜는 날을 고른다).
     pub supervise: bool,
@@ -597,6 +600,7 @@ pub fn parse_rc_block(block: &serde_json::Map<String, serde_json::Value>) -> RcC
             .map(str::to_string),
         pinned: names("pinned"),
         targets: names("targets"),
+        worktree: names("worktree"),
         supervise: block.get("supervise").and_then(|v| v.as_bool()) == Some(true),
         nightly: block.get("nightly").and_then(parse_nightly),
     }

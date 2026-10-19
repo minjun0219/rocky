@@ -20,6 +20,9 @@ pub struct Target {
     pub label: String,
     pub dir: String,
     pub pinned: bool,
+    /// 워크트리 모드(`rc.worktree`) — 서버만 · 새 세션 모드로 띄울 때 `--spawn worktree` 를 붙이고, 재시작 때 세션을
+    /// 이어받지 않는다(`restart_mode`).
+    pub worktree: bool,
 }
 
 /// `ps -axww -o pid=,ppid=,etime=,args=` 한 줄.
@@ -40,6 +43,8 @@ pub struct LiveServer {
     pub uptime_secs: Option<u64>,
     /// 열린 세션 수(자식 중 `--sdk-url …/code/session` 이 붙은 것).
     pub sessions: usize,
+    /// 워크트리 모드로 떴나 — 명령줄의 `--spawn worktree`(`spawns_worktree`). claude 에 저장해 둔 모드는 못 본다.
+    pub worktree: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -108,6 +113,13 @@ pub struct ServerRow {
     pub label: String,
     pub dir: String,
     pub pinned: bool,
+    /// 워크트리 모드 대상인가(설정 값 — 떠 있는 서버가 그 모드로 떴는지는 `live_worktree`).
+    #[serde(skip_serializing_if = "is_false")]
+    pub worktree: bool,
+    /// 떠 있는 서버가 워크트리 모드로 떴나(`LiveServer::worktree`). `worktree` 와 다르면 다시 띄워야 설정대로 뜬다 — 데몬이
+    /// 고친 파일을 알아서 읽어 `rocky rc reload` 가 바뀐 것을 못 알리기도 해서, 현황이 이 차이를 보인다.
+    #[serde(skip_serializing_if = "is_false")]
+    pub live_worktree: bool,
     pub running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
@@ -223,6 +235,14 @@ impl RcStatus {
         }
     }
 
+    /// `dir` 폴더 대상의 서버가 워크트리 모드로 떠 있나(`ServerRow::live_worktree`) — 재시작 · 야간이 그 서버의 세션을
+    /// 이어받지 않게 한다(세션이 제 워크트리에서 돌아 폴더에서 이어받으면 작업 트리가 바뀐다). 대상 밖 서버는 보지 않는다.
+    pub fn live_worktree(&self, dir: &str) -> bool {
+        self.servers
+            .iter()
+            .any(|s| s.dir == dir && s.running && s.live_worktree)
+    }
+
     /// `dir` 폴더에 떠 있는 서버(pid, 열린 세션 수) — 대상 행에서 먼저, 없으면 대상 밖 서버에서 찾는다. 대상 목록은 하던 일
     /// 도중에도 바뀐다(파일이 바뀌면 데몬이 알아서 다시 읽는다). 재시작 · 띄우기 도중 그 폴더가 목록에서 빠져도 떠 있는 서버를
     /// 꺼진 것으로 보고 같은 폴더에 하나 더 띄우지 않게.
@@ -311,6 +331,22 @@ pub fn ancestors(rows: &[PsRow], start: u32) -> HashSet<u32> {
     out
 }
 
+/// 서버 명령줄이 워크트리 모드인가 — `--spawn worktree` · `--spawn=worktree`(`--spawn-mode` 꼴도). 마지막 값이 이긴다.
+pub fn spawns_worktree(args: &str) -> bool {
+    let f: Vec<&str> = args.split_whitespace().collect();
+    let mut mode = None;
+    for (i, a) in f.iter().enumerate() {
+        for flag in ["--spawn", "--spawn-mode"] {
+            if *a == flag {
+                mode = f.get(i + 1).copied();
+            } else if let Some(v) = a.strip_prefix(flag).and_then(|r| r.strip_prefix('=')) {
+                mode = Some(v);
+            }
+        }
+    }
+    mode == Some("worktree")
+}
+
 /// 표에서 rc 서버만(pid 순).
 pub fn servers(rows: &[PsRow]) -> Vec<&PsRow> {
     let mut out: Vec<&PsRow> = rows.iter().filter(|r| is_server_argv(&r.args)).collect();
@@ -389,6 +425,14 @@ pub fn resolve_root(config: &RcConfig, home: &str) -> String {
 /// `resolve_targets` 와 같은 순서 · 같은 규칙으로, 대상마다 처음 적힌 이름을 함께.
 pub fn resolve_entries(config: &RcConfig, home: &str) -> Vec<TargetEntry> {
     let root = resolve_root(config, home);
+    // 워크트리 목록은 대상을 더하지 않는다 — 대상의 띄우는 방식만 바꾼다.
+    let worktree: HashSet<String> = config
+        .worktree
+        .iter()
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty())
+        .map(|n| resolve_dir(n, home, &root))
+        .collect();
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let named = config
@@ -409,6 +453,7 @@ pub fn resolve_entries(config: &RcConfig, home: &str) -> Vec<TargetEntry> {
             entry: name.to_string(),
             target: Target {
                 label: label_of(&dir),
+                worktree: worktree.contains(&dir),
                 dir,
                 pinned,
             },
@@ -513,6 +558,8 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
                 label: t.label.clone(),
                 dir: t.dir.clone(),
                 pinned: t.pinned,
+                worktree: t.worktree,
+                live_worktree: hit.is_some_and(|s| s.worktree),
                 running: hit.is_some(),
                 pid: hit.map(|s| s.pid),
                 uptime_secs: hit.and_then(|s| s.uptime_secs),
@@ -566,9 +613,12 @@ pub enum LaunchMode {
 pub const START_MODE: LaunchMode = LaunchMode::Server;
 
 /// 재시작 방식. 열린 세션이 있으면 이어받는다 — `-c` 는 세션이 없을 때 쓰면 뜨자마자 할 일이 없어 내려간다.
-/// 없거나 `fresh`(이어받지 않음)면 서버만.
-pub fn restart_mode(live_session: bool, fresh: bool) -> LaunchMode {
-    if live_session && !fresh {
+/// 없거나 `fresh`(이어받지 않음)면 서버만. 워크트리 모드(설정 대상이거나 떠 있는 서버가 그 모드 — 부르는 쪽이 둘을 OR 한다)도
+/// 서버만이다 — `-c` · `--session-id` 는 `--spawn` 과 함께 쓸 수 없는 단일 세션 모드라(claude 가 거절한다), 이어받으면 그
+/// 세션이 끝날 때까지 다른 세션을 못 연다. 떠 있는 서버가 워크트리 모드면 세션이 제 워크트리에서 돌아, 폴더에서 이어받으면
+/// 작업 트리가 바뀐다.
+pub fn restart_mode(live_session: bool, fresh: bool, worktree: bool) -> LaunchMode {
+    if live_session && !fresh && !worktree {
         LaunchMode::Resume
     } else {
         START_MODE
@@ -600,8 +650,14 @@ pub fn valid_session_id(id: &str) -> bool {
 }
 
 /// 띄울 argv — 셸을 거치지 않는다. 라벨이 `--name` 이라 서버 판정(`is_server_argv`)에 걸린다. `Pin` 은 `session`
-/// 이 있어야 뜻이 있다(없으면 이어받기와 같다).
-pub fn server_argv(label: &str, mode: LaunchMode, session: Option<&str>) -> Vec<String> {
+/// 이 있어야 뜻이 있다(없으면 이어받기와 같다). `worktree` 는 서버만 · 새 세션 모드에만 `--spawn worktree` 를 붙인다 —
+/// 이어받기(`-c` · `--session-id`)와 같이 넘기면 claude 가 거절한다.
+pub fn server_argv(
+    label: &str,
+    mode: LaunchMode,
+    session: Option<&str>,
+    worktree: bool,
+) -> Vec<String> {
     let mut argv = vec![
         "claude".to_string(),
         "rc".to_string(),
@@ -616,6 +672,9 @@ pub fn server_argv(label: &str, mode: LaunchMode, session: Option<&str>) -> Vec<
             Some(id) => argv.extend(["--session-id".to_string(), id.to_string()]),
             None => argv.push("-c".to_string()),
         },
+    }
+    if worktree && matches!(mode, LaunchMode::Server | LaunchMode::Session) {
+        argv.extend(["--spawn".to_string(), "worktree".to_string()]);
     }
     argv
 }
@@ -902,6 +961,28 @@ pub fn project_dir_name(dir: &str) -> String {
         .collect()
 }
 
+/// 폴더의 턴을 잴 대화 기록 폴더 이름들(`~/.claude/projects/` 아래) — 폴더 자신과, 그 폴더의 워크트리
+/// (`<dir>/.claude/worktrees/<이름>` — `worktrees` 는 그 아래 이름들)마다 하나. 워크트리 모드 서버의 세션은 제 워크트리에서
+/// 돌아 기록도 거기 쌓인다(claude 2.1.303 은 `bridge-<세션 id>`). rocky 가 할 일마다 딴 `todo-<n>` 은 뺀다 — 핸드오프
+/// 서버 · 백그라운드 세션이 따로 물고 있어 이 서버의 턴이 아니다.
+pub fn transcript_dir_names(dir: &str, worktrees: &[String]) -> Vec<String> {
+    let base = dir.trim_end_matches('/');
+    std::iter::once(project_dir_name(dir))
+        .chain(
+            worktrees
+                .iter()
+                .filter(|name| !is_todo_worktree(name))
+                .map(|name| project_dir_name(&format!("{base}/.claude/worktrees/{name}"))),
+        )
+        .collect()
+}
+
+/// rocky 가 할 일에 딴 워크트리 이름인가 — `todo-<번호>`(`rockyd::spawnctl::worktree_name_for`).
+fn is_todo_worktree(name: &str) -> bool {
+    name.strip_prefix("todo-")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// 야간 판정의 이유 — 이벤트 기록의 `reason` 값.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -931,6 +1012,8 @@ pub struct NightlyState {
     /// 그 폴더 대화 기록(`*.jsonl`) 중 가장 최근 mtime(unix 초). 기록이 하나도 없으면 None.
     pub last_write: Option<i64>,
     pub pinned: bool,
+    /// 워크트리 모드 대상이거나 떠 있는 서버가 그 모드다 — 다시 띄울 방식이 늘 서버만이다(`restart_mode`).
+    pub worktree: bool,
     /// 내리기 직전 네트워크 확인이 끝내 실패했다.
     pub offline: bool,
 }
@@ -974,7 +1057,8 @@ pub fn decide_nightly(s: &NightlyState, now: i64, quiet: Duration) -> NightlyDec
         _ if s.offline => NightlyReason::NoNetwork,
         _ => NightlyReason::Restart,
     };
-    let mode = (reason == NightlyReason::Restart).then(|| restart_mode(s.live_session, false));
+    let mode =
+        (reason == NightlyReason::Restart).then(|| restart_mode(s.live_session, false, s.worktree));
     NightlyDecision {
         reason,
         from,

@@ -118,6 +118,29 @@ fn reload_on_its_own_lists_the_changes() {
 }
 
 #[test]
+fn reload_names_worktree_switches_and_how_to_apply_them() {
+    // 띄우는 방식이라 떠 있는 서버는 그대로다 — 다시 띄우는 법까지 알린다.
+    let one = reloaded(json!({ "worktreeOn": ["rocky"] }));
+    assert_eq!(
+        reload_lines(&one, PATH, None),
+        [
+            "✓ 데몬이 대상 목록을 다시 읽었다",
+            "  워크트리 켬: rocky",
+            "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다: rocky rc restart rocky",
+        ]
+    );
+    let two = reloaded(json!({ "worktreeOn": ["a"], "worktreeOff": ["b"] }));
+    assert_eq!(
+        reload_lines(&two, PATH, None),
+        [
+            "✓ 데몬이 대상 목록을 다시 읽었다",
+            "  워크트리 켬: a · 워크트리 끔: b",
+            "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다(a · b): rocky rc restart <이름>",
+        ]
+    );
+}
+
+#[test]
 fn reload_points_at_a_restart_when_rc_turns_on_or_off() {
     let off_at_start = json!({
         "active": false, "applied": false, "restartNeeded": ["enabled"], "path": PATH
@@ -195,6 +218,7 @@ fn line(label: &str, dir: &str, pinned: bool, exists: bool, ambiguous: bool) -> 
         dir: dir.into(),
         entry: label.into(),
         pinned,
+        worktree: false,
         exists,
         ambiguous,
     }
@@ -209,14 +233,21 @@ fn list_is_a_table_with_memos_and_a_footer() {
         targets: vec![
             line("알파", "/home/u/dev/workspaces/알파", true, true, false),
             line("x", "/srv/x", false, false, true),
+            TargetLine {
+                worktree: true,
+                ..line("rocky", "/home/u/dev/workspaces/rocky", false, true, false)
+            },
         ],
+        unmatched_worktree: vec!["rokcy".into()],
     };
     assert_eq!(
         render_list(&list, "~/.config/rocky/rocky.json", "/home/u"),
         "\
-이름  고정  폴더
-알파  고정  ~/dev/workspaces/알파
-x           /srv/x  ⚠ 폴더가 없다 · ⚠ 이름이 겹쳐 이름으로 부를 수 없다
+이름   고정  폴더
+알파   고정  ~/dev/workspaces/알파
+x            /srv/x  ⚠ 폴더가 없다 · ⚠ 이름이 겹쳐 이름으로 부를 수 없다
+rocky        ~/dev/workspaces/rocky  워크트리
+⚠ 대상이 아닌 워크트리 이름(무시된다): rokcy
 
 설정 파일: ~/.config/rocky/rocky.json · 맨 이름은 root 아래: ~/dev/workspaces"
     );
@@ -225,6 +256,7 @@ x           /srv/x  ⚠ 폴더가 없다 · ⚠ 이름이 겹쳐 이름으로 �
         enabled: false,
         root: "/w".into(),
         targets: vec![],
+        unmatched_worktree: vec![],
     };
     assert_eq!(
         render_list(&off, "/c/rocky.json", "/home/u"),

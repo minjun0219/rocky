@@ -106,6 +106,7 @@ pub async fn probe(runner: &Runner, config: Option<&RcConfig>, home: &str) -> Rc
                     dir: cwd.get(&s.pid)?.clone(),
                     uptime_secs: s.uptime_secs,
                     sessions: rc::session_count(&rows, s.pid),
+                    worktree: rc::spawns_worktree(&s.args),
                 })
             })
             .collect()
@@ -220,7 +221,7 @@ pub async fn agy_control(runner: &Runner, action: AgyAction) -> Result<(), Strin
 
 /// 데몬이 지금 쓰는 rc 설정 — 현황(`rc_handles`)과 기동기(`RcController`)가 같은 칸을 본다. 설정 파일이 바뀌었으면(mtime ·
 /// 크기) 볼 때마다 알아서 다시 읽고, `rocky rc reload`(`POST /api/rc/reload`)는 지금 다시 읽어 무엇이 바뀌었는지 돌려준다.
-/// 어느 쪽이든 대상 목록(root · pinned · targets)이 바뀌면 세대가 올라 현황 캐시가 새로 잰다. 기능 스위치(enabled · supervise ·
+/// 어느 쪽이든 대상 목록(root · pinned · targets · worktree)이 바뀌면 세대가 올라 현황 캐시가 새로 잰다. 기능 스위치(enabled · supervise ·
 /// nightly)는 바꾸지 않는다 — 기동기와 루프가 기동 때 정해진다(`rc_targets::plan_reload`).
 #[derive(Clone, Default)]
 pub struct RcSettings {
@@ -987,6 +988,8 @@ impl RcController {
             return Err(rc::LOGGED_OUT_REFUSAL.into());
         }
         let live = status.live_server(&target.dir);
+        // 설정이 워크트리 대상이거나 떠 있는 서버가 그 모드면 재시작이 세션을 이어받지 않는다(`restart_mode`).
+        let worktree = target.worktree || status.live_worktree(&target.dir);
         let mut session = match &command {
             RcCommand::Pin(id) => Some(id.clone()),
             _ => None,
@@ -1018,7 +1021,9 @@ impl RcController {
                             version = self.claude_version().await;
                         }
                         let mut mode = match &command {
-                            RcCommand::Restart { fresh } => rc::restart_mode(sessions > 0, *fresh),
+                            RcCommand::Restart { fresh } => {
+                                rc::restart_mode(sessions > 0, *fresh, worktree)
+                            }
                             _ => LaunchMode::Pin,
                         };
                         // `-c` 는 서버가 처음 만든 세션을 되살린다 — 나중에 열린 대화를 놓친다. 열린 세션의 id 를 읽어 못 박는다.
@@ -1278,7 +1283,7 @@ impl RcController {
     ) -> Result<u32, String> {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
-        let argv = rc::server_argv(&target.label, mode, session);
+        let argv = rc::server_argv(&target.label, mode, session, target.worktree);
         let pid = self
             .spawn_logged(&argv, Path::new(&target.dir), &target.label)
             .map_err(|e| format!("못 띄웠다({} 에서 {}): {e}", target.dir, argv.join(" ")))?;
@@ -1301,7 +1306,7 @@ impl RcController {
         self.event(
             "start",
             &target.label,
-            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir, "version": version, "session": session }),
+            serde_json::json!({ "mode": mode, "pid": pid, "dir": target.dir, "version": version, "session": session, "worktree": target.worktree }),
         );
         Ok(pid)
     }

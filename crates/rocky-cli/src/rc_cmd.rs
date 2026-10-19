@@ -112,7 +112,7 @@ pub fn cmd_rc(
             }
             if verb == "restart" && flags.bool_flag("new-session") {
                 return Err(
-                    "--new-session 은 start 에만 쓴다 — 재시작은 열린 세션을 이어받는다".into(),
+                    "--new-session 은 start 에만 쓴다 — 재시작은 열린 세션을 이어받는다(워크트리 모드면 서버만)".into(),
                 );
             }
             if verb == "restart" {
@@ -329,6 +329,15 @@ fn server_row(v: &Value) -> Row {
             == Some(false)
     {
         row.memo.push("정박".into());
+    }
+    // 설정과 떠 있는 서버의 모드가 다르면 다시 띄워야 설정대로 뜬다 — 데몬이 고친 파일을 알아서 읽어 reload 가 못 알리기도 한다.
+    let worktree = v.get("worktree").and_then(Value::as_bool) == Some(true);
+    let live_worktree = v.get("liveWorktree").and_then(Value::as_bool) == Some(true);
+    match (worktree, live_worktree) {
+        (true, false) if running => row.memo.push("워크트리(다시 띄우면 켜짐)".into()),
+        (true, _) => row.memo.push("워크트리".into()),
+        (false, true) => row.memo.push("워크트리 끔(다시 띄우면 꺼짐)".into()),
+        (false, false) => {}
     }
     if v.get("stale").and_then(Value::as_bool) == Some(true) {
         row.memo.push("구버전".into());

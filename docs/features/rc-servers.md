@@ -12,7 +12,7 @@
   제어 범위도 아니다): CLI 가 rocky.json 의 `rc.pinned` · `rc.targets` 를 고치고(판정 `rocky_core::rc_targets` — 가장 짧은 꼴로 적고,
   라벨이 같은 다른 폴더와 없는 폴더는 거절, `unpin` 은 적힌 이름을 그대로 일반 목록으로 옮기고 고정이 아니면 거절, 키 순서 · 들여쓰기
   단위를 지키고 같은 폴더의 임시 파일을 이름 바꿔 덮는다, 링크면 가리키는 파일을 고친다) 데몬에 다시 읽으라고 한다. 데몬은 **대상
-  목록(`root` · `pinned` · `targets`)만** 바로 쓴다(`RcSettings` — 현황 캐시와 기동기가 같은 칸을 보고, 세대가 바뀌면 현황이 TTL
+  목록(`root` · `pinned` · `targets` · `worktree`)만** 바로 쓴다(`RcSettings` — 현황 캐시와 기동기가 같은 칸을 보고, 세대가 바뀌면 현황이 TTL
   안이라도 새로 잰다). **손으로 고친 파일도 알아서 다시 읽는다** — `RcSettings` 는 설정을 내줄 때마다 파일의 지문(mtime · 크기 ·
   inode)을 재고, 기동 때나 마지막으로 읽을 때와 다르면 같은 규칙으로 다시 읽는다(stat 한 번, 다시 읽기는 지문 잠금을 쥐고 하나씩 —
   재는 것이 읽기보다 먼저라 그 사이의 변경을 놓치지 않는다. 제자리 쓰기를 mtime 한 틱 안에 같은 크기로 두 번 하면 지문이 같다 —
@@ -56,11 +56,34 @@
 - 재시작은 열린 세션이 있을 때만 이어받는다 — **내리기 전에 그 서버의 자식 세션 명령줄에서 세션 id 를 읽어 `--session-id` 로
   못 박는다**(`rc::resume_session` · `session_id_of`). 세션이 여럿이면 받은편지함 등록 시각(훅이 턴마다 갱신)이 가장 최근인 것, 등록이
   없으면 가장 늦게 열린 것. id 를 못 읽을 때만 `-c` — `-c` 는 "그 폴더에서 마지막 서버가 처음 만든 세션" 을 되살려, 서버에 나중에 열린
-  대화를 놓친다(2026-10-06 실측: 하던 대화 대신 9월에 시작한 첫 세션이 돌아왔다). 둘 다 단일 세션 모드다. 열린 세션이 없거나 `fresh` 면 서버만.
+  대화를 놓친다(2026-10-06 실측: 하던 대화 대신 9월에 시작한 첫 세션이 돌아왔다). 둘 다 단일 세션 모드다. 열린 세션이 없거나 `fresh` 거나
+  워크트리 대상(아래)이면 서버만.
 - **띄우기는 서버만이 기본**(`rc::START_MODE` = `Server`, `--no-create-session-in-dir` — 2026-10-17 오너 결정): 이름으로 띄우기 ·
   감시의 되살림 · `--all` · 재시작의 새로 띄우기 모두 세션을 만들지 않는다 — 세션은 앱에서 연다. 사람이 고를 때만 새 세션과 함께
   (`rocky rc start <라벨> --new-session`, 본문 `newSession` → `RcCommand::StartSession`; `serverOnly` 와 같이 주면 400). 고정은
   "꺼지면 되살린다" 는 뜻일 뿐 세션을 뜻하지 않는다.
+- **워크트리 모드**(`rc.worktree`, 2026-10-19 — 맥 세션에 일을 시키려면 그 스레드에 오너가 직접 써야 하는 제약을 줄이자는 오너
+  요청의 수단): `pinned` · `targets` 에 적힌 폴더 중 고른 것(대상을 더하지는 않는다 — `Target.worktree`. `rocky rc targets rm` 은
+  워크트리 목록에서도 그 폴더를 지운다). 서버만 · 새 세션 모드로 띄울 때 `--spawn worktree` 를 붙여 앱 · claude.ai 프로젝트가 여는 세션마다 제 git
+  워크트리를 받게 한다(claude 2.1.303 은 `<폴더>/.claude/worktrees/bridge-<세션 id>`). 프로젝트 스레드가 오너의 메시지로 그 폴더에
+  기기 세션을 새로 띄워도 같은 작업 트리를 나눠 쓰지 않게 하려는 것이다. **이어받기(`-c` · `--session-id`)에는 붙이지 않는다** — claude 가
+  `--spawn` · `--capacity` · `--create-session-in-dir` 과 같이 받지 않는다(`server_argv`). 그래서 **워크트리 대상의 재시작은 이어받지
+  않는다**(`restart_mode` 의 셋째 인자 — 야간도 같다): 이어받으면 단일 세션 모드라 그 세션이 끝날 때까지 새 세션을 못 열고 워크트리도
+  꺼진다. 사람이 `--session` 으로 고른 세션(`RcCommand::Pin`)만은 그대로 따른다. 폴더가 git 레포가 아니고 WorktreeCreate 훅도 없으면
+  claude 가 뜨지 않는다("Worktree mode requires a git repository or WorktreeCreate hooks configured") — 레포 루트를 고른다(하위 폴더면
+  워크트리가 레포 루트에 생겨 아래 판정이 못 본다). 목록을 바꾸면 다시 읽기가 바로 쓰고 `worktreeOn` · `worktreeOff` 로 알리지만, 떠
+  있는 서버는 다시 띄워야 바뀐 모드로 뜬다(`rocky rc restart <이름>` — CLI 가 알려 준다). 데몬이 고친 파일을 알아서 읽으면 reload 가
+  알릴 것이 없으니, **현황 행이 둘을 같이 싣는다**: `worktree` 는 설정 값, `liveWorktree` 는 떠 있는 서버의 명령줄에 `--spawn
+  worktree` 가 있나(`rc::spawns_worktree` → `LiveServer.worktree` — claude 에 저장해 둔 모드는 못 본다). 다르면 `rocky rc` 가
+  `워크트리(다시 띄우면 켜짐)` · `워크트리 끔(다시 띄우면 꺼짐)` 으로 보인다. **재시작 · 야간은 둘 중 하나라도 워크트리면 이어받지
+  않는다**(`target.worktree || RcStatus::live_worktree` · `row.worktree || row.live_worktree`) — 설정을 껐어도 떠 있는 서버의 세션은 제
+  워크트리에서 돌아, 폴더에서 이어받으면 작업 트리가 바뀐다. 대상으로 풀리지 않는 `worktree` 이름(오타 · 대상 밖 폴더)은 무시되고
+  `rocky rc targets` 가 ⚠ 줄로 알린다(`TargetList.unmatched_worktree`).
+- **턴 판정은 그 폴더의 워크트리까지 본다**(`rc::transcript_dir_names`): 턴 대기 · 야간의 "쉬는 서버" 는 그 폴더 대화 기록과
+  `<폴더>/.claude/worktrees/*` 마다의 대화 기록(`~/.claude/projects/<project_dir_name(워크트리 경로)>/*.jsonl`) 중 가장 최근 mtime 으로
+  잰다 — 워크트리 모드 서버의 세션은 제 워크트리에서 대화한다. rocky 가 할 일마다 딴 `todo-<번호>` 는 뺀다 — 핸드오프 서버 ·
+  백그라운드 세션이 따로 물고 있어 이 서버의 턴이 아니다. 워크트리 대상이 아니어도 같다 — claude.ai 가 세션마다 워크트리를 청하면
+  같은 폴더 모드 서버도 세션 워크트리를 딴다(2.1.303 바이너리에서 읽은 동작). 사람이 터미널에서 딴 워크트리(`claude -w`)의 대화도 바쁨으로 보인다 — 끊기보다 기다리는 쪽이다.
 - **핸드오프 서버**(보드의 새 세션 띄우기 — [spawn](spawn.md)): 할 일의 워크트리에서 `claude rc --spawn session` 으로 띄운다(로그
   `rc/handoff-<보드>-<n>.out` · `.err`, 이벤트 `handoff-*`). 대상이 아니라 **감시 · 야간이 건드리지 않고** 현황에는 대상 밖 서버로
   보인다 — 띄울 때 남긴 기록(`rc/handoff/<라벨>.json`: 이름 · pid · 폴더 · 할 일 참조)과 **pid · 폴더가 둘 다 맞는** 대상 밖 서버는
@@ -84,7 +107,7 @@
 - **일괄 띄우기**(`rocky rc start --all`, 옛 CLI `-a`): 꺼짐이 확실한 대상(`running: false`)마다 `start` 를 본문
   `serverOnly` 로 보낸다 — 고정이든 아니든 서버만(`Revive(Server)`, 떠 있으면 그대로). 현황을 못 읽으면
   (`probeError`) 아무것도 띄우지 않는다. 비상용이다.
-- **턴 대기**: 내리기 직전에 열린 세션이 2분 안에 대화했으면(그 폴더 최상위 대화 기록 `*.jsonl` 의 mtime) 막 답하는 중이라 보고
+- **턴 대기**: 내리기 직전에 열린 세션이 2분 안에 대화했으면(그 폴더와 그 워크트리의 최상위 대화 기록 `*.jsonl` 의 mtime — 위) 막 답하는 중이라 보고
   15초마다 캐시 없이 다시 재며 10분까지 기다린다(행 상태 `waiting`). 끝내 안 끝나면 **내리지 않고** 실패로 남긴다. 기다린 뒤에는
   설치 버전을 다시 잰다. **한계**: 2분 넘게 아무것도 쓰지 않는 도구 호출 · 서브에이전트는 "조용함"으로 보인다. 그래서 **자기 서버
   재시작은 CLI 가 거절한다** — `rocky rc restart` 가 자기 조상 사슬(ppid)에 그 서버 pid 가 있으면 멈춘다(옛 CLI 의 자가-살해 가드,
@@ -110,7 +133,7 @@
   두고 `version-record` 이벤트(경로 · 원인)를 남긴다.
 - **야간 리허설**(`GET /api/rc/nightly/preview`, `rocky rc nightly --dry-run`): 지금 설치 버전(`claude --version`, 못 재면
   `~/.local/bin/claude` 링크 대상 → `versions/` 중 가장 높은 것)으로 떠 있는 **설정 대상**마다 `decide_nightly` 를 돌려 보인다.
-  update · 내리기 · 띄우기 · 기다리기 없이, `rc/` 에 아무것도 쓰지 않는다. 쉬는지는 `~/.claude/projects/<project_dir_name>/*.jsonl` 의
+  update · 내리기 · 띄우기 · 기다리기 없이, `rc/` 에 아무것도 쓰지 않는다. 쉬는지는 `~/.claude/projects/<project_dir_name>/*.jsonl`(그 폴더 워크트리의 것까지)의
   최신 mtime 으로 잰다. 프로브 실패 · 로그아웃이면 `blocked`. 읽기지만 프로세스를 캐시 없이 띄우므로 **로컬 전용**(403).
 - **야간 재시작(`rc.nightly`, 블록이 있으면 켜짐)**: 1분마다 "오늘 `at` 이 지났고 아직 안 돌았나"(`nightly_due`)를 보고, 돌 차례면
   **그 날을 먼저 `rc/nightly.json` 에 남긴 뒤** 돈다 — 도중에 데몬이 다시 떠도 같은 날 두 번 돌지 않는다. 기록이 없으면(처음 켠 날)
