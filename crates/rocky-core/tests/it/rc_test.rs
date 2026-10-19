@@ -98,6 +98,7 @@ fn targets_resolve_like_the_shell() {
             "nested/repo-d".into(),
             " ".into(),
         ],
+        worktree: vec![],
         supervise: false,
         nightly: None,
     };
@@ -118,11 +119,36 @@ fn targets_resolve_like_the_shell() {
 }
 
 #[test]
+fn worktree_list_marks_targets_without_adding_any() {
+    let config = RcConfig {
+        root: None,
+        pinned: vec!["repo-a".into()],
+        targets: vec!["repo-b".into(), "/opt/repo-c".into()],
+        // 같은 폴더를 다른 꼴로 적어도 맞는다. 대상이 아닌 이름은 대상을 만들지 않는다.
+        worktree: vec![
+            "repo-a/".into(),
+            "/opt/repo-c".into(),
+            "not-a-target".into(),
+            " ".into(),
+        ],
+        supervise: false,
+        nightly: None,
+    };
+    let got = resolve_targets(&config, "/home/u");
+    let view: Vec<(&str, bool)> = got.iter().map(|t| (t.label.as_str(), t.worktree)).collect();
+    assert_eq!(
+        view,
+        vec![("repo-a", true), ("repo-b", false), ("repo-c", true)]
+    );
+}
+
+#[test]
 fn custom_root_is_used_for_relative_names() {
     let config = RcConfig {
         root: Some("/srv/ws/".into()),
         pinned: vec![],
         targets: vec!["x".into()],
+        worktree: vec![],
         supervise: false,
         nightly: None,
     };
@@ -132,6 +158,7 @@ fn custom_root_is_used_for_relative_names() {
         root: Some("ws".into()),
         pinned: vec![],
         targets: vec!["x".into(), "~foo".into()],
+        worktree: vec![],
         supervise: false,
         nightly: None,
     };
@@ -199,11 +226,13 @@ fn rows_match_by_dir_string_and_list_strays() {
             label: "a".into(),
             dir: "/w/a".into(),
             pinned: true,
+            worktree: true,
         },
         Target {
             label: "b".into(),
             dir: "/w/b".into(),
             pinned: false,
+            worktree: false,
         },
     ];
     let live = vec![
@@ -212,12 +241,14 @@ fn rows_match_by_dir_string_and_list_strays() {
             dir: "/w/a".into(),
             uptime_secs: Some(60),
             sessions: 2,
+            worktree: false,
         },
         LiveServer {
             pid: 10,
             dir: "/w/a".into(),
             uptime_secs: Some(600),
             sessions: 0,
+            worktree: false,
         },
         // 개명 전 경로를 문 옛 서버.
         LiveServer {
@@ -225,6 +256,7 @@ fn rows_match_by_dir_string_and_list_strays() {
             dir: "/w/old-name".into(),
             uptime_secs: None,
             sessions: 1,
+            worktree: false,
         },
         // 정규화하지 않는다 — 끝 슬래시가 다르면 다른 폴더다.
         LiveServer {
@@ -232,11 +264,16 @@ fn rows_match_by_dir_string_and_list_strays() {
             dir: "/w/b/".into(),
             uptime_secs: None,
             sessions: 0,
+            worktree: false,
         },
     ];
     let (rows, strays) = build_rows(&targets, &live);
     assert!(rows[0].running);
     assert_eq!(rows[0].pid, Some(10), "먼저 뜬 쪽");
+    assert!(
+        rows[0].worktree && !rows[1].worktree,
+        "설정 값을 그대로 싣는다"
+    );
     assert_eq!(rows[0].sessions, 0);
     assert!(!rows[1].running);
     // 대상 폴더의 두 번째 서버(20)도 사라지지 않고 여기 보인다.
@@ -253,6 +290,7 @@ fn a_live_server_is_found_even_off_the_target_list() {
         label: "a".into(),
         dir: "/w/a".into(),
         pinned: true,
+        worktree: false,
     }];
     let live = vec![
         LiveServer {
@@ -260,6 +298,7 @@ fn a_live_server_is_found_even_off_the_target_list() {
             dir: "/w/a".into(),
             uptime_secs: None,
             sessions: 1,
+            worktree: false,
         },
         // 하던 일 도중 목록에서 빠진 폴더 — 대상 밖 서버로 보인다.
         LiveServer {
@@ -267,6 +306,7 @@ fn a_live_server_is_found_even_off_the_target_list() {
             dir: "/w/b".into(),
             uptime_secs: None,
             sessions: 2,
+            worktree: false,
         },
     ];
     let (servers, strays) = build_rows(&targets, &live);
@@ -290,7 +330,7 @@ fn rc_block_is_optional_and_lenient() {
     assert_eq!(load_rc_block(&path), None);
     std::fs::write(
         &path,
-        r#"{"rc":{"root":" ","pinned":["a",3," b "],"targets":"nope"}}"#,
+        r#"{"rc":{"root":" ","pinned":["a",3," b "],"targets":"nope","worktree":["a",""]}}"#,
     )
     .unwrap();
     assert_eq!(
@@ -299,6 +339,7 @@ fn rc_block_is_optional_and_lenient() {
             root: None,
             pinned: vec!["a".into(), "b".into()],
             targets: vec![],
+            worktree: vec!["a".into()],
             supervise: false,
             nightly: None,
         })
@@ -390,10 +431,12 @@ fn read_registration_cases() {
 #[test]
 fn restart_resumes_only_with_live_session() {
     // 열린 세션이 있을 때만 -c — 세션 없이 -c 로 뜬 서버는 할 일이 없어 내려간다(단일 세션 모드).
-    assert_eq!(restart_mode(true, false), LaunchMode::Resume);
-    assert_eq!(restart_mode(false, false), LaunchMode::Server);
+    assert_eq!(restart_mode(true, false, false), LaunchMode::Resume);
+    assert_eq!(restart_mode(false, false, false), LaunchMode::Server);
     // fresh 면 세션이 있어도 이어받지 않는다 — 서버만.
-    assert_eq!(restart_mode(true, true), LaunchMode::Server);
+    assert_eq!(restart_mode(true, true, false), LaunchMode::Server);
+    // 워크트리 모드도 이어받지 않는다 — -c · --session-id 는 --spawn 과 못 쓰는 단일 세션 모드라 워크트리가 꺼진다.
+    assert_eq!(restart_mode(true, false, true), LaunchMode::Server);
     // 이름으로 띄워도 서버만 — 세션은 사람이 고를 때만(`StartSession`).
     assert_eq!(START_MODE, LaunchMode::Server);
 }
@@ -420,12 +463,12 @@ fn server_argv_per_mode_is_a_server_by_structure() {
         ),
     ];
     for (mode, want) in cases {
-        let argv = server_argv("x", mode, None);
+        let argv = server_argv("x", mode, None, false);
         assert_eq!(argv, want);
         // 띄운 것을 1조각의 현황이 서버로 알아본다.
         assert!(is_server_argv(&argv.join(" ")));
     }
-    let pinned = server_argv("x", LaunchMode::Pin, Some("cse_01ab"));
+    let pinned = server_argv("x", LaunchMode::Pin, Some("cse_01ab"), false);
     assert_eq!(
         pinned,
         vec!["claude", "rc", "--name", "x", "--session-id", "cse_01ab"]
@@ -435,6 +478,118 @@ fn server_argv_per_mode_is_a_server_by_structure() {
         may_fail_to_start(LaunchMode::Pin),
         "만료 · 틀린 id 면 뜨자마자 내려간다"
     );
+}
+
+#[test]
+fn worktree_spawns_only_where_claude_takes_it() {
+    // 서버만 · 새 세션 — 세션마다 제 워크트리.
+    assert_eq!(
+        server_argv("x", LaunchMode::Server, None, true),
+        vec![
+            "claude",
+            "rc",
+            "--name",
+            "x",
+            "--no-create-session-in-dir",
+            "--spawn",
+            "worktree"
+        ]
+    );
+    assert_eq!(
+        server_argv("x", LaunchMode::Session, None, true),
+        vec!["claude", "rc", "--name", "x", "--spawn", "worktree"]
+    );
+    // 이어받기는 --spawn 과 같이 넘기면 claude 가 거절한다 — 붙이지 않는다.
+    assert_eq!(
+        server_argv("x", LaunchMode::Resume, None, true),
+        vec!["claude", "rc", "--name", "x", "-c"]
+    );
+    assert_eq!(
+        server_argv("x", LaunchMode::Pin, Some("cse_01ab"), true),
+        vec!["claude", "rc", "--name", "x", "--session-id", "cse_01ab"]
+    );
+    assert!(is_server_argv(
+        &server_argv("x", LaunchMode::Server, None, true).join(" ")
+    ));
+}
+
+#[test]
+fn spawn_mode_is_read_from_the_server_command_line() {
+    let cases = [
+        (
+            "서버만 · 워크트리",
+            "claude rc --name a --no-create-session-in-dir --spawn worktree",
+            true,
+        ),
+        ("= 꼴", "claude rc --name a --spawn=worktree", true),
+        (
+            "--spawn-mode 꼴",
+            "claude rc --name a --spawn-mode worktree",
+            true,
+        ),
+        (
+            "모드 없음(같은 폴더)",
+            "claude rc --name a --no-create-session-in-dir",
+            false,
+        ),
+        ("단일 세션", "claude rc --name a --spawn session", false),
+        (
+            "마지막 값이 이긴다",
+            "claude rc --name a --spawn worktree --spawn same-dir",
+            false,
+        ),
+        ("값이 없다", "claude rc --name a --spawn", false),
+    ];
+    for (why, args, want) in cases {
+        assert_eq!(spawns_worktree(args), want, "{why}: {args}");
+    }
+    assert!(spawns_worktree(
+        &server_argv("a", LaunchMode::Server, None, true).join(" ")
+    ));
+    assert!(!spawns_worktree(
+        &server_argv("a", LaunchMode::Server, None, false).join(" ")
+    ));
+}
+
+#[test]
+fn rows_carry_the_live_spawn_mode_next_to_the_setting() {
+    // 설정은 켰는데 서버는 아직 같은 폴더 모드 · 설정은 껐는데 서버는 워크트리 모드 — 둘 다 다시 띄워야 설정대로 뜬다.
+    let target = |label: &str, worktree: bool| Target {
+        label: label.into(),
+        dir: format!("/w/{label}"),
+        pinned: true,
+        worktree,
+    };
+    let live = |pid: u32, label: &str, worktree: bool| LiveServer {
+        pid,
+        dir: format!("/w/{label}"),
+        uptime_secs: None,
+        sessions: 1,
+        worktree,
+    };
+    let targets = vec![target("a", true), target("b", false), target("c", true)];
+    let (servers, strays) = build_rows(&targets, &[live(1, "a", false), live(2, "b", true)]);
+    let modes: Vec<_> = servers
+        .iter()
+        .map(|r| (r.label.as_str(), r.worktree, r.live_worktree))
+        .collect();
+    assert_eq!(
+        modes,
+        vec![("a", true, false), ("b", false, true), ("c", true, false)]
+    );
+    let status = RcStatus {
+        configured: true,
+        servers,
+        strays,
+        ..RcStatus::unconfigured()
+    };
+    assert!(!status.live_worktree("/w/a"));
+    assert!(status.live_worktree("/w/b"));
+    assert!(!status.live_worktree("/w/c"), "꺼진 서버");
+    // JSON 은 켜진 것만 싣는다.
+    let json = |i: usize| serde_json::to_value(&status.servers[i]).unwrap();
+    assert_eq!(json(1)["liveWorktree"], true);
+    assert!(json(0).get("liveWorktree").is_none());
 }
 
 #[test]
@@ -536,6 +691,8 @@ fn row(label: &str, pinned: bool, running: bool) -> ServerRow {
         label: label.into(),
         dir: format!("/w/{label}"),
         pinned,
+        worktree: false,
+        live_worktree: false,
         running,
         pid: running.then_some(1),
         uptime_secs: None,
@@ -787,6 +944,32 @@ fn project_dir_name_matches_claude_code() {
 }
 
 #[test]
+fn transcript_dirs_cover_the_folder_and_its_session_worktrees() {
+    let worktrees = [
+        "bridge-cse_01AbC".to_string(),
+        "todo-41".to_string(),
+        "todo-x".to_string(),
+        "feature".to_string(),
+    ];
+    assert_eq!(
+        transcript_dir_names("/w/rocky", &worktrees),
+        vec![
+            "-w-rocky",
+            // rc 서버가 세션마다 딴 워크트리(`bridge-<세션 id>`) — claude 처럼 `_` 도 `-` 로.
+            "-w-rocky--claude-worktrees-bridge-cse-01AbC",
+            // todo-41 은 rocky 핸드오프의 워크트리라 뺀다 — 번호가 아니면 할 일 워크트리가 아니다.
+            "-w-rocky--claude-worktrees-todo-x",
+            "-w-rocky--claude-worktrees-feature",
+        ]
+    );
+    // 끝 슬래시가 있어도 워크트리 경로는 같다. 폴더 자신은 예전처럼 적힌 그대로.
+    assert_eq!(
+        transcript_dir_names("/w/rocky/", &["bridge-a".to_string()]),
+        vec!["-w-rocky-", "-w-rocky--claude-worktrees-bridge-a"]
+    );
+}
+
+#[test]
 fn nightly_decision_follows_the_old_order() {
     const NOW: i64 = 1_000_000;
     let quiet = Duration::from_secs(60 * 60);
@@ -828,6 +1011,18 @@ fn nightly_decision_follows_the_old_order() {
             with(&|s| s.live_session = true),
             Restart,
             Some(Resume),
+        ),
+        (
+            "워크트리 · 세션 · 61분 조용 — 이어받지 않고 서버만",
+            with(&|s| (s.worktree, s.live_session, s.last_write) = (true, true, ago(61))),
+            Restart,
+            Some(Server),
+        ),
+        (
+            "워크트리 · 세션 · 59분 전 대화 — 바쁨",
+            with(&|s| (s.worktree, s.live_session, s.last_write) = (true, true, ago(59))),
+            Busy,
+            None,
         ),
         (
             "서버만 · 같은 폴더 터미널이 방금 기록 — 여전히 쉰다",

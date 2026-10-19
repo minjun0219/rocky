@@ -275,6 +275,10 @@ export interface RcServerRow {
   label: string;
   dir: string;
   pinned: boolean;
+  /** 워크트리 모드 대상(`rc.worktree` 설정 값). 재시작 확인 줄이 쓴다(`rcRestartNote`). */
+  worktree?: boolean;
+  /** 떠 있는 서버가 워크트리 모드로 떴나(명령줄의 `--spawn worktree`). `worktree` 와 다르면 다시 띄워야 설정대로 뜬다. */
+  liveWorktree?: boolean;
   running: boolean;
   pid?: number;
   uptimeSecs?: number;

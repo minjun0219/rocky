@@ -34,6 +34,19 @@ export function rcUptime(secs: number | undefined): string {
 }
 
 /**
+ * 재시작 확인 줄 — 열린 세션은 이어받기로 돌아오지만, 워크트리 모드(설정 대상이거나 떠 있는 서버가 그 모드)는 이어받지
+ * 않고 서버만 새로 뜬다(Rust `rc::restart_mode`).
+ */
+export function rcRestartNote(row: RcServerRow): string {
+  if (row.sessions === 0) {
+    return '다시 띄운다 — 붙은 원격 연결이 끊긴다';
+  }
+  return row.worktree || row.liveWorktree
+    ? `세션 ${row.sessions}개가 끊기고 서버만 새로 뜬다(워크트리 모드)`
+    : `세션 ${row.sessions}개가 끊기고 이어받기(-c)로 다시 뜬다`;
+}
+
+/**
  * 요약 줄의 숫자 — 대상 중 실행 수, 꺼진 고정 수, 열린 세션 수(대상 밖 포함). 프로브가 실패했으면(`probeError`)
  * "꺼짐" 은 모르는 것이라 꺼진 고정으로 세지 않는다.
  */
@@ -107,11 +120,7 @@ function useServerAction(row: RcServerRow) {
   const below =
     confirming && !row.action ? (
       <div className="flex flex-wrap items-center gap-2 px-3.5 pb-2.5 pl-[42px]">
-        <span className="text-chip text-muted">
-          {row.sessions > 0
-            ? `세션 ${row.sessions}개가 끊기고 이어받기(-c)로 다시 뜬다`
-            : '다시 띄운다 — 붙은 원격 연결이 끊긴다'}
-        </span>
+        <span className="text-chip text-muted">{rcRestartNote(row)}</span>
         <button
           type="button"
           className="min-h-8 rounded-md bg-mine-soft px-2.5 text-chip font-semibold text-mine"

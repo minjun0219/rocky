@@ -103,6 +103,7 @@ impl RcController {
             live_session: row.sessions > 0,
             last_write: last_write(&self.home, &row.dir),
             pinned: row.pinned,
+            worktree: row.worktree || row.live_worktree,
             offline: false,
         };
         rc::decide_nightly(&state, chrono::Utc::now().timestamp(), cfg.quiet)
@@ -918,12 +919,26 @@ where
     out
 }
 
-/// 그 폴더 대화 기록(`~/.claude/projects/<이름>/*.jsonl`) 중 가장 최근 mtime(unix 초). 없으면 None.
+/// 그 폴더 대화 기록(`~/.claude/projects/<이름>/*.jsonl`) 중 가장 최근 mtime(unix 초) — 그 폴더 워크트리의 기록까지
+/// (`rc::transcript_dir_names`). 없으면 None.
 pub(super) fn last_write(home: &str, dir: &str) -> Option<i64> {
-    let projects = Path::new(home)
-        .join(".claude/projects")
-        .join(rc::project_dir_name(dir));
-    std::fs::read_dir(projects)
+    let worktrees: Vec<String> = std::fs::read_dir(Path::new(dir).join(".claude/worktrees"))
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let projects = Path::new(home).join(".claude/projects");
+    rc::transcript_dir_names(dir, &worktrees)
+        .iter()
+        .filter_map(|name| newest_jsonl(&projects.join(name)))
+        .max()
+}
+
+/// 폴더 바로 아래 `*.jsonl` 중 가장 최근 mtime(unix 초). 폴더가 없거나 비었으면 None.
+fn newest_jsonl(folder: &Path) -> Option<i64> {
+    std::fs::read_dir(folder)
         .ok()?
         .filter_map(|e| {
             let e = e.ok()?;

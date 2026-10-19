@@ -289,16 +289,35 @@ pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<Str
         }),
         None if applied => {
             lines.push("✓ 데몬이 대상 목록을 다시 읽었다".into());
-            let changes = Reload {
+            let report = Reload {
                 added: labels("added"),
                 removed: labels("removed"),
                 pinned: labels("pinned"),
                 unpinned: labels("unpinned"),
+                worktree_on: labels("worktreeOn"),
+                worktree_off: labels("worktreeOff"),
                 ..Reload::default()
-            }
-            .changes();
+            };
+            let changes = report.changes();
             if !changes.is_empty() {
                 lines.push(format!("  {}", changes.join(" · ")));
+            }
+            // 띄우는 방식이라 떠 있는 서버는 그대로다 — 다시 띄우는 법을 알린다.
+            let switched: Vec<&str> = report
+                .worktree_on
+                .iter()
+                .chain(&report.worktree_off)
+                .map(String::as_str)
+                .collect();
+            match switched.as_slice() {
+                [] => {}
+                [one] => lines.push(format!(
+                    "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다: rocky rc restart {one}"
+                )),
+                many => lines.push(format!(
+                    "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다({}): rocky rc restart <이름>",
+                    many.join(" · ")
+                )),
             }
         }
         // 손으로 고친 파일은 데몬이 이미 알아서 읽었을 수 있다 — "그대로다" 가 아니라 "이미 같다" 다.
@@ -361,6 +380,9 @@ pub fn render_list(list: &TargetList, path: &str, home: &str) -> String {
         ));
         for t in &list.targets {
             let mut memo = Vec::new();
+            if t.worktree {
+                memo.push("워크트리");
+            }
             if !t.exists {
                 memo.push("⚠ 폴더가 없다");
             }
@@ -376,6 +398,12 @@ pub fn render_list(list: &TargetList, path: &str, home: &str) -> String {
             );
             out.push(line.trim_end().to_string());
         }
+    }
+    if !list.unmatched_worktree.is_empty() {
+        out.push(format!(
+            "⚠ 대상이 아닌 워크트리 이름(무시된다): {}",
+            list.unmatched_worktree.join(", ")
+        ));
     }
     out.push(String::new());
     out.push(format!(

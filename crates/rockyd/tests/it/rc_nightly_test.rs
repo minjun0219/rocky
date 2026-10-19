@@ -33,6 +33,8 @@ struct World {
     servers: BTreeMap<String, u32>,
     /// 열린 세션이 붙은 라벨.
     sessions: HashSet<String>,
+    /// 워크트리 모드(`--spawn worktree`)로 떠 있는 라벨 — 띄울 때의 명령줄을 따른다.
+    worktree_servers: HashSet<String>,
     next_pid: u32,
     script: VecDeque<Behavior>,
     /// 일어난 순서 — `stop repo-a` · `spawn repo-a <방식 인자>`.
@@ -75,6 +77,7 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         alive,
         servers,
         sessions: HashSet::new(),
+        worktree_servers: HashSet::new(),
         next_pid: 200,
         script: script.into(),
         log: Vec::new(),
@@ -142,8 +145,13 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                     if !w.alive.contains(pid) {
                         continue;
                     }
+                    let mode = if w.worktree_servers.contains(label) {
+                        " --spawn worktree"
+                    } else {
+                        ""
+                    };
                     ps.push_str(&format!(
-                        "  {pid}     1    10:00 claude rc --name {label}\n"
+                        "  {pid}     1    10:00 claude rc --name {label}{mode}\n"
                     ));
                     if w.sessions.contains(label) {
                         ps.push_str(&format!(
@@ -204,6 +212,14 @@ fn ops(world: Arc<Mutex<World>>) -> RcOps {
                 if b.stays {
                     w.alive.insert(pid);
                     w.servers.insert(label.clone(), pid);
+                    if argv
+                        .windows(2)
+                        .any(|a| a[0] == "--spawn" && a[1] == "worktree")
+                    {
+                        w.worktree_servers.insert(label.clone());
+                    } else {
+                        w.worktree_servers.remove(&label);
+                    }
                 }
                 w.log.push(format!("spawn {}", argv[3..].join(" ")));
                 Ok(pid)
@@ -245,6 +261,7 @@ fn config() -> RcConfig {
         root: Some("/w".into()),
         pinned: vec!["repo-a".into()],
         targets: vec!["repo-b".into(), "repo-c".into(), "repo-d".into()],
+        worktree: vec![],
         supervise: true,
         nightly: Some(NightlyConfig::default()),
     }
@@ -587,6 +604,28 @@ async fn recovery_brings_back_the_pinned_conversation_not_a_fresh_one() {
     assert!(
         note.contains("그 세션 이어받기(--session-id) (1번째 재시도)"),
         "보고서는 실제 띄운 방식을 적는다: {note}"
+    );
+}
+
+#[tokio::test]
+async fn a_server_still_in_worktree_mode_is_not_resumed_into_the_folder() {
+    // 설정에서 워크트리를 껐지만 서버는 아직 워크트리 모드로 떠 있다 — 세션이 제 워크트리에서 돌아, 폴더에서 이어받지 않고
+    // 설정대로(같은 폴더 모드) 서버만 띄운다.
+    let w = world(at(4, 30), &["repo-a"], vec![READY]);
+    {
+        let mut w = w.lock().unwrap();
+        w.sessions.insert("repo-a".to_string());
+        w.worktree_servers.insert("repo-a".to_string());
+    }
+    let f = fixture(w, &[("repo-a", "2.1.200")]);
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-a").0, NightlyOutcome::Restarted);
+    let log = log(&f);
+    let spawns: Vec<&String> = log.iter().filter(|l| l.starts_with("spawn")).collect();
+    assert_eq!(
+        spawns,
+        vec!["spawn repo-a --no-create-session-in-dir"],
+        "{log:?}"
     );
 }
 

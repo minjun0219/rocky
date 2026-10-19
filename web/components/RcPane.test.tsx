@@ -3,7 +3,7 @@ import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithStore } from '../test-support';
 import type { RcServerRow, RcStatus } from '../types';
-import { RcPane, RcSummary, rcCounts, rcNightlyText, rcUptime } from './RcPane';
+import { RcPane, RcSummary, rcCounts, rcNightlyText, rcRestartNote, rcUptime } from './RcPane';
 import { ViewSwitch } from './ViewSwitch';
 
 afterEach(cleanup);
@@ -195,6 +195,27 @@ describe('원격 제어 — 띄우기 · 재시작', () => {
     expect(rcCommand).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole('button', { name: '끊고 재시작' }));
     expect(rcCommand).toHaveBeenLastCalledWith('repo-a', 'restart');
+  });
+
+  test('워크트리 모드(설정이나 떠 있는 서버)면 재시작이 이어받지 않는다고 말한다', () => {
+    const row: RcServerRow = {
+      label: 'rocky',
+      dir: '/w/rocky',
+      pinned: true,
+      running: true,
+      pid: 1,
+      sessions: 2,
+    };
+    expect(rcRestartNote(row)).toBe('세션 2개가 끊기고 이어받기(-c)로 다시 뜬다');
+    expect(rcRestartNote({ ...row, worktree: true })).toBe(
+      '세션 2개가 끊기고 서버만 새로 뜬다(워크트리 모드)',
+    );
+    expect(rcRestartNote({ ...row, liveWorktree: true })).toBe(
+      '세션 2개가 끊기고 서버만 새로 뜬다(워크트리 모드)',
+    );
+    expect(rcRestartNote({ ...row, worktree: true, sessions: 0 })).toBe(
+      '다시 띄운다 — 붙은 원격 연결이 끊긴다',
+    );
   });
 
   test('Access 로 허용된 화면은 띄우기·재시작이 되고 Antigravity 끄기는 없다', () => {

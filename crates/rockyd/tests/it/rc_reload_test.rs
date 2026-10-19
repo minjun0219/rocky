@@ -140,7 +140,7 @@ async fn a_target_added_to_the_file_is_startable_after_reload() {
         body,
         json!({
             "active": true, "supervise": false, "applied": true, "added": ["ogpeek"], "removed": [],
-            "pinned": [], "unpinned": [], "restartNeeded": [],
+            "pinned": [], "unpinned": [], "worktreeOn": [], "worktreeOff": [], "restartNeeded": [],
             "path": fx.path.to_string_lossy(),
         })
     );
@@ -158,6 +158,34 @@ async fn a_target_added_to_the_file_is_startable_after_reload() {
         .collect();
     assert_eq!(reloads.len(), 1, "다시 읽기는 이벤트로 남는다");
     assert_eq!(reloads[0]["fields"]["added"], json!(["ogpeek"]));
+}
+
+/// 워크트리 목록도 대상 목록처럼 바로 쓴다 — 현황 행과 기동기가 같이 바뀐다. 떠 있는 서버는 그대로다.
+#[tokio::test]
+async fn a_worktree_switch_applies_to_the_next_launch() {
+    let fx = fixture(base());
+    write(
+        &fx.path,
+        json!({ "root": "/w", "pinned": ["repo-a"], "targets": ["repo-b"], "worktree": ["repo-a"] }),
+    );
+    let (status, body) = post(&fx.state, "/api/rc/reload", json!({})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        (&body["applied"], &body["worktreeOn"], &body["worktreeOff"]),
+        (&json!(true), &json!(["repo-a"]), &json!([]))
+    );
+    let (_, servers) = get(&fx.state, "/api/rc/servers").await;
+    assert_eq!(servers["servers"][0]["label"], "repo-a");
+    assert_eq!(servers["servers"][0]["worktree"], true);
+    assert!(
+        servers["servers"][1].get("worktree").is_none(),
+        "끈 대상은 싣지 않는다"
+    );
+    let target = fx
+        .control
+        .begin("repo-a", RcCommand::Restart { fresh: false })
+        .expect("받는다");
+    assert!(target.worktree, "다음 기동이 워크트리 모드다");
 }
 
 /// 손으로 고친 파일은 데몬이 다음에 설정을 볼 때(현황 · 기동기) 알아서 다시 읽는다 — `rocky rc reload` 없이.
