@@ -988,8 +988,8 @@ impl RcController {
             return Err(rc::LOGGED_OUT_REFUSAL.into());
         }
         let live = status.live_server(&target.dir);
-        // 설정이 워크트리 대상이거나 떠 있는 서버가 그 모드면 재시작이 세션을 이어받지 않는다(`restart_mode`).
-        let worktree = target.worktree || status.live_worktree(&target.dir);
+        // 받은 뒤 rocky.json 이 바뀌었을 수 있다 — 여기부터는 지금 설정의 워크트리 값으로 판정하고 띄운다.
+        let mut target = self.refresh_worktree(target);
         let mut session = match &command {
             RcCommand::Pin(id) => Some(id.clone()),
             _ => None,
@@ -1012,14 +1012,20 @@ impl RcController {
             (RcCommand::Revive(mode), None) => *mode,
             (RcCommand::Restart { .. } | RcCommand::Pin(_), Some((pid, sessions))) => {
                 match self
-                    .wait_turn(target, pid, sessions, policy.turn_wait)
+                    .wait_turn(&target, pid, sessions, policy.turn_wait)
                     .await?
                 {
                     Some((pid, sessions, waited)) => {
-                        // 기다리는 사이(최대 10분) 자동 업데이트로 설치본이 바뀌었을 수 있다 — 띄우기 직전 값으로 기록한다.
-                        if waited && policy.known_version.is_none() {
-                            version = self.claude_version().await;
+                        // 기다리는 사이(최대 10분) 자동 업데이트로 설치본이, 사람 손으로 rocky.json 이 바뀌었을 수 있다 — 띄우기
+                        // 직전 값으로 기록하고 판정한다.
+                        if waited {
+                            if policy.known_version.is_none() {
+                                version = self.claude_version().await;
+                            }
+                            target = self.refresh_worktree(&target);
                         }
+                        // 설정이 워크트리 대상이거나 떠 있는 서버가 그 모드면 세션을 이어받지 않는다(`restart_mode`).
+                        let worktree = target.worktree || status.live_worktree(&target.dir);
                         let mut mode = match &command {
                             RcCommand::Restart { fresh } => {
                                 rc::restart_mode(sessions > 0, *fresh, worktree)
@@ -1039,8 +1045,11 @@ impl RcController {
                         (self.ops.sleep)(rc::RESTART_DELAY).await;
                         mode
                     }
-                    // 기다리는 사이 서버가 내려갔다.
-                    None => down_mode,
+                    // 기다리는 사이 서버가 내려갔다 — 그 사이 바뀌었을 설정으로 그냥 띄운다.
+                    None => {
+                        target = self.refresh_worktree(&target);
+                        down_mode
+                    }
                 }
             }
             (RcCommand::Restart { .. } | RcCommand::Pin(_), None) => down_mode,
@@ -1054,7 +1063,7 @@ impl RcController {
             };
         }
         self.launch_until_up(
-            target,
+            &target,
             mode,
             fresh,
             version.as_deref(),
@@ -1062,6 +1071,23 @@ impl RcController {
             policy.backoff,
         )
         .await
+    }
+
+    /// 받은 대상에 지금 설정의 워크트리 값을 얹는다 — `begin` 뒤 버전 조회 · 턴 대기(최대 10분) 사이에 rocky.json 이 바뀌었을
+    /// 수 있다. 라벨 · 폴더는 그대로 둔다(진행 중 표시 · 로그의 키). 그 사이 목록에서 빠졌거나 rc 가 꺼졌으면 받을 때 값.
+    fn refresh_worktree(&self, target: &Target) -> Target {
+        let worktree = self
+            .config()
+            .and_then(|config| {
+                rc::resolve_targets(&config, &self.home)
+                    .into_iter()
+                    .find(|t| t.dir == target.dir)
+            })
+            .map_or(target.worktree, |t| t.worktree);
+        Target {
+            worktree,
+            ..target.clone()
+        }
     }
 
     /// 열린 세션이 막 대화하는 중이면 그 턴이 끝나길 기다린다 — `TURN_POLL` 마다 캐시 없이 다시 재며 `limit` 까지.

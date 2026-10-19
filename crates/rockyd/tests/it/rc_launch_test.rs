@@ -375,6 +375,162 @@ async fn restart_after_turning_worktree_off_does_not_resume_into_the_folder() {
     );
 }
 
+/// rocky.json 의 rc 블록 — repo-a(고정)와 워크트리 목록.
+fn rc_file(worktree: &[&str]) -> String {
+    json!({ "rc": { "root": "/w", "pinned": ["repo-a"], "worktree": worktree } }).to_string()
+}
+
+/// `dir/rocky.json` 을 다시 읽는 기동기 — repo-a 에 서버 100 이 떠 있다(첫 프로브). 대기마다 `on_sleep` 을 부른다.
+fn file_backed(
+    dir: &Path,
+    home: &str,
+    runner: Runner,
+    on_sleep: impl Fn(std::time::Duration) + Send + Sync + 'static,
+) -> (Arc<Mutex<World>>, Arc<RcController>) {
+    let world = Arc::new(Mutex::new(World {
+        alive: [100].into(),
+        next_pid: 200,
+        script: vec![READY].into(),
+        ..Default::default()
+    }));
+    let control = Arc::new(RcController::new(
+        RcSettings::load(dir.join("rocky.json"), home.into()),
+        home.into(),
+        dir.join("rc"),
+        runner,
+        RcOps {
+            sleep: Arc::new(move |d| {
+                on_sleep(d);
+                Box::pin(async {})
+            }),
+            ..ops(world.clone())
+        },
+    ));
+    (world, control)
+}
+
+/// 재시작을 받은 뒤 사람이 그 대상을 워크트리 목록에 넣었다 — 받을 때가 아니라 지금 설정으로 판정하고 띄운다(열린 세션을
+/// 폴더에서 이어받지 않고 워크트리 모드 서버로).
+#[tokio::test]
+async fn worktree_turned_on_after_the_request_is_used_for_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    std::fs::write(&path, rc_file(&[])).unwrap();
+    let (world, control) = file_backed(dir.path(), "/home/u", probe_runner(true, true), |_| {});
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    assert!(!target.worktree);
+    std::fs::write(&path, rc_file(&["repo-a"])).unwrap();
+    let result = control.run(target, command).await;
+    assert!(result.ok, "{}", result.message);
+    assert_eq!(
+        world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--no-create-session-in-dir",
+            "--spawn",
+            "worktree"
+        ]]
+    );
+}
+
+/// 턴을 기다리는 사이(최대 10분) 사람이 그 대상을 워크트리 목록에 넣었다 — 기다린 뒤 다시 읽어 판정하고 띄운다.
+#[tokio::test]
+async fn worktree_turned_on_during_the_turn_wait_is_used_for_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude/projects/-w-repo-a");
+    std::fs::create_dir_all(&projects).unwrap();
+    let log = projects.join("s.jsonl");
+    std::fs::write(&log, "{}\n").unwrap();
+    let path = dir.path().join("rocky.json");
+    std::fs::write(&path, rc_file(&[])).unwrap();
+    // 첫 대기 동안 사람이 설정을 고치고 턴이 끝난다(대화 기록이 사라져 조용하다).
+    let (world, control) = file_backed(
+        dir.path(),
+        &home.to_string_lossy(),
+        probe_runner(true, true),
+        move |d| {
+            if d == rocky_core::rc::TURN_POLL {
+                std::fs::write(&path, rc_file(&["repo-a"])).unwrap();
+                let _ = std::fs::remove_file(&log);
+            }
+        },
+    );
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    let result = control.run(target, command).await;
+    assert!(result.ok, "{}", result.message);
+    assert!(event_names(&dir).contains(&"turn-wait".to_string()));
+    assert_eq!(
+        world.lock().unwrap().spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--no-create-session-in-dir",
+            "--spawn",
+            "worktree"
+        ]]
+    );
+}
+
+/// 턴을 기다리는 사이 서버가 내려갔고 사람이 그 대상을 워크트리 목록에 넣었다 — 그냥 띄우되 기다린 뒤의 설정으로.
+#[tokio::test]
+async fn a_server_gone_during_the_turn_wait_starts_with_the_latest_worktree_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude/projects/-w-repo-a");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::write(projects.join("s.jsonl"), "{}\n").unwrap();
+    let path = dir.path().join("rocky.json");
+    std::fs::write(&path, rc_file(&[])).unwrap();
+    // 첫 ps 만 서버와 막 대화하는 세션을 보이고, 그 뒤로는 내려가 있다.
+    let (up, gone) = (probe_runner(true, true), probe_runner(false, false));
+    let ps_calls = Arc::new(Mutex::new(0usize));
+    let runner: Runner = Arc::new(move |argv: Vec<String>, stdin, timeout| {
+        let n = {
+            let mut n = ps_calls.lock().unwrap();
+            if argv[0] == "ps" {
+                *n += 1;
+            }
+            *n
+        };
+        if n <= 1 {
+            up(argv, stdin, timeout)
+        } else {
+            gone(argv, stdin, timeout)
+        }
+    });
+    let (world, control) = file_backed(dir.path(), &home.to_string_lossy(), runner, move |d| {
+        if d == rocky_core::rc::TURN_POLL {
+            std::fs::write(&path, rc_file(&["repo-a"])).unwrap();
+        }
+    });
+    let command = RcCommand::Restart { fresh: false };
+    let target = control.begin("repo-a", command.clone()).unwrap();
+    let result = control.run(target, command).await;
+    assert!(result.ok, "{}", result.message);
+    let w = world.lock().unwrap();
+    assert!(w.signals.is_empty(), "내릴 서버가 없었다");
+    assert_eq!(
+        w.spawns,
+        vec![vec![
+            "claude",
+            "rc",
+            "--name",
+            "repo-a",
+            "--no-create-session-in-dir",
+            "--spawn",
+            "worktree"
+        ]]
+    );
+}
+
 /// 실제 폴더에 워크트리 모드 서버(repo-a)와 열린 세션이 있고, `.claude/worktrees/<worktree>` 의 대화 기록이 방금 바뀌었다.
 fn talking_in_worktree(
     worktree: &str,
