@@ -105,27 +105,49 @@
 - **공개키 받기는 받으러 간 요청의 `waitUntil`에 맡긴다.** 동시에 온 요청은 받기 하나를 같이 기다리는데, Workers 는 손님이
   끊긴 요청의 일을 거둔다. 거둬진 받기는 끝나지 않아 기다리던 요청도, 받기를 다시 시작하지 못하는 다음 요청도 멈춘다.
 - **설정은 Worker secret 넷뿐이다**(`ACCESS_TEAM`·`ACCESS_AUD`·`ACCESS_EMAILS`·`DAEMON_CLIENT_ID`). 공개 레포라 `wrangler.jsonc`에
-  개인 값과 주소를 적지 않는다. 주소는 대시보드에서 Custom Domain 으로 단다 — 설정 파일에 `routes`가 없고 `workers_dev`가
-  꺼져 있어야 배포가 그 주소를 덮어쓰지 않는다. workers.dev·미리보기 주소는 Access 를 거치지 않으므로 끈다.
+  개인 값과 주소를 적지 않는다. 주소는 Custom Domain으로 한 번 단다(아래 "배포와 실측" 4). 설정 파일에 `routes`가 없으면
+  뒤의 배포는 그 주소를 건드리지 않는다. workers.dev·미리보기 주소는 Access를 거치지 않으므로 끈다.
 
 ### 배포와 실측
 
-자동 배포는 없다. 오너가 자기 Cloudflare 계정에 손으로 올린다. 아래 `wrangler`는 `bunx wrangler@4.146.0`이다 — 의존성에
-넣으면 `bun install`마다 workerd 바이너리가 따라온다.
+자동 배포는 없다. 오너가 자기 Cloudflare 계정에 손으로 올린다. 아래 `wrangler`는 `bunx wrangler@4.146.0`이다. 의존성에
+넣으면 `bun install`마다 workerd 바이너리가 따라와서 넣지 않았다. `wrangler login`으로 받는 권한에는 Access가 없어서 1과 2는
+대시보드에서 한다.
 
-1. **Access 앱**: Zero Trust → Access controls → Applications 에서 Self-hosted 앱을 만들고 중계소 주소(예: `relay.example.com`)
-   전체를 덮는다. 정책은 둘 — 폰용 Allow(허용 이메일)와 데몬용 Service Auth(2의 서비스 토큰). 앱 하나에 둘 다 단다. 앱의 AUD
-   태그(Application Audience Tag)가 3의 `ACCESS_AUD`다.
-2. **서비스 토큰**: Access controls → Service credentials → Service Tokens → Create Service Token. Client Secret 은 이때 한 번만
-   보인다. `security add-generic-password -s rocky-sync -a rocky -w`로 키체인에 넣는다(맨 끝의 `-w`가 비밀을 묻는다).
-3. **배포**: `cloud/`에서 `wrangler login`, `wrangler deploy`, 이어서 secret 넷을 `wrangler secret put <이름>`으로 넣는다 —
-   `ACCESS_TEAM`(`<team>.cloudflareaccess.com`의 `<team>`만), `ACCESS_AUD`, `ACCESS_EMAILS`(여럿이면 쉼표), `DAEMON_CLIENT_ID`.
-   하나라도 비면 소켓마다 500 이다.
-4. **주소 달기**: Workers & Pages → `rocky-relay` → Settings → Domains & Routes → Add → Custom Domain 으로 1의 주소를 단다. CNAME
-   레코드가 이미 있는 호스트(터널이 쓰는 주소)에는 달 수 없다.
-5. **실측**: 데몬처럼 서비스 토큰 헤더를 단 업그레이드를 보낸다. 비밀은 표준 입력으로 넘겨 명령줄과 히스토리에 남기지 않는다.
+1. **서비스 토큰**: Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token. Client Secret은
+   이때 한 번만 보인다. `security add-generic-password -s rocky-sync -a rocky -w`로 키체인에 넣는다(맨 끝의 `-w`가 비밀을 묻는다).
+2. **Access 앱**: Access controls → Applications에서 Self-hosted 앱을 만들고 중계소 주소(예: `relay.example.com`) 전체를 덮는다.
+   폰용 Allow(허용 이메일)와 데몬용 Service Auth(1의 서비스 토큰) 정책을 앱 하나에 둘 다 단다. 그 주소를 덮는 앱이 이미
+   있으면 Service Auth 정책만 더한다.
+3. **배포**: `cloud/`에서 `wrangler login`, `wrangler deploy`, 이어서 secret 넷을 `wrangler secret put <이름>`으로 넣는다.
+   하나라도 비면 소켓마다 500이다.
+   - `ACCESS_TEAM`: `<team>.cloudflareaccess.com`의 `<team>`만.
+   - `ACCESS_AUD`: 2의 Access 앱에 있는 Application Audience (AUD) Tag. 데몬 설정(`rocky.json`의 `access.aud`)에서 옮겨 오지
+     않는다. 지금 그 주소 앞에 선 앱의 값과 다를 수 있다. 2026-10-19 실측의 첫 시도가 그렇게 옮겨 온 값으로 403(`aud`가
+     다르다)을 받았다.
+   - `ACCESS_EMAILS`: 폰으로 들어올 사람의 이메일. 여럿이면 쉼표로 잇는다.
+   - `DAEMON_CLIENT_ID`: 1의 Client ID.
+4. **주소 달기**: Workers & Pages → `rocky-relay` → Settings → Domains & Routes → Add → Custom Domain으로 2의 주소를 단다.
+   `wrangler deploy --domain <주소>`를 한 번 실행해도 된다. 어느 쪽이든 뒤의 `wrangler deploy`는 그 주소를 떼지 않는다.
+   - 대시보드는 CNAME 레코드가 있는 호스트(터널이 쓰는 주소)에 달지 않는다. 터미널이 아닌 곳(에이전트, CI)에서 실행한
+     `wrangler deploy --domain`은 겹치는 DNS 레코드와 다른 Worker의 도메인을 묻지 않고 덮어쓴다. 실행하기 직전에 권한
+     네임서버에 직접 물어(`dig @<권한 네임서버> <주소>`) NXDOMAIN인지 본다. DNSSEC을 켠 Cloudflare 존에서는
+     공개 리졸버(1.1.1.1, 8.8.8.8)가 없는 이름에도 NOERROR를 줄 수 있다.
+   - 터널이 쓰던 주소를 중계소에 주면 그 주소에서 웹 UI가 열리지 않는다. 폰 화면은 4번 조각이 그 주소에서 낸다.
+   - 주소를 단 뒤 토큰 없이 열면 Access 로그인으로 가는 302를 받는다. 그 `Location`의 `kid`가 앞에 선 앱의 AUD이니 3의
+     `ACCESS_AUD`와 같은지 본다. Worker의 426 JSON이 오면 Access 앱이 그 주소를 덮지 않는 것이다.
+   - 방금 "레코드 없음"을 받은 기기는 그 답을 한동안 캐시한다. 그동안은 권한 네임서버가 준 IP로 붙는다
+     (`curl --resolve <주소>:443:<IP>`).
+5. **실측**: 데몬처럼 서비스 토큰 헤더를 달아 두 번 보낸다. 비밀은 표준 입력으로 넘겨 명령줄과 히스토리에 남기지 않는다.
+   비밀을 키체인이 아닌 곳(예: 1Password)에 두었으면 각 명령의 첫 줄만 그 도구의 읽기 명령으로 바꾼다.
 
 ```sh
+# 대조: 업그레이드가 아닌 GET. Access를 지나면 Worker가 426으로 거절한다
+security find-generic-password -s rocky-sync -w \
+  | sed 's/^/CF-Access-Client-Secret: /' \
+  | curl -s -w '\n%{http_code}\n' -H @- -H 'CF-Access-Client-Id: <Client ID>' https://relay.example.com/relay
+
+# 실측: 데몬처럼 웹소켓 업그레이드
 security find-generic-password -s rocky-sync -w \
   | sed 's/^/CF-Access-Client-Secret: /' \
   | curl -i -N -s --http1.1 --max-time 5 -H @- \
@@ -137,12 +159,14 @@ security find-generic-password -s rocky-sync -w \
 
 | 답 | 뜻 |
 | --- | --- |
-| `101 Switching Protocols` 뒤에 `{"t":"sync","id":"sync"}`(앞에 프레임 머리 두 바이트) | 지난다. 데몬 연결기(④)는 스펙대로 서비스 토큰으로 붙는다 |
-| JSON `{"error": …}` | Access 는 지났고 Worker 가 거절했다. 이유가 본문에 있다(`wrangler tail`에도 `rocky relay:` 줄로 남는다) |
-| 그 밖(로그인 페이지로 가는 302, JSON 이 아닌 401·403) | Access 가 업그레이드를 막았다. 스펙의 대안(`/relay`만 Bypass, Worker 가 HMAC 검증)으로 간다 |
+| 대조가 `{"error":"웹소켓 업그레이드(GET, Upgrade: websocket)만 받는다"}`와 `426` | 토큰과 Service Auth 정책이 맞다. 실측으로 넘어간다 |
+| 대조가 302·401·403 | Access가 막았다. 토큰이나 정책이 틀렸으니 1·2를 다시 본다. strict service token authentication이 켜진 조직은 302 대신 401·403을 준다(2026-10-05 이후에 만든 조직은 늘 켜져 있다) |
+| 실측이 `101 Switching Protocols` 뒤에 `{"t":"sync","id":"sync"}`(앞에 프레임 헤더 두 바이트) | 지난다. 데몬 연결기(④)는 서비스 토큰으로 붙는다 |
+| 실측이 JSON `{"error": …}` | Access는 지났고 Worker가 거절했다. 이유가 본문에 있다(`wrangler tail`에도 `rocky relay:` 줄로 남는다). `aud`가 다르다면 3의 `ACCESS_AUD`를 본다 |
+| 실측이 그 밖(로그인으로 가는 302, JSON이 아닌 401·403) | 대조는 지났는데 Access가 업그레이드만 막았다. 스펙의 대안(`/relay`만 Bypass, Worker가 HMAC 검증)으로 간다 |
 
-결과는 스펙 3번 조각의 "인증"에 적는다. 연결이 5초 뒤 끊기는 것(curl 의 28)은 `--max-time` 때문이다. curl 도 데몬 자리에
-붙으므로, 데몬 연결기가 붙어 있을 때 다시 재면 그 연결이 밀려난다(4000).
+결과는 스펙 3번 조각의 "인증"에 있다(2026-10-19, 지난다). 연결이 5초 뒤 끊기는 것(curl의 28)은 `--max-time` 때문이다.
+curl도 데몬 자리에 붙으므로, 데몬 연결기가 붙어 있을 때 다시 재면 그 연결이 밀려난다(4000).
 
 ## 코드
 
