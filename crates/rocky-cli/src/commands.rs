@@ -1394,8 +1394,9 @@ pub fn cmd_daemon(
             }
             Ok(())
         }
-        // 버전 교체 훅과 같은 경로를 늘 탄다 — launchd 상주면 job 재등록(pid kill 은
-        // KeepAlive 가 즉시 되살린다), 아니면 꺼질 때까지 기다린 뒤 띄운다. `stop && start`
+        // 버전 교체 훅과 같은 경로를 늘 탄다 — launchd 상주면 launchd 가 다시 띄운다(plist 가
+        // 그대로면 `kickstart -k`, 바뀌었으면 job 재등록 — pid kill 은 KeepAlive 가 즉시 되살린다),
+        // 아니면 꺼질 때까지 기다린 뒤 띄운다. `stop && start`
         // 를 손으로 하면 이 둘을 사람이 골라야 하고, stop 이 끝나기 전에 start 가 health 를
         // 보고 "이미 떠 있다" 며 지나가기도 한다.
         Some("restart") => {

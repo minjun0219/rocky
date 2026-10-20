@@ -110,8 +110,8 @@
   2026-10-05)를 줄이려고 감수했다.
 - `cargo test` 단계 뒤 그룹에 프로세스가 남는 기록이 반복된다 — 남기는 테스트를 찾는 중(`signals.log` 의 `남은 손자`).
 - 검증 트리의 `target/` 은 수 GB 다.
-- **배포는 launchd 데몬의 환경에서 돈다.** plist 는 설치 때의 PATH 만 굽고(`crates/rocky-cli/src/launchd.rs`), update 의
-  `daemon restart` 는 데몬에게 물려받은 그 PATH 로 다시 굽는다(같은 항목은 한 번만, `join_path`). update 가 부르는 git·cargo·bun·claude 가
+- **배포는 launchd 데몬의 환경에서 돈다.** plist 는 `rocky daemon install` 때의 PATH 만 굽고(`crates/rocky-cli/src/launchd.rs`), update 의
+  `daemon restart` 는 구워 둔 그 PATH 를 그대로 둔다(plist 가 그대로면 `kickstart -k` 만 한다). update 가 부르는 git·cargo·bun·claude 가
   그 PATH 에 없으면 배포가 실패한다(로그에 남는다. agy 는 없으면 건너뛴다) — PATH 가 맞는 셸에서 `rocky daemon install` 을 다시 한다.
   셸의 `XDG_DATA_HOME` 도 plist 에 굽지 않아서, 데이터 홈을 바꾼 기기에서는 데몬이 `~/.local/share/rocky` 를 보고 "main 빌드 모드가
   아니다" 로 건너뛴다.

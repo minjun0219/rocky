@@ -69,7 +69,7 @@ claude plugin install rocky@rocky-marketplace
 ```bash
 rocky daemon install     # launchd 등록 (KeepAlive) — macOS
 rocky daemon status      # 기동 여부 + launchd 상태 (plist 만 있고 로드가 안 됐으면 고치는 명령까지)
-rocky daemon restart     # 버전과 상관없이 지금 설치본으로 교체 — launchd 상주면 job 재등록
+rocky daemon restart     # 버전과 상관없이 지금 설치본으로 교체 — launchd 상주면 launchd 가 다시 띄운다
 rocky update [--check]   # 플러그인·데몬을 최신 릴리스로 — 마켓플레이스 갱신 → 플러그인 → 데몬 교체
 rocky daemon uninstall
 rocky --version          # 설치된 CLI 버전
@@ -77,9 +77,10 @@ rocky --version          # 설치된 CLI 버전
 
 `rocky daemon start`는 데몬을 띄운 뒤 그것이 launchd 상주인지, launchd 밖의 온디맨드
 프로세스인지를 같이 적는다 — "✓ daemon on" 만 보고 상주가 복구된 줄 알지 않게.
-`rocky daemon restart`는 버전 교체 훅과 같은 경로(launchd 재등록 또는 종료 확인 뒤 기동)를
+`rocky daemon restart`는 버전 교체 훅과 같은 경로(launchd 재시작 또는 종료 확인 뒤 기동)를
 늘 타고 `v<옛> → v<새>`를 적는다 — `stop && start`를 손으로 하면 launchd 상주에서는 KeepAlive가
-곧바로 옛 경로로 되살린다. 지금 도는 데몬 버전은 웹 보드 맨 아래 줄에 보인다.
+곧바로 옛 경로로 되살린다. launchd 재시작은 plist 가 그대로면 `launchctl kickstart -k` 로 데몬만
+다시 띄우고, 데몬 경로가 바뀌었을 때만 plist 를 다시 쓴다. 지금 도는 데몬 버전은 웹 보드 맨 아래 줄에 보인다.
 
 > **플러그인 업그레이드 뒤 데몬이 사라졌다면**: 옛 job을 내린 뒤 새 job 등록이 실패한
 > 경우다(launchd의 bootout이 비동기라 바로 이어지는 bootstrap이 튈 수 있다). 지금은
@@ -87,9 +88,9 @@ rocky --version          # 설치된 CLI 버전
 > `⚠ rocky 데몬: …`로 알린다. `rocky daemon status`가 "plist는 있으나 로드되지 않음"
 > 이면 `rocky daemon install`로 다시 등록한다.
 
-> **이미 `daemon install`을 해둔 환경**은 plist가 자동 갱신되지 않는다 — GitHub 이슈
-> 기능(`gh` PATH 인식)을 쓰려면 `rocky daemon uninstall && rocky daemon install`
-> 로 한 번 다시 깐다.
+> **plist 의 PATH 는 `rocky daemon install` 때 구운 것이다** — 재시작·업데이트는 PATH 를 다시
+> 굽지 않는다(데몬 경로가 바뀌어 plist 를 다시 쓸 때도 구워 둔 PATH 를 그대로 쓴다). 새로 설치한
+> CLI(`gh`·`claude` 등)를 데몬이 찾게 하려면 `rocky daemon install` 을 다시 실행한다.
 
 **터미널에서 `rocky`**: SessionStart가 `~/.local/bin/rocky`를 `~/.local/share/rocky/current/rocky`
 로 걸어 둔다(버전 링크를 거치므로 릴리스마다 따라온다). `~/.local/bin`이 PATH에 있어야 하는데

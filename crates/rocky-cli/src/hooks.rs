@@ -24,7 +24,7 @@ use rocky_core::worklog::{Worklog, WorklogAppendInput};
 use serde_json::json;
 
 use crate::client::{daemon_health, ensure_daemon, stop_daemon, CliContext};
-use crate::launchd::{install_launchd, is_launchd_registered};
+use crate::launchd::{is_launchd_registered, restart_launchd};
 
 /// notify-todo 가 한 턴에 읽는 변경 피드 한 페이지.
 const FEED_PAGE: usize = 100;
@@ -173,8 +173,9 @@ pub struct EnsureDeps<'a> {
     pub stop: &'a dyn Fn(&CliContext, Option<u32>) -> bool,
     /// launchd(KeepAlive) 상주 등록 여부.
     pub is_managed: &'a dyn Fn() -> bool,
-    /// 상주 job 을 현재 설치 경로로 교체 (plist 갱신→bootout→bootstrap). `Err` 면 옛 job 은
-    /// 이미 내려갔을 수 있다 — 호출자가 health 를 다시 보고 판단한다.
+    /// 상주 job 의 데몬을 이 설치본으로 다시 띄운다 — plist 가 그대로면 `kickstart -k`, 바뀌었으면
+    /// plist 갱신→bootout→bootstrap(`restart_launchd`). `Err` 면 옛 job 은 이미 내려갔을 수 있다 —
+    /// 호출자가 health 를 다시 보고 판단한다.
     pub replace_managed: &'a dyn Fn() -> Result<(), String>,
     /// 로드된 launchd job 이 띄운 프로세스의 pid — 돌고 있지 않으면(`spawn scheduled` 등) `None`.
     /// 포트를 쥔 데몬과 다르면 그 데몬은 launchd 밖의 고아다.
@@ -279,7 +280,7 @@ pub fn with_live_deps<R>(f: impl FnOnce(&EnsureDeps) -> R) -> R {
         spawn: &ensure_daemon,
         stop: &stop_daemon,
         is_managed: &is_launchd_registered,
-        replace_managed: &|| install_launchd().map(|_| ()),
+        replace_managed: &|| restart_launchd().map(|_| ()),
         managed_pid: &|| crate::launchd::launchd_job().and_then(|job| job.pid),
         pause: &|| std::thread::sleep(std::time::Duration::from_millis(250)),
     })
@@ -293,9 +294,9 @@ fn upgrade_daemon_if_older(ctx: &CliContext) -> Option<String> {
 
 /// 버전 비교는 정확 문자열 일치다 — 데몬 프로세스는 자기를 띄운 설치본보다 오래 살아,
 /// 플러그인이 갱신돼도 옛 코드가 계속 돈다. version 미보고(≤0.1.0)도 stale 취급.
-/// launchd(KeepAlive) 상주면 PID kill 은 무의미하다(즉시 되살아난다) — job 자체를 현재
-/// 설치 경로로 교체한다. 못 내리면 재기동하지 않는다: 보드가 없는 것보다 구버전이라도
-/// 있는 게 낫다.
+/// launchd(KeepAlive) 상주면 PID kill 은 무의미하다(plist 의 경로로 즉시 되살아난다) — launchd
+/// 에게 이 설치본의 데몬을 다시 띄우게 한다. 못 내리면 재기동하지 않는다: 보드가 없는 것보다
+/// 구버전이라도 있는 게 낫다.
 pub fn ensure_daemon_with(ctx: &CliContext, deps: &EnsureDeps) -> Option<String> {
     ensure_daemon_with_policy(ctx, deps, RestartPolicy::ExactVersion)
 }
@@ -311,15 +312,15 @@ pub enum RestartPolicy {
     /// 그대로 둔다 — 안 그러면 옛 플러그인으로 도는 세션과 새 세션이 턴마다 서로 뒤집는다.
     OnlyIfOlder,
     /// `rocky daemon restart`: 버전과 상관없이 **늘** 교체한다 — 없으면 띄운다. 교체 경로
-    /// (launchd 재등록 / 내린 뒤 띄우기)와 실패 보고는 버전 교체와 같다.
+    /// (launchd 재시작 / 내린 뒤 띄우기)와 실패 보고는 버전 교체와 같다.
     Always,
 }
 
 /// 판정 + 배선. 돌려주는 문자열은 **사람에게 알려야 할 것**이다 — 재기동의 어느 단계가
 /// 실패해 데몬이 없거나 구버전으로 남았을 때. `None` 이면 조용히 지나간 것(정상).
 ///
-/// launchd 교체가 실패한 경우가 핵심이다: `install_launchd` 는 옛 job 을 먼저 내리고 새
-/// job 을 올리므로, 실패하면 데몬이 **통째로 사라진** 채일 수 있다. 그때는 launchd 밖에서라도
+/// launchd 교체가 실패한 경우가 핵심이다: job 을 다시 등록하는 길(`restart_launchd` 의 `Register`)은 옛 job 을
+/// 먼저 내리고 새 job 을 올리므로, 실패하면 데몬이 **통째로 사라진** 채일 수 있다. 그때는 launchd 밖에서라도
 /// 띄운다(보드가 없는 것보다 낫다) — 대신 그 사실을 돌려줘 `rocky daemon install` 로 다시
 /// 등록하게 한다. 실제 사고(0.27→0.28)에서 이 실패가 삼켜져 plist 만 새 경로이고 서비스도
 /// 데몬도 없는 상태가 남았다.
@@ -393,8 +394,8 @@ pub fn ensure_daemon_with_policy(
 /// 뒤 launchd 의 데몬이 이어받기까지(옛 데몬 종료 유예 3초 + 대기 폴링 2초 + DB 열기)가 들어가야 한다.
 const SETTLE_TRIES: u32 = 80;
 
-/// launchd job 을 바꾼 뒤 **포트를 쥔 데몬이 정말 그 job 의 새 데몬인지** 확인한다. `bootout` 은 launchd 가
-/// 띄운 프로세스만 내린다 — launchd 밖에서 뜬 고아가 포트를 쥐고 있으면 새 job 의 데몬은 "already
+/// launchd job 을 바꾼 뒤 **포트를 쥔 데몬이 정말 그 job 의 새 데몬인지** 확인한다. `bootout`·`kickstart -k` 는
+/// launchd 가 띄운 프로세스만 내린다 — launchd 밖에서 뜬 고아가 포트를 쥐고 있으면 새 job 의 데몬은 "already
 /// running" 으로 끝나고 고아(구버전)가 그대로 남는다. 그러니 포트의 pid 가 job 의 pid 와 다르면 그 고아를
 /// pid 로 내리고, launchd 의 데몬이 목표 버전으로 응답할 때까지 본다. 끝내 못 맞추면 성공이라 하지 않는다.
 fn settle_managed(ctx: &CliContext, deps: &EnsureDeps, old: &str) -> Option<String> {
