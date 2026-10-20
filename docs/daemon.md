@@ -19,8 +19,9 @@
   에서 실행되고 프로세스는 그 설치본보다 오래 산다. 그래서 훅은 health 유무만 보지 않고
   `/api/health`의 `version`을 자기 `CARGO_PKG_VERSION`과 정확 문자열로 비교해, 다르면 `pid`로
   SIGTERM → 종료 확인 → 현재 버전으로 재기동한다 (version 미보고 데몬 ≤0.1.0도 stale 취급).
-  launchd 상주면 PID kill이 무의미하므로(KeepAlive가 되살린다) job 자체를 현재 경로로
-  다시 설치한다. 못 내리면 재기동하지 않는다 — 보드가 없는 것보다 구버전이라도 있는 게 낫다.
+  launchd 상주면 PID kill이 무의미하므로(KeepAlive가 plist의 경로로 되살린다) launchd에게 다시
+  띄우게 한다 — plist가 그대로면 `kickstart -k`, 데몬 경로가 바뀌었으면 plist를 다시 쓰고 job을 다시
+  등록한다(`restart_launchd`). 못 내리면 재기동하지 않는다 — 보드가 없는 것보다 구버전이라도 있는 게 낫다.
   health의 `name`이 `"rocky"`가 아니면 우리 데몬으로 보지 않는다(0.23.0 이하 `rocky-todo` 포함).
   한계: **버전이 같으면 경로가 달라도 재기동하지 않는다** — 로컬 레포 데몬과 설치본 버전이
   같을 때(개발 중) 서로 갈아치우지 않는 건 의도된 동작. 강제 교체는 `rocky daemon restart`(`RestartPolicy::Always`).
@@ -56,6 +57,13 @@
   끝나지 않고 그 데몬이 내려갈 때까지 기다렸다 이어받는다 — 로그 스팸과 고아가 내려간 뒤의 공백이 없다.
   launchd 동작을 실제 상주 job 없이 재현하려면 `ROCKY_LAUNCHD_LABEL`(개발용 라벨 — plist에 그 라벨과
   `ROCKY_CONFIG`를 물려주고 로그는 `<라벨>.log`)과 전용 `ROCKY_CONFIG`를 같이 준다.
+  **재시작은 plist를 쓰지 않는다**(2026-10-19 실제 탐지): 회사 Mac의 행위 기반 EDR이 main 빌드의
+  `rocky daemon restart`를 악성코드로 분류했다. 그때 재시작은 늘 plist를 다시 굽고 bootout → bootstrap 했다 —
+  서명 없는(링커 ad-hoc 서명뿐) 방금 만든 바이너리가 LaunchAgent를 고쳐 쓰고 다시 올리는 흐름은 macOS 지속
+  실행 악성코드와 같은 모양이고, 빌드마다 해시가 바뀌어 해시 예외도 소용이 없다. 지금은 plist와 launchd가 쥔
+  `program`이 그대로면 `kickstart -k`만 한다. 이를 위해 plist의 데몬 경로를 버전이 바뀌어도 그대로인 곳으로
+  굽고(릴리스는 `current/rockyd` — `current`가 그 설치본을 가리킬 때만, 아니면 다른 버전이 뜬다), PATH는 구워 둔
+  것을 지킨다. 전에는 교체를 부른 쪽의 PATH로 다시 구워, 훅을 돌린 세션마다 plist가 바뀌었다.
 - **첫 세션 순서 미보장**: SessionStart 데몬 기동 ↔ http MCP 초기화 순서는 보장 안 됨. 첫 세션
   MCP `failed`는 `/mcp` retry / 다음 세션 / launchd로 해소 — 감안 사항.
 - **전역 단일 인스턴스**: 포트가 락. project rocky.json 무시, user rocky.json의 todo 블록만.

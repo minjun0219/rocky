@@ -7,7 +7,8 @@ use std::path::PathBuf;
 ///
 /// 실행 파일 옆을 보는 이유: 릴리스 tarball 이 `rocky`/`rockyd`/`dist/` 를 한
 /// 디렉터리로 풀리고 부트스트랩이 그대로 설치하므로, 데몬은 env 없이도 자기 옆의 UI 를
-/// 서빙해야 한다. cwd 는 레포에서 `cargo run` 할 때를 위한 폴백이다.
+/// 서빙해야 한다. cwd 는 레포에서 `cargo run` 할 때를 위한 폴백이다. launchd 가 링크(`current/rockyd`)로
+/// 띄웠어도 실제 파일 옆을 본다 — 링크는 데몬이 도는 동안 새 버전을 받은 부트스트랩이 바꿀 수 있다.
 fn resolve_ui_dist() -> Option<PathBuf> {
     if let Some(dist) = std::env::var_os("ROCKY_TODO_UI_DIST") {
         return Some(PathBuf::from(dist));
@@ -15,6 +16,7 @@ fn resolve_ui_dist() -> Option<PathBuf> {
     let has_index = |dir: PathBuf| dir.join("index.html").is_file().then_some(dir);
     std::env::current_exe()
         .ok()
+        .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe))
         .and_then(|exe| exe.parent().map(|dir| dir.join("dist")))
         .and_then(has_index)
         .or_else(|| {

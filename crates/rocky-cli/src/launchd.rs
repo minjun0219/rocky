@@ -3,12 +3,17 @@
 //!
 //! KeepAlive 로 데몬을 로그인 세션 동안 상시 유지한다. 미설치 상태여도 CLI 의
 //! 온디맨드 자동 기동은 그대로 동작하므로 install 은 선택 사항이다.
+//!
+//! plist 를 쓰고 job 을 다시 등록하는 것은 `daemon install` 과 실행 파일 경로가 바뀐 재시작뿐이다. 재시작은 plist 가
+//! 그대로면 `launchctl kickstart -k` 로 데몬만 다시 띄운다(`restart_launchd`). 보안 솔루션(EDR)이 main 빌드의 `daemon restart`
+//! 를 악성코드로 분류했는데(2026-10-19), 서명 없는 새 바이너리가 재시작마다 plist 를 다시 쓰고 bootout/bootstrap 하던 흐름이
+//! 원인으로 보인다(탐지 근거는 보안팀 콘솔에만 있다).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use rocky_core::config::{expand_tilde, launchd_label};
+use rocky_core::config::{data_home, expand_tilde, launchd_label};
 
 use crate::client::daemon_binary;
 
@@ -29,8 +34,8 @@ fn default_todo_dir() -> PathBuf {
 /// launchd(KeepAlive) 상주 job 이 등록돼 있나 — plist 존재 여부로 판별한다 (macOS 전용).
 ///
 /// 등록돼 있으면 데몬은 launchd 가 관리하므로, 구버전을 교체할 때 PID 만 죽여선 안 된다
-/// (KeepAlive 가 같은 plist 경로의 구버전을 즉시 되살린다). `install_launchd` 로 job
-/// 자체를 현재 설치 경로로 교체해야 한다.
+/// (KeepAlive 가 plist 의 경로로 즉시 되살린다 — 릴리스면 그 경로가 구버전이다). `restart_launchd` 로
+/// launchd 에게 이 설치본의 데몬을 다시 띄우게 해야 한다.
 pub fn is_launchd_registered() -> bool {
     cfg!(target_os = "macos") && plist_path().is_file()
 }
@@ -53,8 +58,8 @@ fn path_for_plist() -> String {
     )
 }
 
-/// `inherited` 뒤에 `fallback` 을 잇되 같은 항목은 처음 것만 남긴다. 데몬이 띄운 `rocky update --main`(검증 통과 배포·rc
-/// 세션)은 데몬의 PATH 를 물려받아 `daemon restart` 로 plist 를 다시 굽는다 — 그대로 이으면 배포마다 `fallback` 이 한 벌씩 는다.
+/// `inherited` 뒤에 `fallback` 을 잇되 같은 항목은 처음 것만 남긴다. 데몬 아래(rc 세션·데몬이 띄운 명령)에서 부른
+/// `daemon install` 은 데몬의 PATH(이미 구운 것)를 물려받아 다시 굽는다 — 그대로 이으면 구울 때마다 `fallback` 이 한 벌씩 는다.
 pub fn join_path(inherited: &str, fallback: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     inherited
@@ -75,6 +80,48 @@ fn escape_xml(value: &str) -> String {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+/// `escape_xml` 의 반대 — `&amp;` 를 마지막에 풀어야 `&amp;lt;`(본래 `&lt;` 라는 글자)가 `<` 로 두 번 풀리지 않는다.
+fn unescape_xml(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+/// plist 에 구워 둔 PATH — `plist_content` 가 쓴 모양(`<key>PATH</key><string>…</string>`)에서만 읽는다. 재시작은 이 값을
+/// 그대로 다시 쓴다(`restart_launchd`). 못 읽으면 `None` — 그때는 지금 PATH 로 굽는다.
+pub fn baked_path(plist: &str) -> Option<String> {
+    let (_, rest) = plist.split_once("<key>PATH</key><string>")?;
+    let (value, _) = rest.split_once("</string>")?;
+    Some(unescape_xml(value))
+}
+
+/// plist 에 굽는 데몬 경로 — 버전이 바뀌어도 그대로인 경로를 고른다(`exec_through_link`).
+fn plist_exec_path() -> String {
+    exec_through_link(&daemon_binary(), &data_home().join("rocky").join("current"))
+        .to_string_lossy()
+        .to_string()
+}
+
+/// 릴리스는 버전마다 폴더(`v<버전>/`)가 바뀌어 옆의 `rockyd` 를 그대로 구우면 plist 가 릴리스마다 달라진다. 그래서
+/// `daemon` 이 링크 `link`(데이터 홈의 `rocky/current`)가 가리키는 폴더에 있으면 그 링크를 거친 경로(`link/rockyd`)를 쓴다.
+/// 링크가 다른 설치본을 가리키면(설치본 둘이 번갈아 세션을 여는 기기) 그 링크로 띄운 데몬은 다른 버전이라 `daemon`
+/// 그대로다. main 빌드(링크가 `main`)도 그대로다 — `main/` 은 빌드가 바뀌어도 같은 폴더라 이미 바뀌지 않는 경로다.
+pub fn exec_through_link(daemon: &Path, link: &Path) -> PathBuf {
+    let target = std::fs::read_link(link).ok();
+    let main_mode = rocky_core::main_build::is_main_mode(target.as_deref().and_then(Path::to_str));
+    let canonical = |path: &Path| std::fs::canonicalize(path).ok();
+    let here = daemon.parent().and_then(canonical);
+    match daemon.file_name() {
+        Some(name)
+            if target.is_some() && !main_mode && here.is_some() && canonical(link) == here =>
+        {
+            link.join(name)
+        }
+        _ => daemon.to_path_buf(),
+    }
 }
 
 /// launchd 데몬의 로그 파일 — 개발용 라벨이면 따로(실제 상주 데몬의 daemon.log 에 섞이지 않게).
@@ -104,10 +151,7 @@ pub struct PlistValues {
 /// 플러그인)이 시작 cwd 에서 읽히던 TS 시절의 제약이고, Rust 데몬은 미리 번들된
 /// dist 를 서빙한다.
 pub fn plist_content(overrides: &PlistValues) -> String {
-    let exec_path = overrides
-        .exec_path
-        .clone()
-        .unwrap_or_else(|| daemon_binary().to_string_lossy().to_string());
+    let exec_path = overrides.exec_path.clone().unwrap_or_else(plist_exec_path);
     let log_path = overrides.log_path.clone().unwrap_or_else(log_path);
     let path = overrides.path.clone().unwrap_or_else(path_for_plist);
     let label = launchd_label();
@@ -229,11 +273,109 @@ pub fn register_job(
     ))
 }
 
-/// `daemon install` — plist 를 굽고 launchd job 을 (재)등록한다. 멱등.
+/// 데몬 재시작에서 launchd job 을 어떻게 다시 띄우나 — `plan_restart` 의 판정이자 `restart_job` 이 실제로 탄 길.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobRestart {
+    /// plist 를 건드리지 않고 `launchctl kickstart -k` 로 데몬만 다시 띄운다.
+    Kickstart,
+    /// plist 를 (다르면) 쓰고 job 을 다시 등록한다(`register_job` — bootout → bootstrap). 값은 kickstart 로 끝내지 못한 사유다.
+    Register(String),
+}
+
+/// 디스크의 plist(`on_disk`)가 지금 구울 내용(`desired`)과 같고 launchd 가 쥔 job 이 같은 실행 파일(`exec`)을 띄울 때만
+/// `Kickstart`. job 이 로드돼 있지 않거나(plist 만 남음) 다른 실행 파일을 띄우면(plist 를 쓰고 등록하기 전에 끊긴 교체 등)
+/// 다시 등록해야 새 정의가 붙는다 — kickstart 는 launchd 가 쥔 정의 그대로 띄운다. launchd 가 쥔 정의에서 비교하는 것은
+/// `program` 뿐이다(환경 변수 같은 나머지는 `launchctl print` 에서 읽지 않는다).
+pub fn plan_restart(
+    on_disk: Option<&str>,
+    desired: &str,
+    job: Option<&LaunchdJob>,
+    exec: &str,
+) -> JobRestart {
+    let why = match job.map(|job| job.program.as_deref()) {
+        _ if on_disk != Some(desired) => "plist 가 지금 구울 내용과 다르다".to_string(),
+        None => "job 이 로드돼 있지 않다".to_string(),
+        Some(None) => "launchd 가 쥔 실행 파일을 읽지 못했다".to_string(),
+        Some(Some(program)) if program != exec => {
+            format!("launchd 가 쥔 실행 파일이 다르다({program})")
+        }
+        Some(Some(_)) => return JobRestart::Kickstart,
+    };
+    JobRestart::Register(why)
+}
+
+/// 재시작의 본체 — `plan_restart` 가 `Kickstart` 면 `launchctl kickstart -k` 하나로 끝낸다(plist 를 쓰지 않는다).
+/// 아니면, 또는 kickstart 가 실패하면 plist 가 다를 때만 쓰고 `register_job` 으로 다시 등록한다. 다시 등록할 때는 사유를
+/// stderr 에 한 줄 남긴다 — 보안 솔루션이 본 흐름(bootout → bootstrap)을 탄 까닭이 실기에서 보이게. `Err` 는 `register_job`
+/// 과 같다 — 옛 job 은 이미 내려갔을 수 있다.
+pub fn restart_job(
+    run: Launchctl,
+    domain: &str,
+    plist: &Path,
+    on_disk: Option<&str>,
+    desired: &str,
+    exec: &str,
+    pause: Duration,
+) -> Result<JobRestart, String> {
+    let target = format!("{domain}/{}", launchd_label());
+    let (loaded, out) = run(&["print", &target]);
+    let job = loaded.then(|| parse_job(&out));
+    let why = match plan_restart(on_disk, desired, job.as_ref(), exec) {
+        JobRestart::Kickstart => {
+            let (ok, out) = run(&["kickstart", "-k", &target]);
+            if ok {
+                return Ok(JobRestart::Kickstart);
+            }
+            format!("kickstart -k 가 실패했다 — {}", out.trim())
+        }
+        JobRestart::Register(why) => why,
+    };
+    eprintln!("rocky: launchd job 을 다시 등록한다 — {why}");
+    if on_disk != Some(desired) {
+        if let Some(parent) = plist.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(plist, desired)
+            .map_err(|error| format!("plist 를 쓰지 못했다 — {error}"))?;
+    }
+    register_job(run, domain, &plist.to_string_lossy(), pause)?;
+    Ok(JobRestart::Register(why))
+}
+
+/// 버전 교체·`daemon restart` 의 launchd 쪽 — launchd 가 이 설치본의 데몬을 다시 띄우게 한다(`restart_job`).
+/// `daemon install` 과 달리 PATH 는 plist 에 구워 둔 것을 그대로 쓴다: 부른 쪽(훅을 돌린 세션·터미널·데몬이 띄운 배포)마다
+/// PATH 가 달라, 그대로 다시 구우면 재시작마다 plist 가 바뀐다. PATH 를 새로 굽는 길은 `rocky daemon install` 이다.
+///
+/// # Errors
+/// plist 를 못 쓰거나 다시 등록하지 못하면 사유 — `install_launchd` 와 같다.
+pub fn restart_launchd() -> Result<JobRestart, String> {
+    let plist = plist_path();
+    let on_disk = std::fs::read_to_string(&plist).ok();
+    let exec = plist_exec_path();
+    let desired = plist_content(&PlistValues {
+        exec_path: Some(exec.clone()),
+        path: on_disk.as_deref().and_then(baked_path),
+        ..PlistValues::default()
+    });
+    let _ = std::fs::create_dir_all(default_todo_dir());
+    restart_job(
+        &launchctl,
+        &gui_domain(),
+        &plist,
+        on_disk.as_deref(),
+        &desired,
+        &exec,
+        Duration::from_millis(200),
+    )
+    .map_err(|error| format!("launchd 등록 실패: {error}\nplist: {}", plist.display()))
+}
+
+/// `daemon install` — plist 를 굽고 launchd job 을 (재)등록한다. 멱등. 재시작(`restart_launchd`)과 달리 PATH 를 지금
+/// 셸의 것으로 새로 굽는다.
 ///
 /// # Errors
 /// plist 를 못 쓰거나 `register_job` 이 실패하면 사유. **실패했으면 옛 job 은 이미 내려간
-/// 뒤일 수 있다** — 호출자(훅)는 데몬 유무를 다시 확인해 launchd 밖에서라도 띄운다.
+/// 뒤일 수 있다** — `daemon install` 은 그 사유를 보여 줄 뿐이고, 데몬은 다음 CLI 호출이나 세션 시작이 띄운다.
 pub fn install_launchd() -> Result<String, String> {
     let plist = plist_path();
     if let Some(parent) = plist.parent() {
@@ -291,9 +433,11 @@ fn job_target() -> String {
 pub struct LaunchdJob {
     pub state: String,
     pub pid: Option<u32>,
+    /// job 이 띄우는 실행 파일(`program =`) — launchd 가 지금 쥔 정의라 디스크의 plist 와 갈릴 수 있다.
+    pub program: Option<String>,
 }
 
-/// `launchctl print gui/<uid>/<label>` 출력 → `LaunchdJob`. 서비스 블록의 첫 `state =`·`pid =` 만 본다
+/// `launchctl print gui/<uid>/<label>` 출력 → `LaunchdJob`. 서비스 블록의 첫 `state =`·`pid =`·`program =` 만 본다
 /// (뒤쪽 하위 블록에도 같은 이름의 줄이 있다).
 pub fn parse_job(print_output: &str) -> LaunchdJob {
     let field = |name: &str| {
@@ -305,6 +449,7 @@ pub fn parse_job(print_output: &str) -> LaunchdJob {
     LaunchdJob {
         state: field("state = ").unwrap_or_else(|| "unknown".into()),
         pid: field("pid = ").and_then(|p| p.parse().ok()),
+        program: field("program = "),
     }
 }
 
@@ -325,7 +470,7 @@ pub fn kickstart() -> bool {
 }
 
 /// 포트를 쥔 데몬이 launchd job 의 프로세스가 아니면 경고 — 그 데몬은 업데이트·재시작이 내려 주지
-/// 못하고(bootout 은 launchd 자기 프로세스만 내린다), launchd 의 새 데몬은 포트 충돌로 바로 끝난다.
+/// 못하고(bootout·kickstart -k 는 launchd 자기 프로세스만 내린다), launchd 의 새 데몬은 포트 충돌로 바로 끝난다.
 /// `health_pid` 는 포트에서 응답한 데몬의 pid, `job` 은 로드된 launchd job(없으면 판정하지 않는다).
 pub fn ownership_warning(health_pid: Option<u32>, job: Option<&LaunchdJob>) -> Option<String> {
     let job = job?;
