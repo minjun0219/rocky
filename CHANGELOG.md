@@ -1,5 +1,17 @@
 # @minjun0219/rocky
 
+## 0.53.0
+
+### Minor Changes
+
+- [#500](https://github.com/minjun0219/rocky/pull/500) [`5022d82`](https://github.com/minjun0219/rocky/commit/5022d8249d5ebbe31540eed024f4a823f4e4af87) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 대상에 워크트리 모드(`rc.worktree`)를 더한다. 목록에 적은 폴더의 서버를 `claude rc --spawn worktree` 로 띄워, 앱이나 claude.ai 프로젝트가 그 폴더에 여는 세션마다 제 git 워크트리를 받는다. 같은 폴더에 세션이 여럿 떠도 작업 트리를 나눠 쓰지 않는다. 워크트리 대상의 재시작 · 야간 재시작은 열린 세션을 이어받지 않고 새로 띄운다(이어받기는 세션 하나만 받는 모드라 워크트리와 같이 쓸 수 없다). 목록은 기본으로 비어 있다 — 세션 하나만 나누려면 이 설정 없이 그 세션에 워크트리를 청한다(Claude Code `EnterWorktree`). 재시작 · 야간이 기다리는 "대화 중" 판정은 목록과 상관없이 그 폴더 워크트리의 대화 기록까지 본다(rocky 핸드오프의 `todo-<번호>` 는 뺀다). `rocky rc` 는 워크트리 대상을 표시하고, 설정과 떠 있는 서버의 모드가 다르면 "다시 띄우면 켜짐 · 꺼짐" 으로 알린다(그 사이 재시작 · 야간도 워크트리 모드로 떠 있는 서버의 세션은 이어받지 않는다). `rocky rc targets` 는 대상이 아닌 워크트리 이름(오타)을 ⚠ 로 알리고, `rocky rc targets rm` 은 워크트리 목록에서도 그 폴더를 지운다. `rocky rc reload` 가 켜고 끈 대상과 다시 띄우는 법을 알린다. 웹 원격 제어 탭의 재시작 확인 줄도 워크트리 대상이면 "서버만 새로 뜬다" 고 말한다.
+
+- [#498](https://github.com/minjun0219/rocky/pull/498) [`03aa749`](https://github.com/minjun0219/rocky/commit/03aa74910f89bb8e17608465ac8c6b867f46d62f) Thanks [@minjun0219](https://github.com/minjun0219)! - 기본 브랜치 검증 대상에 `deploy: true` 를 켜면, main 빌드 모드 기기에서 검증을 통과한 커밋을 데몬이 직접 `rocky update --main <sha>` 로 올린다. 배포를 맡을 세션이 끝나면 통과 알림이 버려져 기기가 옛 커밋에 머물던 일이 없어진다. rocky 보드의 `main` 대상에서만 돌고, 깔린 빌드보다 앞선 커밋만, 같은 커밋은 한 번만 올린다. 다른 `rocky update --main` 이 도는 중이면 기다린다. 실패는 배너로 한 번 알리고 `rocky verify` 가 대상 아래에 배포 한 줄을 보여 준다. 데몬이 배포하는 대상이면 구독한 세션의 통과 알림이 세션에게 배포하지 말라고 한다.
+
+### Patch Changes
+
+- [#504](https://github.com/minjun0219/rocky/pull/504) [`8e03cc3`](https://github.com/minjun0219/rocky/commit/8e03cc39195162bf234ad12fa1a6c98f8758d792) Thanks [@minjun0219](https://github.com/minjun0219)! - 데몬 재시작(버전 교체 훅 · `rocky daemon restart` · `rocky update`)이 LaunchAgent plist 를 다시 쓰지 않는다. plist 가 그대로면 `launchctl kickstart -k` 로 데몬만 다시 띄우고, 데몬 경로가 바뀌었거나 job 이 로드되지 않았을 때만 plist 를 쓰고 job 을 다시 등록한다. 다시 등록할 때는 그 사유를 stderr 에 한 줄 남긴다. 보안 솔루션(EDR)이 데몬 재시작을 악성코드로 탐지한 일이 있었는데, 재시작마다 서명 없는 새 바이너리가 plist 를 다시 쓰고 `launchctl bootout` · `bootstrap` 하던 흐름이 원인으로 보인다. 릴리스 설치본의 plist 는 `current/rockyd` 를 가리켜 버전이 바뀌어도 그대로다(이 버전으로 올리는 재시작에서 한 번 다시 쓴다). main 빌드는 원래 `main/rockyd` 라 그대로다. plist 의 PATH 는 `rocky daemon install` 때 구운 것을 지킨다 — 다시 구우려면 `rocky daemon install` 을 실행한다.
+
 ## 0.52.0
 
 ### Minor Changes
