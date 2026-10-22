@@ -586,25 +586,23 @@ async fn a_canary_that_never_recovers_leaves_the_rest_alone() {
 }
 
 #[tokio::test]
-async fn recovery_brings_back_the_pinned_conversation_not_a_fresh_one() {
-    // 열린 대화가 있는 서버 — 첫 시도는 그 세션(cse_1)으로 못 박아 띄우지만 네트워크 장애로 뜨자마자 내려가고, 같은
-    // 시도 안의 새 세션 재시도도 내려간다. 회복은 새 세션이 아니라 그 세션으로 다시 띄운다(2026-10-07 실측: 대화를 버렸다).
-    let w = world(at(4, 30), &["repo-a"], vec![DIES, DIES, READY]);
+async fn an_open_session_comes_back_as_a_multi_session_server() {
+    // 열린 대화가 있어도 이어받지 않는다 — 이어받으면(`--session-id`) 단일 세션 서버가 되어 두 번째 세션을 거절하고, 그
+    // 세션이 끝나면 서버도 내려간다(2026-10-21 실측). 대화는 claude.ai 쪽에 남아 새 서버에 다시 붙는다.
+    let w = world(at(4, 30), &["repo-a"], vec![READY]);
     w.lock().unwrap().sessions.insert("repo-a".to_string());
     let f = fixture(w, &[("repo-a", "2.1.200")]);
     let report = run(&f).await;
     let log = log(&f);
+    let spawns: Vec<&String> = log.iter().filter(|l| l.starts_with("spawn")).collect();
     assert_eq!(
-        log.last().map(String::as_str),
-        Some("spawn repo-a --session-id cse_1"),
+        spawns,
+        vec!["spawn repo-a --no-create-session-in-dir"],
         "{log:?}"
     );
     let (o, note) = outcome(&report, "repo-a");
     assert_eq!(o, NightlyOutcome::Restarted);
-    assert!(
-        note.contains("그 세션 이어받기(--session-id) (1번째 재시도)"),
-        "보고서는 실제 띄운 방식을 적는다: {note}"
-    );
+    assert!(note.contains("서버만"), "{note}");
 }
 
 #[tokio::test]
@@ -630,22 +628,20 @@ async fn a_server_still_in_worktree_mode_is_not_resumed_into_the_folder() {
 }
 
 #[tokio::test]
-async fn the_last_recovery_before_the_deadline_starts_fresh() {
-    // 못 박은 세션으로는 끝내 안 뜬다 — 다음 대기가 마감(07:00)을 넘는 마지막 시도만 새로 띄워 서버를 내린 채 두지 않는다.
-    let w = world(at(6, 55), &["repo-a"], vec![DIES, DIES, DIES, READY]);
+async fn recovery_never_pins_the_old_session() {
+    // 열린 대화가 있던 서버가 네트워크 장애로 뜨자마자 내려가도 회복은 서버만으로 — 단일 세션 서버로 되돌리지 않는다.
+    let w = world(at(4, 30), &["repo-a"], vec![DIES, DIES, READY]);
     w.lock().unwrap().sessions.insert("repo-a".to_string());
     let f = fixture(w, &[("repo-a", "2.1.200")]);
     let report = run(&f).await;
     let log = log(&f);
     let spawns: Vec<&String> = log.iter().filter(|l| l.starts_with("spawn")).collect();
-    assert_eq!(spawns.len(), 4, "{log:?}");
-    assert_eq!(
-        spawns[2], "spawn repo-a --session-id cse_1",
-        "회복 첫 시도는 그 세션으로"
-    );
+    assert!(!spawns.is_empty(), "{log:?}");
     assert!(
-        !spawns[3].contains("--session-id"),
-        "마지막 시도는 새로: {log:?}"
+        spawns
+            .iter()
+            .all(|l| l.as_str() == "spawn repo-a --no-create-session-in-dir"),
+        "{log:?}"
     );
     let (o, note) = outcome(&report, "repo-a");
     assert_eq!(o, NightlyOutcome::Restarted);

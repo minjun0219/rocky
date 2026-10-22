@@ -576,9 +576,6 @@ pub struct RcController {
     ops: RcOps,
     busy: std::sync::Mutex<HashMap<String, RcAction>>,
     last: std::sync::Mutex<HashMap<String, RcResult>>,
-    /// 대상마다 마지막 시도가 못 박은 세션(`--session-id`) — 내린 뒤에는 서버에서 다시 읽을 수 없어, 야간 회복이 같은 대화로
-    /// 다시 띄우려고 여기서 읽는다(`pinned_session`). 시도마다 지우고 새로 적는다(낮의 재시작 값이 남지 않게).
-    pins: std::sync::Mutex<HashMap<String, String>>,
     /// 대상마다 마지막으로 **실제로 뜬** 방식 — 첫 방식이 안 떠 새로 띄웠으면 그 방식. 야간 보고서가 판정 때 정한 방식이 아니라
     /// 이것을 적는다(`launched_mode`).
     launched: std::sync::Mutex<HashMap<String, LaunchMode>>,
@@ -623,7 +620,6 @@ impl RcController {
             ops,
             busy: std::sync::Mutex::new(HashMap::new()),
             last: std::sync::Mutex::new(HashMap::new()),
-            pins: std::sync::Mutex::new(HashMap::new()),
             launched: std::sync::Mutex::new(HashMap::new()),
             log_lock: std::sync::Mutex::new(()),
             supervise: std::sync::Mutex::new(SuperviseState::default()),
@@ -930,15 +926,6 @@ impl RcController {
             .insert(label.to_string(), mode);
     }
 
-    /// 이 대상의 마지막 시도가 못 박은 세션 — 없으면 None(못 박지 않았다).
-    pub(crate) fn pinned_session(&self, label: &str) -> Option<String> {
-        self.pins
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(label)
-            .cloned()
-    }
-
     async fn attempt(&self, target: &Target, command: RcCommand, policy: Policy<'_>) -> RcResult {
         let started = std::time::Instant::now();
         let outcome = self.execute(target, command, policy).await;
@@ -1055,13 +1042,6 @@ impl RcController {
             (RcCommand::Restart { .. } | RcCommand::Pin(_), None) => down_mode,
         };
         let fresh = matches!(command, RcCommand::Restart { fresh: true });
-        {
-            let mut pins = self.pins.lock().unwrap_or_else(|e| e.into_inner());
-            match (&session, mode) {
-                (Some(id), LaunchMode::Pin) => pins.insert(target.label.clone(), id.clone()),
-                _ => pins.remove(&target.label),
-            };
-        }
         self.launch_until_up(
             &target,
             mode,

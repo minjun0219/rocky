@@ -995,10 +995,10 @@ fn nightly_decision_follows_the_old_order() {
             Some(Server),
         ),
         (
-            "세션 · 61분 조용 — 이어받기",
+            "세션 · 61분 조용 — 이어받지 않고 서버만",
             with(&|s| (s.live_session, s.last_write) = (true, ago(61))),
             Restart,
-            Some(Resume),
+            Some(Server),
         ),
         (
             "세션 · 59분 전 대화 — 바쁨",
@@ -1010,19 +1010,7 @@ fn nightly_decision_follows_the_old_order() {
             "세션 · 대화 기록 없음 — 잃을 대화가 없다",
             with(&|s| s.live_session = true),
             Restart,
-            Some(Resume),
-        ),
-        (
-            "워크트리 · 세션 · 61분 조용 — 이어받지 않고 서버만",
-            with(&|s| (s.worktree, s.live_session, s.last_write) = (true, true, ago(61))),
-            Restart,
             Some(Server),
-        ),
-        (
-            "워크트리 · 세션 · 59분 전 대화 — 바쁨",
-            with(&|s| (s.worktree, s.live_session, s.last_write) = (true, true, ago(59))),
-            Busy,
-            None,
         ),
         (
             "서버만 · 같은 폴더 터미널이 방금 기록 — 여전히 쉰다",

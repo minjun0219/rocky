@@ -103,7 +103,6 @@ impl RcController {
             live_session: row.sessions > 0,
             last_write: last_write(&self.home, &row.dir),
             pinned: row.pinned,
-            worktree: row.worktree || row.live_worktree,
             offline: false,
         };
         rc::decide_nightly(&state, chrono::Utc::now().timestamp(), cfg.quiet)
@@ -440,7 +439,7 @@ impl RcController {
         decided
             .into_iter()
             .filter_map(|(label, decision)| {
-                match self.begin(&label, RcCommand::Restart { fresh: false }) {
+                match self.begin(&label, RcCommand::Restart { fresh: true }) {
                     Ok(target) => Some(Req { target, decision }),
                     Err(_) => {
                         report.items.push(NightlyItem {
@@ -553,10 +552,11 @@ impl RcController {
         report: &mut NightlyReport,
     ) -> Attempted {
         self.mark_revive(&r.target);
+        // 이어받지 않고 서버만 — 이어받으면 단일 세션 서버가 된다(`decide_nightly` 의 `mode`).
         let result = self
             .attempt(
                 &r.target,
-                RcCommand::Restart { fresh: false },
+                RcCommand::Restart { fresh: true },
                 Policy {
                     backoff: &rc::NIGHTLY_REGISTRATION_BACKOFF,
                     known_version: current,
@@ -603,9 +603,8 @@ impl RcController {
         }
     }
 
-    /// 내리고 못 띄운 것을 마감까지 1 · 2 · 4 · 8 · 16분 간격으로 다시 띄운다 — 처음에 못 박은 세션이 있으면 그 세션으로(마지막
-    /// 시도만 새로), `already served` 를 만나도 그 자리에서 기다리지 않는다(이 간격이 곧 재시도다 — 기다리면 마감을 넘긴다). 그새
-    /// 떠 있으면 다시 띄우지 않는다. 마감까지 안 뜬 것은 표식을 남긴 채 놓는다. 다 떴으면 true.
+    /// 내리고 못 띄운 것을 마감까지 1 · 2 · 4 · 8 · 16분 간격으로 서버만 다시 띄운다 — `already served` 를 만나도 그 자리에서
+    /// 기다리지 않는다(이 간격이 곧 재시도다 — 기다리면 마감을 넘긴다). 그새 떠 있으면 다시 띄우지 않는다. 마감까지 안 뜬 것은 표식을 남긴 채 놓는다. 다 떴으면 true.
     async fn recover(
         &self,
         mut down: Vec<Req>,
@@ -644,20 +643,10 @@ impl RcController {
                     });
                     continue;
                 }
-                // 처음에 못 박은 세션이 있으면 그 세션으로 다시 — 실패가 네트워크 탓이어도 새 세션으로 띄우면 대화를 버린다
-                // (2026-10-07 실측). 다음 대기가 마감을 넘는 마지막 시도만 새로 띄운다 — 못 박은 세션이 정말 못 쓰는 것이면
-                // 서버를 내린 채 아침을 맞지 않게.
-                let last_try = (self.ops.now)()
-                    + chrono::Duration::from_std(rc::recovery_wait(attempt)).unwrap_or_default()
-                    >= deadline;
-                let command = match self.pinned_session(&label) {
-                    Some(id) if !last_try => RcCommand::Pin(id),
-                    _ => RcCommand::Revive(rc::retry_mode()),
-                };
                 let result = self
                     .attempt(
                         &r.target,
-                        command,
+                        RcCommand::Revive(rc::retry_mode()),
                         Policy {
                             backoff: &[],
                             known_version: current,
