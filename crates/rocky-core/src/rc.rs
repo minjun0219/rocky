@@ -1012,8 +1012,6 @@ pub struct NightlyState {
     /// 그 폴더 대화 기록(`*.jsonl`) 중 가장 최근 mtime(unix 초). 기록이 하나도 없으면 None.
     pub last_write: Option<i64>,
     pub pinned: bool,
-    /// 워크트리 모드 대상이거나 떠 있는 서버가 그 모드다 — 다시 띄울 방식이 늘 서버만이다(`restart_mode`).
-    pub worktree: bool,
     /// 내리기 직전 네트워크 확인이 끝내 실패했다.
     pub offline: bool,
 }
@@ -1024,7 +1022,9 @@ pub struct NightlyDecision {
     pub reason: NightlyReason,
     /// 기동 버전(기록의 앞뒤 공백을 뗀 것).
     pub from: Option<String>,
-    /// 다시 띄울 방식 — `Restart` 일 때만. 사람이 부르는 재시작과 같은 판정(`restart_mode`)이다.
+    /// 다시 띄울 방식 — `Restart` 일 때만. 열린 세션이 있어도 늘 서버만(`START_MODE`)이다 — 이어받으면(`-c` ·
+    /// `--session-id`) 단일 세션 서버가 되어 두 번째 세션을 거절하고, 그 세션이 끝나면 서버도 내려간다(2026-10-21 실측).
+    /// 원격 세션의 대화는 claude.ai 쪽에 남아 새 서버에 다시 붙는다 — 이어받기로 다시 띄울 이유가 없다.
     pub mode: Option<LaunchMode>,
     /// 마지막 대화 뒤 지난 초 — 열린 세션이 있고 대화 기록도 있을 때만.
     pub idle_secs: Option<u64>,
@@ -1057,8 +1057,7 @@ pub fn decide_nightly(s: &NightlyState, now: i64, quiet: Duration) -> NightlyDec
         _ if s.offline => NightlyReason::NoNetwork,
         _ => NightlyReason::Restart,
     };
-    let mode =
-        (reason == NightlyReason::Restart).then(|| restart_mode(s.live_session, false, s.worktree));
+    let mode = (reason == NightlyReason::Restart).then_some(START_MODE);
     NightlyDecision {
         reason,
         from,
