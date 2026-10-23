@@ -287,7 +287,7 @@ impl RcController {
     }
 
     /// 기록과 그 파일 경로 — 지울 때는 읽은 경로를 쓴다(손으로 고친 파일의 `label` 로 경로를 만들지 않게).
-    fn handoff_records(&self) -> Vec<(PathBuf, HandoffServerRecord)> {
+    pub(super) fn handoff_records(&self) -> Vec<(PathBuf, HandoffServerRecord)> {
         let Ok(entries) = std::fs::read_dir(self.handoff_dir()) else {
             return Vec::new();
         };

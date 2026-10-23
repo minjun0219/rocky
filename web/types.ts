@@ -306,7 +306,15 @@ export interface RcServerRow {
 /** 야간 재시작 한 대상의 결과 — Rust `rocky_core::rc::NightlyItem`. */
 export interface RcNightlyItem {
   label: string;
-  outcome: 'restarted' | 'current' | 'skipped' | 'down' | 'would-restart' | 'would-wait';
+  outcome:
+    | 'restarted'
+    | 'current'
+    | 'skipped'
+    | 'down'
+    | 'stopped'
+    | 'would-restart'
+    | 'would-wait'
+    | 'would-stop';
   note: string;
 }
 

@@ -35,6 +35,10 @@ struct World {
     sessions: HashSet<String>,
     /// 워크트리 모드(`--spawn worktree`)로 떠 있는 라벨 — 띄울 때의 명령줄을 따른다.
     worktree_servers: HashSet<String>,
+    /// 라벨별 `ps` etime — 없으면 10분 전에 떴다.
+    etimes: BTreeMap<String, &'static str>,
+    /// 첫 `ps` 를 답한 뒤 한 번 부른다(판정과 다시 재기 사이에 일어난 일).
+    after_first_ps: Option<Box<dyn FnOnce() + Send>>,
     next_pid: u32,
     script: VecDeque<Behavior>,
     /// 일어난 순서 — `stop repo-a` · `spawn repo-a <방식 인자>`.
@@ -78,6 +82,8 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         servers,
         sessions: HashSet::new(),
         worktree_servers: HashSet::new(),
+        etimes: BTreeMap::new(),
+        after_first_ps: None,
         next_pid: 200,
         script: script.into(),
         log: Vec::new(),
@@ -130,6 +136,11 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                 CmdOutput::failure("ps: 잠깐 실패")
             }
             ("ps", _) => {
+                if w.ps_calls == 2 {
+                    if let Some(f) = w.after_first_ps.take() {
+                        f();
+                    }
+                }
                 if let Some((label, after)) = w.close_session_after {
                     if w.ps_calls > after {
                         w.sessions.remove(label);
@@ -150,8 +161,9 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                     } else {
                         ""
                     };
+                    let etime = w.etimes.get(label).copied().unwrap_or("10:00");
                     ps.push_str(&format!(
-                        "  {pid}     1    10:00 claude rc --name {label}{mode}\n"
+                        "  {pid}     1 {etime} claude rc --name {label}{mode}\n"
                     ));
                     if w.sessions.contains(label) {
                         ps.push_str(&format!(
@@ -976,4 +988,162 @@ async fn the_last_report_survives_a_daemon_restart_without_a_schedule() {
     let nightly = status.nightly.expect("파일의 마지막 보고를 싣는다");
     assert_eq!(nightly.at, None);
     assert!(nightly.last.is_some());
+}
+
+/// 사흘 전에 뜬 서버로 만든다.
+fn age(w: &Arc<Mutex<World>>, labels: &[&str]) {
+    let mut w = w.lock().unwrap();
+    for l in labels {
+        w.etimes.insert(l.to_string(), "3-00:00:00");
+    }
+}
+
+#[tokio::test]
+async fn a_nightly_restart_does_not_count_as_use() {
+    // 30시간 전에 뜬 구버전 서버 — 다시 띄우고, 옛 기동 시각을 이어 붙인다(`rc/<라벨>.since`).
+    let w = world(at(4, 30), &["repo-b"], vec![READY]);
+    w.lock()
+        .unwrap()
+        .etimes
+        .insert("repo-b".into(), "1-06:00:00");
+    let f = fixture(w, &[("repo-b", "2.1.200")]);
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Restarted);
+    let since: i64 = std::fs::read_to_string(f.dir.path().join("rc/repo-b.since"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let hours = (chrono::Utc::now().timestamp() - since) / 3600;
+    assert_eq!(
+        hours, 30,
+        "다시 띄운 서버도 30시간 전부터 쓰이지 않은 것이다"
+    );
+}
+
+#[tokio::test]
+async fn a_server_restarted_by_the_nightly_is_stopped_once_two_days_pass() {
+    // 어젯밤 야간이 다시 띄웠지만(10분 전 기동) 그 전부터 72시간 안 쓰였다 — 이어 붙인 기동 시각으로 잰다.
+    let w = world(at(4, 30), &["repo-b"], vec![]);
+    let f = fixture(w, &[("repo-b", "2.1.300")]);
+    let since = chrono::Utc::now().timestamp() - 72 * 3600;
+    std::fs::write(f.dir.path().join("rc/repo-b.since"), since.to_string()).unwrap();
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Stopped);
+}
+
+#[tokio::test]
+async fn a_session_opened_after_the_decision_keeps_the_server() {
+    // 판정한 뒤(첫 ps) 앱에서 세션을 열었다 — 내리기 직전 다시 재 보고 손대지 않는다.
+    let w = world(at(4, 30), &["repo-b"], vec![]);
+    age(&w, &["repo-b"]);
+    w.lock().unwrap().open_session_after = Some(("repo-b", 1));
+    let f = fixture(w, &[("repo-b", "2.1.300")]);
+    let report = run(&f).await;
+    let (o, note) = outcome(&report, "repo-b");
+    assert_eq!(o, NightlyOutcome::Skipped, "{note}");
+    assert!(!log(&f).contains(&"stop repo-b".to_string()));
+}
+
+#[tokio::test]
+async fn an_unused_unpinned_server_is_stopped_not_restarted() {
+    // repo-b · repo-c 는 사흘 전에 떠 대화 기록도 열린 세션도 없다 — repo-b 는 구버전이어도 다시 띄우지 않고 내린다(되살림
+    // 표식 없이). 고정(repo-a)은 오래돼도 재시작, 열린 세션이 있는 repo-c 는 내리지 않는다.
+    let w = world(
+        at(4, 30),
+        &["repo-a", "repo-b", "repo-c"],
+        vec![READY, READY],
+    );
+    age(&w, &["repo-a", "repo-b", "repo-c"]);
+    w.lock().unwrap().sessions.insert("repo-c".to_string());
+    let f = fixture(
+        w,
+        &[
+            ("repo-a", "2.1.200"),
+            ("repo-b", "2.1.200"),
+            ("repo-c", "2.1.200"),
+        ],
+    );
+    let report = run(&f).await;
+    let (o, note) = outcome(&report, "repo-b");
+    assert_eq!(o, NightlyOutcome::Stopped, "{note}");
+    assert!(note.contains("rocky rc start repo-b"), "{note}");
+    let log = log(&f);
+    assert!(log.contains(&"stop repo-b".to_string()), "{log:?}");
+    assert!(
+        !log.iter().any(|l| l.starts_with("spawn repo-b")),
+        "{log:?}"
+    );
+    assert!(
+        !f.dir.path().join("rc/repo-b.revive").exists(),
+        "되살리지 않는다"
+    );
+    assert_eq!(outcome(&report, "repo-a").0, NightlyOutcome::Restarted);
+    assert_eq!(outcome(&report, "repo-c").0, NightlyOutcome::Restarted);
+}
+
+#[tokio::test]
+async fn a_server_used_within_two_days_is_not_stopped() {
+    // 사흘 전에 떴지만 그 폴더 대화 기록이 방금 바뀌었다(세션은 닫혔다) — 쓰인 서버다.
+    let w = world(at(4, 30), &["repo-b"], vec![READY]);
+    age(&w, &["repo-b"]);
+    let f = fixture(w, &[("repo-b", "2.1.200")]);
+    talk(&f, "repo-b");
+    f.world.lock().unwrap().sessions.clear();
+    let report = run(&f).await;
+    assert_eq!(outcome(&report, "repo-b").0, NightlyOutcome::Restarted);
+}
+
+#[tokio::test]
+async fn preview_says_which_servers_would_be_stopped() {
+    let w = world(at(4, 30), &["repo-b"], vec![]);
+    age(&w, &["repo-b"]);
+    let f = fixture(w, &[("repo-b", "2.1.200")]);
+    let report = f.control.nightly_preview().await;
+    let (o, note) = outcome(&report, "repo-b");
+    assert_eq!(o, NightlyOutcome::WouldStop);
+    assert!(note.contains("72시간 안 씀"), "{note}");
+    assert!(log(&f).is_empty(), "리허설은 손대지 않는다");
+}
+
+#[tokio::test]
+async fn an_unused_handoff_server_is_stopped_too() {
+    // 대상 밖 폴더(todo-9)의 핸드오프 서버 — 기록과 pid · 폴더가 맞고 사흘 동안 안 쓰였다.
+    let w = world(at(4, 30), &["todo-9"], vec![]);
+    age(&w, &["todo-9"]);
+    let f = fixture(w, &[]);
+    let handoff = f.dir.path().join("rc/handoff");
+    std::fs::create_dir_all(&handoff).unwrap();
+    std::fs::write(
+        handoff.join("handoff-rocky-9.json"),
+        r#"{"label":"handoff-rocky-9","name":"rocky-9: 무엇","pid":100,"dir":"/w/todo-9","todoRef":"rocky-9","startedAt":"2026-10-04T00:00:00Z"}"#,
+    )
+    .unwrap();
+    let report = run(&f).await;
+    let (o, note) = outcome(&report, "rocky-9: 무엇");
+    assert_eq!(o, NightlyOutcome::Stopped, "{note}");
+    assert!(log(&f).contains(&"stop todo-9".to_string()));
+    assert!(
+        !handoff.join("handoff-rocky-9.json").exists(),
+        "닫은 기록은 지운다"
+    );
+}
+
+#[tokio::test]
+async fn a_conversation_after_the_decision_keeps_the_server() {
+    // 판정한 뒤 같은 폴더에서 대화했다(세션은 닫힌 채) — 내리기 직전 다시 판정해 손대지 않는다.
+    let w = world(at(4, 30), &["repo-b"], vec![]);
+    age(&w, &["repo-b"]);
+    let f = fixture(w, &[("repo-b", "2.1.300")]);
+    let projects = f.dir.path().join("home/.claude/projects/-w-repo-b");
+    let script = projects.clone();
+    // 첫 ps(판정) 뒤에 대화 기록을 만든다 — 두 번째 ps(다시 재기) 전에.
+    f.world.lock().unwrap().after_first_ps = Some(Box::new(move || {
+        std::fs::create_dir_all(&script).unwrap();
+        std::fs::write(script.join("s.jsonl"), "{}\n").unwrap();
+    }));
+    let report = run(&f).await;
+    let (o, note) = outcome(&report, "repo-b");
+    assert_eq!(o, NightlyOutcome::Skipped, "{note}");
+    assert!(projects.join("s.jsonl").exists());
+    assert!(!log(&f).contains(&"stop repo-b".to_string()));
 }

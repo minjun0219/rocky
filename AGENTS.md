@@ -278,7 +278,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 보드 패널(mod) | 저절로 열지 않는다 — `/rocky-board` 로만 열고, 데몬은 패널이 열려 있는 동안만 묻는다(매 바퀴 `$.ui.panes()` 로 확인). 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬을 거치지 않는다. 하위 프로세스(git·`extraCommands`)는 마감을 넘기면 프로세스 그룹째 끊고 그 줄만 뺀다 | [statusline](./docs/features/statusline.md) |
 | 점검(`rocky doctor`) | 읽기만 한다. 꺼진 데몬을 띄우지 않고, 못 받은 항목은 ⚠ 가 아니라 건너뛴다. 판정은 `rocky_core::doctor` 순수 함수 | [doctor](./docs/features/doctor.md) |
-| 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다. rc 가 켜진 기기는 rc 서버로(할 일당 하나, 내리기는 사람) | [spawn](./docs/features/spawn.md) |
+| 세션 띄우기 | 그 워크트리에 살아 있는 세션이 있으면 띄우지 않는다. `--permission-mode` 는 넘기지 않는다. rc 가 켜진 기기는 rc 서버로(할 일당 하나, 내리기는 사람 — 48시간 안 쓴 것만 야간이) | [spawn](./docs/features/spawn.md) |
 | 세션 목록(`claude agents`) | pid 없는 잠든 행을 버리지 않는다. 작업 요약은 `detail`·`needs`·`updatedAt` 만, 못 읽으면 그 행만 비운다 — *the session list is readable remotely* | [sessions](./docs/features/sessions.md) |
 
 ## 리뷰 기준
