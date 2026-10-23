@@ -1,5 +1,15 @@
 # @minjun0219/rocky
 
+## 0.54.0
+
+### Minor Changes
+
+- [#506](https://github.com/minjun0219/rocky/pull/506) [`67c995e`](https://github.com/minjun0219/rocky/commit/67c995e24d172327270454a6736e58dc7dc8ab7f) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 야간 재시작이 고정이 아니고 열린 세션 없이 48시간 넘게 안 쓰인 서버를 다시 띄우지 않고 내린다. 안 쓴 시간은 그 폴더(와 그 워크트리) 대화 기록과 서버 기동 시각 중 나중 것에서 잰다. 보드에서 띄운 핸드오프 서버도 같은 기준이다. 내린 서버는 되살리지 않는다 — 필요하면 `rocky rc start <이름>` 으로 다시 연다. 야간 보고에는 `stopped`(리허설은 `would-stop`)로 남고, `rocky rc` · 웹의 야간 줄에 "끔 N" 이 보인다.
+
+### Patch Changes
+
+- [`6a05cf6`](https://github.com/minjun0219/rocky/commit/6a05cf6f7fb703295470954d08849caa49eb6638) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 야간 재시작이 열린 세션을 이어받지 않고 서버만(`--no-create-session-in-dir`) 띄운다. 이어받기(`--session-id`)로 띄운 서버는 단일 세션 모드라 앱에서 두 번째 세션을 열면 `already running 1 of 1 sessions` 로 거절됐고, 그 세션이 끝나면 서버도 같이 내려갔다. 원격 세션의 대화는 claude.ai 쪽에 남아 새 서버에 다시 붙는다. 회복 재시도도 서버만이다. 낮의 `rocky rc restart` 는 그대로 이어받는다.
+
 ## 0.53.0
 
 ### Minor Changes
