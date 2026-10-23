@@ -200,14 +200,18 @@ impl RcController {
         });
     }
 
-    /// 지금도 그 pid 로 세션 없이 떠 있나 — 캐시 없이 다시 잰다. 못 재면 아니다.
+    /// 지금도 그 pid 로 떠 있고 다시 판정해도 오래 안 쓴 것인가 — 캐시 없이 다시 재서 세션 · 고정 · 대화 기록을 다시 본다
+    /// (그새 같은 폴더에서 대화했거나 고정했으면 내리지 않는다). 못 재면 아니다.
     async fn still_idle(&self, label: &str, pid: u32) -> bool {
         let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
+        let cfg = self.nightly_config();
         status.probe_error.is_none()
-            && status
-                .servers
-                .iter()
-                .any(|s| s.label == label && s.running && s.pid == Some(pid) && s.sessions == 0)
+            && status.servers.iter().any(|s| {
+                s.label == label
+                    && s.running
+                    && s.pid == Some(pid)
+                    && self.judge_nightly(s, None, &cfg).reason == NightlyReason::Idle
+            })
     }
 
     /// 오래 안 쓴 핸드오프 서버를 내린다 — 대상을 내린 뒤 캐시 없이 다시 재서 판정하고, 닫기 버튼과 같은 길(`stop_handoff` —

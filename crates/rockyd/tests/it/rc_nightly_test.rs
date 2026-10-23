@@ -37,6 +37,8 @@ struct World {
     worktree_servers: HashSet<String>,
     /// 라벨별 `ps` etime — 없으면 10분 전에 떴다.
     etimes: BTreeMap<String, &'static str>,
+    /// 첫 `ps` 를 답한 뒤 한 번 부른다(판정과 다시 재기 사이에 일어난 일).
+    after_first_ps: Option<Box<dyn FnOnce() + Send>>,
     next_pid: u32,
     script: VecDeque<Behavior>,
     /// 일어난 순서 — `stop repo-a` · `spawn repo-a <방식 인자>`.
@@ -81,6 +83,7 @@ fn world(clock: NaiveDateTime, running: &[&str], script: Vec<Behavior>) -> Arc<M
         sessions: HashSet::new(),
         worktree_servers: HashSet::new(),
         etimes: BTreeMap::new(),
+        after_first_ps: None,
         next_pid: 200,
         script: script.into(),
         log: Vec::new(),
@@ -133,6 +136,11 @@ fn runner(w: Arc<Mutex<World>>) -> Runner {
                 CmdOutput::failure("ps: 잠깐 실패")
             }
             ("ps", _) => {
+                if w.ps_calls == 2 {
+                    if let Some(f) = w.after_first_ps.take() {
+                        f();
+                    }
+                }
                 if let Some((label, after)) = w.close_session_after {
                     if w.ps_calls > after {
                         w.sessions.remove(label);
@@ -1118,4 +1126,24 @@ async fn an_unused_handoff_server_is_stopped_too() {
         !handoff.join("handoff-rocky-9.json").exists(),
         "닫은 기록은 지운다"
     );
+}
+
+#[tokio::test]
+async fn a_conversation_after_the_decision_keeps_the_server() {
+    // 판정한 뒤 같은 폴더에서 대화했다(세션은 닫힌 채) — 내리기 직전 다시 판정해 손대지 않는다.
+    let w = world(at(4, 30), &["repo-b"], vec![]);
+    age(&w, &["repo-b"]);
+    let f = fixture(w, &[("repo-b", "2.1.300")]);
+    let projects = f.dir.path().join("home/.claude/projects/-w-repo-b");
+    let script = projects.clone();
+    // 첫 ps(판정) 뒤에 대화 기록을 만든다 — 두 번째 ps(다시 재기) 전에.
+    f.world.lock().unwrap().after_first_ps = Some(Box::new(move || {
+        std::fs::create_dir_all(&script).unwrap();
+        std::fs::write(script.join("s.jsonl"), "{}\n").unwrap();
+    }));
+    let report = run(&f).await;
+    let (o, note) = outcome(&report, "repo-b");
+    assert_eq!(o, NightlyOutcome::Skipped, "{note}");
+    assert!(projects.join("s.jsonl").exists());
+    assert!(!log(&f).contains(&"stop repo-b".to_string()));
 }
