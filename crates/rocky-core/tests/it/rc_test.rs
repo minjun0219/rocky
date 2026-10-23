@@ -970,6 +970,75 @@ fn transcript_dirs_cover_the_folder_and_its_session_worktrees() {
 }
 
 #[test]
+fn a_nightly_restart_carries_the_old_start() {
+    // 야간이 남긴 기록(서버보다 나중에 씀)이면 옛 기동 시각, rocky 밖에서 다시 띄웠으면(기록이 서버보다 먼저) 지금 서버.
+    assert_eq!(
+        carried_start(Some(1000), Some(100), Some(1005), 60),
+        Some(100)
+    );
+    assert_eq!(
+        carried_start(Some(1000), Some(100), Some(950), 60),
+        Some(100)
+    );
+    assert_eq!(
+        carried_start(Some(1000), Some(100), Some(900), 60),
+        Some(1000)
+    );
+    assert_eq!(carried_start(Some(1000), None, None, 60), Some(1000));
+    assert_eq!(carried_start(None, Some(100), Some(1005), 60), None);
+}
+
+#[test]
+fn nightly_stops_servers_unused_for_two_days() {
+    const NOW: i64 = 1_000_000_000;
+    let hours = |h: i64| Some(NOW - h * 3600);
+    let base = NightlyState {
+        current: Some("2.1.286".into()),
+        recorded: Some("2.1.286".into()),
+        started: hours(72),
+        ..NightlyState::default()
+    };
+    let with = |f: &dyn Fn(&mut NightlyState)| {
+        let mut s = base.clone();
+        f(&mut s);
+        s
+    };
+    let quiet = Duration::from_secs(60 * 60);
+    let reason = |s: &NightlyState| decide_nightly(s, NOW, quiet).reason;
+    // 최신 버전이어도 오래 안 쓴 서버는 내린다.
+    let d = decide_nightly(&base, NOW, quiet);
+    assert_eq!(
+        (d.reason, d.mode, d.idle_secs),
+        (NightlyReason::Idle, None, Some(72 * 3600))
+    );
+    // 대화 기록과 기동 중 나중 것이 기준 — 47시간 전 대화면 아직 쓰인 서버다.
+    assert_eq!(
+        reason(&with(&|s| s.last_write = hours(47))),
+        NightlyReason::Current
+    );
+    assert_eq!(
+        reason(&with(&|s| s.last_write = hours(49))),
+        NightlyReason::Idle
+    );
+    assert_eq!(
+        reason(&with(&|s| s.started = hours(47))),
+        NightlyReason::Current
+    );
+    // 고정 · 열린 세션 · 기동 시각 모름은 내리지 않는다.
+    assert_eq!(reason(&with(&|s| s.pinned = true)), NightlyReason::Current);
+    assert_eq!(
+        reason(&with(&|s| s.live_session = true)),
+        NightlyReason::Current
+    );
+    assert_eq!(reason(&with(&|s| s.started = None)), NightlyReason::Current);
+    assert_eq!(serde_json::to_value(NightlyReason::Idle).unwrap(), "idle");
+    assert_eq!(
+        serde_json::to_value(NightlyOutcome::WouldStop).unwrap(),
+        "would-stop"
+    );
+}
+
+#[test]
 fn nightly_decision_follows_the_old_order() {
     const NOW: i64 = 1_000_000;
     let quiet = Duration::from_secs(60 * 60);

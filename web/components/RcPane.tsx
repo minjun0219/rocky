@@ -474,6 +474,10 @@ export function rcNightlyText(
   const count = (o: string) => last.items.filter((i) => i.outcome === o).length;
   const down = count('down');
   const parts = [`마지막 ${when}`, `재시작 ${count('restarted')}`, `건너뜀 ${count('skipped')}`];
+  const stopped = count('stopped');
+  if (stopped > 0) {
+    parts.push(`끔 ${stopped}`);
+  }
   if (down > 0) {
     parts.push(`못 띄움 ${down}`);
   }

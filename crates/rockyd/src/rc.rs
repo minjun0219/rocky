@@ -1289,6 +1289,8 @@ impl RcController {
     ) -> Result<u32, String> {
         std::fs::create_dir_all(&self.log_dir)
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
+        // 이어 붙인 기동 시각을 지운다 — 새로 뜬 서버는 지금부터 쓰인 것이다. 야간은 뜬 뒤에 다시 쓴다(`rc::carried_start`).
+        let _ = std::fs::remove_file(self.log_path(&target.label, "since"));
         let argv = rc::server_argv(&target.label, mode, session, target.worktree);
         let pid = self
             .spawn_logged(&argv, Path::new(&target.dir), &target.label)

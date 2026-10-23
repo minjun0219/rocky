@@ -211,7 +211,8 @@ fn nightly_preview_lists_what_would_happen() {
             {"label": "repo-a", "outcome": "would-restart", "note": "2.1.283 → 2.1.300 · 새 세션과 함께"},
             {"label": "b", "outcome": "would-wait", "note": "작업 중 — 07:00 까지 5분마다 다시 본다"},
             {"label": "c", "outcome": "current", "note": "2.1.300"},
-            {"label": "d", "outcome": "skipped", "note": "기동 버전 기록 없음 — 구버전인지 모른다"}
+            {"label": "d", "outcome": "skipped", "note": "기동 버전 기록 없음 — 구버전인지 모른다"},
+            {"label": "e", "outcome": "would-stop", "note": "72시간 안 씀 · 열린 세션 없음"}
         ]
     });
     assert_eq!(
@@ -220,7 +221,8 @@ fn nightly_preview_lists_what_would_happen() {
          ↻ repo-a  2.1.283 → 2.1.300 · 새 세션과 함께\n\
          … b       작업 중 — 07:00 까지 5분마다 다시 본다\n\
          = c       2.1.300\n\
-         – d       기동 버전 기록 없음 — 구버전인지 모른다"
+         – d       기동 버전 기록 없음 — 구버전인지 모른다\n\
+         ○ e       72시간 안 씀 · 열린 세션 없음"
     );
     let blocked = json!({"dryRun": true, "update": "x", "blocked": "logged-out", "items": []});
     assert_eq!(
@@ -245,12 +247,13 @@ fn nightly_line_summarizes_the_last_run() {
         "last": {"startedAt": "x", "update": "u", "items": [
             {"label": "a", "outcome": "restarted", "note": ""},
             {"label": "b", "outcome": "skipped", "note": ""},
-            {"label": "c", "outcome": "down", "note": ""}
+            {"label": "c", "outcome": "down", "note": ""},
+            {"label": "d", "outcome": "stopped", "note": ""}
         ]}
     });
     assert_eq!(
         nightly_line(&last),
-        "야간: 04:30 · 마지막 ? — 재시작 1 · 건너뜀 1 · ⚠ 못 띄움 1"
+        "야간: 04:30 · 마지막 ? — 재시작 1 · 건너뜀 1 · 끔 1 · ⚠ 못 띄움 1"
     );
     // 손으로만 돌렸으면 시각이 없다.
     let manual = json!({"running": false, "last": {"startedAt": "x", "update": "u", "blocked": "logged-out", "items": []}});

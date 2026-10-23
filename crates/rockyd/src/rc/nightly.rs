@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{probe, Policy, RcCommand, RcController, RcNotifier, RcRefusal};
 
+/// `rc/<라벨>.since` 가 지금 서버보다 이만큼 먼저 쓰였어도 그 서버의 것으로 본다 — 기동과 기록 사이의 틈.
+const SINCE_SLACK: i64 = 60;
 /// 일정 확인 간격 — 1분마다 "오늘 그 시각이 지났고 아직 안 돌았나" 를 본다.
 pub const NIGHTLY_CHECK: Duration = Duration::from_secs(60);
 /// `claude update` 한도.
@@ -97,15 +99,158 @@ impl RcController {
         current: Option<&str>,
         cfg: &NightlyConfig,
     ) -> NightlyDecision {
+        let now = chrono::Utc::now().timestamp();
         let state = NightlyState {
             current: current.map(str::to_string),
             recorded: std::fs::read_to_string(self.log_path(&row.label, "version")).ok(),
             live_session: row.sessions > 0,
             last_write: last_write(&self.home, &row.dir),
             pinned: row.pinned,
+            started: self.carried_start(&row.label, started_at(now, row.uptime_secs)),
             offline: false,
         };
-        rc::decide_nightly(&state, chrono::Utc::now().timestamp(), cfg.quiet)
+        rc::decide_nightly(&state, now, cfg.quiet)
+    }
+
+    /// 기동 시각 — 야간이 다시 띄운 서버면 그 전 기동 시각(`rc::carried_start`).
+    fn carried_start(&self, label: &str, uptime_start: Option<i64>) -> Option<i64> {
+        let path = self.log_path(label, "since");
+        let carried = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| raw.trim().parse().ok());
+        let written = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|d| i64::try_from(d.as_secs()).ok());
+        rc::carried_start(uptime_start, carried, written, SINCE_SLACK)
+    }
+
+    /// 야간이 다시 띄운 서버에 옛 기동 시각을 남긴다 — 야간 재시작을 "쓴 것" 으로 치지 않게(`rc::carried_start`). 기동이 먼저
+    /// 지우므로 뜬 뒤에 쓴다.
+    fn carry_start(&self, label: &str, started: Option<i64>) {
+        if let Some(started) = started {
+            let _ = std::fs::write(self.log_path(label, "since"), started.to_string());
+        }
+    }
+
+    /// 핸드오프 서버는 다시 띄우지 않는다 — 오래 안 쓰였는지만 본다(고정이 아니다). 내릴 것이면 그 판정.
+    fn judge_handoff_idle(
+        &self,
+        h: &rc::HandoffServerRow,
+        cfg: &NightlyConfig,
+    ) -> Option<NightlyDecision> {
+        let now = chrono::Utc::now().timestamp();
+        let state = NightlyState {
+            live_session: h.sessions > 0,
+            last_write: last_write(&self.home, &h.dir),
+            started: started_at(now, h.uptime_secs),
+            ..Default::default()
+        };
+        let d = rc::decide_nightly(&state, now, cfg.quiet);
+        (d.reason == NightlyReason::Idle).then_some(d)
+    }
+
+    /// 오래 안 쓴 대상을 내린다 — 다시 띄우지 않고 되살림 표식도 지운다(감시가 살리지 않게). 사람이 그 대상에 무엇을 하고
+    /// 있으면 건너뛴다.
+    async fn stop_idle(&self, row: &ServerRow, d: &NightlyDecision, report: &mut NightlyReport) {
+        let label = row.label.clone();
+        let skip = |note: &str| (NightlyOutcome::Skipped, note.to_string());
+        let (outcome, note) = match (
+            row.pid,
+            self.begin(&label, RcCommand::Restart { fresh: true }),
+        ) {
+            (_, Err(_)) => skip("다른 일이 진행 중"),
+            (None, Ok(_)) => {
+                self.release(&label);
+                skip("pid 를 모른다 — 내리지 않았다")
+            }
+            // 내리기 직전 캐시 없이 다시 잰다 — 그새 세션이 열렸거나 다른 서버로 바뀌었으면 손대지 않는다.
+            (Some(pid), Ok(_)) if !self.still_idle(&label, pid).await => {
+                self.release(&label);
+                skip("다시 재 보니 세션이 열렸거나 서버가 바뀌었다 — 내리지 않았다")
+            }
+            (Some(pid), Ok(_)) => {
+                let down = self.stop(&label, pid).await;
+                // 표식을 먼저 지우고 놓는다 — 놓은 사이 감시가 표식을 보고 되살리지 않게.
+                self.clear_revive(&label, "idle-stop");
+                self.release(&label);
+                self.event(
+                    "nightly-idle-stop",
+                    &label,
+                    serde_json::json!({ "pid": pid, "down": down, "idleSecs": d.idle_secs }),
+                );
+                if down {
+                    (
+                        NightlyOutcome::Stopped,
+                        format!(
+                            "{} — 내렸다(다시 열려면 rocky rc start {label})",
+                            idle_note(d)
+                        ),
+                    )
+                } else {
+                    skip(&format!("{} — 내리지 못했다(pid {pid})", idle_note(d)))
+                }
+            }
+        };
+        report.items.push(NightlyItem {
+            label,
+            outcome,
+            note,
+        });
+    }
+
+    /// 지금도 그 pid 로 세션 없이 떠 있나 — 캐시 없이 다시 잰다. 못 재면 아니다.
+    async fn still_idle(&self, label: &str, pid: u32) -> bool {
+        let status = probe(&self.runner, self.config().as_ref(), &self.home).await;
+        status.probe_error.is_none()
+            && status
+                .servers
+                .iter()
+                .any(|s| s.label == label && s.running && s.pid == Some(pid) && s.sessions == 0)
+    }
+
+    /// 오래 안 쓴 핸드오프 서버를 내린다 — 대상을 내린 뒤 캐시 없이 다시 재서 판정하고, 닫기 버튼과 같은 길(`stop_handoff` —
+    /// 다시 재서 그 pid 일 때만)로 내린다. 못 재면 손대지 않는다.
+    async fn stop_idle_handoffs(&self, cfg: &NightlyConfig, report: &mut NightlyReport) {
+        // 핸드오프 기록이 없으면 잴 것도 없다.
+        if self.handoff_records().is_empty() {
+            return;
+        }
+        let mut status = probe(&self.runner, self.config().as_ref(), &self.home).await;
+        if status.probe_error.is_some() {
+            return;
+        }
+        self.decorate_handoffs(&mut status);
+        for h in &status.handoffs {
+            let Some(d) = self.judge_handoff_idle(h, cfg) else {
+                continue;
+            };
+            self.event(
+                "nightly-decide",
+                &h.label,
+                serde_json::json!({ "reason": d.reason, "idleSecs": d.idle_secs, "handoff": h.todo_ref }),
+            );
+            let (outcome, note) = match self.stop_handoff(&h.label).await {
+                Ok((_, true)) => (
+                    NightlyOutcome::Stopped,
+                    format!("{} — 핸드오프 서버를 내렸다", idle_note(&d)),
+                ),
+                Ok((record, false)) => (
+                    NightlyOutcome::Skipped,
+                    format!("{} — 내리지 못했다(pid {})", idle_note(&d), record.pid),
+                ),
+                Err(e) => (
+                    NightlyOutcome::Skipped,
+                    format!("{} — {e:?}", idle_note(&d)),
+                ),
+            };
+            report.items.push(NightlyItem {
+                label: h.name.clone(),
+                outcome,
+                note,
+            });
+        }
     }
 
     fn nightly_path(&self) -> std::path::PathBuf {
@@ -407,6 +552,10 @@ impl RcController {
                 }),
             );
             let (outcome, note) = match d.reason {
+                NightlyReason::Idle => {
+                    self.stop_idle(row, &d, report).await;
+                    continue;
+                }
                 NightlyReason::Restart => {
                     reqs.push((row.label.clone(), d));
                     continue;
@@ -423,6 +572,7 @@ impl RcController {
                 note,
             });
         }
+        self.stop_idle_handoffs(cfg, report).await;
         let reqs = self.lock_reqs(reqs, report);
         self.restart_round(reqs, current, deadline, &until, report)
             .await;
@@ -567,6 +717,7 @@ impl RcController {
             .await;
         let label = r.target.label.clone();
         if result.ok {
+            self.carry_start(&label, r.decision.started);
             self.release(&label);
             self.clear_revive(&label, "started");
             report.items.push(NightlyItem {
@@ -655,6 +806,7 @@ impl RcController {
                     )
                     .await;
                 if result.ok {
+                    self.carry_start(&label, r.decision.started);
                     self.release(&label);
                     self.clear_revive(&label, "started");
                     report.items.push(NightlyItem {
@@ -847,10 +999,11 @@ impl RcController {
         let cfg = self.nightly_config();
         let config = self.config();
         // 둘은 서로 기다릴 이유가 없다 — 새 바이너리의 첫 실행이 멎어도 응답이 그만큼만 늦다.
-        let (current, status) = tokio::join!(
+        let (current, mut status) = tokio::join!(
             self.installed_version(),
             probe(&self.runner, config.as_ref(), &self.home)
         );
+        self.decorate_handoffs(&mut status);
         let mut report = NightlyReport {
             started_at: chrono::Utc::now().to_rfc3339(),
             dry_run: true,
@@ -866,6 +1019,7 @@ impl RcController {
             for row in status.servers.iter().filter(|s| s.running) {
                 let d = self.judge_nightly(row, current.as_deref(), &cfg);
                 let (outcome, note) = match d.reason {
+                    NightlyReason::Idle => (NightlyOutcome::WouldStop, idle_note(&d)),
                     NightlyReason::Restart => (
                         NightlyOutcome::WouldRestart,
                         restart_note(&d, current.as_deref(), None),
@@ -885,6 +1039,15 @@ impl RcController {
                     outcome,
                     note,
                 });
+            }
+            for h in &status.handoffs {
+                if let Some(d) = self.judge_handoff_idle(h, &cfg) {
+                    report.items.push(NightlyItem {
+                        label: h.name.clone(),
+                        outcome: NightlyOutcome::WouldStop,
+                        note: format!("{} — 핸드오프 서버", idle_note(&d)),
+                    });
+                }
             }
         }
         report.finished_at = Some(chrono::Utc::now().to_rfc3339());
@@ -982,6 +1145,19 @@ fn restart_note(
     )
 }
 
+/// 서버가 뜬 시각(unix 초) — 현황의 기동 뒤 시간으로. 모르면 None.
+fn started_at(now: i64, uptime_secs: Option<u64>) -> Option<i64> {
+    uptime_secs
+        .and_then(|u| i64::try_from(u).ok())
+        .map(|u| now - u)
+}
+
+/// `Idle` 판정의 한 줄 — 몇 시간 안 쓰였나.
+fn idle_note(d: &NightlyDecision) -> String {
+    let hours = d.idle_secs.unwrap_or(0) / 3600;
+    format!("{hours}시간 안 씀 · 열린 세션 없음")
+}
+
 /// 손댈 일이 없는 판정의 결과 — 최신이거나 건너뛴 사유.
 fn settled(d: &NightlyDecision) -> (NightlyOutcome, String) {
     let skip = |note: &str| (NightlyOutcome::Skipped, note.to_string());
@@ -993,7 +1169,7 @@ fn settled(d: &NightlyDecision) -> (NightlyOutcome, String) {
         NightlyReason::NoRecord => skip("기동 버전 기록 없음 — 구버전인지 모른다"),
         NightlyReason::VersionUnknown => skip("설치 버전을 못 쟀다"),
         NightlyReason::NoNetwork => skip("네트워크 없음"),
-        NightlyReason::Restart | NightlyReason::Busy => skip(""),
+        NightlyReason::Idle | NightlyReason::Restart | NightlyReason::Busy => skip(""),
     }
 }
 

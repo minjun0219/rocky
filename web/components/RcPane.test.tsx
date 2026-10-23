@@ -342,6 +342,23 @@ describe('원격 제어 — 야간 재시작', () => {
         now,
       ).text,
     ).toBe('마지막 04:31 · 전부 건너뜀(logged-out)');
+    expect(
+      rcNightlyText(
+        {
+          running: false,
+          last: {
+            startedAt: 'x',
+            finishedAt: '2026-10-07T04:31:00',
+            update: 'u',
+            items: [
+              { label: 'a', outcome: 'restarted', note: '' },
+              { label: 'b', outcome: 'stopped', note: '' },
+            ],
+          },
+        },
+        now,
+      ).text,
+    ).toBe('마지막 04:31 · 재시작 1 · 건너뜀 0 · 끔 1');
   });
 
   test('야간을 켜지 않은 기기에는 그 줄이 없다', () => {

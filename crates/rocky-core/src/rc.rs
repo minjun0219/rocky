@@ -987,6 +987,8 @@ fn is_todo_worktree(name: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NightlyReason {
+    /// 고정이 아니고 열린 세션도 없이 `IDLE_STOP` 넘게 안 쓰였다 — 다시 띄우지 않고 내린다.
+    Idle,
     /// 구버전이고 쉰다 — 다시 띄운다.
     Restart,
     /// 이미 설치 버전으로 떠 있다.
@@ -1001,6 +1003,23 @@ pub enum NightlyReason {
     NoNetwork,
 }
 
+/// 야간이 다시 띄운 서버의 기동 시각을 이어 붙인다 — `rc/<라벨>.since` 에 옛 기동 시각(`carried`)을 남겨 두고, 그 파일이
+/// 지금 서버보다 나중에 쓰였을 때만(그 서버를 띄운 야간이 남긴 것) 그 값을 쓴다. 안 그러면 claude 가 매일 올라 야간이 매일
+/// 다시 띄우는 서버는 기동 시각이 늘 하루 전이라 `IDLE_STOP` 에 닿지 않는다. 사람 · 감시가 띄우면 기동이 파일을 지운다.
+/// 파일이 지금 서버보다 `slack` 넘게 먼저 쓰였으면(그 뒤 rocky 밖에서 띄웠다) 지금 서버의 기동 시각.
+pub fn carried_start(
+    uptime_start: Option<i64>,
+    carried: Option<i64>,
+    written: Option<i64>,
+    slack: i64,
+) -> Option<i64> {
+    let start = uptime_start?;
+    match (carried, written) {
+        (Some(c), Some(w)) if w >= start - slack => Some(c.min(start)),
+        _ => Some(start),
+    }
+}
+
 /// 서버 하나에 대해 잰 사실.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NightlyState {
@@ -1012,6 +1031,8 @@ pub struct NightlyState {
     /// 그 폴더 대화 기록(`*.jsonl`) 중 가장 최근 mtime(unix 초). 기록이 하나도 없으면 None.
     pub last_write: Option<i64>,
     pub pinned: bool,
+    /// 서버가 뜬 시각(unix 초) — 현황의 기동 뒤 시간으로 셈한다. 모르면 None(그러면 `Idle` 로 보지 않는다).
+    pub started: Option<i64>,
     /// 내리기 직전 네트워크 확인이 끝내 실패했다.
     pub offline: bool,
 }
@@ -1026,15 +1047,23 @@ pub struct NightlyDecision {
     /// `--session-id`) 단일 세션 서버가 되어 두 번째 세션을 거절하고, 그 세션이 끝나면 서버도 내려간다(2026-10-21 실측).
     /// 원격 세션의 대화는 claude.ai 쪽에 남아 새 서버에 다시 붙는다 — 이어받기로 다시 띄울 이유가 없다.
     pub mode: Option<LaunchMode>,
-    /// 마지막 대화 뒤 지난 초 — 열린 세션이 있고 대화 기록도 있을 때만.
+    /// 마지막 대화 뒤 지난 초 — 열린 세션이 있고 대화 기록도 있을 때만. `Idle` 이면 마지막으로 쓰인 뒤 지난 초.
     pub idle_secs: Option<u64>,
+    /// 판정에 쓴 기동 시각(`NightlyState::started`) — 야간이 다시 띄운 서버에 이어 붙인다(야간 재시작은 쓴 것이 아니다).
+    pub started: Option<i64>,
 }
 
-/// 판정한다. 순서: 버전 모름 → 기록 없음 → 최신 → 바쁨 → 네트워크 없음 → 재시작.
+/// 이만큼 안 쓰인 서버는 야간이 내린다(`NightlyReason::Idle`, 2026-10-23 오너 결정 — 필요하면 `rocky rc start` 로 다시 연다).
+pub const IDLE_STOP: Duration = Duration::from_secs(48 * 60 * 60);
+
+/// 판정한다. 순서: 오래 안 씀 → 버전 모름 → 기록 없음 → 최신 → 바쁨 → 네트워크 없음 → 재시작.
 ///
 /// **쉬는 서버** — 열린 세션이 없으면(서버만) 쉰다. 있으면 그 폴더 대화 기록이 `quiet` 넘게 안 바뀌었을 때. 세션이
 /// 있는데 기록이 하나도 없으면(아직 한 마디도 안 한 세션) 끊겨도 잃을 대화가 없으니 쉬는 것으로 본다. 세션이 없으면
 /// 같은 폴더의 로컬 터미널이 최근 기록을 남겼어도 서버는 쉬는 것이다.
+///
+/// **오래 안 씀** — 고정이 아니고 열린 세션이 없으며, 그 폴더 대화 기록과 서버 기동 중 나중 것에서 `IDLE_STOP` 이 지났다.
+/// 버전과 상관없이 먼저 본다. 기동 시각을 모르면 보지 않는다 — 막 띄운 서버를 내리지 않게. 고정은 감시가 되살리니 내리지 않는다.
 ///
 /// 기록이 없는 서버는 구버전으로 몰지 않고 건드리지도 않는다 — `claude update` 직후라 지금 버전을 적어 넣으면 옛
 /// 바이너리로 떠 있는 서버를 최신으로 속인다.
@@ -1049,6 +1078,23 @@ pub fn decide_nightly(s: &NightlyState, now: i64, quiet: Duration) -> NightlyDec
         .last_write
         .filter(|_| s.live_session)
         .map(|t| now.saturating_sub(t).max(0) as u64);
+    // 마지막으로 쓰인 시각 — 대화 기록과 기동 중 나중 것. 사람이 막 띄운 서버도 쓴 것으로 친다.
+    let unused_secs = s
+        .started
+        .filter(|_| !s.pinned && !s.live_session)
+        .map(|started| {
+            now.saturating_sub(s.last_write.map_or(started, |w| w.max(started)))
+                .max(0) as u64
+        });
+    if let Some(unused) = unused_secs.filter(|u| *u >= IDLE_STOP.as_secs()) {
+        return NightlyDecision {
+            reason: NightlyReason::Idle,
+            from,
+            mode: None,
+            idle_secs: Some(unused),
+            started: s.started,
+        };
+    }
     let reason = match (&s.current, &from) {
         (None, _) => NightlyReason::VersionUnknown,
         (_, None) => NightlyReason::NoRecord,
@@ -1063,6 +1109,7 @@ pub fn decide_nightly(s: &NightlyState, now: i64, quiet: Duration) -> NightlyDec
         from,
         mode,
         idle_secs,
+        started: s.started,
     }
 }
 
@@ -1133,10 +1180,14 @@ pub enum NightlyOutcome {
     Skipped,
     /// 내렸지만 마감까지 못 띄웠다 — 되살림 표식이 남아 감시가 띄운다.
     Down,
+    /// 오래 안 쓰여 내렸다(`NightlyReason::Idle`) — 되살리지 않는다.
+    Stopped,
     /// 리허설 — 다시 띄울 것.
     WouldRestart,
     /// 리허설 — 바빠서 마감까지 기다릴 것.
     WouldWait,
+    /// 리허설 — 오래 안 쓰여 내릴 것.
+    WouldStop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]

@@ -607,6 +607,9 @@ pub fn nightly_line(n: &Value) -> String {
         format!("재시작 {}", count("restarted")),
         format!("건너뜀 {}", count("skipped")),
     ];
+    if count("stopped") > 0 {
+        parts.push(format!("끔 {}", count("stopped")));
+    }
     if count("down") > 0 {
         parts.push(format!("⚠ 못 띄움 {}", count("down")));
     }
@@ -647,6 +650,7 @@ pub fn render_nightly(raw: &Value) -> String {
             "would-wait" => "…",
             "current" => "=",
             "down" => "✗",
+            "stopped" | "would-stop" => "○",
             _ => "–",
         };
         format!(
