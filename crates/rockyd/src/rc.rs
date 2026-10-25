@@ -500,6 +500,21 @@ pub fn default_ops() -> RcOps {
     }
 }
 
+/// `os error 2` 는 폴더가 없을 때도, 실행 파일이 PATH 에 없을 때도 같은 글자다 — 어느 쪽인지와 그때의 PATH 를 붙인다. launchd
+/// 밖에서 좁은 PATH 로 뜬 데몬이 `~/.local/bin/claude` 를 못 찾던 일이 `No such file or directory` 한 줄로만 보였다.
+fn not_found_hint(error: &std::io::Error, program: &str, dir: &Path) -> String {
+    if error.kind() != std::io::ErrorKind::NotFound {
+        return String::new();
+    }
+    if !dir.is_dir() {
+        return " — 폴더가 없다".into();
+    }
+    format!(
+        " — {program} 를 데몬의 PATH 에서 못 찾았다(PATH={})",
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
 /// 기동 로그를 비우고 append 로 연다 — 데몬이 커진 로그를 비우면(`trim_logs`) 서버가 그다음 출력부터 처음부터 다시 쓰게. append
 /// 가 아니면 비운 뒤에도 서버가 옛 위치에 이어 써, 앞이 빈(구멍 난) 큰 파일이 된다.
 fn server_log(path: &Path) -> std::io::Result<std::fs::File> {
@@ -1294,7 +1309,14 @@ impl RcController {
         let argv = rc::server_argv(&target.label, mode, session, target.worktree);
         let pid = self
             .spawn_logged(&argv, Path::new(&target.dir), &target.label)
-            .map_err(|e| format!("못 띄웠다({} 에서 {}): {e}", target.dir, argv.join(" ")))?;
+            .map_err(|e| {
+                format!(
+                    "못 띄웠다({} 에서 {}): {e}{}",
+                    target.dir,
+                    argv.join(" "),
+                    not_found_hint(&e, &argv[0], Path::new(&target.dir))
+                )
+            })?;
         // 기동 버전 기록 — 야간 재시작이 이것과 설치 버전을 맞대 구버전을 가린다. 못 쟀으면 지운다: 옛 값을 남기면 새
         // 바이너리로 뜬 서버를 구버전으로 보고, 빈 기록은 "모름" 이라 야간이 건드리지 않는다.
         let record = self.log_path(&target.label, "version");
