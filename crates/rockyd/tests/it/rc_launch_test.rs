@@ -52,6 +52,8 @@ struct World {
     script: VecDeque<Behavior>,
     spawns: Vec<Vec<String>>,
     signals: Vec<(u32, i32)>,
+    /// 띄우기가 `os error 2` 로 실패한다.
+    spawn_missing: bool,
 }
 
 fn ops(world: Arc<Mutex<World>>) -> RcOps {
@@ -61,6 +63,9 @@ fn ops(world: Arc<Mutex<World>>) -> RcOps {
         spawn: Arc::new(
             move |argv: &[String], _dir: &Path, out: &Path, err: &Path| {
                 let mut w = w1.lock().unwrap();
+                if w.spawn_missing {
+                    return Err(std::io::ErrorKind::NotFound.into());
+                }
                 let b = w.script.pop_front().expect("예상보다 많이 띄웠다");
                 std::fs::write(out, b.out)?;
                 std::fs::write(err, b.err)?;
@@ -675,6 +680,38 @@ async fn fresh_start_that_dies_reports_stderr() {
     assert_eq!(
         result.message,
         "뜨자마자 내려갔다 — No conversation found to continue"
+    );
+}
+
+/// `os error 2` 만으로는 폴더가 없는지 실행 파일이 PATH 에 없는지 모른다 — 어느 쪽인지(PATH 까지) 붙인다.
+#[tokio::test]
+async fn a_missing_program_or_folder_says_which() {
+    let f = fixture(false, false, vec![]);
+    f.world.lock().unwrap().spawn_missing = true;
+    let result = run(&f, "repo-a", RcCommand::Start).await;
+    assert!(!result.ok);
+    assert!(
+        result.message.ends_with(" — 폴더가 없다"),
+        "{}",
+        result.message
+    );
+
+    let config = RcConfig {
+        root: Some("/".into()),
+        pinned: vec![],
+        targets: vec!["tmp".into()],
+        ..config()
+    };
+    let f = fixture_with(config, false, false, vec![]);
+    f.world.lock().unwrap().spawn_missing = true;
+    let result = run(&f, "tmp", RcCommand::Start).await;
+    assert!(!result.ok);
+    assert!(
+        result
+            .message
+            .contains("claude 를 데몬의 PATH 에서 못 찾았다(PATH="),
+        "{}",
+        result.message
     );
 }
 

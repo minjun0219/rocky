@@ -176,7 +176,12 @@ pub fn ensure_daemon(ctx: &CliContext) -> Result<(), String> {
     // stdio 를 전부 끊어 detach 한다 — 부모(CLI)가 끝나도 데몬은 산다. TS 시절 cwd 를
     // 레포 루트로 고정했던 것은 bunfig.toml(Tailwind 플러그인)이 시작 cwd 에서 읽히기
     // 때문인데, Rust 데몬은 UI 를 미리 번들된 dist 로 서빙하므로 그 제약이 없다.
-    std::process::Command::new(daemon_binary())
+    let mut command = std::process::Command::new(daemon_binary());
+    // 부른 쪽 PATH 가 좁아도 launchd 의 데몬과 같은 것을 보게 한다(`launchd::spawn_path`).
+    if let Some(path) = crate::launchd::spawn_path() {
+        command.env("PATH", path);
+    }
+    command
         // launchd 데몬 아래(세션·어댑터)에서 불렸으면 이 변수를 물려받았다 — 새 데몬이 자기를 launchd 의
         // 것으로 착각하지 않게 뗀다(`launched_by_launchd`).
         .env_remove("XPC_SERVICE_NAME")

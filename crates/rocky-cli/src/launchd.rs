@@ -98,6 +98,17 @@ pub fn baked_path(plist: &str) -> Option<String> {
     Some(unescape_xml(value))
 }
 
+/// launchd 밖에서 데몬을 띄울 때(`client::ensure_daemon` 의 마지막 수단) 줄 PATH — plist 에 구운 PATH 를 앞에, 부른 쪽 PATH 를
+/// 뒤에 둔다. 부른 쪽이 좁은 PATH 의 앱(로그인 때 뜬 GUI 앱의 자식 등)이면 그 데몬은 `claude`·`gh` 를 못 찾는데, 포트를 쥐고 있어
+/// launchd 의 데몬은 기다리기만 한다. plist 가 없거나 못 읽으면 `None` — 부른 쪽 PATH 그대로.
+pub fn spawn_path() -> Option<String> {
+    let baked = baked_path(&std::fs::read_to_string(plist_path()).ok()?)?;
+    Some(join_path(
+        &baked,
+        &std::env::var("PATH").unwrap_or_default(),
+    ))
+}
+
 /// plist 에 굽는 데몬 경로 — 버전이 바뀌어도 그대로인 경로를 고른다(`exec_through_link`).
 fn plist_exec_path() -> String {
     exec_through_link(&daemon_binary(), &data_home().join("rocky").join("current"))

@@ -56,7 +56,9 @@
 - **launchd 밖의 고아를 만들지도 두지도 않는다.** job 이 로드돼 있으면 CLI·훅은 따로 띄우지 않고 `launchctl kickstart` 로 맡긴다.
   교체 뒤엔 포트의 pid 가 job 의 pid 와 같고 목표 버전인지 확인한다(다르면 그 고아를 pid 로 내린다). `daemon restart`·`update` 는
   버전이 목표와 다르면 실패로 끝나고, `daemon status` 는 둘이 다르면 ⚠. launchd 가 띄운 데몬은 포트가 차 있으면 끝나지 않고
-  기다렸다 이어받는다.
+  기다렸다 이어받는다. 그래도 kickstart 가 시간 안에 못 띄워 CLI 가 직접 띄우는 마지막 수단에는 plist 에 구운 PATH 를 앞에
+  붙여 넘긴다(`launchd::spawn_path`) — 좁은 PATH 의 앱(로그인 때 뜬 GUI 앱의 자식)이 띄운 고아가 `claude` 를 못 찾아 rc 기동이
+  `os error 2` 로 실패했다.
 - **launchd 재시작은 plist 가 그대로면 건드리지 않는다.** 교체(훅·`daemon restart`·`update`)는 디스크의 plist 가 지금 구울 내용과
   같고 launchd 가 쥔 job 의 `program`(`launchctl print`)이 같은 실행 파일이면 `launchctl kickstart -k` 로 데몬만 다시 띄운다
   (`launchd::restart_launchd`·`plan_restart`). plist 가 다르거나, job 이 로드되지 않았거나, 쥔 정의가 다르거나, kickstart 가
