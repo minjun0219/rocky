@@ -15,6 +15,13 @@ public struct DaemonError: Error, LocalizedError, Equatable {
     public var status: Int?
     public var message: String
 
+    public init(method: String, path: String, status: Int?, message: String) {
+        self.method = method
+        self.path = path
+        self.status = status
+        self.message = message
+    }
+
     /// 상태 줄에 그대로 뜬다 — 무엇을 어디로 보냈다가 무엇을 받았는지(TUI 와 같은 모양).
     public var errorDescription: String? {
         let code = status.map { " → \($0)" } ?? " →"

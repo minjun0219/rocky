@@ -12,7 +12,7 @@ struct BoardWindow: View {
     var body: some View {
         NavigationSplitView {
             List(store.boards, selection: Binding(get: { store.boardKey }, set: { store.select(board: $0) })) { board in
-                Text(board.title).tag(Optional(board.key))
+                Text(board.title).tag(board.key)
             }
             .navigationSplitViewColumnWidth(min: 140, ideal: 180)
         } detail: {
