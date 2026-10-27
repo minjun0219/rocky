@@ -26,7 +26,8 @@
   `defaults write dev.minjun.rocky.mac daemonURL http://127.0.0.1:8636`, `defaults write dev.minjun.rocky.mac actor <이름>`. 환경 변수
   (`ROCKY_TODO_PORT`, `ROCKY_TODO_ACTOR`)는 터미널에서 `swift run` 할 때용. 기본 actor 는 웹·TUI 와 같은 `logan`.
 - **서명은 오너의 인증서로.** `mac/scripts/bundle.sh` 는 `ROCKY_MAC_SIGN_IDENTITY`(키체인의 인증서 이름 — 자체 서명 인증서면 그 Common Name)로
-  `codesign` 하고, 없으면 ad-hoc(`-`)으로 서명한다. 서명 안 된·ad-hoc 빌드는 해시가 빌드마다 바뀌어 회사 맥 EDR 이 의심할 수 있다 — 그 맥에는
+  `codesign` 하고, 없으면 ad-hoc(`-`)으로 서명한다. 오너의 맥은 자체 서명 인증서 `rocky` 를 쓴다(2026-10-27):
+  `ROCKY_MAC_SIGN_IDENTITY=rocky mac/scripts/bundle.sh`. 서명 안 된·ad-hoc 빌드는 해시가 빌드마다 바뀌어 회사 맥 EDR 이 의심할 수 있다 — 그 맥에는
   인증서로 서명한 번들만 올린다. 앱 버전은 `package.json` 을 따른다(따로 들지 않는다 — 버전 넷을 맞추는 규칙에 다섯째를 더하지 않는다).
 - **배포는 아직 손으로.** 릴리스 tarball 에 넣지 않는다 — `bundle.sh` 로 만든 `mac/build/Rocky.app` 을 `/Applications` 에 옮긴다.
 
