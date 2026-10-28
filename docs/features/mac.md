@@ -23,7 +23,10 @@
   `POLL_MS`·`IDLE_POLL_MS` 와 같다), 메뉴를 열 때·아바타를 켤 때 한 번 더. 데몬이 `claude agents --json` 을 3초 캐시하므로 더 자주 묻지 않는다.
   묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(누르면 `/?view=agents`).
 - **아바타는 보이기만 한다.** 화면 구석의 떠 있는 패널(포커스를 가져가지 않고 모든 Space 에 뜬다)이 가장 급한 상태 하나를 보인다 —
-  내 차례(background `blocked`)면 깡충거리며 말풍선에 `needs`, 도는 세션이 있으면 다리를 두드리고, 다 쉬면 잠든다. 배너·소리는 내지 않는다.
+  내 차례(background `blocked`)면 깡충거리며 말풍선에 `needs`, 도는 세션이 있으면 팔로 두드리고, 다 쉬면 웅크려 숨만 쉰다. 배너·소리는 내지 않는다.
+  그림은 Gemini 가 그린 돌 골렘 조각(`Resources/rocky/*.png`, 원본의 절반 크기)을 관절로 이은 컷아웃 리그다 — 조각을 바꾸면
+  `RigPart` 의 pivot·at 좌표(PNG 픽셀)도 같이 바꾼다. .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은
+  SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
   메뉴의 토글이나 아바타의 오른쪽 클릭으로 끈다(`defaults` 의 `avatar`). 자리는 패널이 기억한다(`RockyAvatar`).
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
   받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
@@ -50,6 +53,7 @@
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |
 | 화면 | `mac/Sources/RockyMac/`(`RockyMacApp` · `MenuContent` · `BoardWindow`) |
+| 아바타 조각 그림 | `mac/Sources/RockyMac/Resources/rocky/` |
 | 번들·서명 | `mac/scripts/bundle.sh`, `mac/Info.plist` |
 
 테스트: `mac/Tests/RockyKitTests`(`swift test --package-path mac`) — RockyKit 만 본다. CI 잡 `mac app (swift build + test)` 가 macOS 러너에서

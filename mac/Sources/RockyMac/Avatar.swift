@@ -1,5 +1,5 @@
-// 떠 있는 아바타 — 화면 구석의 작은 로키(프로젝트 헤일메리의 에리디언: 다섯 다리, 돌 같은 몸)가 에이전트 상태를 알린다.
-// 내 차례인 세션이 있으면 깡충거리며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 다리를 두드리고, 다 쉬면 잠든다.
+// 떠 있는 아바타 — 화면 구석의 작은 로키(프로젝트 헤일메리의 에리디언, 돌 골렘)가 에이전트 상태를 알린다.
+// 내 차례인 세션이 있으면 깡충거리며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 팔로 두드리고, 다 쉬면 웅크려 잠든다.
 // 창은 늘 위에 뜨는 패널이고 포커스를 가져가지 않는다. 끌어서 옮기면 자리를 기억한다.
 import AppKit
 import RockyKit
@@ -30,7 +30,7 @@ final class AvatarController {
     private func show() {
         if panel == nil {
             let panel = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 240, height: 150),
+                contentRect: NSRect(x: 0, y: 0, width: 240, height: 170),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -76,10 +76,10 @@ struct AvatarView: View {
                     .transition(.opacity)
             }
             Rocky(mood: agents.mood)
-                .frame(width: 72, height: 60)
+                .frame(width: 96, height: 88)
                 .help(agents.mood.summary)
         }
-        .frame(width: 240, height: 150, alignment: .bottomTrailing)
+        .frame(width: 240, height: 170, alignment: .bottomTrailing)
         .onTapGesture {
             if let url = agents.agentsURL { openURL(url) }
         }
@@ -112,12 +112,13 @@ extension AvatarMood {
     }
 }
 
-/// 로키 — 다섯 다리와 둥근 돌 몸. 기분마다 색과 움직임이 다르다.
+/// 로키 — 조각 그림(Gemini 가 그린 돌 골렘)을 관절로 이어 움직이는 컷아웃 리그.
+/// 조각마다 자기 관절(pivot)과 부모 위의 붙는 자리(at)가 있고, 기분마다 관절 각도가 시간에 따라 바뀐다.
 private struct Rocky: View {
     let mood: AvatarMood
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: !moving)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { gc, size in
                 draw(in: &gc, size: size, t: t)
@@ -125,76 +126,176 @@ private struct Rocky: View {
         }
     }
 
+    /// 쉬는 중에도 숨은 쉰다 — 멈추는 건 연결이 없을 때뿐.
     private var moving: Bool {
-        switch mood {
-        case .waiting, .working: true
-        case .unknown, .resting: false
-        }
-    }
-
-    private var shell: Color {
-        switch mood {
-        case .waiting: .orange
-        case .working: Color(red: 0.55, green: 0.47, blue: 0.40)
-        case .resting: Color(red: 0.45, green: 0.42, blue: 0.40)
-        case .unknown: .gray
-        }
+        if case .unknown = mood { return false }
+        return true
     }
 
     private func draw(in gc: inout GraphicsContext, size: CGSize, t: Double) {
-        let w = size.width
-        let h = size.height
-        // 내 차례면 깡충, 도는 중이면 살짝 들썩.
-        let hop: Double = switch mood {
-        case .waiting: abs(sin(t * 6)) * 6
-        case .working: sin(t * 3) * 1.5
-        default: 0
-        }
-        let center = CGPoint(x: w / 2, y: h * 0.45 - hop)
-        let body = CGRect(x: center.x - w * 0.3, y: center.y - h * 0.28, width: w * 0.6, height: h * 0.5)
-
-        // 다리 다섯 — 도는 중이면 하나씩 두드린다.
-        for i in 0 ..< 5 {
-            let angle = Double.pi * (0.15 + 0.175 * Double(i))
-            var tap: Double = 0
-            if case .working = mood, Int(t * 6) % 5 == i {
-                tap = -4
-            }
-            let start = CGPoint(x: center.x + cos(angle) * w * 0.22, y: center.y + h * 0.12)
-            let knee = CGPoint(x: center.x + cos(angle) * w * 0.42, y: center.y + h * 0.05 + tap)
-            let foot = CGPoint(x: center.x + cos(angle) * w * 0.48, y: h * 0.95 - hop * 0.2 + tap)
-            var leg = Path()
-            leg.move(to: start)
-            leg.addQuadCurve(to: foot, control: knee)
-            gc.stroke(leg, with: .color(shell.opacity(0.9)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-        }
-
-        // 몸 — 돌 같은 둥근 덩어리와 윗면의 무늬.
-        gc.fill(Path(ellipseIn: body), with: .color(shell))
-        var ridge = Path()
-        ridge.move(to: CGPoint(x: body.minX + body.width * 0.25, y: body.minY + body.height * 0.35))
-        ridge.addQuadCurve(
-            to: CGPoint(x: body.maxX - body.width * 0.25, y: body.minY + body.height * 0.35),
-            control: CGPoint(x: center.x, y: body.minY + body.height * 0.1)
+        // 무대는 360×330 — 프레임에 맞춰 늘린다.
+        gc.scaleBy(x: size.width / 360, y: size.height / 330)
+        gc.fill(
+            Path(ellipseIn: CGRect(x: 180 - 95, y: 312 - 9, width: 190, height: 18)),
+            with: .color(.black.opacity(0.13))
         )
-        gc.stroke(ridge, with: .color(.black.opacity(0.25)), lineWidth: 1.5)
-
-        // 로키에게는 눈이 없다 — 대신 기분을 몸 위의 기호로.
-        let mark: String = switch mood {
-        case .waiting: "!"
-        case .working: "♪"
-        case .resting: "z"
-        case .unknown: "?"
+        guard let art = RockyArt.shared else {
+            // 그림을 못 읽으면 돌 하나라도.
+            gc.fill(Path(ellipseIn: CGRect(x: 110, y: 150, width: 140, height: 120)), with: .color(.gray))
+            return
         }
-        gc.draw(
-            Text(mark).font(.system(size: 14, weight: .bold)).foregroundColor(.white),
-            at: CGPoint(x: center.x, y: center.y + 2)
-        )
+        let q = RigPose(mood, t: t)
+        if q.gray { gc.addFilter(.grayscale(1)) }
+
+        // 몸통부터 — 나머지 조각은 부모의 행렬에서 이어진다.
+        let root = CGAffineTransform(translationX: 180, y: 190 + q.y * 0.55)
+            .scaledBy(x: RockyArt.stage, y: RockyArt.stage)
+            .rotated(by: q.angle(.torso) * .pi / 180)
+        var world: [RigPart: CGAffineTransform] = [:]
+        world[.torso] = root
+            .scaledBy(x: RigPart.torso.scale, y: RigPart.torso.scale)
+            .translatedBy(x: -RigPart.torso.pivot.x, y: -RigPart.torso.pivot.y)
+        for part in RigPart.drawOrder where part != .torso {
+            guard let attach = part.attach, let base = world[attach.0] else { continue }
+            world[part] = base
+                .translatedBy(x: attach.1.x, y: attach.1.y)
+                .rotated(by: q.angle(part) * .pi / 180)
+                .scaledBy(x: part.scale, y: part.scale)
+                .translatedBy(x: -part.pivot.x, y: -part.pivot.y)
+        }
+        for part in RigPart.drawOrder {
+            guard let m = world[part], let image = art.images[part] else { continue }
+            var layer = gc
+            layer.concatenate(m)
+            layer.draw(image.image, in: CGRect(origin: .zero, size: image.size))
+        }
         if case .resting = mood {
+            let rise = (t.truncatingRemainder(dividingBy: 3)) / 3
             gc.draw(
-                Text("z").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary),
-                at: CGPoint(x: body.maxX + 2, y: body.minY - 2)
+                Text("z").font(.system(size: 40, weight: .semibold)).foregroundColor(.secondary.opacity(1 - rise)),
+                at: CGPoint(x: 270 + rise * 20, y: 150 - rise * 60)
             )
         }
+    }
+}
+
+/// 리그의 조각 — 좌표는 리소스 PNG 의 픽셀(원본 그림을 절반으로 줄인 것).
+private enum RigPart: String, CaseIterable {
+    case torso, upperL, foreL, upperR, foreR, legL, legR, mid
+
+    /// 뒤에서 앞으로 — 팔뚝은 몸통 앞에 온다.
+    static let drawOrder: [RigPart] = [.mid, .upperL, .upperR, .legL, .legR, .torso, .foreL, .foreR]
+
+    /// 조각 안의 관절 — 이 점을 축으로 돈다.
+    var pivot: CGPoint {
+        switch self {
+        case .torso: CGPoint(x: 51, y: 46.5)
+        case .upperL: CGPoint(x: 119, y: 25)
+        case .foreL: CGPoint(x: 24, y: 111)
+        case .upperR: CGPoint(x: 11, y: 28)
+        case .foreR: CGPoint(x: 22, y: 128)
+        case .legL: CGPoint(x: 36, y: 11)
+        case .legR: CGPoint(x: 33, y: 11)
+        case .mid: CGPoint(x: 22, y: 8)
+        }
+    }
+
+    /// 부모와, 부모 조각 안에서 붙는 자리 — 팔뚝은 위팔의 팔꿈치에.
+    var attach: (RigPart, CGPoint)? {
+        switch self {
+        case .torso: nil
+        case .upperL: (.torso, CGPoint(x: 15, y: 26))
+        case .foreL: (.upperL, CGPoint(x: 8, y: 26))
+        case .upperR: (.torso, CGPoint(x: 88, y: 25))
+        case .foreR: (.upperR, CGPoint(x: 151, y: 28))
+        case .legL: (.torso, CGPoint(x: 24, y: 75))
+        case .legR: (.torso, CGPoint(x: 80, y: 75))
+        case .mid: (.torso, CGPoint(x: 52, y: 84))
+        }
+    }
+
+    var scale: CGFloat {
+        switch self {
+        case .torso: 1
+        case .upperL: 0.6
+        case .foreL, .foreR: 1.05
+        case .upperR: 0.48
+        case .legL, .legR: 0.62
+        case .mid: 0.55
+        }
+    }
+}
+
+/// 한 순간의 자세 — 몸의 높이와 관절 각도(도).
+private struct RigPose {
+    var y: Double = 0
+    var gray = false
+    private var angles: [RigPart: Double] = [:]
+
+    func angle(_ part: RigPart) -> Double { angles[part] ?? 0 }
+
+    init(_ mood: AvatarMood, t: Double) {
+        switch mood {
+        case .waiting:
+            // 내 차례 — 깡충거리며 두 팔을 흔든다.
+            let hop = abs(sin(t * 6)) * 14
+            y = -hop
+            angles = [
+                .upperL: -8, .foreL: -20 + sin(t * 9) * 14, .upperR: 8, .foreR: 20 + sin(t * 9 + 1) * 14,
+                .legL: 12 - hop * 0.4, .legR: -12 + hop * 0.4,
+            ]
+        case .working:
+            // 도는 중 — 오른 팔뚝으로 두드린다.
+            let tap = max(0, sin(t * 7)) * 22
+            y = sin(t * 3.5) * 1.5
+            angles = [
+                .torso: sin(t * 3.5) * 1.5, .upperL: -6, .foreL: -14, .upperR: 40, .foreR: 110 - tap,
+                .legL: 10, .legR: -10,
+            ]
+        case .resting:
+            // 다 쉼 — 팔다리를 접고 웅크려 숨만 쉰다.
+            y = 34 + sin(t * 1.6) * 1.5
+            angles = [.upperL: -50, .foreL: -150, .upperR: 50, .foreR: 150, .legL: 62, .legR: -62, .mid: -35]
+        case .unknown:
+            // 연결 없음 — 회색으로 고개를 갸웃.
+            gray = true
+            angles = [.torso: -6, .upperL: -40, .foreL: -150, .upperR: -40, .foreR: -75, .legL: 12, .legR: -12]
+        }
+    }
+}
+
+/// 조각 그림 — .app 이면 `Contents/Resources/rocky/`, `swift run` 이면 SwiftPM 리소스 번들에서 읽는다.
+/// `Bundle.module` 은 .app 안에서 번들을 못 찾으면 멈추므로 쓰지 않는다.
+private final class RockyArt {
+    struct Piece {
+        let image: Image
+        let size: CGSize
+    }
+
+    /// 리그 좌표를 무대 좌표로 — 원본(절반으로 줄이기 전)의 0.55 배.
+    static let stage: CGFloat = 1.1
+
+    static let shared: RockyArt? = RockyArt()
+
+    let images: [RigPart: Piece]
+
+    private init?() {
+        let swiftpm = Bundle.main.executableURL?
+            .deletingLastPathComponent()
+            .appendingPathComponent("RockyMac_RockyMac.bundle")
+        let bundles = [Bundle.main] + [swiftpm.flatMap { Bundle(url: $0) }].compactMap { $0 }
+        var images: [RigPart: Piece] = [:]
+        for part in RigPart.allCases {
+            let url = bundles.lazy
+                .compactMap { $0.url(forResource: part.rawValue, withExtension: "png", subdirectory: "rocky") }
+                .first
+            guard let url, let cg = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            else { return nil }
+            images[part] = Piece(
+                image: Image(decorative: cg, scale: 1),
+                size: CGSize(width: cg.width, height: cg.height)
+            )
+        }
+        self.images = images
     }
 }
