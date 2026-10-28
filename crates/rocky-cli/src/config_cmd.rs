@@ -198,7 +198,7 @@ fn config_file_state(path: &Path) -> ConfigFileState {
 
 /// `~/.claude/settings.json` 의 `statusLine.command` 와, 그게 실행 파일 경로 하나면 그 본문.
 /// `cc-usage statusline` 처럼 인자가 붙은 명령은 본문을 읽지 않는다 — 첫 토큰이 파일이면 그것만.
-fn claude_statusline() -> (Option<String>, Option<String>) {
+pub(crate) fn claude_statusline() -> (Option<String>, Option<String>) {
     let settings = expand_tilde("~/.claude/settings.json");
     let command = std::fs::read_to_string(settings)
         .ok()

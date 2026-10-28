@@ -164,7 +164,7 @@ fn short(sha: &str) -> &str {
 }
 
 /// 사람이 확인한다. `--yes` 면 묻지 않는다. 터미널이 아니면(훅·배치) 묻지 못하므로 멈춘다.
-fn confirm(question: &str, yes: bool) -> Result<bool, String> {
+pub(crate) fn confirm(question: &str, yes: bool) -> Result<bool, String> {
     if yes {
         return Ok(true);
     }
@@ -183,7 +183,7 @@ fn confirm(question: &str, yes: bool) -> Result<bool, String> {
 }
 
 /// `rocky-marketplace` 가 지금 가리키는 곳. claude 가 없거나 출력이 JSON 이 아니면 에러 — 모르는 건 바꾸지 않는다.
-fn marketplace_source() -> Result<MarketplaceSource, String> {
+pub(crate) fn marketplace_source() -> Result<MarketplaceSource, String> {
     let json = output("claude", &["plugin", "marketplace", "list", "--json"], None)?;
     main_build::parse_marketplace(&json)
         .ok_or_else(|| format!("claude plugin marketplace list --json 을 읽지 못했다: {json}"))

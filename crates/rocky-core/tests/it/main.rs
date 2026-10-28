@@ -31,6 +31,7 @@ mod summary_test;
 mod sync_test;
 mod tokens_test;
 mod transcript_test;
+mod uninstall_test;
 mod usage_test;
 mod verify_test;
 mod version_test;
