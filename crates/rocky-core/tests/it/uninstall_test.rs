@@ -196,3 +196,32 @@ fn an_install_folder_in_a_repo_or_outside_home_stays() {
             .any(|s| matches!(s, Step::RemoveDir(d) if d.ends_with("rocky") && !d.starts_with("/Users/me/.config"))));
     }
 }
+
+#[test]
+fn dot_dot_paths_are_never_removable() {
+    let home = Path::new("/Users/me");
+    assert!(!removable(Path::new("/Users/me/rocky/../notes"), home));
+    assert!(!removable(Path::new("/Users/me/rocky/../../other"), home));
+}
+
+#[test]
+fn data_kept_inside_the_install_folder_keeps_the_install_folder() {
+    let worklog = dir("/Users/me/.local/share/rocky/worklog");
+    let keep = plan(&UninstallInput {
+        data_dirs: vec![worklog.clone()],
+        ..input()
+    });
+    assert!(!keep
+        .steps
+        .contains(&Step::RemoveDir(p("/Users/me/.local/share/rocky"))));
+    assert!(keep.keep.iter().any(|k| k.contains("남길 데이터 폴더")));
+    // --purge 면 그 데이터도 지우는 실행이라 설치 폴더째 지운다.
+    let purge = plan(&UninstallInput {
+        purge: true,
+        data_dirs: vec![worklog],
+        ..input()
+    });
+    assert!(purge
+        .steps
+        .contains(&Step::RemoveDir(p("/Users/me/.local/share/rocky"))));
+}

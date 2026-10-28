@@ -61,8 +61,19 @@ pub struct Plan {
 }
 
 /// 지워도 되는 데이터 폴더인가 — 홈 안(홈 자체는 아님)이고, 홈 아래 경로의 어느 이름에 `rocky` 가 들어 있다.
+/// `.`·`..` 가 든 경로는 이름만으로 홈 밖을 가리킬 수 있어 받지 않는다(호출자가 canonicalize 해서 넘긴다).
 pub fn removable(path: &Path, home: &Path) -> bool {
-    if !path.is_absolute() || home.as_os_str().is_empty() || path == home {
+    use std::path::Component;
+    let plain = |p: &Path| {
+        p.components()
+            .all(|c| !matches!(c, Component::CurDir | Component::ParentDir))
+    };
+    if !path.is_absolute()
+        || home.as_os_str().is_empty()
+        || path == home
+        || !plain(path)
+        || !plain(home)
+    {
         return false;
     }
     let Ok(rel) = path.strip_prefix(home) else {
@@ -101,17 +112,6 @@ pub fn plan(input: &UninstallInput) -> Plan {
         )),
         None => {}
     }
-    if input.install_dir_exists {
-        if input.install_dir_repo || !removable(&input.install_dir, &input.home) {
-            out.keep.push(format!(
-                "{} — git 레포이거나 홈 안의 rocky 폴더가 아니라 지우지 않는다(XDG_DATA_HOME 확인)",
-                input.install_dir.display()
-            ));
-        } else {
-            out.steps.push(Step::RemoveDir(input.install_dir.clone()));
-        }
-    }
-
     // 지우면 안 되는 폴더 — 레포이거나 안에 레포 후보를 품었거나 홈 안의 rocky 폴더가 아니다. 바깥 폴더를 지우면
     // 안의 것도 같이 지워지므로, 안에 레포가 있으면 바깥도 남긴다.
     let refusal = |d: &DataDir| -> Option<String> {
@@ -131,6 +131,28 @@ pub fn plan(input: &UninstallInput) -> Plan {
         (!removable(&d.path, &input.home))
             .then(|| "홈 안의 rocky 폴더가 아니라 지우지 않는다".into())
     };
+    // 설치 폴더 안에 데이터 폴더(예: `ROCKY_WORKLOG_DIR` 을 그 아래 둔 것)가 있으면, 그 데이터를 지우는 실행(--purge 이고
+    // 지워도 되는 폴더)이 아닌 한 설치 폴더째 지우지 않는다 — 남긴다고 적은 데이터가 재귀 삭제로 사라진다.
+    let holds_data = input
+        .data_dirs
+        .iter()
+        .find(|d| d.path.starts_with(&input.install_dir) && (!input.purge || refusal(d).is_some()));
+    if input.install_dir_exists {
+        if input.install_dir_repo || !removable(&input.install_dir, &input.home) {
+            out.keep.push(format!(
+                "{} — git 레포이거나 홈 안의 rocky 폴더가 아니라 지우지 않는다(XDG_DATA_HOME 확인)",
+                input.install_dir.display()
+            ));
+        } else if let Some(data) = holds_data {
+            out.keep.push(format!(
+                "{} — 안에 남길 데이터 폴더({})가 있어 지우지 않는다",
+                input.install_dir.display(),
+                data.path.display()
+            ));
+        } else {
+            out.steps.push(Step::RemoveDir(input.install_dir.clone()));
+        }
+    }
     // 바깥 폴더가 지워지면(purge) 또는 남는다고 이미 적으면(기본) 안의 폴더는 따로 적지 않는다.
     let covered = |d: &DataDir| {
         input.data_dirs.iter().any(|o| {

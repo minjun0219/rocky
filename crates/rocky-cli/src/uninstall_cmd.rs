@@ -82,7 +82,8 @@ fn gather(ctx: &CliContext, purge: bool, tailscale: bool) -> UninstallInput {
             .map(|t| match link.parent() {
                 Some(parent) if t.is_relative() => parent.join(t),
                 _ => t,
-            });
+            })
+            .map(|t| real(&t));
         (link.clone(), target)
     });
     let worklog = std::env::var("ROCKY_WORKLOG_DIR")
@@ -93,11 +94,15 @@ fn gather(ctx: &CliContext, purge: bool, tailscale: bool) -> UninstallInput {
     let mut data_dirs: Vec<PathBuf> =
         vec![expand_tilde("~/.config/rocky"), ctx.dir.clone(), worklog];
     data_dirs.extend(crate::usage_cmd::usage_dir());
+    let mut data_dirs: Vec<PathBuf> = data_dirs
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .map(|p| real(&p))
+        .collect();
     data_dirs.sort();
     data_dirs.dedup();
     let data_dirs = data_dirs
         .into_iter()
-        .filter(|p| p.is_dir())
         .map(|path| DataDir {
             repo: in_repo(&path),
             path,
@@ -120,6 +125,11 @@ fn gather(ctx: &CliContext, purge: bool, tailscale: bool) -> UninstallInput {
         tailscale,
         rc: ctx.dir.join("rc").is_dir(),
     }
+}
+
+/// canonicalize 한 경로 — 없거나 못 풀면 그대로(그런 경로는 `..` 가 남아 `removable` 이 거절한다).
+fn real(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// 그 폴더나 조상 어딘가에 `.git` 이 있다 — 레포 안의 폴더는 `remove_dir_all` 하지 않는다.
