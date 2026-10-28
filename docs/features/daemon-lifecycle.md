@@ -37,6 +37,19 @@
   main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 재시작이 성공했는지와 데몬이
   최신 릴리스 버전을 보고하는지를 같이 확인한다. `--main` 과 같은 잠금을 잡는다.
   다른 폴더 마켓플레이스(개발용)는 건드리지 않는다. `main/`·`main-src/` 는 남긴다.
+- **`rocky uninstall [--purge] [--dry-run] [--yes]`** 가 설치를 걷어낸다. 무엇을 지울지는 `rocky_core::uninstall::plan`(순수),
+  실행은 `rocky_cli::uninstall_cmd`. 순서는 플러그인·마켓플레이스(`claude` 가 없으면 건너뛴다) → launchd(`uninstall_launchd` — bootout
+  한 번과 plist 삭제, **bootstrap·plist 쓰기는 하지 않는다**) → 남은 데몬을 pid 로 SIGTERM(`client::stop_daemon`) → `~/.local/bin/rocky`
+  (설치 폴더를 가리키는 링크일 때만) → `$XDG_DATA_HOME/rocky` → (`--purge` 일 때만) 데이터 폴더.
+  - **데몬이 남으면 폴더를 지우지 않는다.** launchd 가 bootout 뒤에도 job 을 쥐고 있거나 데몬이 안 내려가면 거기서 멈춘다 — 도는
+    데몬 밑에서 DB 를 지우지 않는다.
+  - **Claude Code 세션 안(`CLAUDECODE=1`)에서는 걷지 않는다** — 그 세션의 다음 훅이 바이너리가 없는 걸 보고 다시 받아 데몬을 띄운다.
+    다른 열린 세션도 같아서 계획 끝에 "먼저 닫는다" 를 적는다.
+  - **지우는 폴더는** 홈 안이면서 홈 아래 경로에 `rocky` 가 든 것, 자기나 조상에 `.git` 이 없는 것만이다 — 설치 폴더도 같다
+    (`XDG_DATA_HOME` 이 소스 체크아웃을 가리키는 실수). 안에 레포 후보를 품은 바깥 폴더도 남긴다. 판정은 canonicalize 한 경로로
+    하고 `..` 가 남은 경로는 받지 않는다. 설치 폴더 안에 남길 데이터 폴더가 있으면 설치 폴더째 지우지 않는다.
+  - rc 서버의 claude 세션·tailscale serve·statusLine 은 사람 것이기도 해 알리기만 한다. 사용 로그 폴더가 지워졌으면 그 실행은 사용
+    로그에 남기지 않는다(남기면 폴더가 다시 생긴다). 확인은 `update --main` 과 같은 `confirm`(터미널이 아니면 `--yes` 없이 멈춘다).
 - **검증 통과 커밋 자동 배포.** `verify.targets[].deploy` 를 켠 main 빌드 기기에서는 검증 잡이 통과한 커밋을
   `<데몬 옆 rocky> update --main <sha>` 로 올린다. update 가 이 데몬을 교체하므로 떨어진 프로세스 그룹으로 띄우고, 끝은 대개 새 데몬이
   `main/.finished` 로 판정한다. 다른 main 빌드가 `main-sync.lock` 을 쥐면 기다린다. 규칙은 [verify](./verify.md) "배포".
@@ -80,7 +93,7 @@
 | 무엇 | 어디 |
 | --- | --- |
 | 훅 입구(`ensure-daemon`·`notify-todo`의 재기동 검사, `RestartPolicy`) | `crates/rocky-cli/src/hooks.rs` |
-| `daemon install/restart/status`, `update` | `crates/rocky-cli/src/commands.rs`, `crates/rocky-cli/src/launchd.rs` |
+| `daemon install/restart/status`, `update`, `uninstall`(계획은 `crates/rocky-core/src/uninstall.rs`, 실행은 `crates/rocky-cli/src/uninstall_cmd.rs`) | `crates/rocky-cli/src/commands.rs`, `crates/rocky-cli/src/launchd.rs` |
 | main 빌드 모드(`update --main`·`--release`) | `crates/rocky-cli/src/update_main.rs`, 판정은 `crates/rocky-core/src/main_build.rs` |
 | 링크·설정 점검(`config show/link`) | `crates/rocky-cli/src/config_cmd.rs`, `crates/rocky-core/src/setup.rs` |
 | 기동 순서(포트 → 옛 데몬 대기 → DB), `dbIntegrity` | `crates/rockyd/src/daemon.rs` |
@@ -88,7 +101,7 @@
 
 테스트: `crates/rocky-cli/tests/it/{hooks_test,launchd_test}.rs`, `crates/rocky-core/tests/it/setup_test.rs`,
 `crates/rockyd/tests/it/shutdown_test.rs`, `scripts/bootstrap.test.ts`(부트스트랩·`current` 링크·main 빌드 모드),
-`crates/rocky-core/tests/it/main_build_test.rs`(모드·다시 빌드할지·마켓플레이스 판정).
+`crates/rocky-core/tests/it/main_build_test.rs`(모드·다시 빌드할지·마켓플레이스 판정), `crates/rocky-core/tests/it/uninstall_test.rs`(무엇을 걷고 남길지).
 
 ## 함정
 

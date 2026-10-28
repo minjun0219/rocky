@@ -23,7 +23,7 @@
 | **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
 | **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 맥 앱(메뉴 막대 · 할 일 창), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel · mac (화면은 `web/DESIGN.md`) |
 | **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
-| 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 · 클라우드 중계소) | daemon-lifecycle · sync |
+| 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · 제거 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 · 클라우드 중계소) | daemon-lifecycle · sync |
 
 **새 기능은 이 네 줄 중 하나에 붙는다.** 요청받지 않은 기능이 어디에도 붙지 않으면 범위 밖이다. 오너가 요청한 기능이
 어디에도 붙지 않으면 만들기 전에 이 표에 줄을 더할지(목표를 넓힐지) 오너에게 묻는다.

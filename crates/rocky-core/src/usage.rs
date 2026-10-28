@@ -438,6 +438,7 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky usage"),
     (UsageSource::Cli, "rocky version"),
     (UsageSource::Cli, "rocky update"),
+    (UsageSource::Cli, "rocky uninstall"),
     (UsageSource::Web, "web:now-row"),
     (UsageSource::Web, "web:board-tab"),
     (UsageSource::Web, "web:todo-open"),
