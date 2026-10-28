@@ -1,4 +1,4 @@
-# 맥 앱 — 메뉴 막대와 할 일 창
+# 맥 앱 — 메뉴 막대, 할 일 창, 에이전트 아바타
 
 > rocky 를 **고치는** 에이전트용 개발 문서. 쓰는 법은 `README.md` "맥 앱". 2026-10-27 오너 요청으로 만들었다 — 웹 UI 는
 > 그대로 두고, 네이티브여야 나은 자리(메뉴 막대에 늘 보이는 상태, 창 하나로 여는 보드)부터 작게 시작한다.
@@ -19,6 +19,12 @@
   하루로 둔다 — 데몬은 바뀐 것이 있을 때만 보내서 기본 60초면 조용한 동안 계속 끊긴다.
 - **PR 알림은 띄우지 않는다.** 머지 후보·충돌 배너는 데몬이 이미 띄운다(`rockyd::prwatch::osascript_notifier`). 앱은 메뉴에
   열린 PR 중 `ready` 이고 초안이 아닌 것을 목록으로만 보인다. 머지는 사람 몫이다.
+- **에이전트 상태는 `GET /api/sessions` 를 묻는다** — 세션 목록은 SSE 로 오지 않는다. 아바타가 보이면 15초, 끄면 60초(웹 에이전트 탭의
+  `POLL_MS`·`IDLE_POLL_MS` 와 같다), 메뉴를 열 때·아바타를 켤 때 한 번 더. 데몬이 `claude agents --json` 을 3초 캐시하므로 더 자주 묻지 않는다.
+  묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(누르면 `/?view=agents`).
+- **아바타는 보이기만 한다.** 화면 구석의 떠 있는 패널(포커스를 가져가지 않고 모든 Space 에 뜬다)이 가장 급한 상태 하나를 보인다 —
+  내 차례(background `blocked`)면 깡충거리며 말풍선에 `needs`, 도는 세션이 있으면 다리를 두드리고, 다 쉬면 잠든다. 배너·소리는 내지 않는다.
+  메뉴의 토글이나 아바타의 오른쪽 클릭으로 끈다(`defaults` 의 `avatar`). 자리는 패널이 기억한다(`RockyAvatar`).
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
   받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
 - **실패는 출처로 지운다** — 읽기 실패는 다음 읽기 성공이, 동작 실패는 다음 동작이 지운다.
@@ -39,6 +45,8 @@
 | REST(헤더·에러 문구) | `mac/Sources/RockyKit/DaemonClient.swift` |
 | SSE 파서·묶음 고르기·다시 붙기 간격 | `mac/Sources/RockyKit/Events.swift` |
 | 보드 트리·메뉴 목록 | `mac/Sources/RockyKit/BoardTree.swift` |
+| 세션 묶음·아바타 기분 | `mac/Sources/RockyKit/Sessions.swift` |
+| 세션 묻기·아바타 패널 | `mac/Sources/RockyMac/AgentStore.swift`, `mac/Sources/RockyMac/Avatar.swift` |
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |
 | 화면 | `mac/Sources/RockyMac/`(`RockyMacApp` · `MenuContent` · `BoardWindow`) |
