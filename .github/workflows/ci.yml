@@ -70,6 +70,22 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  mac:
+    name: mac app (swift build + test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Test
+        run: swift test --package-path mac
+
+      # release 빌드 + Rocky.app 묶기 + ad-hoc 서명까지 — 서명 인증서는 CI 에 없다(ROCKY_MAC_SIGN_IDENTITY 없음).
+      - name: Bundle
+        run: mac/scripts/bundle.sh
+
   e2e:
     name: e2e (playwright)
     runs-on: ubuntu-latest
