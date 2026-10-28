@@ -6,7 +6,7 @@
 //!
 //! **명령은 설정 파일에만 있다**(수집함 어댑터와 같은 원칙) — 화면이나 REST 가 실행할 명령을 바꾸지 않는다.
 
-use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
+use chrono::{DateTime, NaiveTime, SecondsFormat, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 
 pub use crate::config::{load_verify_block, VerifyConfig, VerifyTarget};
@@ -346,6 +346,8 @@ pub enum DeploySkip {
     Installed,
     /// 이 커밋은 이미 자동 배포했다 — 같은 커밋은 한 번만. 그 뒤 사람이 다른 커밋으로 옮겼어도 되돌리지 않는다.
     AlreadyTried(DeployState),
+    /// 배포 창(`deployWindow`) 밖이다 — 창이 열리면 그때의 마지막 통과 커밋을 띄운다.
+    OutsideWindow(DeployWindow),
     /// 깔린 빌드(이 커밋)가 통과한 커밋의 조상이 아니다 — 사람이 더 새 커밋을 올렸다. 되돌리지 않는다.
     NotForward(String),
     /// 판정할 재료가 없다(main 빌드 없음·조상 관계를 못 봄·커밋 해시 모양).
@@ -385,6 +387,10 @@ impl DeploySkip {
                     DeployState::Running => "끝을 못 봄",
                 }
             ),
+            Self::OutsideWindow(window) => format!(
+                "배포 창({}) 밖이라 창이 열릴 때까지 기다린다",
+                window.label()
+            ),
             Self::NotForward(base) => format!(
                 "깔린 빌드 {} 가 통과한 커밋의 조상이 아니어서 되돌리지 않는다",
                 short(base)
@@ -393,17 +399,57 @@ impl DeploySkip {
         }
     }
 
-    /// `rocky verify` 가 대상 아래에 보일 이유 — 손을 봐야 풀릴 수 있는 것만. 꺼짐·정상(이미 깔림·통과 기다림)·실행 중·이미
-    /// 한 커밋은 보이지 않는다(배포 기록 줄이 말한다). 잠금 기다림은 보인다 — 죽은 스크립트가 남긴 잠금이면 사람이 지워야 한다.
+    /// `rocky verify` 가 대상 아래에 보일 이유 — 손을 봐야 풀릴 수 있는 것만. 꺼짐·정상(이미 깔림·통과 기다림·창 밖)·실행
+    /// 중·이미 한 커밋은 보이지 않는다(배포 기록 줄이 말한다). 잠금 기다림은 보인다 — 죽은 스크립트가 남긴 잠금이면 사람이 지워야 한다.
     pub fn note(&self) -> Option<String> {
         match self {
             Self::Off
             | Self::Running
             | Self::NotPassed
             | Self::Installed
-            | Self::AlreadyTried(_) => None,
+            | Self::AlreadyTried(_)
+            | Self::OutsideWindow(_) => None,
             _ => Some(self.message()),
         }
+    }
+}
+
+/// 배포를 띄워도 되는 시간대(`verify.targets[].deployWindow`, 이 기기의 현지 시각) — 낮에 일하는 동안 데몬·플러그인을
+/// 교체하지 않으려고 밤에만 올린다. `from` 이 `until` 보다 늦으면 자정을 넘는 창이다. 같으면 열리지 않는다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeployWindow {
+    pub from: NaiveTime,
+    pub until: NaiveTime,
+}
+
+impl Default for DeployWindow {
+    /// 02:00-04:00 — rc 야간 재시작(기본 04:30)보다 먼저 끝난다(배포는 데몬을 교체한다).
+    fn default() -> Self {
+        let hm = |h, m| NaiveTime::from_hms_opt(h, m, 0).expect("고정 시각");
+        Self {
+            from: hm(2, 0),
+            until: hm(4, 0),
+        }
+    }
+}
+
+impl DeployWindow {
+    /// `from` 이상 `until` 미만.
+    pub fn contains(&self, at: NaiveTime) -> bool {
+        if self.from <= self.until {
+            self.from <= at && at < self.until
+        } else {
+            at >= self.from || at < self.until
+        }
+    }
+
+    /// `02:00-04:00`.
+    pub fn label(&self) -> String {
+        format!(
+            "{}-{}",
+            self.from.format("%H:%M"),
+            self.until.format("%H:%M")
+        )
     }
 }
 
@@ -443,6 +489,10 @@ pub struct DeployInput<'a> {
     pub ancestor: Option<bool>,
     /// 조상 여부를 못 본 이유(레포·git 의 종료 코드와 stderr) — 건너뛴 이유에 붙인다.
     pub ancestry_error: Option<&'a str>,
+    /// 배포 창(`deployWindow`). 없으면 통과하는 대로 띄운다.
+    pub window: Option<DeployWindow>,
+    /// 지금 이 기기의 현지 시각 — 창이 있을 때만 본다. 모르면 창 밖으로 본다.
+    pub local_time: Option<NaiveTime>,
 }
 
 /// 배포가 켜질 수 있는 대상·기기인가 — 기록과 빌드를 보기 전의 조건이다. 세션 알림 문구도 이걸로 정한다(데몬이 맡은
@@ -486,7 +536,7 @@ fn short(sha: &str) -> &str {
     sha.get(..7).unwrap_or(sha)
 }
 
-/// 이 바퀴에 배포를 띄울까. 앞으로만 간다(깔린 빌드가 통과한 커밋의 조상일 때만), 같은 커밋은 한 번만.
+/// 이 바퀴에 배포를 띄울까. 앞으로만 간다(깔린 빌드가 통과한 커밋의 조상일 때만), 같은 커밋은 한 번만, 창이 있으면 그 안에서만.
 pub fn deploy_plan(input: &DeployInput) -> DeployPlan {
     use DeploySkip::*;
     let skip = DeployPlan::Skip;
@@ -511,6 +561,11 @@ pub fn deploy_plan(input: &DeployInput) -> DeployPlan {
     }
     if let Some(last) = input.last_deploy.filter(|d| d.sha == sha) {
         return skip(AlreadyTried(last.state));
+    }
+    if let Some(window) = input.window {
+        if !input.local_time.is_some_and(|t| window.contains(t)) {
+            return skip(OutsideWindow(window));
+        }
     }
     let Some(base) = deploy_base(input.finished_build, input.built) else {
         return skip(Unknown(
