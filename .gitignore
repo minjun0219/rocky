@@ -43,3 +43,8 @@ test-results/
 # wrangler(cloud/) 산출물. .dev.vars 는 로컬 secret 이다 — 공개 레포
 .wrangler/
 .dev.vars*
+
+# 맥 앱(mac/) — SwiftPM 빌드와 bundle.sh 가 만드는 Rocky.app
+mac/.build/
+mac/build/
+mac/.swiftpm/

@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | **맡긴다** | 보드(할 일 · 노트 · 섹션), 핸드오프와 doing 귀속, 새 세션 띄우기, 수집함(외부 앱은 읽기만), `/rocky:next` | board-model · handoff · spawn · inbox |
 | **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
-| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel (화면은 `web/DESIGN.md`) |
+| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 맥 앱(메뉴 막대 · 할 일 창), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel · mac (화면은 `web/DESIGN.md`) |
 | **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
 | 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 · 클라우드 중계소) | daemon-lifecycle · sync |
 
@@ -53,6 +53,8 @@
   `bun run build:ui` → `dist/`)와 `tui/`의 **터미널 화면 번들**(Ink, `bun run build:tui` → `tui/dist/tui.js` — `rocky tui`
   가 bun 으로 띄운다)과 `cloud/`의 **클라우드 중계소**(Cloudflare Durable Object에서 도는 싱크 중계, 싱크 설계의
   3번 조각)만 있다. 기기에 상주하는 것은 전부 Rust이고, 두 화면은 데몬 REST/SSE 의 클라이언트다.
+- **맥 앱**(`mac/`, Swift · SwiftUI · SwiftPM) — 메뉴 막대에 돌고 있는 일과 머지 후보 PR, 할 일 창에서 착수·멈춤·완료·추가.
+  웹·TUI 와 같은 데몬 REST/SSE 클라이언트(`x-rocky-client: mac`)이고 데몬은 고치지 않는다(`docs/features/mac.md`).
 
 > **v0.23에서 제거**: `openapi_*`(7), `seo_validate`, `notion_*`(4), 독립 CLI `openapi-mcp`. 39개 레포 ·
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
@@ -85,6 +87,8 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
 ├── tui/                        보드 터미널 화면(Ink 8 · zustand) — cmux 에서 웹 패널 대신. `bun run build:tui` → tui/dist/tui.js.
 │                                 web/ 의 types.ts·lib.ts(순수)만 가져다 쓴다. `bun run tui` 로 개발 실행
+├── mac/                        맥 앱(SwiftUI 메뉴 막대 + 할 일 창) — SwiftPM 패키지. RockyKit(순수, `swift test`) + RockyMac(화면).
+│                                 `mac/scripts/bundle.sh` → mac/build/Rocky.app(gitignore), ROCKY_MAC_SIGN_IDENTITY 로 codesign. 규칙은 docs/features/mac.md
 ├── antigravity/                Antigravity(`agy`) 플러그인 번들 — 보드·워크로그(`--roots`) MCP + board·worklog 스킬(plugin/ 의 링크)
 │                                 + 규칙 + 훅(`PreInvocation` → `rocky hook notify-todo agy`, `Stop` → `hook log-turn agy`).
 │                                 `agy plugin install` 이 복사한다(링크는 풀림). 근거는 docs/antigravity.md
@@ -177,6 +181,8 @@ bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e
                     # (`bunx playwright install chromium`)이 맞으면 그것, 아니면 설치된 Chrome(CI 는 Chrome). CI 잡 `e2e (playwright)`.
                     # 테스트는 자기 이름이 든 항목만 만든다. 이슈·세션·핸드오프 버튼은 누르지 않는다
 bunx changeset      # 사용자 표면 변경의 버전 의도 선언(patch/minor/major)
+swift test --package-path mac   # 맥 앱 RockyKit 테스트 — macOS 에서만(Linux 컨테이너엔 Swift 가 없다). CI 잡 `mac app (swift build + test)`
+mac/scripts/bundle.sh           # mac/build/Rocky.app — release 빌드 + codesign(ROCKY_MAC_SIGN_IDENTITY, 없으면 ad-hoc)
 
 cargo fmt --all --check                                   # Rust 포맷
 cargo clippy --workspace --all-targets -- -D warnings     # Rust 린트(경고 = 실패)
@@ -213,7 +219,7 @@ typecheck or tests — pre-push and CI already cover it.*
 ## 코딩 규칙
 
 - **언어 경계(2026-10-02 오너 확인)**: 가운데는 Rust — 데몬·CLI·훅·MCP·저장소(`crates/`, edition 2021,
-  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), TUI(`tui/`, TS), 클라우드 중계소(`cloud/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
+  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), TUI(`tui/`, TS), 맥 앱(`mac/`, Swift), 클라우드 중계소(`cloud/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
   JSON 규약), 로그 분석(`logs.db`를 읽기만), 개발·릴리스 스크립트(Bun). 데몬을 다른 언어로 옮기지 않는다: core와 FFI
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
@@ -275,6 +281,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 기본 브랜치 검증 | opt-in, 명령은 설정 파일에만. 보드 레포의 작업 트리·브랜치를 건드리지 않는다(detached 워크트리). 준비 실패는 커밋 탓으로 남기지 않는다. 배포(`deploy`)는 앞으로만, 같은 커밋은 한 번만 띄우고, 다른 main 빌드가 잠금을 쥐면 기다린다. update 는 데몬과 떨어진 프로세스 그룹으로 띄운다 | [verify](./docs/features/verify.md) |
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다. 설정 다시 읽기(`rocky rc targets` · `rocky rc reload` · 파일이 바뀌면 데몬이 알아서)는 대상 목록만 바꾸고 스위치(`enabled` · `supervise` · `nightly`)는 재시작 몫, 못 읽은 파일은 하던 목록을 지킨다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
 | TUI(`tui/`) | 웹은 `types.ts`·`lib.ts`(순수)만 가져다 쓴다 — 웹 store 는 브라우저에 묶여 있다. 쓰기는 REST 로 보내고 화면은 SSE 를 기다린다. 번들은 `react-devtools-core` 를 빈 모듈로, 실행은 늘 `bun --no-install` | [tui](./docs/features/tui.md) |
+| 맥 앱(`mac/`) | 데몬의 클라이언트 — 데몬·`rocky_core` 를 고치지 않고 판정을 Swift 로 새로 만들지 않는다(웹·TUI 규칙의 사본). 쓰기는 보내고 SSE 를 기다린다. PR 배너는 데몬 몫이라 앱은 띄우지 않는다. 30일 동안 `mac` 클라이언트 사용이 0이면 걷는다 | [mac](./docs/features/mac.md) |
 | 보드 패널(mod) | 저절로 열지 않는다 — `/rocky-board` 로만 열고, 데몬은 패널이 열려 있는 동안만 묻는다(매 바퀴 `$.ui.panes()` 로 확인). 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬을 거치지 않는다. 하위 프로세스(git·`extraCommands`)는 마감을 넘기면 프로세스 그룹째 끊고 그 줄만 뺀다 | [statusline](./docs/features/statusline.md) |
 | 점검(`rocky doctor`) | 읽기만 한다. 꺼진 데몬을 띄우지 않고, 못 받은 항목은 ⚠ 가 아니라 건너뛴다. 판정은 `rocky_core::doctor` 순수 함수 | [doctor](./docs/features/doctor.md) |
