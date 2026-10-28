@@ -38,6 +38,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // 빈 refetch 를 남기면 같은 프로세스에서 뒤에 도는 파일(store-sync)이 그것을 처음 상태로 잡는다.
+  useUiStore.setState({ ...pristine }, true);
   globalThis.fetch = realFetch;
 });
 

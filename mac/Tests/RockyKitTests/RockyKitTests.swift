@@ -154,3 +154,62 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(both.actor, "logan2")
     }
 }
+
+final class SessionsTests: XCTestCase {
+    func testPhaseFollowsWebRules() {
+        XCTAssertEqual(agentPhase(Session(sessionId: "a", name: "a", kind: "background", status: nil, state: "blocked")), .blocked)
+        XCTAssertEqual(agentPhase(Session(sessionId: "b", name: "b", kind: "background", state: "working")), .run)
+        XCTAssertEqual(agentPhase(Session(sessionId: "c", name: "c", status: "busy")), .run)
+        // interactive 의 idle 은 터미널이 알리므로 내 차례가 아니다.
+        XCTAssertEqual(agentPhase(Session(sessionId: "d", name: "d", status: "idle")), .idle)
+        XCTAssertEqual(agentPhase(Session(sessionId: "e", name: "e", kind: "background", state: "done")), .done)
+    }
+
+    func testRowsSortAndDropDone() {
+        let rows = agentRows([
+            Session(sessionId: "1", name: "zeta", status: "idle"),
+            Session(sessionId: "2", name: "beta", status: "busy"),
+            Session(sessionId: "3", name: "alpha", kind: "background", status: nil, state: "blocked"),
+            Session(sessionId: "4", name: "gone", kind: "background", state: "done"),
+            Session(sessionId: "5", name: "alpha", status: "busy"),
+        ])
+        XCTAssertEqual(rows.map(\.sessionId), ["3", "5", "2", "1"])
+    }
+
+    func testLineAndRepoLabel() {
+        let waiting = Session(
+            sessionId: "1", name: "a", kind: "background", status: nil, state: "blocked",
+            job: JobSummary(detail: "테스트 중", needs: "머지해도 될까요?")
+        )
+        XCTAssertEqual(agentLine(waiting), "머지해도 될까요?")
+        let working = Session(sessionId: "2", name: "b", kind: "background", state: "working", job: JobSummary(detail: "테스트 중"))
+        XCTAssertEqual(agentLine(working), "테스트 중")
+        XCTAssertNil(agentLine(Session(sessionId: "3", name: "c")))
+        XCTAssertEqual(repoLabel("/Users/m/dev/rocky/.claude/worktrees/x"), "rocky")
+        XCTAssertEqual(repoLabel("/Users/m/dev/rocky"), "rocky")
+    }
+
+    func testMoodPicksMostUrgent() {
+        XCTAssertEqual(avatarMood(nil), .unknown)
+        XCTAssertEqual(avatarMood(SessionsResult(available: false, reason: "없음", sessions: [])), .unknown)
+        XCTAssertEqual(avatarMood(SessionsResult(available: true, sessions: [])), .resting)
+        let busy = Session(sessionId: "1", name: "run", status: "busy")
+        XCTAssertEqual(avatarMood(SessionsResult(available: true, sessions: [busy])), .working(count: 1))
+        let blocked = Session(
+            sessionId: "2", name: "wait", kind: "background", status: nil, state: "blocked",
+            job: JobSummary(needs: "확인 부탁")
+        )
+        XCTAssertEqual(
+            avatarMood(SessionsResult(available: true, sessions: [busy, blocked])),
+            .waiting(name: "wait", line: "확인 부탁", count: 1)
+        )
+    }
+
+    func testDecodesDaemonShape() throws {
+        let json = #"{"available":true,"sessions":[{"cwd":"/r","kind":"background","id":"abc","sessionId":"s1","name":"eel","state":"blocked","startedAt":1,"matched":false,"job":{"needs":"답","updatedAt":"x"}}]}"#
+        let result = try JSONDecoder().decode(SessionsResult.self, from: Data(json.utf8))
+        XCTAssertEqual(result.sessions.first?.status, nil)
+        XCTAssertEqual(result.sessions.first?.job?.needs, "답")
+        XCTAssertEqual(avatarMood(result), .waiting(name: "eel", line: "답", count: 1))
+    }
+}

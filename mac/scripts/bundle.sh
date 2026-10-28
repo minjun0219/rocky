@@ -21,6 +21,9 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS"
 cp "$bin" "$app/Contents/MacOS/Rocky"
 sed "s/__VERSION__/$version/g" Info.plist > "$app/Contents/Info.plist"
+# 아바타 조각 그림 — SwiftPM 리소스 번들 대신 앱 리소스로(앱은 Bundle.main 에서 먼저 찾는다).
+mkdir -p "$app/Contents/Resources"
+cp -R Sources/RockyMac/Resources/rocky "$app/Contents/Resources/rocky"
 
 identity="${ROCKY_MAC_SIGN_IDENTITY:--}"
 if ! codesign --force --sign "$identity" --timestamp=none "$app"; then

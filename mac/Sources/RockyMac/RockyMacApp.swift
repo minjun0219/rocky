@@ -7,6 +7,8 @@ import SwiftUI
 @main
 struct RockyMacApp: App {
     @State private var store: BoardStore
+    @State private var agents: AgentStore
+    @State private var avatar: AvatarController
 
     init() {
         let store = BoardStore(
@@ -16,14 +18,18 @@ struct RockyMacApp: App {
             )
         )
         store.start()
+        let agents = AgentStore(client: store.client)
+        agents.start()
         _store = State(initialValue: store)
+        _agents = State(initialValue: agents)
+        _avatar = State(initialValue: AvatarController(agents: agents))
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(store: store)
+            MenuContent(store: store, agents: agents)
         } label: {
-            MenuLabel(store: store)
+            MenuLabel(store: store, agents: agents)
         }
         .menuBarExtraStyle(.window)
 
@@ -34,13 +40,17 @@ struct RockyMacApp: App {
     }
 }
 
-/// 메뉴 막대의 글자 — 끊겼으면 빈 원, 아니면 체크리스트와 돌고 있는 일의 수.
+/// 메뉴 막대의 글자 — 끊겼으면 빈 원, 내 차례인 세션이 있으면 말풍선과 그 수, 아니면 체크리스트와 돌고 있는 일의 수.
 struct MenuLabel: View {
     let store: BoardStore
+    let agents: AgentStore
 
     var body: some View {
         if !store.connected {
             Image(systemName: "circle.dashed")
+        } else if case let .waiting(_, _, count) = agents.mood {
+            Label("\(count)", systemImage: "exclamationmark.bubble.fill")
+                .labelStyle(.titleAndIcon)
         } else if store.doing.isEmpty {
             Image(systemName: "checklist")
         } else {

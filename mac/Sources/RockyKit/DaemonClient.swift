@@ -95,6 +95,11 @@ public struct DaemonClient: Sendable {
         try await call("GET", "/api/prs?open=true")
     }
 
+    /// 이 기기의 에이전트 세션 — 데몬이 `claude agents --json` 을 몇 초 캐시해 두고 준다.
+    public func sessions() async throws -> SessionsResult {
+        try await call("GET", "/api/sessions")
+    }
+
     @discardableResult
     public func setStatus(_ id: String, _ action: StatusAction) async throws -> Todo {
         try await call("POST", "/api/todos/\(Self.encode(id))/status", body: ["action": action.rawValue])

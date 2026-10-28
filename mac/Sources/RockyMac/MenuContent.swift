@@ -1,10 +1,11 @@
-// 메뉴 막대를 누르면 뜨는 창 — 연결 상태, 돌고 있는 일(전 보드), 머지 후보 PR, 창 열기.
+// 메뉴 막대를 누르면 뜨는 창 — 연결 상태, 에이전트 세션, 돌고 있는 일(전 보드), 머지 후보 PR, 창 열기.
 import AppKit
 import RockyKit
 import SwiftUI
 
 struct MenuContent: View {
     let store: BoardStore
+    @Bindable var agents: AgentStore
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
 
@@ -21,6 +22,16 @@ struct MenuContent: View {
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
             }
+
+            Divider()
+            HStack {
+                Text("에이전트").font(.subheadline.bold())
+                Spacer()
+                Toggle("아바타", isOn: $agents.showAvatar)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+            }
+            AgentList(agents: agents)
 
             Divider()
             Text("돌고 있는 일").font(.subheadline.bold())
@@ -72,6 +83,7 @@ struct MenuContent: View {
         }
         .padding(14)
         .frame(width: 340)
+        .onAppear { agents.refresh() }
     }
 }
 
@@ -128,5 +140,73 @@ struct Placeholder: View {
 
     var body: some View {
         Text(text).font(.callout).foregroundStyle(.secondary)
+    }
+}
+
+/// 메뉴의 에이전트 칸 — 내 차례 → 실행 중 → 쉬는 중, 끝난 세션은 뺀다. 누르면 웹 에이전트 탭(메시지·멈추기는 거기서).
+private struct AgentList: View {
+    let agents: AgentStore
+    @Environment(\.openURL) private var openURL
+
+    /// 메뉴가 길어지지 않게 — 나머지는 "N개 더" 로 웹에.
+    private static let limit = 6
+
+    var body: some View {
+        if let error = agents.error {
+            Placeholder(error)
+        } else if let result = agents.result, !result.available {
+            Placeholder(result.reason ?? "세션 목록을 얻지 못했어요")
+        } else if agents.result == nil {
+            Placeholder("읽는 중이에요…")
+        } else if agents.rows.isEmpty {
+            Placeholder("떠 있는 세션이 없어요")
+        } else {
+            ForEach(agents.rows.prefix(Self.limit)) { session in
+                Button {
+                    if let url = agents.agentsURL { openURL(url) }
+                } label: {
+                    AgentRow(session: session)
+                }
+                .buttonStyle(.plain)
+            }
+            if agents.rows.count > Self.limit {
+                Button("\(agents.rows.count - Self.limit)개 더 — 웹 에이전트 탭") {
+                    if let url = agents.agentsURL { openURL(url) }
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
+        }
+    }
+}
+
+private struct AgentRow: View {
+    let session: Session
+
+    var body: some View {
+        let phase = agentPhase(session)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle()
+                .fill(color(phase))
+                .frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(session.name) · \(repoLabel(session.cwd))").lineLimit(1)
+                Text(agentLine(session) ?? phase.label)
+                    .font(.caption)
+                    .foregroundStyle(phase == .blocked ? Color.orange : .secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func color(_ phase: AgentPhase) -> Color {
+        switch phase {
+        case .blocked: .orange
+        case .run: .green
+        case .idle, .done: .secondary
+        }
     }
 }
