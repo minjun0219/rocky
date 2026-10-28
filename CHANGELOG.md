@@ -1,5 +1,19 @@
 # @minjun0219/rocky
 
+## 0.54.0
+
+### Minor Changes
+
+- [#509](https://github.com/minjun0219/rocky/pull/509) [`6b15108`](https://github.com/minjun0219/rocky/commit/6b151086e12be507019f42934e20c53bbca7b4cb) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱(`mac/`, SwiftUI)을 더한다 — 메뉴 막대에 돌고 있는 일과 머지 후보 PR 을 늘 띄우고, 할 일 창에서 보드를 골라 착수·멈춤·완료·추가한다. 데몬 REST/SSE 의 클라이언트(`x-rocky-client: mac`)이고 웹 UI 는 그대로다. `mac/scripts/bundle.sh` 가 `Rocky.app` 을 만들고 `ROCKY_MAC_SIGN_IDENTITY` 의 인증서로 서명한다(없으면 ad-hoc).
+
+- [#506](https://github.com/minjun0219/rocky/pull/506) [`67c995e`](https://github.com/minjun0219/rocky/commit/67c995e24d172327270454a6736e58dc7dc8ab7f) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 야간 재시작이 고정이 아니고 열린 세션 없이 48시간 넘게 안 쓰인 서버를 다시 띄우지 않고 내린다. 안 쓴 시간은 그 폴더(와 그 워크트리) 대화 기록과 서버 기동 시각 중 나중 것에서 잰다. 보드에서 띄운 핸드오프 서버도 같은 기준이다. 내린 서버는 되살리지 않는다 — 필요하면 `rocky rc start <이름>` 으로 다시 연다. 야간 보고에는 `stopped`(리허설은 `would-stop`)로 남고, `rocky rc` · 웹의 야간 줄에 "끔 N" 이 보인다.
+
+### Patch Changes
+
+- [#508](https://github.com/minjun0219/rocky/pull/508) [`5c10d67`](https://github.com/minjun0219/rocky/commit/5c10d6743c57175b3abb717ec4482bc4a29ccaa6) Thanks [@minjun0219](https://github.com/minjun0219)! - launchd 밖에서 데몬을 띄우는 마지막 수단이 plist 에 구운 PATH 를 물려준다 — 좁은 PATH 의 앱 아래서 뜬 데몬이 `claude` 를 못 찾아 rc 기동이 실패하던 일. rc 기동이 `os error 2` 로 실패하면 폴더가 없는지, 프로그램이 데몬의 PATH 에 없는지(PATH 포함) 알린다.
+
+- [`6a05cf6`](https://github.com/minjun0219/rocky/commit/6a05cf6f7fb703295470954d08849caa49eb6638) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 야간 재시작이 열린 세션을 이어받지 않고 서버만(`--no-create-session-in-dir`) 띄운다. 이어받기(`--session-id`)로 띄운 서버는 단일 세션 모드라 앱에서 두 번째 세션을 열면 `already running 1 of 1 sessions` 로 거절됐고, 그 세션이 끝나면 서버도 같이 내려갔다. 원격 세션의 대화는 claude.ai 쪽에 남아 새 서버에 다시 붙는다. 회복 재시도도 서버만이다. 낮의 `rocky rc restart` 는 그대로 이어받는다.
+
 ## 0.53.0
 
 ### Minor Changes
