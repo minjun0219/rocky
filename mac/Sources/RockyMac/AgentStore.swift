@@ -23,6 +23,11 @@ final class AgentStore {
         }
     }
 
+    /// 아바타가 창 위를 돌아다니나 — 끄면 그 자리에 머문다. 기본은 켜짐.
+    var roam: Bool {
+        didSet { UserDefaults.standard.set(roam, forKey: "roam") }
+    }
+
     private let client: DaemonClient
     private var poll: Task<Void, Never>?
     private var wake: Task<Void, Never>?
@@ -30,6 +35,7 @@ final class AgentStore {
     init(client: DaemonClient) {
         self.client = client
         showAvatar = UserDefaults.standard.object(forKey: "avatar") as? Bool ?? true
+        roam = UserDefaults.standard.object(forKey: "roam") as? Bool ?? true
     }
 
     var mood: AvatarMood { avatarMood(error == nil ? result : nil) }
