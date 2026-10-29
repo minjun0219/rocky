@@ -1,6 +1,7 @@
 // 떠 있는 아바타 — 화면 구석의 작은 로키(프로젝트 헤일메리의 에리디언, 돌 골렘)가 에이전트 상태를 알린다.
 // 내 차례인 세션이 있으면 껑충 뛰고 손을 흔들며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 팔을 들어 내리치고, 다 쉬면 주저앉아 잠든다.
-// 창은 늘 위에 뜨는 패널이고 포커스를 가져가지 않는다. 돌아다니기를 켜면 창 윗면을 걷고, 끌어다 놓으면 떨어진다.
+// 창은 늘 위에 뜨는 패널이고 포커스를 가져가지 않는다. 돌아다니기를 켜면 창 윗면을 걷고, 끌어다 놓으면 떨어지고,
+// 가끔 튜브를 놓아 다른 창으로 건너간다. 두 번 누르면 웹 에이전트 탭이 열리고, 말풍선은 누르면 닫힌다.
 import AppKit
 import RockyKit
 import SwiftUI
@@ -10,6 +11,10 @@ import SwiftUI
 @MainActor
 final class AvatarController {
     private var panel: NSPanel?
+    /// 튜브를 그리는 패널 — 로키 패널 바로 뒤에 뜨고 클릭은 늘 흘려보낸다.
+    private var tubePanel: NSPanel?
+    private let tubeArt = TubeArt()
+    private var shownTube: Tube?
     private let agents: AgentStore
     private let pose = RoamPose()
     private var timer: Timer?
@@ -19,6 +24,9 @@ final class AvatarController {
     private var last: TimeInterval = 0
     /// 마지막으로 옮겨 놓은 자리 — 이것과 다르면 사람이 끌어다 놓은 것이다.
     private var placed: NSPoint?
+    /// 왼쪽 버튼이 로키 위에서 눌린 채인지 — 지난 바퀴에 눌려 있었는지로 "막 눌렀다"를 가린다.
+    private var dragging = false
+    private var wasDown = false
 
     /// 패널 안 로키 발의 자리 — 로키 칸(96×88)은 패널 오른쪽 아래에 있고, 발은 무대 330 중 312 높이다.
     private static let size = NSSize(width: 240, height: 170)
@@ -44,20 +52,8 @@ final class AvatarController {
 
     private func show() {
         if panel == nil {
-            let panel = NSPanel(
-                contentRect: NSRect(origin: .zero, size: Self.size),
-                styleMask: [.borderless, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
-            )
-            panel.level = .floating
-            panel.isFloatingPanel = true
-            panel.hidesOnDeactivate = false
-            panel.backgroundColor = .clear
-            panel.isOpaque = false
-            panel.hasShadow = false
+            let panel = Self.floatingPanel(size: Self.size)
             panel.isMovableByWindowBackground = true
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             panel.contentView = NSHostingView(rootView: AvatarView(agents: agents, pose: pose))
             if !panel.setFrameUsingName("RockyAvatar"), let screen = NSScreen.main?.visibleFrame {
                 // 처음엔 오른쪽 아래 — 독·메뉴 막대를 피해 보이는 영역 안에.
@@ -71,6 +67,62 @@ final class AvatarController {
 
     private func hide() {
         panel?.orderOut(nil)
+        hideTube()
+    }
+
+    private static func floatingPanel(size: NSSize) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        return panel
+    }
+
+    /// 튜브 — 처음 보일 때 곡선을 한 번 펼쳐 패널 크기를 정하고, 그다음엔 자란 정도와 옅어짐만 바꾼다.
+    private func showTube(_ roamer: Roamer) {
+        guard let tube = roamer.tube else { return hideTube() }
+        if tube != shownTube {
+            shownTube = tube
+            // 관은 발판 위에 얹히게 중심선을 띄우고, 두 끝은 발판 표면까지 내린다.
+            var points = [(tube.startX, tube.startY)]
+            points += (0 ... 48).map { i in
+                let p = tube.point(at: Double(i) / 48)
+                return (p.x, p.y + TubeSize.lift)
+            }
+            points.append((tube.endX, tube.endY))
+            let pad = TubeSize.width
+            let minX = points.map { $0.0 }.min()! - pad, maxX = points.map { $0.0 }.max()! + pad
+            let minY = points.map { $0.1 }.min()! - pad, maxY = points.map { $0.1 }.max()! + pad
+            let frame = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            tubeArt.points = points.map { CGPoint(x: $0.0 - minX, y: maxY - $0.1) }
+            if tubePanel == nil {
+                let panel = Self.floatingPanel(size: frame.size)
+                panel.ignoresMouseEvents = true
+                panel.contentView = NSHostingView(rootView: TubeView(art: tubeArt))
+                tubePanel = panel
+            }
+            tubePanel?.setFrame(frame, display: true)
+            tubePanel?.orderFrontRegardless()
+            // 로키는 관 안에 든 것처럼 보이게 늘 관 앞에.
+            panel?.orderFrontRegardless()
+        }
+        tubeArt.reveal = roamer.tubeReveal
+        tubeArt.opacity = roamer.tubeOpacity
+    }
+
+    private func hideTube() {
+        guard shownTube != nil else { return }
+        shownTube = nil
+        tubePanel?.orderOut(nil)
     }
 
     private func startRoaming() {
@@ -90,7 +142,10 @@ final class AvatarController {
         timer = nil
         roamer = nil
         placed = nil
+        dragging = false
         pose.action = .stand
+        pose.shrunk = false
+        hideTube()
         panel?.ignoresMouseEvents = false
         panel?.setFrameAutosaveName("RockyAvatar")
     }
@@ -103,14 +158,20 @@ final class AvatarController {
         let origin = panel.frame.origin
         let foot = NSPoint(x: origin.x + Self.foot.x, y: origin.y + Self.foot.y)
         if roamer == nil { roamer = Roamer(x: foot.x, y: foot.y) }
-        // 사람이 끌고 있으면 따라가기만 하고, 놓으면 그 자리에서 떨어진다.
-        if let placed, placed != origin {
+        // 사람이 로키를 누르고 있는 동안은 걷지 않고 포인터에 매달려 있다 — 누른 채 멈춰 있어도(패널이 안 움직여도)
+        // 걷거나 떨어지면 포인터를 놓친다. 놓으면 그 자리에서 떨어진다.
+        let down = NSEvent.pressedMouseButtons & 1 != 0
+        if down, !wasDown, Self.figure(at: origin).contains(NSEvent.mouseLocation) { dragging = true }
+        wasDown = down
+        let moved = placed.map { $0 != origin } ?? false
+        if dragging || moved {
             roamer?.drop(atX: foot.x, y: foot.y)
             pose.action = .fall
-            if NSEvent.pressedMouseButtons & 1 != 0 {
-                self.placed = origin
-                return
-            }
+            pose.shrunk = false
+            hideTube()
+            placed = origin
+            dragging = down
+            if down { return }
         }
         guard var roamer else { return }
         let screen = (NSScreen.screens.first { $0.frame.contains(foot) } ?? NSScreen.main)?.visibleFrame ?? .zero
@@ -130,12 +191,20 @@ final class AvatarController {
         placed = next
         // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
-        let figure = NSRect(x: next.x + Self.size.width - 96, y: next.y, width: 96, height: 88)
-        var hot = figure.contains(mouse)
-        if case .waiting = agents.mood { hot = NSRect(origin: next, size: Self.size).contains(mouse) }
+        var hot = Self.figure(at: next).contains(mouse)
+        if let bubble = agents.mood.bubble, bubble != pose.dismissed {
+            hot = NSRect(origin: next, size: Self.size).contains(mouse)
+        }
         if panel.ignoresMouseEvents == hot { panel.ignoresMouseEvents = !hot }
         if pose.action != roamer.action { pose.action = roamer.action }
         if pose.facing != roamer.facing { pose.facing = roamer.facing }
+        if pose.shrunk != roamer.insideTube { pose.shrunk = roamer.insideTube }
+        showTube(roamer)
+    }
+
+    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88)의 화면 자리.
+    private static func figure(at origin: NSPoint) -> NSRect {
+        NSRect(x: origin.x + size.width - 96, y: origin.y, width: 96, height: 88)
     }
 
     /// 화면에 떠 있는 보통 창(레이어 0)들 — 앞에서 뒤 순서, AppKit 좌표로. 자기 창과 아주 작은 창은 뺀다.
@@ -164,6 +233,53 @@ final class AvatarController {
 final class RoamPose {
     var action: RoamAction = .stand
     var facing: Double = 1
+    /// 튜브 안에서는 몸을 줄인다.
+    var shrunk = false
+    /// 누른 말풍선 — 같은 글이면 다시 띄우지 않고, 글이 바뀌면(다른 세션이 기다리면) 다시 뜬다.
+    var dismissed: String?
+}
+
+/// 관의 굵기와, 발 자리에서 관 중심선까지의 높이 — 줄어든 로키(약 0.45배)가 관 한가운데 오게.
+private enum TubeSize {
+    static let width: Double = 54
+    static let lift: Double = 22
+}
+
+/// 튜브 그림의 상태 — 컨트롤러가 쓰고 `TubeView` 가 읽는다. 점은 튜브 패널 안의 SwiftUI 좌표(y 가 아래로)다.
+@MainActor
+@Observable
+final class TubeArt {
+    var points: [CGPoint] = []
+    var reveal: Double = 0
+    var opacity: Double = 1
+}
+
+/// 헤일메리의 터널 같은 반투명 관 — 호박색 테두리에 옅은 속, 위쪽에 유리 같은 빛 한 줄.
+private struct TubeView: View {
+    let art: TubeArt
+
+    var body: some View {
+        let points = art.points
+        let reveal = art.reveal
+        return Canvas { gc, _ in
+            var path = Path()
+            path.addLines(points)
+            let shown = path.trimmedPath(from: 0, to: reveal)
+            let style = StrokeStyle(lineWidth: TubeSize.width, lineCap: .butt, lineJoin: .round)
+            gc.stroke(shown, with: .color(Color(red: 0.55, green: 0.42, blue: 0.25).opacity(0.75)), style: style)
+            var inner = gc
+            inner.blendMode = .copy
+            inner.stroke(
+                shown, with: .color(Color(red: 0.95, green: 0.86, blue: 0.66).opacity(0.28)),
+                style: StrokeStyle(lineWidth: TubeSize.width - 8, lineCap: .butt, lineJoin: .round)
+            )
+            gc.stroke(
+                shown.offsetBy(dx: 0, dy: -TubeSize.width / 4), with: .color(.white.opacity(0.35)),
+                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+            )
+        }
+        .opacity(art.opacity)
+    }
 }
 
 extension AvatarMood {
@@ -184,7 +300,7 @@ struct AvatarView: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            if let bubble = bubble(agents.mood) {
+            if let bubble = agents.mood.bubble, bubble != pose.dismissed {
                 Text(bubble)
                     .font(.caption)
                     .lineLimit(3)
@@ -192,16 +308,20 @@ struct AvatarView: View {
                     .padding(.vertical, 6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                     .frame(maxWidth: 220, alignment: .trailing)
+                    .onTapGesture { pose.dismissed = bubble }
                     .transition(.opacity)
             }
             Rocky(mood: agents.mood, action: pose.action, facing: pose.facing)
                 .frame(width: 96, height: 88)
+                .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
+                .animation(.easeInOut(duration: 0.25), value: pose.shrunk)
                 .help(agents.mood.summary)
+                // 한 번 누르는 건 끌어 옮기다 놓는 것과 헷갈린다 — 웹 에이전트 탭은 두 번 눌러야 연다.
+                .onTapGesture(count: 2) {
+                    if let url = agents.agentsURL { openURL(url) }
+                }
         }
         .frame(width: 240, height: 170, alignment: .bottomTrailing)
-        .onTapGesture {
-            if let url = agents.agentsURL { openURL(url) }
-        }
         .contextMenu {
             Button("에이전트 탭 열기") {
                 if let url = agents.agentsURL { openURL(url) }
@@ -210,11 +330,14 @@ struct AvatarView: View {
             Button("아바타 숨기기") { agents.showAvatar = false }
         }
         .animation(.easeInOut(duration: 0.3), value: agents.mood)
+        .animation(.easeInOut(duration: 0.2), value: pose.dismissed)
     }
+}
 
-    /// 말풍선 — 내 차례일 때만 늘 띄우고, 나머지는 조용히 둔다(마우스를 올리면 `help` 로 보인다).
-    private func bubble(_ mood: AvatarMood) -> String? {
-        guard case let .waiting(name, line, count) = mood else { return nil }
+extension AvatarMood {
+    /// 말풍선 — 내 차례일 때만 띄우고, 나머지는 조용히 둔다(마우스를 올리면 `help` 로 보인다).
+    var bubble: String? {
+        guard case let .waiting(name, line, count) = self else { return nil }
         let more = count > 1 ? " 외 \(count - 1)개" : ""
         return "\(name)\(more) — \(line ?? "답을 기다려요")"
     }
@@ -258,7 +381,7 @@ private struct Rocky: View {
         // 무대는 360×330 — 프레임에 맞춰 늘린다.
         gc.scaleBy(x: size.width / 360, y: size.height / 330)
         // 그림자는 발이 무언가를 딛고 있을 때만.
-        if action != .fall, action != .climb {
+        if action != .fall, action != .climb, action != .tube {
             gc.fill(
                 Path(ellipseIn: CGRect(x: 180 - 95, y: 312 - 9, width: 190, height: 18)),
                 with: .color(.black.opacity(0.13))
@@ -394,8 +517,8 @@ private struct RigPose {
                 .legL: -4 + 22 * max(0, p), .legR: 4 - 22 * max(0, -p),
             ]
             return
-        case .climb:
-            // 기어오르기 — 두 팔을 번갈아 뻗고 다리로 민다.
+        case .climb, .tube:
+            // 기어오르기(튜브 안에서 기어가기도) — 두 팔을 번갈아 뻗고 다리로 민다.
             let p = sin(2 * .pi * t / 0.8)
             angles = [
                 .torso: -4, .upperL: 60 + 20 * p, .foreL: -30, .upperR: -60 + 20 * p, .foreR: 30,

@@ -21,17 +21,19 @@
   열린 PR 중 `ready` 이고 초안이 아닌 것을 목록으로만 보인다. 머지는 사람 몫이다.
 - **에이전트 상태는 `GET /api/sessions` 를 묻는다** — 세션 목록은 SSE 로 오지 않는다. 아바타가 보이면 15초, 끄면 60초(웹 에이전트 탭의
   `POLL_MS`·`IDLE_POLL_MS` 와 같다), 메뉴를 열 때·아바타를 켤 때 한 번 더. 데몬이 `claude agents --json` 을 3초 캐시하므로 더 자주 묻지 않는다.
-  묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(누르면 `/?view=agents`).
+  묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(아바타를 두 번 누르거나 오른쪽 클릭 메뉴로 `/?view=agents`). 한 번 누르는 건 아무것도 열지 않는다 — 끌어 옮기다 놓는 것과 헷갈려 매번 웹 UI 가 떴다.
 - **아바타는 보이기만 한다.** 화면 구석의 떠 있는 패널(포커스를 가져가지 않고 모든 Space 에 뜬다)이 가장 급한 상태 하나를 보인다 —
-  내 차례(background `blocked`)면 껑충 뛰고 몸을 흔들며 손을 흔들고(말풍선에 `needs`), 도는 세션이 있으면 팔을 들어 망치처럼 내리치고, 다 쉬면 주저앉아 숨만 쉰다. 배너·소리는 내지 않는다.
+  내 차례(background `blocked`)면 껑충 뛰고 몸을 흔들며 손을 흔들고(말풍선에 `needs`, 누르면 닫히고 글이 바뀌면 다시 뜬다), 도는 세션이 있으면 팔을 들어 망치처럼 내리치고, 다 쉬면 주저앉아 숨만 쉰다. 배너·소리는 내지 않는다.
   그림은 Gemini 가 그린 돌 골렘 조각(`Resources/rocky/*.png`, 원본의 절반 크기)을 관절로 이은 컷아웃 리그다 — 조각을 바꾸면
   `RigPart` 의 pivot·at 좌표(PNG 픽셀)도 같이 바꾼다. .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은
   SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
   메뉴의 토글이나 아바타의 오른쪽 클릭으로 끈다(`defaults` 의 `avatar`). 자리는 돌아다니기를 끈 동안만 패널이 기억한다(`RockyAvatar`).
 - **돌아다니기**(`defaults` 의 `roam`, 기본 켜짐) — 일하는 중이면 창 윗면을 걷고, 발판 끝에서 돌아서거나 뛰어내리고, 창 옆면·화면 가장자리를
-  기어오른다. 밟던 창이 사라지거나 옮겨 가면 떨어지고, 끌어다 놓으면 그 자리에서 떨어진다. 내 차례·연결 없음이면 서 있고, 다 쉬면 앉는다.
+  기어오른다. 밟던 창이 사라지거나 옮겨 가면 떨어지고, 누르고 있는 동안은 걷지 않고 포인터에 매달려 있다가(누른 채 멈춰 있어도) 놓으면 그 자리에서 떨어진다. 내 차례·연결 없음이면 서 있고, 다 쉬면 앉는다.
+  걷다가 가끔(초당 4%) 헤일메리의 터널처럼 반투명 튜브를 놓아 멀리 있는 다른 발판으로 건너간다 — 관은 로키 패널 바로 뒤의 클릭을 흘려보내는 패널에 그리고,
+  로키는 관 안에서 0.45배로 줄어든다. 튜브는 한 번에 하나, 건너는 중엔 기분이 바뀌어도 마저 건너고, 끌어다 놓으면 관이 사라진다.
   판정(발판·벽·한 걸음)은 `RockyKit` 의 `Roamer` 순수 함수이고, 앱은 초당 30번 걸음을 재고 패널을 옮기기만 한다. 창 목록은
-  `CGWindowListCopyWindowInfo` 로 0.5초마다 위치만 읽는다 — 창 이름을 읽지 않으니 화면 기록 권한을 묻지 않는다. 패널은 로키 칸(말풍선이 뜬 동안은 패널 전체) 위에 마우스가 있을 때만 클릭을 받고, 나머지는 아래 창으로 흘려보낸다(`ignoresMouseEvents`).
+  `CGWindowListCopyWindowInfo` 로 0.5초마다 위치만 읽는다 — 창 이름을 읽지 않으니 화면 기록 권한을 묻지 않는다. 패널은 로키 칸(말풍선이 떠 있는 동안은 패널 전체) 위에 마우스가 있을 때만 클릭을 받고, 나머지는 아래 창으로 흘려보낸다(`ignoresMouseEvents`).
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
   받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
 - **실패는 출처로 지운다** — 읽기 실패는 다음 읽기 성공이, 동작 실패는 다음 동작이 지운다.
@@ -53,7 +55,7 @@
 | SSE 파서·묶음 고르기·다시 붙기 간격 | `mac/Sources/RockyKit/Events.swift` |
 | 보드 트리·메뉴 목록 | `mac/Sources/RockyKit/BoardTree.swift` |
 | 세션 묶음·아바타 기분 | `mac/Sources/RockyKit/Sessions.swift` |
-| 돌아다니기(발판·벽·걸음) | `mac/Sources/RockyKit/Roam.swift` |
+| 돌아다니기(발판·벽·걸음·튜브) | `mac/Sources/RockyKit/Roam.swift` |
 | 세션 묻기·아바타 패널 | `mac/Sources/RockyMac/AgentStore.swift`, `mac/Sources/RockyMac/Avatar.swift` |
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |
