@@ -24,6 +24,9 @@ final class AvatarController {
     private var last: TimeInterval = 0
     /// 마지막으로 옮겨 놓은 자리 — 이것과 다르면 사람이 끌어다 놓은 것이다.
     private var placed: NSPoint?
+    /// 왼쪽 버튼이 로키 위에서 눌린 채인지 — 지난 바퀴에 눌려 있었는지로 "막 눌렀다"를 가린다.
+    private var dragging = false
+    private var wasDown = false
 
     /// 패널 안 로키 발의 자리 — 로키 칸(96×88)은 패널 오른쪽 아래에 있고, 발은 무대 330 중 312 높이다.
     private static let size = NSSize(width: 240, height: 170)
@@ -139,6 +142,7 @@ final class AvatarController {
         timer = nil
         roamer = nil
         placed = nil
+        dragging = false
         pose.action = .stand
         pose.shrunk = false
         hideTube()
@@ -154,16 +158,20 @@ final class AvatarController {
         let origin = panel.frame.origin
         let foot = NSPoint(x: origin.x + Self.foot.x, y: origin.y + Self.foot.y)
         if roamer == nil { roamer = Roamer(x: foot.x, y: foot.y) }
-        // 사람이 끌고 있으면 따라가기만 하고, 놓으면 그 자리에서 떨어진다.
-        if let placed, placed != origin {
+        // 사람이 로키를 누르고 있는 동안은 걷지 않고 포인터에 매달려 있다 — 누른 채 멈춰 있어도(패널이 안 움직여도)
+        // 걷거나 떨어지면 포인터를 놓친다. 놓으면 그 자리에서 떨어진다.
+        let down = NSEvent.pressedMouseButtons & 1 != 0
+        if down, !wasDown, Self.figure(at: origin).contains(NSEvent.mouseLocation) { dragging = true }
+        wasDown = down
+        let moved = placed.map { $0 != origin } ?? false
+        if dragging || moved {
             roamer?.drop(atX: foot.x, y: foot.y)
             pose.action = .fall
             pose.shrunk = false
             hideTube()
-            if NSEvent.pressedMouseButtons & 1 != 0 {
-                self.placed = origin
-                return
-            }
+            placed = origin
+            dragging = down
+            if down { return }
         }
         guard var roamer else { return }
         let screen = (NSScreen.screens.first { $0.frame.contains(foot) } ?? NSScreen.main)?.visibleFrame ?? .zero
@@ -183,8 +191,7 @@ final class AvatarController {
         placed = next
         // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
-        let figure = NSRect(x: next.x + Self.size.width - 96, y: next.y, width: 96, height: 88)
-        var hot = figure.contains(mouse)
+        var hot = Self.figure(at: next).contains(mouse)
         if let bubble = agents.mood.bubble, bubble != pose.dismissed {
             hot = NSRect(origin: next, size: Self.size).contains(mouse)
         }
@@ -193,6 +200,11 @@ final class AvatarController {
         if pose.facing != roamer.facing { pose.facing = roamer.facing }
         if pose.shrunk != roamer.insideTube { pose.shrunk = roamer.insideTube }
         showTube(roamer)
+    }
+
+    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88)의 화면 자리.
+    private static func figure(at origin: NSPoint) -> NSRect {
+        NSRect(x: origin.x + size.width - 96, y: origin.y, width: 96, height: 88)
     }
 
     /// 화면에 떠 있는 보통 창(레이어 0)들 — 앞에서 뒤 순서, AppKit 좌표로. 자기 창과 아주 작은 창은 뺀다.
