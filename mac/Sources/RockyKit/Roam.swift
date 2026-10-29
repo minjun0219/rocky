@@ -125,6 +125,9 @@ public struct Roamer: Equatable, Sendable {
     public static let tubeSpeed: Double = 320
     public static let tubeLinger: Double = 0.8
     public static let tubeFade: Double = 0.4
+    /// 이음 동작 — 착지하면 쭈그리고, 창 옆면을 다 오르면 끙차 하고 넘어간다.
+    public static let landTime: Double = 0.2
+    public static let heaveTime: Double = 0.35
 
     public var x: Double
     public var y: Double
@@ -141,6 +144,8 @@ public struct Roamer: Equatable, Sendable {
     /// 놓인 튜브와 놓은 뒤 흐른 시간 — 다 건넌 뒤에도 잠깐 남았다가 사라진다.
     public private(set) var tube: Tube?
     public private(set) var tubeAge: Double = 0
+    var landing: Double = 0
+    var heave: Double = 0
 
     public init(x: Double, y: Double) {
         self.x = x
@@ -168,12 +173,20 @@ public struct Roamer: Equatable, Sendable {
         return gone > 0 ? max(0, 1 - gone / Self.tubeFade) : 1
     }
 
+    /// 착지 반동(1 → 0) — 내려앉은 직후 쭈그렸다 편다.
+    public var squash: Double { landing / Self.landTime }
+
+    /// 끙차(1 → 0) — 창 윗면으로 올라선 직후 몸을 숙이고 팔로 짚는다.
+    public var heaving: Double { heave / Self.heaveTime }
+
     /// 튜브 안에 들어가 있는지 — 그동안 몸을 줄인다.
     public var insideTube: Bool { action == .tube && tubeAge >= Self.tubeBuild }
 
     public mutating func step(
         dt: Double, ledges: [Ledge], walls: [Wall], screen: Box, mood: RoamMood, random: () -> Double
     ) {
+        landing = max(0, landing - dt)
+        heave = max(0, heave - dt)
         if tube != nil {
             tubeAge += dt
             if action != .tube, tubeOpacity <= 0 { tube = nil }
@@ -198,14 +211,15 @@ public struct Roamer: Equatable, Sendable {
             vy -= Self.gravity * dt
             let next = y + vy * dt
             // 지나쳐 내려간 발판 중 가장 높은 것에 내려앉는다.
-            let landing = ledges
+            let below = ledges
                 .filter { $0.y <= y + 0.5 && $0.y >= next && x >= $0.minX && x <= $0.maxX }
                 .max { $0.y < $1.y }
-            if let landing {
-                y = landing.y
+            if let below {
+                y = below.y
                 vy = 0
                 settle(mood)
                 pause = 0.5
+                landing = Self.landTime
             } else {
                 y = max(next, screen.minY)
             }
@@ -232,6 +246,7 @@ public struct Roamer: Equatable, Sendable {
                     // 창 윗면으로 올라선다.
                     x += facing * Self.halfWidth * 2
                     action = .walk
+                    heave = Self.heaveTime
                 }
             }
         case .walk, .stand, .sit:

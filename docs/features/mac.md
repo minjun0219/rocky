@@ -24,6 +24,11 @@
   묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(아바타를 두 번 누르거나 오른쪽 클릭 메뉴로 `/?view=agents`). 한 번 누르는 건 아무것도 열지 않는다 — 끌어 옮기다 놓는 것과 헷갈려 매번 웹 UI 가 떴다.
 - **아바타는 보이기만 한다.** 화면 구석의 떠 있는 패널(포커스를 가져가지 않고 모든 Space 에 뜬다)이 가장 급한 상태 하나를 보인다 —
   내 차례(background `blocked`)면 껑충 뛰고 몸을 흔들며 손을 흔들고(말풍선에 `needs`, 누르면 닫히고 글이 바뀌면 다시 뜬다), 도는 세션이 있으면 팔을 들어 망치처럼 내리치고, 다 쉬면 주저앉아 숨만 쉰다. 배너·소리는 내지 않는다.
+  같은 동작만 되풀이하지 않게 몸짓을 세 층으로 쌓는다 — 바탕 루프(숨 · 기분 동작) 위에 작은 동작을 가중 랜덤으로 얹고(직전 것은 빼고), 드문 사건(튜브)은 `Roamer` 가 일으킨다.
+  도는 중이면 망치를 3-7번(박자 0.7-0.95초를 매번 새로) 내리치고 두리번 · 땀 닦기 · 팔 돌리기 · 발 구르기 · 잠깐 앉기 중 하나를 하고, 창 끝에 서 있으면 내려다보기가 후보에 든다.
+  내 차례는 처음 4.8초만 크게 뛰며 손을 흔들고, 그 뒤엔 마우스 쪽을 보고 서 있다가 10-20초마다 손만 흔든다(기다리는 세션이 바뀌면 다시 크게).
+  착지하면 0.2초 쭈그리고, 창 옆면을 다 오르면 끙차 하고 넘어간다. 걷기 · 기어오르기 박자는 천천히 흔들리고 팔은 몸보다 한 박자 늦다.
+  고르는 판정은 `RockyKit` 의 `Choreographer`(후보표 · 가중치 · 길이 범위) 순수 함수이고, 리그(`RigPose`)는 고른 토막을 그리기만 한다. 몸짓은 돌아다니기를 꺼도 고른다.
   그림은 Gemini 가 그린 돌 골렘 조각(`Resources/rocky/*.png`, 원본의 절반 크기)을 관절로 이은 컷아웃 리그다 — 조각을 바꾸면
   `RigPart` 의 pivot·at 좌표(PNG 픽셀)도 같이 바꾼다. .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은
   SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
@@ -56,6 +61,7 @@
 | 보드 트리·메뉴 목록 | `mac/Sources/RockyKit/BoardTree.swift` |
 | 세션 묶음·아바타 기분 | `mac/Sources/RockyKit/Sessions.swift` |
 | 돌아다니기(발판·벽·걸음·튜브) | `mac/Sources/RockyKit/Roam.swift` |
+| 몸짓 고르기(후보표·가중치·서 있는 자리) | `mac/Sources/RockyKit/Moves.swift` |
 | 세션 묻기·아바타 패널 | `mac/Sources/RockyMac/AgentStore.swift`, `mac/Sources/RockyMac/Avatar.swift` |
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |
