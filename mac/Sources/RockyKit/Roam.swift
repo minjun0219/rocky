@@ -1,4 +1,5 @@
-// 돌아다니는 로키 — 창 윗면을 걷고, 발밑이 사라지면 떨어지고, 벽(화면 가장자리·창 옆면)을 기어오른다.
+// 돌아다니는 로키 — 창 윗면을 걷고, 발밑이 사라지면 떨어지고, 벽(화면 가장자리·창 옆면)을 기어오르고,
+// 가끔 헤일메리의 터널처럼 튜브를 놓아 다른 창 윗면으로 건너간다.
 // 좌표는 AppKit 화면 좌표(원점 왼쪽 아래, y 는 위로)이고 (x, y) 는 로키의 발 가운데다. 창 목록을 읽고 패널을 옮기는 건 앱 몫이다.
 import Foundation
 
@@ -71,7 +72,44 @@ public enum RoamMood: Equatable, Sendable {
 }
 
 public enum RoamAction: Equatable, Sendable {
-    case walk, stand, sit, fall, climb
+    case walk, stand, sit, fall, climb, tube
+}
+
+/// 두 발판을 잇는 튜브 — 출발점에서 위로 솟았다가 도착점으로 내려오는 3차 베지어. 꼭짓점 높이는 `peak`.
+public struct Tube: Equatable, Sendable {
+    public var startX: Double
+    public var startY: Double
+    public var endX: Double
+    public var endY: Double
+    public var peak: Double
+
+    /// 화면 꼭대기를 넘지 않게 두 끝보다 `rise` 만큼 위로 솟는다.
+    public init(startX: Double, startY: Double, endX: Double, endY: Double, screen: Box, rise: Double = 140) {
+        self.startX = startX
+        self.startY = startY
+        self.endX = endX
+        self.endY = endY
+        peak = min(max(startY, endY) + rise, screen.maxY - 30)
+    }
+
+    /// t(0...1) 자리의 점.
+    public func point(at t: Double) -> (x: Double, y: Double) {
+        let u = 1 - t
+        let a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
+        return (a * startX + b * startX + c * endX + d * endX, a * startY + (b + c) * peak + d * endY)
+    }
+
+    /// 꺾은선으로 잰 길이.
+    public var length: Double {
+        var total = 0.0
+        var prev = point(at: 0)
+        for i in 1 ... 32 {
+            let next = point(at: Double(i) / 32)
+            total += hypot(next.x - prev.x, next.y - prev.y)
+            prev = next
+        }
+        return total
+    }
 }
 
 /// 로키의 몸 — `step` 이 한 프레임씩 움직인다. 무엇을 할지 고르는 운은 `random`(0..<1)으로 받는다.
@@ -81,6 +119,12 @@ public struct Roamer: Equatable, Sendable {
     public static let gravity: Double = 1800
     /// 몸 반폭 — 벽에 붙거나 화면 끝에서 돌아설 때 쓴다.
     public static let halfWidth: Double = 28
+    /// 튜브 — 걷는 동안 초당 이만큼의 확률로 놓는다. 놓는 데 `tubeBuild` 초, 건너는 속도, 다 건너고 남아 있다 사라지는 시간.
+    public static let tubeRate: Double = 0.04
+    public static let tubeBuild: Double = 0.6
+    public static let tubeSpeed: Double = 320
+    public static let tubeLinger: Double = 0.8
+    public static let tubeFade: Double = 0.4
 
     public var x: Double
     public var y: Double
@@ -94,6 +138,9 @@ public struct Roamer: Equatable, Sendable {
     var climbTop: Double = 0
     var climbWall: Double = 0
     var climbingScreen = false
+    /// 놓인 튜브와 놓은 뒤 흐른 시간 — 다 건넌 뒤에도 잠깐 남았다가 사라진다.
+    public private(set) var tube: Tube?
+    public private(set) var tubeAge: Double = 0
 
     public init(x: Double, y: Double) {
         self.x = x
@@ -106,12 +153,47 @@ public struct Roamer: Equatable, Sendable {
         self.y = y
         action = .fall
         vy = 0
+        tube = nil
     }
+
+    /// 튜브를 건너는 데 걸리는 시간.
+    var tubeTravel: Double { (tube?.length ?? 0) / Self.tubeSpeed }
+
+    /// 튜브가 그려진 정도(0...1) — 놓는 동안 출발점에서부터 자란다.
+    public var tubeReveal: Double { min(tubeAge / Self.tubeBuild, 1) }
+
+    /// 튜브의 불투명도 — 다 건너고 잠깐 뒤에 옅어진다.
+    public var tubeOpacity: Double {
+        let gone = tubeAge - Self.tubeBuild - tubeTravel - Self.tubeLinger
+        return gone > 0 ? max(0, 1 - gone / Self.tubeFade) : 1
+    }
+
+    /// 튜브 안에 들어가 있는지 — 그동안 몸을 줄인다.
+    public var insideTube: Bool { action == .tube && tubeAge >= Self.tubeBuild }
 
     public mutating func step(
         dt: Double, ledges: [Ledge], walls: [Wall], screen: Box, mood: RoamMood, random: () -> Double
     ) {
+        if tube != nil {
+            tubeAge += dt
+            if action != .tube, tubeOpacity <= 0 { tube = nil }
+        }
         switch action {
+        case .tube:
+            // 튜브를 다 놓으면 그 길을 따라 건너간다 — 기분이 바뀌어도 건너던 건 마저 건넌다.
+            guard let tube else {
+                action = .fall
+                return
+            }
+            let t = min(max((tubeAge - Self.tubeBuild) / max(tubeTravel, 0.01), 0), 1)
+            let at = tube.point(at: t)
+            x = at.x
+            y = at.y
+            if t >= 1 {
+                vy = 0
+                action = .stand
+                pause = 1
+            }
         case .fall:
             vy -= Self.gravity * dt
             let next = y + vy * dt
@@ -171,7 +253,7 @@ public struct Roamer: Equatable, Sendable {
                 }
                 return
             }
-            walk(dt: dt, on: ground, walls: walls, screen: screen, random: random)
+            walk(dt: dt, on: ground, ledges: ledges, walls: walls, screen: screen, random: random)
         }
     }
 
@@ -183,7 +265,9 @@ public struct Roamer: Equatable, Sendable {
         }
     }
 
-    private mutating func walk(dt: Double, on ground: Ledge, walls: [Wall], screen: Box, random: () -> Double) {
+    private mutating func walk(
+        dt: Double, on ground: Ledge, ledges: [Ledge], walls: [Wall], screen: Box, random: () -> Double
+    ) {
         let next = x + facing * Self.walkSpeed * dt
         let front = x + facing * Self.halfWidth
         let nextFront = next + facing * Self.halfWidth
@@ -226,6 +310,22 @@ public struct Roamer: Equatable, Sendable {
             return
         }
         x = next
+        // 가끔 튜브를 놓아 멀리 있는 다른 발판으로 건너간다 — 한 번에 하나만.
+        if tube == nil, random() < dt * Self.tubeRate {
+            let far = ledges.filter {
+                $0 != ground && $0.maxX - $0.minX >= Self.halfWidth * 2 + 20 && abs(($0.minX + $0.maxX) / 2 - x) >= 150
+            }
+            if !far.isEmpty {
+                let target = far[min(Int(random() * Double(far.count)), far.count - 1)]
+                let span = target.maxX - target.minX - Self.halfWidth * 2
+                let endX = target.minX + Self.halfWidth + random() * span
+                tube = Tube(startX: x, startY: y, endX: endX, endY: target.y, screen: screen)
+                tubeAge = 0
+                facing = endX > x ? 1 : -1
+                action = .tube
+                return
+            }
+        }
         // 가끔 멈춰 숨을 돌린다 — 초당 8% 쯤.
         if random() < dt * 0.08 {
             action = .stand

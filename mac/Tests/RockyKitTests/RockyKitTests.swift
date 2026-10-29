@@ -286,4 +286,40 @@ final class RoamTests: XCTestCase {
         XCTAssertEqual(rocky.action, .stand)
         XCTAssertEqual(rocky.x, 500)
     }
+
+    func testTubeArcsAboveBothEnds() {
+        let tube = Tube(startX: 100, startY: 0, endX: 700, endY: 300, screen: screen)
+        XCTAssertEqual(tube.point(at: 0).x, 100)
+        XCTAssertEqual(tube.point(at: 0).y, 0)
+        XCTAssertEqual(tube.point(at: 1).x, 700, accuracy: 1e-9)
+        XCTAssertEqual(tube.point(at: 1).y, 300, accuracy: 1e-9)
+        XCTAssertGreaterThan(tube.point(at: 0.5).y, 300)
+        XCTAssertGreaterThan(tube.length, 600)
+        // 화면 꼭대기를 넘지 않는다.
+        XCTAssertEqual(Tube(startX: 0, startY: 700, endX: 500, endY: 0, screen: screen).peak, 770)
+    }
+
+    func testRidesATubeToAnotherLedge() {
+        let ground = ledges(windows: [Box(x: 600, y: 0, width: 300, height: 300)], screen: screen)
+        var rocky = Roamer(x: 100, y: 0)
+        rocky.action = .walk
+        rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .roam, random: { 0 })
+        XCTAssertEqual(rocky.action, .tube)
+        XCTAssertNotNil(rocky.tube)
+        XCTAssertFalse(rocky.insideTube)
+        var steps = 0
+        while rocky.action == .tube, steps < 1000 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .roam, random: { 0 })
+            steps += 1
+        }
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertEqual(rocky.y, 300)
+        XCTAssertEqual(rocky.x, 600 + Roamer.halfWidth, accuracy: 1e-9)
+        // 다 건넌 뒤에도 튜브는 잠깐 남았다가 사라진다.
+        XCTAssertNotNil(rocky.tube)
+        for _ in 0 ..< 60 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, random: { 0 })
+        }
+        XCTAssertNil(rocky.tube)
+    }
 }
