@@ -1,0 +1,123 @@
+name: Nightly
+
+# 매일 밤 main 을 프리릴리스 `v<version>-nightly.<YYYYMMDD>` 로 올린다 — 기기는 `rocky update --nightly` 로 받는다.
+# 설계: docs/design/specs/2026-10-29-nightly-channel-design.md. 판정은 scripts/nightly.ts(테스트는 nightly.test.ts).
+#
+# - 01:30 KST(16:30 UTC). 기기 데몬은 배포 창(기본 02:00-04:00)에 받는다.
+# - main HEAD 가 지난 nightly 와 다르고 그 커밋의 CI(ci.yml push 실행)가 초록일 때만 낸다. 아니면 요약에 이유만.
+# - 최근 7개만 남긴다. 정식 릴리스·`-next` 프리릴리스는 건드리지 않는다. GitHub 의 "latest" 는 정식에 머문다.
+# - 수동 실행(force)은 커밋이 같아도 다시 낸다(같은 날이면 `.2`). CI 가 빨강이면 그래도 내지 않는다.
+on:
+  schedule:
+    - cron: '30 16 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '지난 nightly 와 커밋이 같아도 다시 낸다'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # nightly.ts 는 로컬 모듈만 import 하므로 bun install 이 필요 없다.
+      - id: plan
+        run: |
+          bun scripts/nightly.ts plan
+          echo "### nightly" >> "$GITHUB_STEP_SUMMARY"
+          grep '^reason=' "$GITHUB_OUTPUT" | cut -d= -f2- >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NIGHTLY_FORCE: ${{ inputs.force || 'false' }}
+
+  build:
+    name: macOS nightly
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    # release.yml 의 assets 와 같은 러너 — 산출물은 aarch64-apple-darwin 하나다.
+    runs-on: macos-15
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA: ${{ needs.plan.outputs.sha }}
+    steps:
+      # plan 이 본 그 커밋 — 그 사이 main 이 움직여도 CI 가 초록인 커밋을 빌드한다.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # CARGO_PKG_VERSION·/api/health 가 nightly 를 말하게 — 작업 트리에서만 바꾸고 커밋하지 않는다.
+      - name: Stamp version
+        run: bun scripts/nightly.ts stamp "$VERSION"
+
+      - name: Build web UI + TUI
+        run: bun install --frozen-lockfile && bun run build:ui && bun run build:tui
+
+      - name: Build CLI + daemon
+        run: cargo build --release --locked -p rocky-cli -p rockyd
+
+      - name: Check version
+        run: |
+          got="$(target/release/rocky --version)"
+          echo "$got"
+          case "$got" in *"$VERSION"*) ;; *) echo "바이너리 버전이 $VERSION 이 아니다: $got"; exit 1 ;; esac
+
+      - name: Package
+        run: scripts/package-macos.sh "$TAG"
+
+      - name: Prerelease
+        run: |
+          gh release create "$TAG" out/* --target "$SHA" --prerelease --title "$TAG" \
+            --notes "main ${SHA} 의 nightly 빌드. 받기: \`rocky update --nightly\`"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  prune:
+    name: keep last 7
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.build.result != 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - run: bun scripts/nightly.ts prune
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
