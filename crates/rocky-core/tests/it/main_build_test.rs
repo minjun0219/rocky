@@ -138,3 +138,62 @@ fn release_step_undoes_only_our_folder_and_refreshes_github() {
         ReleaseStep::Leave(_)
     ));
 }
+
+#[test]
+fn nightly_mode_is_its_own_pinned_link() {
+    use rocky_core::main_build::{is_main_mode, is_nightly_mode, is_pinned_mode};
+    assert!(is_nightly_mode(Some("nightly")));
+    assert!(!is_main_mode(Some("nightly")));
+    assert!(is_pinned_mode(Some("nightly")));
+    assert!(is_pinned_mode(Some("main")));
+    assert!(!is_pinned_mode(Some("v0.54.0")));
+    assert!(!is_pinned_mode(None));
+}
+
+#[test]
+fn nightly_tags_follow_the_ci_script() {
+    use rocky_core::main_build::{nightly_asset, parse_nightly_tag};
+    let t = parse_nightly_tag("v0.54.0-nightly.20261029").unwrap();
+    assert_eq!((t.date.as_str(), t.seq), ("20261029", 1));
+    assert_eq!(
+        parse_nightly_tag("v0.54.0-nightly.20261029.2").unwrap().seq,
+        2
+    );
+    for bad in [
+        "v0.54.0",
+        "v0.24.0-next.3",
+        "0.54.0-nightly.20261029",
+        "v0.54-nightly.20261029",
+        "v0.54.0-nightly.2026102",
+        "v0.54.0-nightly.20261029.x",
+    ] {
+        assert!(parse_nightly_tag(bad).is_none(), "{bad}");
+    }
+    assert_eq!(
+        nightly_asset("v0.54.0-nightly.20261029"),
+        "rocky-v0.54.0-nightly.20261029-aarch64-apple-darwin.tar.gz"
+    );
+}
+
+#[test]
+fn the_latest_nightly_is_chosen_by_date_then_seq_and_annotated_tags_peel() {
+    use rocky_core::main_build::latest_nightly;
+    let a = "a".repeat(40);
+    let b = "b".repeat(40);
+    let c = "c".repeat(40);
+    let d = "d".repeat(40);
+    let out = format!(
+        "{a}\trefs/tags/v0.55.0-nightly.20261027\n\
+         {b}\trefs/tags/v0.54.0-nightly.20261029\n\
+         {c}\trefs/tags/v0.54.0-nightly.20261029.2\n\
+         {a}\trefs/tags/v0.54.0-nightly.20261029.2^{{}}\n\
+         {d}\trefs/tags/v0.56.0\n\
+         xyz\trefs/tags/v0.54.0-nightly.20261030\n"
+    );
+    assert_eq!(
+        latest_nightly(&out),
+        Some(("v0.54.0-nightly.20261029.2".to_string(), a.clone())),
+        "버전이 아니라 날짜·순번, annotated 는 ^{{}} 의 커밋, 커밋 모양이 틀린 줄은 버린다"
+    );
+    assert_eq!(latest_nightly(&format!("{d}\trefs/tags/v0.56.0\n")), None);
+}

@@ -124,10 +124,11 @@ fn plist_exec_path() -> String {
 /// 릴리스는 버전마다 폴더(`v<버전>/`)가 바뀌어 옆의 `rockyd` 를 그대로 구우면 plist 가 릴리스마다 달라진다. 그래서
 /// `daemon` 이 링크 `link`(데이터 홈의 `rocky/current`)가 가리키는 폴더에 있으면 그 링크를 거친 경로(`link/rockyd`)를 쓴다.
 /// 링크가 다른 설치본을 가리키면(설치본 둘이 번갈아 세션을 여는 기기) 그 링크로 띄운 데몬은 다른 버전이라 `daemon`
-/// 그대로다. main 빌드(링크가 `main`)도 그대로다 — `main/` 은 빌드가 바뀌어도 같은 폴더라 이미 바뀌지 않는 경로다.
+/// 그대로다. main 빌드(링크가 `main`)와 nightly(`nightly`)도 그대로다 — 빌드가 바뀌어도 같은 폴더라 이미 바뀌지 않는 경로다.
 pub fn exec_through_link(daemon: &Path, link: &Path) -> PathBuf {
     let target = std::fs::read_link(link).ok();
-    let main_mode = rocky_core::main_build::is_main_mode(target.as_deref().and_then(Path::to_str));
+    let main_mode =
+        rocky_core::main_build::is_pinned_mode(target.as_deref().and_then(Path::to_str));
     let canonical = |path: &Path| std::fs::canonicalize(path).ok();
     let here = daemon.parent().and_then(canonical);
     match daemon.file_name() {

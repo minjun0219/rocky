@@ -70,9 +70,10 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky daemon run|start|stop|restart|status|install|uninstall   restart 는 버전과 상관없이 지금 설치본으로 교체, status 는 launchd 로드 여부와 고치는 명령까지
   rocky uninstall [--purge] [--dry-run] [--yes]   플러그인·launchd·데몬·바이너리를 걷어낸다(데이터는 --purge 일 때만)
   rocky version | --version               설치된 CLI 버전
-  rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main
+  rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main, nightly 모드면 최신 nightly
   rocky update --main [SHA] [--force] [--yes]   GitHub main 을 이 기기에서 release 빌드해 쓴다(처음이면 main 빌드 모드로)
-  rocky update --release [--yes]          main 빌드 모드에서 릴리스로 돌아간다
+  rocky update --nightly [TAG] [--force] [--yes]   CI 가 매일 밤 낸 nightly 프리릴리스를 받아 쓴다(처음이면 nightly 모드로)
+  rocky update --release [--yes]          main 빌드·nightly 모드에서 릴리스로 돌아간다
   rocky statusline [--source S]             경로·git·모델·ctx·한도 줄 — Claude Code 가 주는 stdin 을 읽는다(--full 도 받는다).
                                             S = auto|stdin|api|none(이 실행에서만). agy 의 statusLine 에도 같은 명령
   rocky statusline guard                    UserPromptSubmit 훅 — 한도 소진으로 크레딧이 차감되면 prompt 를 막는다(exit 2).

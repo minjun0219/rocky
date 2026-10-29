@@ -79,6 +79,9 @@ fn update_main_takes_a_commit_positional_but_a_bare_ref_is_still_a_todo_edit() {
     // `rocky update --main <SHA>` — 위치 인자는 빌드할 커밋이다
     let (rest, flags) = parse(&["update", "--main", "40da51e"]);
     assert!(!looks_like_todo_edit(&rest, &flags));
+    // `rocky update --nightly <TAG>` — 위치 인자는 받을 태그다
+    let (rest, flags) = parse(&["update", "--nightly", "v0.54.0-nightly.20261029"]);
+    assert!(!looks_like_todo_edit(&rest, &flags));
     // 예전 습관 `rocky update REF --title …` 는 여전히 edit 으로 안내한다
     let (rest, flags) = parse(&["update", "rocky-12"]);
     assert!(looks_like_todo_edit(&rest, &flags));

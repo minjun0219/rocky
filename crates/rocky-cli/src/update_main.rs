@@ -24,6 +24,7 @@ struct Paths {
     root: PathBuf,
     src: PathBuf,
     out: PathBuf,
+    nightly: PathBuf,
     current: PathBuf,
 }
 
@@ -33,16 +34,27 @@ impl Paths {
         Paths {
             src: root.join("main-src"),
             out: root.join("main"),
+            nightly: root.join(main_build::NIGHTLY),
             current: root.join("current"),
             root,
         }
     }
 }
 
+fn current_target() -> Option<String> {
+    std::fs::read_link(Paths::new().current)
+        .ok()
+        .and_then(|l| l.to_str().map(str::to_string))
+}
+
 /// 이 기기가 main 빌드 모드인가 — `current` 링크가 `main` 을 가리킨다.
 pub fn is_main_mode() -> bool {
-    let link = std::fs::read_link(Paths::new().current).ok();
-    main_build::is_main_mode(link.as_deref().and_then(Path::to_str))
+    main_build::is_main_mode(current_target().as_deref())
+}
+
+/// 이 기기가 nightly 모드인가 — `current` 링크가 `nightly` 를 가리킨다.
+pub fn is_nightly_mode() -> bool {
+    main_build::is_nightly_mode(current_target().as_deref())
 }
 
 /// 동시에 두 빌드가 `main/` 을 바꾸지 않게 — 디렉터리 만들기는 원자적이다. 기기의 다른 main 빌드 스크립트와
@@ -409,44 +421,7 @@ pub fn update_main(
         warnings.push("데몬 재시작 실패 — `rocky daemon status` 로 확인".to_string());
     }
 
-    match &step {
-        PluginStep::Reinstall => {
-            let _ = run_claude(&["plugin", "uninstall", PLUGIN]);
-            if let Err(e) = run_claude(&["plugin", "install", PLUGIN]) {
-                warnings.push(format!("플러그인 다시 깔기 실패 — {e}"));
-            }
-        }
-        PluginStep::Switch => {
-            let switched = (if matches!(source, MarketplaceSource::Missing) {
-                Ok(())
-            } else {
-                run_claude(&["plugin", "marketplace", "remove", MARKETPLACE])
-            })
-            .and_then(|()| run_claude(&["plugin", "marketplace", "add", &src]))
-            .and_then(|()| run_claude(&["plugin", "install", PLUGIN]));
-            if let Err(e) = switched {
-                warnings.push(format!("마켓플레이스 전환 실패 — {e}"));
-            }
-        }
-        PluginStep::Leave(why) => notes.push(why.clone()),
-    }
-
-    // Antigravity 번들도 복사본이라 다시 깐다 — 없으면 건너뛴다.
-    if has("agy") {
-        let bundle = p.src.join("antigravity");
-        let ok = command(
-            "agy",
-            &["plugin", "install", &bundle.to_string_lossy()],
-            None,
-        )
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
-        if !ok {
-            warnings.push("agy 번들 다시 깔기 실패".to_string());
-        }
-    }
+    apply_plugin(&p.src, &step, &source, &src, &mut warnings, &mut notes);
 
     println!(
         "✓ main {} — 데몬 {before} → {}",
@@ -466,6 +441,56 @@ pub fn update_main(
             "{}\n  고친 뒤 다시 `rocky update --main` — 빌드는 건너뛰고 남은 단계만 한다",
             warnings.join("\n")
         ))
+    }
+}
+
+/// 바이너리를 바꾼 뒤 플러그인(훅·커맨드·스킬)과 Antigravity 번들을 `main-src` 의 지금 커밋으로 맞춘다 — main 빌드와
+/// nightly 가 같이 쓴다. 실패는 `warnings`, 의도대로 건너뛴 것은 `notes`.
+fn apply_plugin(
+    main_src: &Path,
+    step: &PluginStep,
+    source: &MarketplaceSource,
+    src: &str,
+    warnings: &mut Vec<String>,
+    notes: &mut Vec<String>,
+) {
+    match step {
+        PluginStep::Reinstall => {
+            let _ = run_claude(&["plugin", "uninstall", PLUGIN]);
+            if let Err(e) = run_claude(&["plugin", "install", PLUGIN]) {
+                warnings.push(format!("플러그인 다시 깔기 실패 — {e}"));
+            }
+        }
+        PluginStep::Switch => {
+            let switched = (if matches!(source, MarketplaceSource::Missing) {
+                Ok(())
+            } else {
+                run_claude(&["plugin", "marketplace", "remove", MARKETPLACE])
+            })
+            .and_then(|()| run_claude(&["plugin", "marketplace", "add", src]))
+            .and_then(|()| run_claude(&["plugin", "install", PLUGIN]));
+            if let Err(e) = switched {
+                warnings.push(format!("마켓플레이스 전환 실패 — {e}"));
+            }
+        }
+        PluginStep::Leave(why) => notes.push(why.clone()),
+    }
+
+    // Antigravity 번들도 복사본이라 다시 깐다 — 없으면 건너뛴다.
+    if has("agy") {
+        let bundle = main_src.join("antigravity");
+        let ok = command(
+            "agy",
+            &["plugin", "install", &bundle.to_string_lossy()],
+            None,
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+        if !ok {
+            warnings.push("agy 번들 다시 깔기 실패".to_string());
+        }
     }
 }
 
@@ -498,14 +523,15 @@ pub fn check_main(ctx: &CliContext) -> Result<(), String> {
     Ok(())
 }
 
-/// `rocky update --release [--yes]` — main 빌드 모드에서 릴리스로 돌아간다. 실패할 수 있는 단계(판정·조회·마켓플레이스·
+/// `rocky update --release [--yes]` — main 빌드·nightly 모드에서 릴리스로 돌아간다. 실패할 수 있는 단계(판정·조회·마켓플레이스·
 /// 설치)를 다 끝낸 뒤에야 `current` 를 풀고, 릴리스를 못 받으면 `main` 으로 되돌려 둔다 — 중간에 멈춰도 main 빌드는
 /// 계속 돈다. `main/`·`main-src/` 는 남겨 둔다(다시 `--main` 으로 오면 빌드 없이 링크만 건다).
 pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
     let p = Paths::new();
-    if !is_main_mode() {
+    // 되돌아갈 자리 — main 빌드 모드면 `main`, nightly 모드면 `nightly`.
+    let Some(pinned) = current_target().filter(|t| main_build::is_pinned_mode(Some(t))) else {
         return Err("이 기기는 이미 릴리스 모드다 — 올리기는 `rocky update`".into());
-    }
+    };
     // `--main` 과 같은 잠금 — 몇 분짜리 main 빌드와 동시에 돌면 서로 링크·마켓플레이스를 덮어 요청한 모드와 어긋난다.
     let _lock = Lock::take(&p.root)?;
     let src = p
@@ -549,9 +575,9 @@ pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
     let fetched = crate::commands::run_bootstrap(&bootstrap);
     let release = p.root.join(format!("v{latest}"));
     if fetched.is_err() || !release.join("rocky").is_file() {
-        let _ = relink(&p.current, "main");
+        let _ = relink(&p.current, &pinned);
         return Err(format!(
-            "릴리스 v{latest} 바이너리를 받지 못했다 — main 빌드로 되돌려 두었다(플러그인은 GitHub 마켓에서 깔렸다){}",
+            "릴리스 v{latest} 바이너리를 받지 못했다 — {pinned} 으로 되돌려 두었다(플러그인은 GitHub 마켓에서 깔렸다){}",
             fetched.err().map(|e| format!(": {e}")).unwrap_or_default()
         ));
     }
@@ -576,9 +602,273 @@ pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
     }
     println!("✓ 릴리스 v{latest} — 데몬 {before} → {}", daemon_label(ctx));
     println!(
-        "  main 빌드({})는 남겨 두었다 — 다시 쓰려면 `rocky update --main`.",
-        p.out.display()
+        "  {}는 남겨 두었다 — 다시 쓰려면 `rocky update --{pinned}`.",
+        if pinned == main_build::NIGHTLY {
+            p.nightly.display()
+        } else {
+            p.out.display()
+        }
     );
     println!("  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 훅·커맨드가 적용된다.");
+    Ok(())
+}
+
+/// 원하는 nightly 의 (태그, 커밋) — `pin` 이 있으면 그 태그, 없으면 가장 최근 것. 태그는 `git ls-remote --tags` 로 찾는다
+/// (GitHub API 예산을 쓰지 않는다).
+fn resolve_nightly(pin: Option<&str>) -> Result<(String, String), String> {
+    let remote = output(
+        "git",
+        &["ls-remote", "--tags", CLONE_URL, "refs/tags/v*-nightly.*"],
+        None,
+    )?;
+    match pin {
+        None => main_build::latest_nightly(&remote)
+            .ok_or_else(|| format!("{CLONE_URL} 에 nightly 프리릴리스가 아직 없다")),
+        Some(pin) => {
+            let want = main_build::parse_nightly_tag(pin).ok_or_else(|| {
+                format!("{pin} 은 nightly 태그(v<버전>-nightly.<YYYYMMDD>)가 아니다")
+            })?;
+            // 그 태그 줄만 남겨 같은 판정(annotated 의 `^{}`)을 탄다.
+            let only: String = remote
+                .lines()
+                .filter(|l| {
+                    l.split_whitespace().nth(1).is_some_and(|r| {
+                        r == format!("refs/tags/{}", want.tag)
+                            || r == format!("refs/tags/{}^{{}}", want.tag)
+                    })
+                })
+                .map(|l| format!("{l}\n"))
+                .collect();
+            main_build::latest_nightly(&only)
+                .ok_or_else(|| format!("nightly {} 를 찾지 못했다(지워졌거나 아직 없다)", want.tag))
+        }
+    }
+}
+
+/// 그 nightly 의 tarball 을 받아 체크섬을 확인하고 `nightly.new` 에 푼 뒤 `nightly` 와 바꿔 끼운다. 받기는 부트스트랩과 같은
+/// curl·shasum·tar 다.
+fn install_nightly(p: &Paths, tag: &str, sha: &str) -> Result<(), String> {
+    let base = std::env::var("ROCKY_RELEASE_BASE")
+        .ok()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| format!("https://github.com/{}/releases/download", main_build::REPO));
+    let asset = main_build::nightly_asset(tag);
+    let tmp = p.root.join(format!("nightly.dl{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp)
+        .map_err(|e| format!("{} 을 만들지 못했다: {e}", tmp.display()))?;
+    let result = (|| {
+        for name in [asset.as_str(), "SHA256SUMS"] {
+            let url = format!("{base}/{tag}/{name}");
+            run(
+                "curl",
+                &[
+                    "-fsSL",
+                    "--connect-timeout",
+                    "10",
+                    "--max-time",
+                    "300",
+                    "--retry",
+                    "2",
+                    "-o",
+                    &tmp.join(name).to_string_lossy(),
+                    &url,
+                ],
+                None,
+            )
+            .map_err(|e| format!("다운로드 실패 {url}: {e}"))?;
+        }
+        let sums = std::fs::read_to_string(tmp.join("SHA256SUMS"))
+            .map_err(|e| format!("SHA256SUMS 를 읽지 못했다: {e}"))?;
+        let line = sums
+            .lines()
+            .find(|l| l.trim_end().ends_with(&format!(" {asset}")))
+            .ok_or_else(|| format!("SHA256SUMS 에 {asset} 이 없다"))?;
+        std::fs::write(tmp.join("SHA256SUMS.one"), format!("{line}\n"))
+            .map_err(|e| format!("체크섬 파일을 쓰지 못했다: {e}"))?;
+        run(
+            "shasum",
+            &["-a", "256", "-c", "--status", "SHA256SUMS.one"],
+            Some(&tmp),
+        )
+        .map_err(|_| format!("체크섬 불일치: {asset}"))?;
+        let stage = p.root.join("nightly.new");
+        let _ = std::fs::remove_dir_all(&stage);
+        std::fs::create_dir_all(&stage)
+            .map_err(|e| format!("{} 을 만들지 못했다: {e}", stage.display()))?;
+        run(
+            "tar",
+            &[
+                "-xzf",
+                &tmp.join(&asset).to_string_lossy(),
+                "-C",
+                &stage.to_string_lossy(),
+            ],
+            None,
+        )?;
+        if !(stage.join("rocky").is_file() && stage.join("rockyd").is_file()) {
+            return Err(format!("{asset} 에 rocky·rockyd 가 없다"));
+        }
+        std::fs::write(stage.join(".tag"), format!("{tag}\n"))
+            .and_then(|()| std::fs::write(stage.join(".sha"), format!("{sha}\n")))
+            .map_err(|e| format!("nightly 표식을 쓰지 못했다: {e}"))?;
+        let old = p.root.join("nightly.old");
+        let _ = std::fs::remove_dir_all(&old);
+        if p.nightly.exists() {
+            std::fs::rename(&p.nightly, &old)
+                .map_err(|e| format!("옛 nightly 치우기 실패: {e}"))?;
+        }
+        std::fs::rename(&stage, &p.nightly).map_err(|e| format!("새 nightly 걸기 실패: {e}"))?;
+        let _ = std::fs::remove_dir_all(&old);
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&tmp);
+    result
+}
+
+/// `rocky update --nightly [TAG] [--force] [--yes]` — CI 가 낸 nightly 프리릴리스를 받아 이 기기를 nightly 모드로 바꾸고
+/// 올린다. 빌드는 없다: tarball 을 받고, 플러그인은 `main-src` 를 그 커밋으로 맞춰 다시 깐다(`--main` 과 같은 마켓플레이스).
+pub fn update_nightly(
+    ctx: &CliContext,
+    pin: Option<&str>,
+    force: bool,
+    yes: bool,
+) -> Result<(), String> {
+    let p = Paths::new();
+    let missing: Vec<&str> = ["git", "curl", "shasum", "tar", "claude"]
+        .into_iter()
+        .filter(|t| !has(t))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "nightly 받기에 필요한 것이 없다: {} (PATH 확인)",
+            missing.join(", ")
+        ));
+    }
+    std::fs::create_dir_all(&p.root)
+        .map_err(|e| format!("{} 을 만들지 못했다: {e}", p.root.display()))?;
+    let _lock = Lock::take(&p.root)?;
+
+    let (tag, want) = resolve_nightly(pin)?;
+    let have = std::fs::read_to_string(p.nightly.join(".tag")).ok();
+    let finished = std::fs::read_to_string(p.nightly.join(".finished")).ok();
+    let plan = main_build::plan(
+        &tag,
+        have.as_deref(),
+        finished.as_deref(),
+        force,
+        is_nightly_mode(),
+        false,
+    );
+    if plan == BuildPlan::Skip {
+        println!("✓ 이미 {tag} 를 쓰고 있다");
+        return Ok(());
+    }
+
+    if !p.src.join(".git").exists() {
+        println!("플러그인 소스를 처음 받는다 — {}", p.src.display());
+        run(
+            "git",
+            &["clone", "--quiet", CLONE_URL, &p.src.to_string_lossy()],
+            None,
+        )?;
+    }
+    run(
+        "git",
+        &[
+            "fetch",
+            "-q",
+            "origin",
+            &format!("refs/tags/{tag}:refs/tags/{tag}"),
+        ],
+        Some(&p.src),
+    )?;
+
+    // 마켓플레이스를 바꿔야 하면 받기 전에 묻는다(`--main` 과 같다).
+    let src = p
+        .src
+        .canonicalize()
+        .unwrap_or_else(|_| p.src.clone())
+        .to_string_lossy()
+        .to_string();
+    let source = marketplace_source()?;
+    let step = main_build::plugin_step(&source, &src);
+    if step == PluginStep::Switch {
+        let question = format!(
+            "플러그인 마켓플레이스 {MARKETPLACE} 를 GitHub 릴리스에서 이 기기의 플러그인 소스 폴더({src})로 바꾼다.\n  \
+             플러그인을 뺐다 다시 깔고, 그 플러그인의 저장된 옵션·데이터는 지워진다(rocky 의 보드·워크로그는 \
+             ~/.config/rocky 라 그대로). 진행할까?"
+        );
+        if !confirm(&question, yes)? {
+            return Err("중단 — 아무것도 바꾸지 않았다".into());
+        }
+    }
+
+    let before = daemon_label(ctx);
+    if plan == BuildPlan::Build {
+        println!("{tag}({}) 를 받는다", short(&want));
+        install_nightly(&p, &tag, &want)?;
+    } else {
+        println!("{tag} 는 이미 받아 두었다 — 링크·데몬 재시작·플러그인만 마저 한다");
+        let _ = std::fs::remove_file(p.nightly.join(".finished"));
+    }
+    // 플러그인 파일이 바이너리와 같은 커밋이 되게 — main-src 를 그 nightly 커밋으로.
+    run("git", &["reset", "-q", "--hard", &want], Some(&p.src))?;
+    relink(&p.current, main_build::NIGHTLY)?;
+
+    // nightly 끼리 버전이 다르면 훅도 바꾸지만, 같은 nightly 를 다시 받았을 때(--force)를 위해 직접 재시작한다.
+    let mut warnings = Vec::new();
+    let mut notes = Vec::new();
+    let restarted = command(
+        &p.nightly.join("rocky").to_string_lossy(),
+        &["daemon", "restart"],
+        None,
+    )
+    .status()
+    .is_ok_and(|s| s.success());
+    if !restarted {
+        warnings.push("데몬 재시작 실패 — `rocky daemon status` 로 확인".to_string());
+    }
+    apply_plugin(&p.src, &step, &source, &src, &mut warnings, &mut notes);
+
+    println!("✓ {tag} — 데몬 {before} → {}", daemon_label(ctx));
+    println!("  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 훅·커맨드가 적용된다.");
+    for note in &notes {
+        println!("  참고: {note}");
+    }
+    if warnings.is_empty() {
+        let _ = std::fs::write(p.nightly.join(".finished"), format!("{tag}\n"));
+        Ok(())
+    } else {
+        Err(format!(
+            "{}\n  고친 뒤 다시 `rocky update --nightly` — 받기는 건너뛰고 남은 단계만 한다",
+            warnings.join("\n")
+        ))
+    }
+}
+
+/// `rocky update --check` 의 nightly 판 — 깔린 nightly 와 최신 nightly 를 나란히. 아무것도 바꾸지 않는다.
+pub fn check_nightly(ctx: &CliContext) -> Result<(), String> {
+    let p = Paths::new();
+    let have = std::fs::read_to_string(p.nightly.join(".tag"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let latest = resolve_nightly(None).map(|(tag, _)| tag);
+    println!(
+        "{} · 받은 nightly {} · 최신 nightly {} · 데몬 {}",
+        if is_nightly_mode() {
+            "nightly 모드"
+        } else if is_main_mode() {
+            "main 빌드 모드"
+        } else {
+            "릴리스 모드"
+        },
+        if have.is_empty() { "(없음)" } else { &have },
+        latest.as_deref().unwrap_or("(없음)"),
+        daemon_label(ctx)
+    );
+    if latest.as_deref().is_ok_and(|l| l == have) {
+        println!("✓ 이미 최신이다");
+    }
     Ok(())
 }

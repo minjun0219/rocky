@@ -1758,9 +1758,9 @@ const RELEASE_REPO: &str = "minjun0219/rocky";
 
 /// `update` 에 할 일 수정의 흔적(REF·수정 플래그)이 있나 — 예전 `rocky update REF --title …` 을 습관대로 부르면
 /// 업데이트를 돌리지 않고 `edit` 으로 안내한다(플러그인을 올리고 데몬을 교체하는 일은 되돌리기 어렵다).
-/// `--main` 의 위치 인자는 빌드할 커밋(`rocky update --main <SHA>`)이라 REF 로 보지 않는다.
+/// `--main` · `--nightly` 의 위치 인자는 올릴 커밋·태그(`rocky update --main <SHA>`, `--nightly <TAG>`)라 REF 로 보지 않는다.
 pub fn looks_like_todo_edit(rest: &[String], flags: &ParsedFlags) -> bool {
-    (!rest.is_empty() && !flags.bool_flag("main"))
+    (!rest.is_empty() && !flags.bool_flag("main") && !flags.bool_flag("nightly"))
         || [
             "title", "desc", "section", "parent", "priority", "due", "label", "link",
         ]

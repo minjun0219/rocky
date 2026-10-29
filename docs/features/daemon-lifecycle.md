@@ -31,7 +31,15 @@
   모르던 옛 rocky 가 빌드한 설치다. 이 모드에서 `rocky update` 는 main 최신으로 올린다 — 습관대로 불러도 릴리스로 되돌리지 않는다(모드는
   `--main`·`--release` 로만 바뀐다). `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다. 잠금은 `main-sync.lock` — 같은 일을 하던
   기기별 스크립트와 서로 막고, 안에 pid 를 남겨 Ctrl-C 로 끊긴 빌드의 잠금은 넘겨받는다.
-- **`rocky update --release`** 가 릴리스로 돌아간다. 마켓플레이스 판정(`main_build::release_step`)과 최신 릴리스 조회를 먼저 끝내고
+- **`rocky update --nightly [TAG]`** 가 기기를 nightly 모드(`current` → `nightly`)로 바꾸고 CI 의 nightly 프리릴리스
+  (`.github/workflows/nightly.yml`, `v<버전>-nightly.<YYYYMMDD>`)를 받는다. 빌드는 없다: 태그는 `git ls-remote --tags` 로 찾고
+  (`main_build::latest_nightly` — 버전이 아니라 날짜·순번으로 고른다), tarball 과 `SHA256SUMS` 를 curl 로 받아 shasum 으로 확인한 뒤
+  `nightly.new` 에 풀어 `nightly/` 와 rename 으로 바꾼다(`.tag`·`.sha`). 플러그인 파일은 `main-src/` 를 그 태그의 커밋으로 reset 해
+  `--main` 과 같은 폴더 마켓플레이스로 다시 깐다 — 훅·커맨드가 바이너리와 같은 커밋이 되게. 판정은 `main_build::plan` 을 태그로 쓴다
+  (끝까지 가면 `nightly/.finished`, 아니면 다음 실행이 받기 없이 남은 단계만). 잠금은 `main-sync.lock` 을 같이 쓴다. 이 모드에서
+  `rocky update` 는 최신 nightly 로, `--check` 는 받은 것과 최신을 나란히 보인다. `ROCKY_RELEASE_BASE` 가 있으면 거기서 받는다(부트스트랩과 같다).
+  부트스트랩·launchd plist 는 `main` 과 같이 다룬다(`main_build::is_pinned_mode`) — 링크를 버전으로 되돌리지 않고 `nightly/rockyd` 를 굽는다.
+- **`rocky update --release`** 가 릴리스로 돌아간다(main 빌드·nightly 모드 둘 다에서 — 받지 못하면 떠난 모드로 링크를 되돌린다). 마켓플레이스 판정(`main_build::release_step`)과 최신 릴리스 조회를 먼저 끝내고
   확인을 받은 뒤 마켓플레이스를 GitHub 로 되돌려(이미 GitHub 면 갱신만) 플러그인을 다시 깐다. **`current` 는 그다음에 푼다** — 새
   플러그인의 부트스트랩이 main 빌드를 놓고 릴리스를 받게. 받지 못하면 `current` 를 `main` 으로 되돌려 둔다(앞 단계에서 실패해도
   main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 재시작이 성공했는지와 데몬이
@@ -94,7 +102,7 @@
 | --- | --- |
 | 훅 입구(`ensure-daemon`·`notify-todo`의 재기동 검사, `RestartPolicy`) | `crates/rocky-cli/src/hooks.rs` |
 | `daemon install/restart/status`, `update`, `uninstall`(계획은 `crates/rocky-core/src/uninstall.rs`, 실행은 `crates/rocky-cli/src/uninstall_cmd.rs`) | `crates/rocky-cli/src/commands.rs`, `crates/rocky-cli/src/launchd.rs` |
-| main 빌드 모드(`update --main`·`--release`) | `crates/rocky-cli/src/update_main.rs`, 판정은 `crates/rocky-core/src/main_build.rs` |
+| main 빌드·nightly 모드(`update --main`·`--nightly`·`--release`) | `crates/rocky-cli/src/update_main.rs`, 판정은 `crates/rocky-core/src/main_build.rs`, CI 는 `.github/workflows/nightly.yml`·`scripts/nightly.ts` |
 | 링크·설정 점검(`config show/link`) | `crates/rocky-cli/src/config_cmd.rs`, `crates/rocky-core/src/setup.rs` |
 | 기동 순서(포트 → 옛 데몬 대기 → DB), `dbIntegrity` | `crates/rockyd/src/daemon.rs` |
 | 부트스트랩(sh) | `plugin/bin/rocky` |

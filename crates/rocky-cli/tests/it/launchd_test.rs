@@ -421,7 +421,7 @@ fn a_failed_kickstart_falls_back_to_registering_again() {
 fn the_plist_points_at_the_current_link_only_for_its_own_release() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    for folder in ["v0.52.0", "v0.53.0", "main"] {
+    for folder in ["v0.52.0", "v0.53.0", "main", "nightly"] {
         std::fs::create_dir(root.join(folder)).unwrap();
         std::fs::write(root.join(folder).join("rockyd"), "").unwrap();
     }
@@ -446,6 +446,12 @@ fn the_plist_points_at_the_current_link_only_for_its_own_release() {
     assert_eq!(
         exec_through_link(&root.join("main/rockyd"), &link),
         root.join("main/rockyd")
+    );
+    // nightly 도 같다 — `nightly/` 는 받을 때마다 같은 폴더다.
+    relink("nightly");
+    assert_eq!(
+        exec_through_link(&root.join("nightly/rockyd"), &link),
+        root.join("nightly/rockyd")
     );
     // 링크가 없으면(개발 빌드·ROCKY_BIN) 자기 옆.
     std::fs::remove_file(&link).unwrap();

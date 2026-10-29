@@ -192,6 +192,44 @@ describe('bin/rocky bootstrap', () => {
     });
   });
 
+  describe('nightly 모드 (current → nightly)', () => {
+    function nightlyMode(): string {
+      const rockyDir = join(dir, 'data', 'rocky');
+      mkdirSync(join(rockyDir, 'nightly'), { recursive: true });
+      fakeExec(join(rockyDir, 'nightly', 'rocky'), '#!/bin/sh\necho "nightly:$*"\n');
+      symlinkSync('nightly', join(rockyDir, 'current'));
+      return rockyDir;
+    }
+    function pluginWithInstalled(version: string): string {
+      const root = join(dir, `plugin-${version}`);
+      mkdirSync(join(root, '.claude-plugin'), { recursive: true });
+      writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ version }));
+      const installed = join(dir, 'data', 'rocky', `v${version}`);
+      mkdirSync(installed, { recursive: true });
+      fakeExec(join(installed, 'rocky'), `#!/bin/sh\necho "${version}:$*"\n`);
+      return root;
+    }
+
+    test('플러그인 버전과 상관없이 nightly 를 실행하고, SessionStart 가 링크를 되돌리지 않는다', () => {
+      const rockyDir = nightlyMode();
+      const r = run(['hook', 'ensure-daemon'], {
+        CLAUDE_PLUGIN_ROOT: pluginWithInstalled('1.0.0'),
+      });
+      expect(r.out).toBe('nightly:hook ensure-daemon\n');
+      expect(readlinkSync(join(rockyDir, 'current'))).toBe('nightly');
+    });
+
+    test('nightly 가 없으면 릴리스 경로로 떨어지되, 모드(current → nightly)를 끝내지 않는다', () => {
+      const rockyDir = nightlyMode();
+      rmSync(join(rockyDir, 'nightly'), { recursive: true });
+      const r = run(['hook', 'ensure-daemon'], {
+        CLAUDE_PLUGIN_ROOT: pluginWithInstalled('1.0.0'),
+      });
+      expect(r.out).toBe('1.0.0:hook ensure-daemon\n');
+      expect(readlinkSync(join(rockyDir, 'current'))).toBe('nightly');
+    });
+  });
+
   describe('current 링크', () => {
     function pluginRoot(version: string): string {
       const root = join(dir, `plugin-${version}`);
