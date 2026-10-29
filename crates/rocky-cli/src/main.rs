@@ -125,10 +125,28 @@ fn run(argv: &[String]) -> Result<(), String> {
         "today" => commands::cmd_today(&ctx, &printer),
         "tui" => rocky_cli::tui_cmd::cmd_tui(&ctx, &board, parsed.str_flag("actor")),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
-        // 릴리스 모드면 최신 릴리스로, main 빌드 모드(`current` → `main`)면 main 최신으로 — 모드는 `--main` /
-        // `--release` 로만 바뀐다. main 빌드 기기에서 습관대로 `rocky update` 를 불러도 릴리스로 되돌리지 않는다.
-        "update" if parsed.bool_flag("main") && parsed.bool_flag("release") => {
-            Err("--main 과 --release 는 같이 쓰지 않는다".into())
+        // 릴리스 모드면 최신 릴리스로, main 빌드 모드(`current` → `main`)면 main 최신으로, nightly 모드(`current` →
+        // `nightly`)면 최신 nightly 로 — 모드는 `--main` / `--nightly` / `--release` 로만 바뀐다. 습관대로 `rocky update` 를
+        // 불러도 다른 모드로 옮기지 않는다.
+        "update"
+            if [
+                parsed.bool_flag("main"),
+                parsed.bool_flag("nightly"),
+                parsed.bool_flag("release"),
+            ]
+            .iter()
+            .filter(|f| **f)
+            .count()
+                > 1 =>
+        {
+            Err("--main · --nightly · --release 는 하나만 쓴다".into())
+        }
+        "update"
+            if parsed.bool_flag("check")
+                && (parsed.bool_flag("nightly")
+                    || (!parsed.bool_flag("main") && rocky_cli::update_main::is_nightly_mode())) =>
+        {
+            rocky_cli::update_main::check_nightly(&ctx)
         }
         // `--check` 는 어떤 조합이든 아무것도 바꾸지 않는다 — 먼저 받는다.
         "update"
@@ -139,6 +157,20 @@ fn run(argv: &[String]) -> Result<(), String> {
         }
         "update" if parsed.bool_flag("release") && !parsed.bool_flag("check") => {
             rocky_cli::update_main::update_release(&ctx, parsed.bool_flag("yes"))
+        }
+        "update"
+            if parsed.bool_flag("nightly")
+                || (!parsed.bool_flag("main") && rocky_cli::update_main::is_nightly_mode()) =>
+        {
+            if !parsed.bool_flag("nightly") {
+                println!("이 기기는 nightly 모드다 — 최신 nightly 로 올린다(릴리스로 돌아가기: rocky update --release)");
+            }
+            rocky_cli::update_main::update_nightly(
+                &ctx,
+                rest.first().map(String::as_str),
+                parsed.bool_flag("force"),
+                parsed.bool_flag("yes"),
+            )
         }
         "update" if parsed.bool_flag("main") || rocky_cli::update_main::is_main_mode() => {
             if !parsed.bool_flag("main") {

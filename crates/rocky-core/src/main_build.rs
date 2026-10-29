@@ -155,3 +155,87 @@ pub fn release_step(source: &MarketplaceSource, main_src: &str) -> ReleaseStep {
         PluginStep::Switch => ReleaseStep::Refresh,
     }
 }
+
+/// nightly 모드의 `current` 대상 — CI 가 매일 밤 낸 프리릴리스(`v<version>-nightly.<YYYYMMDD>`)를 받아 `nightly/` 에 둔다
+/// (`rocky update --nightly`). 설계는 `docs/design/specs/2026-10-29-nightly-channel-design.md`.
+pub const NIGHTLY: &str = "nightly";
+
+/// `current` 링크가 가리키는 이름이 nightly 모드인가.
+pub fn is_nightly_mode(current_target: Option<&str>) -> bool {
+    current_target == Some(NIGHTLY)
+}
+
+/// 플러그인 버전과 상관없이 고정 폴더(`main/`·`nightly/`)의 바이너리를 쓰는 모드인가 — 부트스트랩이 링크를 버전으로
+/// 되돌리지 않고, launchd plist 가 그 폴더의 `rockyd` 를 그대로 굽는 모드다.
+pub fn is_pinned_mode(current_target: Option<&str>) -> bool {
+    is_main_mode(current_target) || is_nightly_mode(current_target)
+}
+
+/// nightly 태그 하나 — `v0.54.0-nightly.20261029` 또는 같은 날 두 번째 `….20261029.2`(scripts/nightly.ts 와 같은 규칙).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NightlyTag {
+    pub tag: String,
+    pub date: String,
+    pub seq: u32,
+}
+
+/// nightly 태그를 읽는다. 정식·`-next` 태그나 모양이 다르면 None.
+pub fn parse_nightly_tag(tag: &str) -> Option<NightlyTag> {
+    let tag = tag.trim();
+    let (version, tail) = tag.strip_prefix('v')?.split_once("-nightly.")?;
+    let nums: Vec<&str> = version.split('.').collect();
+    if nums.len() != 3
+        || !nums
+            .iter()
+            .all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
+    }
+    let (date, seq) = match tail.split_once('.') {
+        Some((date, seq)) => (date, seq.parse::<u32>().ok()?),
+        None => (tail, 1),
+    };
+    (date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit())).then(|| NightlyTag {
+        tag: tag.to_string(),
+        date: date.to_string(),
+        seq,
+    })
+}
+
+/// `git ls-remote --tags` 출력에서 가장 최근 nightly 의 (태그, 커밋). 버전이 아니라 날짜·순번으로 고른다. annotated 태그는
+/// `^{}` 줄의 커밋을 쓴다. 커밋은 40자 16진만 받는다 — git argv 에 넣는다.
+pub fn latest_nightly(ls_remote: &str) -> Option<(String, String)> {
+    let mut tags: Vec<(NightlyTag, String)> = Vec::new();
+    for line in ls_remote.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(sha), Some(name)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let Some(name) = name.strip_prefix("refs/tags/") else {
+            continue;
+        };
+        if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        let (name, peeled) = match name.strip_suffix("^{}") {
+            Some(n) => (n, true),
+            None => (name, false),
+        };
+        let Some(tag) = parse_nightly_tag(name) else {
+            continue;
+        };
+        match tags.iter_mut().find(|(t, _)| t.tag == tag.tag) {
+            Some(entry) if peeled => entry.1 = sha.to_string(),
+            Some(_) => {}
+            None => tags.push((tag, sha.to_string())),
+        }
+    }
+    tags.into_iter()
+        .max_by(|(a, _), (b, _)| (&a.date, a.seq).cmp(&(&b.date, b.seq)))
+        .map(|(t, sha)| (t.tag, sha))
+}
+
+/// 그 nightly 의 tarball 이름 — 정식 릴리스와 같은 규칙(`scripts/package-macos.sh`).
+pub fn nightly_asset(tag: &str) -> String {
+    format!("rocky-{tag}-aarch64-apple-darwin.tar.gz")
+}

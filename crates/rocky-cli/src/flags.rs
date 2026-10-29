@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 /// 존재만으로 참이 되는 플래그.
-const BOOLEAN_FLAGS: [&str; 25] = [
+const BOOLEAN_FLAGS: [&str; 26] = [
     "all",
     "archived",
     "json",
@@ -30,6 +30,7 @@ const BOOLEAN_FLAGS: [&str; 25] = [
     "dry-run",
     "activity",
     "main",
+    "nightly",
     "release",
     "yes",
     "new-session",

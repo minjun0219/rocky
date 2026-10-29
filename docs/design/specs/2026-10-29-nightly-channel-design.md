@@ -1,7 +1,7 @@
 # nightly 채널 설계 — main 을 매일 밤 프리릴리스로
 
 - 날짜: 2026-10-29
-- 상태: 제안(9번 `--main` 유지는 오너 결정). 아래 PR 세 개로 구현한다. 구현되면 규칙 정본은 [`docs/features/daemon-lifecycle.md`](../../features/daemon-lifecycle.md)와
+- 상태: CI(#517)·CLI 구현됨, 데몬(8번) 남음. 9번 `--main` 유지는 오너 결정. 구현되면 규칙 정본은 [`docs/features/daemon-lifecycle.md`](../../features/daemon-lifecycle.md)와
   [`docs/features/verify.md`](../../features/verify.md)로 옮긴다
 
 ## 한 줄
@@ -29,7 +29,7 @@
 | 3 | 이름·버전 | 태그 **`v<package.json 버전>-nightly.<YYYYMMDD>`**, GitHub **prerelease**(`latest` 는 정식 릴리스에 머문다). CI 가 빌드 전에 Cargo 버전을 그 문자열로 바꿔 `CARGO_PKG_VERSION`·`/api/health` 가 nightly 를 말하게 한다(커밋하지 않는다). 산출물은 정식과 같은 `rocky-<tag>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS` | 하나를 덮어쓰는 `nightly` 태그: 받은 기기가 어느 날 것인지 버전으로 구분되지 않는다. 같은 날 두 번이면 `.<YYYYMMDD>.2` |
 | 4 | 몇 개 남기나 | **최근 7개.** 그보다 오랜 nightly 프리릴리스와 태그는 워크플로가 지운다(정식·`-next` 프리릴리스는 건드리지 않는다) | 다 남기기: 릴리스 목록이 nightly 로 덮인다 |
 | 5 | 기기 모드 | **`current` → `nightly`** 가 nightly 모드다(main 모드와 같은 링크 규칙). 부트스트랩은 플러그인 버전과 상관없이 `nightly/rocky` 를 실행한다 | 버전 폴더(`v0.54.0-nightly…`)로 받기: 부트스트랩이 플러그인 버전으로 폴더를 고르므로, 플러그인과 바이너리 버전이 어긋나는 nightly 에서는 매 세션 다른 것을 받는다 |
-| 6 | 플러그인 파일은 | **`main-src/` clone 을 그 nightly 의 커밋으로 detached checkout** 하고 폴더 마켓플레이스로 다시 깐다(지금 `--main` 의 마켓플레이스 처리 그대로, 빌드만 없다). 훅·커맨드·스킬이 바이너리와 같은 커밋이 된다 | GitHub 마켓플레이스 그대로: 플러그인 캐시는 main HEAD 를 가져와 바이너리보다 앞선 훅이 없는 명령을 부를 수 있다 |
+| 6 | 플러그인 파일은 | **`main-src/` clone 을 그 nightly 의 커밋으로 맞추고**(`--main` 처럼 `reset --hard`) 폴더 마켓플레이스로 다시 깐다(지금 `--main` 의 마켓플레이스 처리 그대로, 빌드만 없다). 훅·커맨드·스킬이 바이너리와 같은 커밋이 된다 | GitHub 마켓플레이스 그대로: 플러그인 캐시는 main HEAD 를 가져와 바이너리보다 앞선 훅이 없는 명령을 부를 수 있다 |
 | 7 | `rocky update --nightly [TAG]` | 최신 nightly(태그 생략 시) 를 `git ls-remote --tags` 로 찾는다(GitHub API 예산을 쓰지 않는다) → tarball·체크섬 받기 → `nightly/` 교체 → 플러그인 → `daemon restart`. 잠금은 `main-sync.lock` 을 같이 쓴다. 이미 그 nightly 면 아무것도 하지 않는다. 이 모드에서 맨 `rocky update` 는 최신 nightly 로 올린다 | API 의 releases 목록: 60회/시간 비인증 한도와 `gh` 예산 |
 | 8 | 자동으로 받기 | **검증의 `deploy` 를 다시 쓴다.** nightly 모드 기기에서 `verify.targets[].deploy: true` 인 rocky main 대상은 "통과 커밋을 빌드" 대신 "새 nightly 가 있으면 `rocky update --nightly <tag>`" 를 띄운다. `deployWindow`(#513)는 그 시간대로 그대로 쓴다 — 01:30 에 만든 nightly 를 02:00-04:00 에 받는다. 같은 태그는 한 번만, 앞으로만, 잠금 기다림, 90분 상한은 지금 배포 규칙 그대로 | 새 설정 블록: 오너 Mac 에 이미 `deploy` + `deployWindow` 가 있다. 같은 뜻을 두 번 적게 된다 |
 | 9 | `--main` 은 | **남긴다**(오너 결정 2026-10-29). 특정 커밋을 바로 올리는 개발·핫픽스 길이다. `--main` 으로 올린 기기는 main 모드가 되고 `--nightly` 로 돌아온다. 한 달 사용 횟수(`rocky usage`)를 보고 걷을지 정한다 | 바로 제거: nightly 는 하루 늦어 급한 수정을 올릴 길이 없어진다 |
