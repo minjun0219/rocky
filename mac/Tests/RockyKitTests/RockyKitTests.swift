@@ -261,19 +261,40 @@ final class RoamTests: XCTestCase {
         XCTAssertEqual(rocky.action, .stand)
     }
 
-    func testClimbsAWindowSideOntoItsTop() {
+    func testJumpsOntoALowWindowTop() {
         let windows = [Box(x: 300, y: 0, width: 300, height: 200)]
         let ground = ledges(windows: windows, screen: screen)
         let sides = walls(windows: windows, screen: screen)
         var rocky = Roamer(x: 250, y: 0)
         rocky.action = .walk
-        // 운이 0.3 이면 벽에서 늘 기어오르고(0.6 미만), 걷다 멈추지는 않는다.
+        // 운이 0.3 이면 닿는 높이의 벽에서 늘 뛰어오르고(0.6 미만), 걷다 멈추지는 않는다.
+        var crouched = false
         for _ in 0 ..< 300 {
             rocky.step(dt: 1 / 30, ledges: ground, walls: sides, screen: screen, mood: .roam, random: { 0.3 })
-            if rocky.y == 200, rocky.action == .walk { break }
+            if rocky.crouch > 0 {
+                crouched = true
+                XCTAssertEqual(rocky.y, 0)
+            }
+            if rocky.y == 200, rocky.action != .jump { break }
         }
+        XCTAssertTrue(crouched)
         XCTAssertEqual(rocky.y, 200)
         XCTAssertGreaterThan(rocky.x, 300)
+        XCTAssertGreaterThan(rocky.squash, 0)
+    }
+
+    func testTurnsAtAWindowTooTallToJump() {
+        let windows = [Box(x: 300, y: 0, width: 300, height: Roamer.jumpReach + 40)]
+        let ground = ledges(windows: windows, screen: screen)
+        let sides = walls(windows: windows, screen: screen)
+        var rocky = Roamer(x: 250, y: 0)
+        rocky.action = .walk
+        for _ in 0 ..< 60 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: sides, screen: screen, mood: .roam, random: { 0.3 })
+            XCTAssertNotEqual(rocky.action, .jump)
+        }
+        XCTAssertEqual(rocky.y, 0)
+        XCTAssertEqual(rocky.facing, -1)
     }
 
     func testSleepAndStayDoNotWander() {

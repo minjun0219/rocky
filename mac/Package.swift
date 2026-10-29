@@ -11,8 +11,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "RockyKit"),
-        // 아바타 조각 그림 — `swift run` 은 SwiftPM 리소스 번들에서, .app 은 bundle.sh 가 Contents/Resources 에 복사한 것에서 읽는다.
-        .executableTarget(name: "RockyMac", dependencies: ["RockyKit"], resources: [.copy("Resources/rocky")]),
+        .executableTarget(name: "RockyMac", dependencies: ["RockyKit"]),
         .testTarget(name: "RockyKitTests", dependencies: ["RockyKit"]),
     ]
 )

@@ -1,4 +1,4 @@
-// 돌아다니는 로키 — 창 윗면을 걷고, 발밑이 사라지면 떨어지고, 벽(화면 가장자리·창 옆면)을 기어오르고,
+// 돌아다니는 로키 — 창 윗면을 걷고, 발밑이 사라지면 떨어지고, 낮은 창 옆면은 뛰어오르고,
 // 가끔 헤일메리의 터널처럼 튜브를 놓아 다른 창 윗면으로 건너간다.
 // 좌표는 AppKit 화면 좌표(원점 왼쪽 아래, y 는 위로)이고 (x, y) 는 로키의 발 가운데다. 창 목록을 읽고 패널을 옮기는 건 앱 몫이다.
 import Foundation
@@ -25,7 +25,7 @@ public struct Ledge: Equatable, Sendable {
     public var maxX: Double
 }
 
-/// 기어오를 수 있는 세로줄 — 창의 옆면. `faces` 는 벽이 바라보는 쪽(-1 = 왼쪽 옆면, +1 = 오른쪽 옆면).
+/// 앞을 막는 세로줄 — 창의 옆면. `faces` 는 벽이 바라보는 쪽(-1 = 왼쪽 옆면, +1 = 오른쪽 옆면).
 public struct Wall: Equatable, Sendable {
     public var x: Double
     public var bottom: Double
@@ -72,7 +72,7 @@ public enum RoamMood: Equatable, Sendable {
 }
 
 public enum RoamAction: Equatable, Sendable {
-    case walk, stand, sit, fall, climb, tube
+    case walk, stand, sit, fall, jump, tube
 }
 
 /// 두 발판을 잇는 튜브 — 출발점에서 위로 솟았다가 도착점으로 내려오는 3차 베지어. 꼭짓점 높이는 `peak`.
@@ -115,7 +115,6 @@ public struct Tube: Equatable, Sendable {
 /// 로키의 몸 — `step` 이 한 프레임씩 움직인다. 무엇을 할지 고르는 운은 `random`(0..<1)으로 받는다.
 public struct Roamer: Equatable, Sendable {
     public static let walkSpeed: Double = 45
-    public static let climbSpeed: Double = 35
     public static let gravity: Double = 1800
     /// 몸 반폭 — 벽에 붙거나 화면 끝에서 돌아설 때 쓴다.
     public static let halfWidth: Double = 28
@@ -125,9 +124,13 @@ public struct Roamer: Equatable, Sendable {
     public static let tubeSpeed: Double = 320
     public static let tubeLinger: Double = 0.8
     public static let tubeFade: Double = 0.4
-    /// 이음 동작 — 착지하면 쭈그리고, 창 옆면을 다 오르면 끙차 하고 넘어간다.
+    /// 착지하면 이만큼 쭈그렸다 편다.
     public static let landTime: Double = 0.2
-    public static let heaveTime: Double = 0.35
+    /// 점프 — 쪼그리는 시간, 떠 있는 시간, 닿을 수 있는 높이(이보다 높은 창 옆면 앞에서는 돌아선다), 윗면보다 더 솟는 높이.
+    public static let jumpCrouch: Double = 0.3
+    public static let jumpAir: Double = 0.6
+    public static let jumpReach: Double = 260
+    public static let jumpLift: Double = 40
 
     public var x: Double
     public var y: Double
@@ -137,15 +140,20 @@ public struct Roamer: Equatable, Sendable {
     public var vy: Double = 0
     /// 서 있거나 앉아 있을 남은 시간 — 돌아다닐 때만 쓴다.
     var pause: Double = 0
-    /// 기어오르는 벽의 꼭대기와, 그게 화면 가장자리인지(그러면 꼭대기에서 뛰어내린다).
-    var climbTop: Double = 0
-    var climbWall: Double = 0
-    var climbingScreen = false
+    /// 뛰어오르는 창 옆면, 출발점과 내려설 자리, 쪼그리기 시작한 뒤 흐른 시간.
+    var jumpWall: Double = 0
+    var jumpFrom = Point(x: 0, y: 0)
+    var jumpTo = Point(x: 0, y: 0)
+    var jumpAge: Double = 0
     /// 놓인 튜브와 놓은 뒤 흐른 시간 — 다 건넌 뒤에도 잠깐 남았다가 사라진다.
     public private(set) var tube: Tube?
     public private(set) var tubeAge: Double = 0
     var landing: Double = 0
-    var heave: Double = 0
+
+    struct Point: Equatable, Sendable {
+        var x: Double
+        var y: Double
+    }
 
     public init(x: Double, y: Double) {
         self.x = x
@@ -176,8 +184,10 @@ public struct Roamer: Equatable, Sendable {
     /// 착지 반동(1 → 0) — 내려앉은 직후 쭈그렸다 편다.
     public var squash: Double { landing / Self.landTime }
 
-    /// 끙차(1 → 0) — 창 윗면으로 올라선 직후 몸을 숙이고 팔로 짚는다.
-    public var heaving: Double { heave / Self.heaveTime }
+    /// 점프 전 쪼그림(0 → 1) — 뛰기 직전에 가장 깊다. 떠 있는 동안과 점프가 아닐 때는 0.
+    public var crouch: Double {
+        action == .jump && jumpAge < Self.jumpCrouch ? jumpAge / Self.jumpCrouch : 0
+    }
 
     /// 튜브 안에 들어가 있는지 — 그동안 몸을 줄인다.
     public var insideTube: Bool { action == .tube && tubeAge >= Self.tubeBuild }
@@ -186,7 +196,6 @@ public struct Roamer: Equatable, Sendable {
         dt: Double, ledges: [Ledge], walls: [Wall], screen: Box, mood: RoamMood, random: () -> Double
     ) {
         landing = max(0, landing - dt)
-        heave = max(0, heave - dt)
         if tube != nil {
             tubeAge += dt
             if action != .tube, tubeOpacity <= 0 { tube = nil }
@@ -223,31 +232,38 @@ public struct Roamer: Equatable, Sendable {
             } else {
                 y = max(next, screen.minY)
             }
-        case .climb:
+        case .jump:
             guard mood == .roam else {
                 action = .fall
                 return
             }
-            // 붙어 있던 창이 사라지거나 옮겨 가면 떨어진다.
-            if !climbingScreen, !walls.contains(where: { $0.x == climbWall && $0.top == climbTop }) {
+            // 뛰어오를 창이 사라지거나 옮겨 가면 그 자리에서 떨어진다.
+            if !walls.contains(where: { $0.x == jumpWall && $0.top == jumpTo.y }) {
                 action = .fall
                 vy = 0
                 return
             }
-            y += Self.climbSpeed * dt
-            if y >= climbTop {
-                y = climbTop
-                if climbingScreen {
-                    // 화면 꼭대기 — 돌아서서 뛰어내린다.
-                    facing = -facing
-                    x += facing * Self.halfWidth
-                    action = .fall
-                } else {
-                    // 창 윗면으로 올라선다.
-                    x += facing * Self.halfWidth * 2
-                    action = .walk
-                    heave = Self.heaveTime
-                }
+            jumpAge += dt
+            let u = (jumpAge - Self.jumpCrouch) / Self.jumpAir
+            guard u > 0 else { return }
+            if u >= 1 {
+                (x, y) = (jumpTo.x, jumpTo.y)
+                vy = 0
+                action = .stand
+                pause = 0.4
+                landing = Self.landTime
+                return
+            }
+            // 앞쪽 60% 는 거의 곧게 솟아 윗면보다 `jumpLift` 만큼 높이 오르고, 나머지 동안 앞으로 넘어가며 내려앉는다.
+            let peak = jumpTo.y + Self.jumpLift
+            if u < 0.6 {
+                let r = u / 0.6
+                y = jumpFrom.y + (peak - jumpFrom.y) * (1 - (1 - r) * (1 - r))
+                x = jumpFrom.x
+            } else {
+                let r = (u - 0.6) / 0.4
+                y = peak - Self.jumpLift * r * r
+                x = jumpFrom.x + (jumpTo.x - jumpFrom.x) * r * r * (3 - 2 * r)
             }
         case .walk, .stand, .sit:
             guard let ground = ledges.first(where: { abs($0.y - y) <= 2 && x >= $0.minX && x <= $0.maxX }) else {
@@ -286,31 +302,26 @@ public struct Roamer: Equatable, Sendable {
         let next = x + facing * Self.walkSpeed * dt
         let front = x + facing * Self.halfWidth
         let nextFront = next + facing * Self.halfWidth
-        // 앞을 막는 창 옆면 — 기어오르거나 돌아선다.
+        // 앞을 막는 창 옆면 — 닿을 만한 높이면 뛰어오르고, 아니면 돌아선다.
         if let wall = walls.first(where: {
             $0.faces == -facing && $0.bottom <= y + 2 && $0.top > y + 10
                 && (front - $0.x) * (nextFront - $0.x) <= 0
         }) {
-            if random() < 0.6 {
+            if wall.top - y <= Self.jumpReach, random() < 0.6 {
                 x = wall.x - facing * Self.halfWidth
-                climbTop = wall.top
-                climbWall = wall.x
-                climbingScreen = false
-                action = .climb
+                jumpWall = wall.x
+                jumpFrom = Point(x: x, y: y)
+                jumpTo = Point(x: wall.x + facing * Self.halfWidth * 2, y: wall.top)
+                jumpAge = 0
+                action = .jump
             } else {
                 facing = -facing
             }
             return
         }
-        // 화면 가장자리 — 가끔 기어오르고, 아니면 돌아선다.
+        // 화면 가장자리 — 돌아선다.
         if nextFront <= screen.minX || nextFront >= screen.maxX {
-            if random() < 0.3 {
-                climbTop = screen.maxY - 90
-                climbingScreen = true
-                action = .climb
-            } else {
-                facing = -facing
-            }
+            facing = -facing
             return
         }
         // 발판 끝 — 뛰어내리거나 돌아선다.
