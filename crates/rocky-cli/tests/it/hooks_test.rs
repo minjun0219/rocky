@@ -655,7 +655,15 @@ fn log_turn_agy_appends_to_the_workspace_worklog() {
     let line = std::fs::read_to_string(&journal).expect("워크스페이스 프로젝트 칸에 쌓인다");
     let entry: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(entry["kind"], "turn");
-    assert_eq!(entry["tags"], serde_json::json!(["turn", "agy"]));
+    // 작업 경로 태그가 붙는다 — SessionStart 의 기억 요약이 이 경로의 기록만 고른다(`memory_brief`).
+    assert_eq!(
+        entry["tags"],
+        serde_json::json!([
+            "turn",
+            "agy",
+            rocky_core::memory_brief::path_tag(&workspace)
+        ])
+    );
     assert_eq!(
         entry["content"],
         "req: 시안 다듬기 | tools: view_file | did: 다듬었다"

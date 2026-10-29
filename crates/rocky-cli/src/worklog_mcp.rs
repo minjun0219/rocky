@@ -179,7 +179,7 @@ impl WorklogMcp {
 impl WorklogMcp {
     #[tool(
         name = "worklog_append",
-        description = "워크로그에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. 저장 위치는 `worklog.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능(worklog_status 로 확인). (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열, pageId?: 연결할 Notion page id 또는 URL)"
+        description = "워크로그에 한 줄을 append-only 로 기록한다. 다음 turn 에 인용할 결정 / blocker / 사용자 답변 / 메모를 남길 때 사용. remote 호출 없음. 저장 위치는 `worklog.dir`(rocky.json) 또는 `ROCKY_WORKLOG_DIR`(env 우선)로 변경 가능(worklog_status 로 확인). (content: 필수 본문, kind?: decision/blocker/answer/note 등 기본 note, tags?: 문자열 배열 — 작업 경로 태그 `path:<워크트리 루트>` 는 자동으로 더한다, pageId?: 연결할 Notion page id 또는 URL)"
     )]
     async fn worklog_append(
         &self,
@@ -188,11 +188,14 @@ impl WorklogMcp {
     ) -> CallToolResult {
         let worklog = self.worklog_for_call(&ctx).await;
         recorded("worklog_append", || {
-            worklog?
+            let worklog = worklog?;
+            // 작업 경로 태그 — SessionStart 의 기억 요약이 이 경로의 기록만 고른다(`memory_brief`).
+            let tags = rocky_core::memory_brief::with_path_tag(args.tags, worklog.cwd());
+            worklog
                 .append(&WorklogAppendInput {
                     content: args.content,
                     kind: args.kind,
-                    tags: args.tags,
+                    tags: Some(tags),
                     page_id: args.page_id,
                 })
                 .map(|entry| json_result(&entry))

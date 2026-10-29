@@ -18,6 +18,7 @@ pub mod limits;
 pub mod local_request;
 pub mod logindex;
 pub mod main_build;
+pub mod memory_brief;
 pub mod migrations;
 pub mod next;
 pub mod note_doc;

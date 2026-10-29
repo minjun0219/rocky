@@ -32,6 +32,10 @@
           "type": "integer",
           "minimum": 1,
           "description": "/rocky:recall Haiku↔Sonnet 임계 (기본 40)"
+        },
+        "sessionBrief": {
+          "type": "boolean",
+          "description": "SessionStart 가 이 작업 경로(워크트리)에서 남긴 기억(recall 다이제스트, decision·blocker) 몇 줄을 싣는다 (기본 true). 상시 주입을 막는 폴더는 프로젝트 rocky.json 에서 false. todo.sessionSummary 가 false 여도 꺼진다."
         }
       },
       "additionalProperties": false
@@ -101,7 +105,7 @@
         },
         "sessionSummary": {
           "type": "boolean",
-          "description": "SessionStart 훅이 보드 요약 몇 줄(마감·진행중·핸드오프·수집함)을 세션 컨텍스트에 넣는다. 기본 true. `rocky today` 와 같은 내용."
+          "description": "SessionStart 훅이 보드 요약 몇 줄(마감·진행중·핸드오프·수집함)을 세션 컨텍스트에 넣는다. 기본 true. `rocky today` 와 같은 내용. 작업 경로의 기억(worklog.sessionBrief)도 함께 끈다."
         }
       }
     },

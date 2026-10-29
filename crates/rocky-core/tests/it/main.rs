@@ -14,6 +14,7 @@ mod limits_test;
 mod local_request_test;
 mod logindex_test;
 mod main_build_test;
+mod memory_brief_test;
 mod migrations_test;
 mod next_test;
 mod note_doc_test;

@@ -85,7 +85,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── plugin/                     ★ Claude Code 플러그인 — 플러그인 캐시로 복사되는 유일한 것
 │   ├── .claude-plugin/plugin.json  플러그인 메타데이터 + MCP 서버 두 개(rocky = 데몬 http, worklog = stdio)
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
-│   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
+│   ├── hooks/hooks.json        SessionStart(ensure-daemon — 보드 요약 + 작업 경로의 기억 `memory_brief`), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
 │   │                           + modules: hooks/board-panel/(function hooks — 세션 옆 보드 패널, 상태 계약은 types/index.d.ts)
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
 │   └── scripts/                permalink.ts(/rocky:review-request) · pr-threads.ts(/rocky:review-fix) — 설치 후에도 있으려면 플러그인 안에 있어야 한다
@@ -232,8 +232,8 @@ typecheck or tests — pre-push and CI already cover it.*
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
   edges (web, bridges, scripts reading logs.db).*
-  로키 에이전트(설계 중)는 Claude Agent SDK가 TypeScript·Python 판만 있어 가장자리의 Bun + TS 프로세스로 제안돼 있다 —
-  확정되면 위 가장자리 목록에 더한다.
+  로키 에이전트(설계 중)는 rocky 안에서 돌지 않는다 — 캐비닛의 `rocky/` 영역에서 캐비닛 데몬 cabinetd가 돌리고(캐비닛
+  D-112 개정, 2026-10-29), rocky는 로키가 쓰는 데몬과 도구(MCP·REST)를 낸다. 공개 레포에 캐비닛 연동 코드를 넣지 않는다.
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings`가 게이트다(clippy는
   테스트도 본다). 순수 판정 로직은 `rocky-core`에, 통합 테스트는 `crates/*/tests/it/` 에(크레이트당 실행 파일 하나 — 새 파일은 `tests/it/main.rs`에 `mod`로 단다); 데몬과 CLI는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result`를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
