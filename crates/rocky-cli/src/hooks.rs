@@ -200,6 +200,34 @@ pub fn hook_ensure_daemon(ctx: &CliContext, session_summary: Option<bool>) {
     register_inbox(&ctx.base_url, &input);
     if session_summary.unwrap_or(true) {
         print_session_summary(ctx, &input);
+        print_memory_brief(&input);
+    }
+}
+
+/// 그 레포 워크로그의 기억 몇 줄 — 마지막 recall 다이제스트와 그 뒤의 decision · blocker
+/// (`rocky_core::memory_brief`). 워크로그는 CLI 가 파일로 읽으니 데몬이 없어도 실린다. fail-open.
+fn print_memory_brief(input: &serde_json::Value) {
+    let cwd = input
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .filter(|c| !c.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok());
+    let Some(cwd) = cwd else {
+        return;
+    };
+    let config = load_worklog_config(&user_config_path(), &cwd);
+    let env_dir = std::env::var("ROCKY_WORKLOG_DIR").ok();
+    let worklog = Worklog::from_env(env_dir.as_deref(), config.dir.as_deref(), Some(cwd));
+    let Ok(entries) = worklog.read(&rocky_core::worklog::WorklogReadOptions {
+        limit: Some(usize::MAX),
+        ..Default::default()
+    }) else {
+        return;
+    };
+    let brief = rocky_core::memory_brief::build_memory_brief(&entries);
+    if let Some(text) = rocky_core::memory_brief::render_memory_brief(&brief) {
+        println!("{text}");
     }
 }
 

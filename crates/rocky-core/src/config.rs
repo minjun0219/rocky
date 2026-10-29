@@ -46,7 +46,7 @@ pub struct TodoConfig {
     /// 보드 설정 화면에서 쓰는 수집함 어댑터(`todo.inboxAdapters[]`) — 그 자체로는 돌지 않고, 보드마다
     /// 등록한 값(`BoardInboxSource`)을 붙여 실행된다. 모양은 `inbox[]` 와 같다.
     pub inbox_adapters: Vec<InboxSource>,
-    /// SessionStart 훅이 보드 요약 몇 줄을 세션 컨텍스트에 넣는가. 기본 true.
+    /// SessionStart 훅이 보드 요약과 레포 기억(`memory_brief`) 몇 줄을 세션 컨텍스트에 넣는가. 기본 true.
     pub session_summary: Option<bool>,
 }
 

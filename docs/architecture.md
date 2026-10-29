@@ -22,7 +22,7 @@ with `ENABLE_TOOL_SEARCH=false`. rocky's owner runs none of those.)
 Since v0.19 nothing is injected **unconditionally**: souls were the only fixed `SessionStart`
 injection (1,310 chars, compressed to 605, then removed with the feature). What rocky adds now is
 event-driven and empty when nothing happened — `SessionStart` (`hook ensure-daemon`) a short board
-summary, `UserPromptSubmit` (`hook notify-todo`) only what changed since the last turn (human board
+summary plus a few lines of the repo's worklog memory (last recall digest, later decisions and blockers), `UserPromptSubmit` (`hook notify-todo`) only what changed since the last turn (human board
 edits, subscribed PR transitions, inbox deliveries), and `Stop` (`hook handoff-stop`) a handoff prompt
 only when this session claims one. `hook log-turn` writes to disk and returns nothing. So the standing
 cost of installing rocky is still the tool names; the rest is paid per event.

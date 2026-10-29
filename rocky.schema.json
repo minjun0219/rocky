@@ -101,7 +101,7 @@
         },
         "sessionSummary": {
           "type": "boolean",
-          "description": "SessionStart 훅이 보드 요약 몇 줄(마감·진행중·핸드오프·수집함)을 세션 컨텍스트에 넣는다. 기본 true. `rocky today` 와 같은 내용."
+          "description": "SessionStart 훅이 보드 요약 몇 줄(마감·진행중·핸드오프·수집함)을 세션 컨텍스트에 넣는다. 기본 true. `rocky today` 와 같은 내용. 그 레포 워크로그의 기억(마지막 recall 다이제스트, 그 뒤 decision·blocker)도 함께 싣고 끈다."
         }
       }
     },
