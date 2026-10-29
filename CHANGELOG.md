@@ -1,5 +1,15 @@
 # @minjun0219/rocky
 
+## 0.56.0
+
+### Minor Changes
+
+- [#525](https://github.com/minjun0219/rocky/pull/525) [`e006960`](https://github.com/minjun0219/rocky/commit/e00696050c560542dc51d7b80e2f1101b618483e) Thanks [@minjun0219](https://github.com/minjun0219)! - 세션이 시작할 때 보드 요약 뒤에 이 작업 경로(워크트리 루트)에서 남긴 워크로그 기억(마지막 `/rocky:recall` 다이제스트 앵커, 그 뒤의 decision·blocker) 몇 줄을 싣는다. 이를 위해 `worklog_append` 와 Stop 의 턴 기록이 태그 `path:<워크트리 루트>` 를 자동으로 붙인다. `worklog.sessionBrief: false`(프로젝트 `rocky.json` 에서도) 로 끈다.
+
+### Patch Changes
+
+- [#523](https://github.com/minjun0219/rocky/pull/523) [`115d792`](https://github.com/minjun0219/rocky/commit/115d792480a6208dda111ae70833605f4ee0dd57) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱의 로키 아바타를 새로 그린다 — 오너가 고른 시안 그림을 윤곽대로 잘라 낸 조각을 짜 맞춘 귀여운 돌 친구(낮은 돔 몸통, 엄지 없는 세 손가락 팔 둘, 다리 둘, 큰 눈)다. 내 차례면 껑충 뛰고 주먹 인사를 하고, 도는 중이면 주먹으로 두드리고, 다 쉬면 엎드려 잔다. 돌아다닐 때 창 옆면을 기어오르지 않는다 — 낮은 창은 쪼그렸다가 뛰어오르고 높은 창은 튜브로 넘고, 창 사이 틈은 건너뛴다. 바닥에서는 튜브를 놓아 창 윗면으로 자주 올라가 바닥에만 머물지 않고, 설 창이 없으면 화면을 크게 돌아 건너간다. 앱 아이콘도 새 그림으로 바꾼다.
+
 ## 0.55.0
 
 ### Minor Changes
