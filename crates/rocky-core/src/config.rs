@@ -427,6 +427,8 @@ pub struct VerifyTarget {
     /// 통과한 커밋을 데몬이 `rocky update --main <sha>` 로 올린다(기본 꺼짐). 켜도 main 빌드 모드 기기의
     /// rocky 레포 main 대상에서만 돈다 — 판정은 `verify::deploy_plan`.
     pub deploy: bool,
+    /// 배포를 띄워도 되는 시간대(`deployWindow`). 블록이 있으면 켜진다 — 없으면 통과하는 대로 띄운다.
+    pub deploy_window: Option<crate::verify::DeployWindow>,
 }
 
 /// `verify` 블록을 읽는다. 파일 없음 / 파싱 실패 / 블록 없음은 기본값(꺼짐). 단계가 하나도 없는 대상은 버린다.
@@ -480,6 +482,25 @@ fn parse_target(value: &serde_json::Value) -> Option<VerifyTarget> {
         branch,
         steps,
         deploy: obj.get("deploy").and_then(|v| v.as_bool()).unwrap_or(false),
+        deploy_window: obj.get("deployWindow").and_then(parse_deploy_window),
+    })
+}
+
+/// 블록이 객체면 켜진다. 모양이 틀린 칸은 기본값으로 읽는다(`rc.nightly` 와 같다) — 틀린 블록을 "창 없음" 으로 읽으면
+/// 낮에 데몬을 교체한다.
+fn parse_deploy_window(value: &serde_json::Value) -> Option<crate::verify::DeployWindow> {
+    let block = value.as_object()?;
+    let base = crate::verify::DeployWindow::default();
+    let time = |key: &str, default| {
+        block
+            .get(key)
+            .and_then(|v| v.as_str())
+            .and_then(crate::rc::parse_hhmm)
+            .unwrap_or(default)
+    };
+    Some(crate::verify::DeployWindow {
+        from: time("from", base.from),
+        until: time("until", base.until),
     })
 }
 

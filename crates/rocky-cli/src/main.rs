@@ -162,6 +162,7 @@ fn run(argv: &[String]) -> Result<(), String> {
         "issue" => commands::cmd_issue(&ctx, &rest, &parsed, &board, &printer),
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
         "daemon" => commands::cmd_daemon(&ctx, &rest, expose_lan, expose_ts),
+        "uninstall" => rocky_cli::uninstall_cmd::cmd_uninstall(&ctx, &parsed, expose_ts),
         "config" => rocky_cli::config_cmd::cmd_config(&ctx, &rest, &todo_config, &printer),
         "doctor" => rocky_cli::doctor_cmd::cmd_doctor(&ctx, &todo_config, &printer),
         "usage" => rocky_cli::usage_cmd::cmd_usage(&parsed, &printer),
@@ -254,7 +255,10 @@ fn run(argv: &[String]) -> Result<(), String> {
     let is_worklog_mcp = command == "mcp" && rest.first().map(String::as_str) == Some("worklog");
     // 모르는 명령(오타)은 표면이 아니라 이름 공간만 더럽힌다 — 남기지 않는다.
     let unknown = matches!(&result, Err(e) if e.starts_with("unknown command:"));
-    if command != "hook" && !is_worklog_mcp && !unknown {
+    // `uninstall --purge` 가 사용 로그 폴더를 지웠으면 기록하지 않는다 — 기록하면 그 폴더를 다시 만든다.
+    let purged = command == "uninstall"
+        && rocky_cli::usage_cmd::usage_dir().is_some_and(|dir| !dir.exists());
+    if command != "hook" && !is_worklog_mcp && !unknown && !purged {
         rocky_cli::usage_cmd::record(
             rocky_core::usage::UsageSource::Cli,
             &usage_name,

@@ -26,6 +26,7 @@ pub mod statusline_refresh;
 pub mod system;
 pub mod tokens_cmd;
 pub mod tui_cmd;
+pub mod uninstall_cmd;
 pub mod update_main;
 pub mod usage_cmd;
 pub mod verify_cmd;
@@ -67,6 +68,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky board ls|show|add|rename|title|desc|repo|path|review-fix|pr-authors   보드 메타 (이름·slug·설명·GitHub·리뷰 반영·알릴 PR 작성자)
   rocky open                              접속 주소 출력 (로컬/내부망/테일넷 — 링크 클릭으로 열기)
   rocky daemon run|start|stop|restart|status|install|uninstall   restart 는 버전과 상관없이 지금 설치본으로 교체, status 는 launchd 로드 여부와 고치는 명령까지
+  rocky uninstall [--purge] [--dry-run] [--yes]   플러그인·launchd·데몬·바이너리를 걷어낸다(데이터는 --purge 일 때만)
   rocky version | --version               설치된 CLI 버전
   rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main
   rocky update --main [SHA] [--force] [--yes]   GitHub main 을 이 기기에서 release 빌드해 쓴다(처음이면 main 빌드 모드로)

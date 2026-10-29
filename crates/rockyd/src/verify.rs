@@ -80,6 +80,8 @@ pub struct DeployEnv {
     pub rocky: PathBuf,
     /// 이 데몬이 띄운 update 의 끝(pid → 종료 코드, 시그널이면 None) — 기다리는 스레드가 적고 다음 바퀴의 판정이 읽는다.
     exits: Arc<Mutex<HashMap<u32, Option<i32>>>>,
+    /// 이 기기의 현지 시각 — 배포 창(`deployWindow`)을 본다. 테스트는 바꿔 끼운다.
+    clock: Arc<dyn Fn() -> chrono::NaiveTime + Send + Sync>,
 }
 
 impl DeployEnv {
@@ -88,7 +90,17 @@ impl DeployEnv {
             data_root,
             rocky,
             exits: Arc::default(),
+            clock: Arc::new(|| chrono::Local::now().time()),
         }
+    }
+
+    /// 현지 시각을 바꿔 끼운다(테스트).
+    pub fn with_clock(
+        mut self,
+        clock: impl Fn() -> chrono::NaiveTime + Send + Sync + 'static,
+    ) -> Self {
+        self.clock = Arc::new(clock);
+        self
     }
 
     /// 데몬 옆 `rocky`(`rocky_beside`)와 데이터 홈(`rocky_core::config::data_home`).
@@ -952,6 +964,8 @@ async fn deploy_target(
         built: built.as_deref(),
         ancestor: Some(true),
         ancestry_error: None,
+        window: target.deploy_window,
+        local_time: Some((env.clock)()),
     };
     // 조상 여부(git)와 잠금은 띄울 수 있을 때만 본다 — 평소(이미 깔림·이미 시도함)에는 git 을 부르지 않는다. 그 앞에서
     // 건너뛰는 판정은 둘과 상관없다.

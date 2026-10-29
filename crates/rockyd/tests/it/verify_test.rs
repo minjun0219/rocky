@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::common::*;
 use rocky_core::config::CommandBridge;
-use rocky_core::verify::{DeployRecord, DeployState, VerifyConfig, VerifyState, VerifyTarget};
+use rocky_core::verify::{
+    DeployRecord, DeployState, DeployWindow, VerifyConfig, VerifyState, VerifyTarget,
+};
 use rockyd::runner::{default_runner, BoxFut, CmdOutput, Runner};
 use rockyd::verify::{
     rocky_beside, tick, verify_target, verify_target_with, DeployEnv, VerifyNotifier,
@@ -92,6 +94,7 @@ async fn verifies_new_commits_in_its_own_worktree_and_notifies_failure_and_recov
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![
             step("has-ok", "test -f ok.txt", None),
             step("echo", "echo hi", None),
@@ -177,6 +180,7 @@ async fn a_step_past_its_timeout_fails_and_a_board_without_path_is_reported() {
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("slow", "sleep 30", Some(300))],
     };
     let started = std::time::Instant::now();
@@ -194,6 +198,7 @@ async fn a_step_past_its_timeout_fails_and_a_board_without_path_is_reported() {
         board: "bare".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: slow.steps.clone(),
     };
     verify_target(&f.state, &default_runner(), &notifier, &root, &nopath).await;
@@ -221,6 +226,7 @@ async fn a_timed_out_step_takes_its_grandchildren_with_it() {
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("slow", &script, Some(500))],
     };
     verify_target(&f.state, &default_runner(), &notifier, &root, &target).await;
@@ -258,6 +264,7 @@ async fn setup_failures_retry_and_an_interrupted_rerun_still_announces_recovery(
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("has-ok", "test -f ok.txt", None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -354,6 +361,7 @@ async fn a_failed_commit_runs_again_only_when_asked_and_every_run_is_kept() {
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("env", &format!("test -f {}", flag.display()), None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -487,6 +495,7 @@ async fn a_failure_that_passes_on_the_automatic_retry_stays_green_and_quiet() {
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("flaky", &script, None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -518,6 +527,7 @@ async fn the_same_reason_for_not_verifying_is_kept_once() {
         board: "bare".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("noop", "true", None)],
     };
     let (notifier, _seen) = capture();
@@ -553,6 +563,7 @@ async fn a_recorded_group_whose_number_was_reused_is_left_alone_and_logged() {
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("ok", "true", None)],
     };
     let dir = rockyd::verify::target_dir(&root, &target);
@@ -598,6 +609,7 @@ async fn subscribed_session_hears_each_finished_run() {
         board: "proj".into(),
         branch: "main".into(),
         deploy: false,
+        deploy_window: None,
         steps: vec![step("has-ok", "test -f ok.txt", None)],
     };
     let runner = default_runner();
@@ -665,6 +677,7 @@ async fn subscribed_session_hears_each_finished_run() {
     let env = deploy_env(tmp.path(), &head(&work));
     let deploying = VerifyTarget {
         deploy: true,
+        deploy_window: None,
         ..target.clone()
     };
     commit(&work, "ok 를 되살린다", |w| {
@@ -806,6 +819,7 @@ fn deploy_target() -> VerifyTarget {
         branch: "main".into(),
         steps: vec![step("has-ok", "test -f ok.txt", None)],
         deploy: true,
+        deploy_window: None,
     }
 }
 
@@ -842,6 +856,44 @@ async fn until_settled(
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+}
+
+#[tokio::test]
+async fn a_windowed_target_deploys_only_inside_its_window() {
+    let f = fx();
+    let tmp = tempfile::tempdir().unwrap();
+    let (_origin, work) = repos(tmp.path());
+    rocky_board(&f, &work);
+    let now = Arc::new(Mutex::new(
+        chrono::NaiveTime::from_hms_opt(14, 0, 0).unwrap(),
+    ));
+    let clock = now.clone();
+    let env = deploy_env(tmp.path(), &head(&work)).with_clock(move || *clock.lock().unwrap());
+    let root = tmp.path().join("verify");
+    let cfg = VerifyConfig {
+        targets: vec![VerifyTarget {
+            deploy_window: Some(DeployWindow::default()),
+            ..deploy_target()
+        }],
+        ..VerifyConfig::default()
+    };
+    let (notifier, _seen) = capture();
+    commit(&work, "새 커밋", |w| {
+        std::fs::write(w.join("b.txt"), "1").unwrap()
+    });
+    let sha = head(&work);
+
+    tick(&f.state, &default_runner(), &notifier, &root, &cfg, &env).await;
+    let status = deploy_status(&f);
+    assert_eq!(status.record.unwrap().state, VerifyState::Passed);
+    assert!(status.deploy.is_none(), "창 밖이면 통과해도 띄우지 않는다");
+    assert!(status.deploy_note.is_none(), "창 밖은 ⚠ 가 아니다");
+    assert_eq!(calls(&env), "");
+
+    *now.lock().unwrap() = chrono::NaiveTime::from_hms_opt(2, 30, 0).unwrap();
+    let done = until_settled(&f, &notifier, &root, &cfg, &env).await;
+    assert_eq!(done.state, DeployState::Succeeded, "{done:?}");
+    assert_eq!(calls(&env), format!("update --main {sha}\n"));
 }
 
 #[tokio::test]

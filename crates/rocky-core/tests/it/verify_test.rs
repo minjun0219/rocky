@@ -3,8 +3,8 @@
 use rocky_core::verify::{
     deploy_base, deploy_notification, deploy_plan, deploy_timed_out, dir_name, is_branch_name,
     load_verify_block, notification, parse_ls_remote, session_notice, settle_deploy, should_run,
-    DeployInput, DeployPlan, DeployRecord, DeploySkip, DeployState, VerifyRecord, VerifyRun,
-    VerifyRunEvent, VerifyState, DEPLOY_TIMEOUT_MINUTES,
+    DeployInput, DeployPlan, DeployRecord, DeploySkip, DeployState, DeployWindow, VerifyRecord,
+    VerifyRun, VerifyRunEvent, VerifyState, DEPLOY_TIMEOUT_MINUTES,
 };
 
 fn config(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -249,6 +249,127 @@ fn the_deploy_switch_is_read_per_target() {
     let c = load_verify_block(&path);
     assert!(c.targets[0].deploy);
     assert!(!c.targets[1].deploy, "불리언이 아니면 꺼진 것으로 읽는다");
+}
+
+fn hm(h: u32, m: u32) -> chrono::NaiveTime {
+    chrono::NaiveTime::from_hms_opt(h, m, 0).unwrap()
+}
+
+#[test]
+fn the_deploy_window_is_read_per_target_and_wrong_fields_fall_back() {
+    let (_d, path) = config(
+        r#"{ "verify": { "targets": [
+            { "board": "a", "deploy": true, "steps": [ { "name": "t", "command": ["true"] } ] },
+            { "board": "b", "deploy": true, "deployWindow": { "from": "23:30", "until": "05:00" },
+              "steps": [ { "name": "t", "command": ["true"] } ] },
+            { "board": "c", "deploy": true, "deployWindow": { "from": "25:00" },
+              "steps": [ { "name": "t", "command": ["true"] } ] },
+            { "board": "d", "deploy": true, "deployWindow": "nightly",
+              "steps": [ { "name": "t", "command": ["true"] } ] }
+        ] } }"#,
+    );
+    let c = load_verify_block(&path);
+    assert_eq!(
+        c.targets[0].deploy_window, None,
+        "블록이 없으면 통과하는 대로"
+    );
+    assert_eq!(
+        c.targets[1].deploy_window,
+        Some(DeployWindow {
+            from: hm(23, 30),
+            until: hm(5, 0)
+        })
+    );
+    assert_eq!(
+        c.targets[2].deploy_window,
+        Some(DeployWindow::default()),
+        "틀린 칸은 기본값 — 창 없음으로 읽으면 낮에 데몬을 교체한다"
+    );
+    assert_eq!(c.targets[3].deploy_window, None, "객체가 아니면 꺼진 것");
+}
+
+#[test]
+fn a_deploy_window_contains_its_start_but_not_its_end_and_may_cross_midnight() {
+    let night = DeployWindow::default();
+    assert_eq!(night.label(), "02:00-04:00");
+    assert!(!night.contains(hm(1, 59)));
+    assert!(night.contains(hm(2, 0)));
+    assert!(night.contains(hm(3, 59)));
+    assert!(!night.contains(hm(4, 0)));
+    assert!(!night.contains(hm(14, 0)));
+
+    let late = DeployWindow {
+        from: hm(23, 0),
+        until: hm(1, 0),
+    };
+    assert!(late.contains(hm(23, 30)));
+    assert!(late.contains(hm(0, 30)));
+    assert!(!late.contains(hm(1, 0)));
+    assert!(!late.contains(hm(12, 0)));
+
+    let closed = DeployWindow {
+        from: hm(3, 0),
+        until: hm(3, 0),
+    };
+    assert!(!closed.contains(hm(3, 0)), "같으면 열리지 않는다");
+}
+
+#[test]
+fn a_windowed_deploy_waits_for_the_window() {
+    let passed = record(PASSED, VerifyState::Passed);
+    let window = DeployWindow::default();
+    let ready = DeployInput {
+        enabled: true,
+        branch: "main",
+        repo: Some("minjun0219/rocky"),
+        main_mode: true,
+        passed: Some(&passed),
+        finished_build: Some(INSTALLED),
+        built: Some(INSTALLED),
+        ancestor: Some(true),
+        window: Some(window),
+        local_time: Some(hm(14, 0)),
+        ..DeployInput::default()
+    };
+    let plan = |input: DeployInput| deploy_plan(&input);
+    let outside = DeployPlan::Skip(DeploySkip::OutsideWindow(window));
+    assert_eq!(plan(ready.clone()), outside);
+    assert_eq!(
+        DeploySkip::OutsideWindow(window).note(),
+        None,
+        "창 밖은 정상 — rocky verify 에 ⚠ 로 보이지 않는다"
+    );
+    assert_eq!(
+        plan(DeployInput {
+            local_time: None,
+            ..ready.clone()
+        }),
+        outside,
+        "시각을 모르면 띄우지 않는다"
+    );
+    assert_eq!(
+        plan(DeployInput {
+            local_time: Some(hm(2, 30)),
+            ..ready.clone()
+        }),
+        DeployPlan::Start(PASSED.into())
+    );
+    assert_eq!(
+        plan(DeployInput {
+            window: None,
+            ..ready.clone()
+        }),
+        DeployPlan::Start(PASSED.into()),
+        "창이 없으면 통과하는 대로"
+    );
+    assert_eq!(
+        plan(DeployInput {
+            finished_build: Some(PASSED),
+            ..ready.clone()
+        }),
+        DeployPlan::Skip(DeploySkip::Installed),
+        "이미 깔렸으면 창보다 그 이유가 먼저다"
+    );
 }
 
 const PASSED: &str = "1111111111111111111111111111111111111111";

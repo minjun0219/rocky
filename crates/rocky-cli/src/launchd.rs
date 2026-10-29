@@ -40,6 +40,11 @@ pub fn is_launchd_registered() -> bool {
     cfg!(target_os = "macos") && plist_path().is_file()
 }
 
+/// 등록된 plist 의 경로 — `rocky uninstall` 이 계획에 적는다.
+pub fn registered_plist() -> Option<PathBuf> {
+    is_launchd_registered().then(plist_path)
+}
+
 /// launchd 가 잡에 물려주는 PATH 는 최소치(`/usr/bin:/bin:/usr/sbin:/sbin`)라 Homebrew 등
 /// 사용자 설치 위치가 빠진다. 데몬이 이름만으로 spawn 하는 외부 CLI 가 둘 있다:
 /// `gh`(이슈 생성 — 최소 PATH 아래서 "gh CLI 를 찾을 수 없다"는 잘못된 메시지가 뜬다)와
@@ -462,6 +467,11 @@ pub fn parse_job(print_output: &str) -> LaunchdJob {
         pid: field("pid = ").and_then(|p| p.parse().ok()),
         program: field("program = "),
     }
+}
+
+/// plist 와 상관없이 launchd 가 이 라벨의 job 을 쥐고 있나 — `rocky uninstall` 이 bootout 뒤 plist 를 지운 다음에 본다.
+pub fn job_loaded() -> bool {
+    cfg!(target_os = "macos") && launchctl(&["print", &job_target()]).0
 }
 
 /// 로드된 job 의 지금 상태. plist 가 없거나 로드되지 않았으면 `None`.
