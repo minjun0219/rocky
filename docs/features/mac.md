@@ -23,7 +23,7 @@
   `POLL_MS`·`IDLE_POLL_MS` 와 같다), 메뉴를 열 때·아바타를 켤 때 한 번 더. 데몬이 `claude agents --json` 을 3초 캐시하므로 더 자주 묻지 않는다.
   묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(누르면 `/?view=agents`).
 - **아바타는 보이기만 한다.** 화면 구석의 떠 있는 패널(포커스를 가져가지 않고 모든 Space 에 뜬다)이 가장 급한 상태 하나를 보인다 —
-  내 차례(background `blocked`)면 깡충거리며 말풍선에 `needs`, 도는 세션이 있으면 팔로 두드리고, 다 쉬면 웅크려 숨만 쉰다. 배너·소리는 내지 않는다.
+  내 차례(background `blocked`)면 껑충 뛰고 몸을 흔들며 손을 흔들고(말풍선에 `needs`), 도는 세션이 있으면 팔을 들어 망치처럼 내리치고, 다 쉬면 주저앉아 숨만 쉰다. 배너·소리는 내지 않는다.
   그림은 Gemini 가 그린 돌 골렘 조각(`Resources/rocky/*.png`, 원본의 절반 크기)을 관절로 이은 컷아웃 리그다 — 조각을 바꾸면
   `RigPart` 의 pivot·at 좌표(PNG 픽셀)도 같이 바꾼다. .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은
   SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
@@ -64,4 +64,6 @@
 - **Linux 컨테이너에는 Swift 가 없다**(클라우드 세션의 네트워크 정책이 swift.org 를 막는다). 빌드 확인은 CI 의 macOS 러너나 오너의 맥에서 한다.
 - **화면(SwiftUI)은 테스트가 못 본다** — 메뉴 막대·창을 바꾸면 맥에서 한 번 띄워 본다(`swift run --package-path mac RockyMac`).
   기본 포트(8636)는 실제 보드다 — 착수·완료·추가 버튼은 실제 보드를 바꾼다.
-- `LSUIElement` 앱이라 Dock 아이콘이 없다. 창을 열 때 `NSApp.activate` 를 먼저 불러야 창이 앞으로 온다.
+- `LSUIElement` 앱이라 평소엔 Dock 아이콘이 없다. 할 일 창이 떠 있는 동안만 `setActivationPolicy(.regular)` 로 Dock·⌘Tab 에 보이고, 닫으면 `.accessory` 로 돌아간다.
+  창을 열 때 `NSApp.activate` 를 먼저 불러야 창이 앞으로 온다. 앱 아이콘은 `mac/AppIcon.icns`(아바타 리그를 그린 것)를 `bundle.sh` 가 넣는다.
+- `rocky update --main` 은 맥 앱을 빌드하지 않는다 — 맥 앱은 `mac/scripts/bundle.sh` 로 따로 만든다.
