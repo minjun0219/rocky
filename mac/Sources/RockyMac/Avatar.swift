@@ -1,5 +1,5 @@
 // 떠 있는 아바타 — 화면 구석의 작은 로키(프로젝트 헤일메리의 에리디언, 돌 골렘)가 에이전트 상태를 알린다.
-// 내 차례인 세션이 있으면 깡충거리며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 팔로 두드리고, 다 쉬면 웅크려 잠든다.
+// 내 차례인 세션이 있으면 껑충 뛰고 손을 흔들며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 팔을 들어 내리치고, 다 쉬면 주저앉아 잠든다.
 // 창은 늘 위에 뜨는 패널이고 포커스를 가져가지 않는다. 끌어서 옮기면 자리를 기억한다.
 import AppKit
 import RockyKit
@@ -234,28 +234,66 @@ private struct RigPose {
 
     func angle(_ part: RigPart) -> Double { angles[part] ?? 0 }
 
+    /// 껑충 — h 가 0(땅)에서 1(가장 높이)으로 갈수록 몸이 뜨고 팔을 치켜들고 다리를 벌린다.
+    private static func hop(_ h: Double) -> (Double, [RigPart: Double]) {
+        (-60 * h, [
+            .upperL: 20 + 40 * h, .foreL: 10, .upperR: -(20 + 40 * h), .foreR: -10,
+            .legL: 6 + 18 * h, .legR: -6 - 18 * h,
+        ])
+    }
+
+    private static func blend(_ a: [RigPart: Double], _ b: [RigPart: Double], _ w: Double) -> [RigPart: Double] {
+        var out: [RigPart: Double] = [:]
+        for part in RigPart.allCases {
+            let from = a[part] ?? 0
+            out[part] = from + ((b[part] ?? 0) - from) * w
+        }
+        return out
+    }
+
     init(_ mood: AvatarMood, t: Double) {
         switch mood {
         case .waiting:
-            // 내 차례 — 깡충거리며 두 팔을 흔든다.
-            let hop = abs(sin(t * 6)) * 14
-            y = -hop
-            angles = [
-                .upperL: -8, .foreL: -20 + sin(t * 9) * 14, .upperR: 8, .foreR: 20 + sin(t * 9 + 1) * 14,
-                .legL: 12 - hop * 0.4, .legR: -12 + hop * 0.4,
-            ]
+            // 내 차례 — 두 번 껑충 뛰고, 몸을 흔들며 오른손을 크게 흔든다(2.4초 한 바퀴).
+            let phase = t.truncatingRemainder(dividingBy: 2.4)
+            if phase < 1.2 {
+                (y, angles) = Self.hop(sin(.pi * phase.truncatingRemainder(dividingBy: 0.6) / 0.6))
+            } else {
+                let q = phase - 1.2
+                let sway = sin(2 * .pi * q / 1.2)
+                let wave: [RigPart: Double] = [
+                    .torso: 8 * sway, .upperL: -60, .foreL: 170, .upperR: -65, .foreR: -5 + 35 * sin(t * 14),
+                    .legL: 8 + 6 * sway, .legR: -8 + 6 * sway,
+                ]
+                // 뛰기와 흔들기 사이는 0.15초 동안 섞는다 — 팔이 튀지 않게.
+                let w = min(max(0, min(1, q / 0.15)), max(0, min(1, (1.2 - q) / 0.15)))
+                let (y0, from) = Self.hop(0)
+                y = y0 + (-8 * abs(sway) - y0) * w
+                angles = Self.blend(from, wave, w)
+            }
         case .working:
-            // 도는 중 — 오른 팔뚝으로 두드린다.
-            let tap = max(0, sin(t * 7)) * 22
-            y = sin(t * 3.5) * 1.5
+            // 도는 중 — 오른팔을 천천히 들어 망치처럼 내리치고, 그 반동에 몸이 들썩인다(0.8초 한 바퀴).
+            let phase = t.truncatingRemainder(dividingBy: 0.8) / 0.8
+            var lift = 0.0
+            var hit = 0.0
+            if phase < 0.6 {
+                let u = phase / 0.6
+                lift = u * u * (3 - 2 * u)
+            } else if phase < 0.7 {
+                let u = (phase - 0.6) / 0.1
+                lift = 1 - u * u
+            } else {
+                hit = exp(-(phase - 0.7) * 18)
+            }
+            y = -4 * lift + 5 * hit
             angles = [
-                .torso: sin(t * 3.5) * 1.5, .upperL: -6, .foreL: -14, .upperR: 40, .foreR: 110 - tap,
-                .legL: 10, .legR: -10,
+                .torso: -4 * lift + 5 * hit, .upperL: -40, .foreL: 80, .upperR: 40 - 100 * lift, .foreR: -100 + 90 * lift,
+                .legL: 10 + 4 * hit, .legR: -10 - 4 * hit,
             ]
         case .resting:
-            // 다 쉼 — 팔다리를 접고 웅크려 숨만 쉰다.
-            y = 34 + sin(t * 1.6) * 1.5
-            angles = [.upperL: -50, .foreL: -150, .upperR: 50, .foreR: 150, .legL: 62, .legR: -62, .mid: -35]
+            // 다 쉼 — 주저앉아 팔로 몸을 감싸고 숨만 쉰다.
+            y = 50 + sin(t * 1.6) * 2
+            angles = [.torso: 4, .upperL: -70, .foreL: 120, .upperR: 70, .foreR: -120, .legL: 10, .legR: -10]
         case .unknown:
             // 연결 없음 — 회색으로 고개를 갸웃.
             gray = true

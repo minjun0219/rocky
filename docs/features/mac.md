@@ -23,7 +23,7 @@
   `POLL_MS`·`IDLE_POLL_MS` 와 같다), 메뉴를 열 때·아바타를 켤 때 한 번 더. 데몬이 `claude agents --json` 을 3초 캐시하므로 더 자주 묻지 않는다.
   묶음(`agentPhase`)과 둘째 줄(`needs`·`detail`)은 웹 `web/agents.ts` 의 사본이다. 메시지·멈추기는 웹 에이전트 탭 몫이다(누르면 `/?view=agents`).
 - **아바타는 보이기만 한다.** 화면 구석의 떠 있는 패널(포커스를 가져가지 않고 모든 Space 에 뜬다)이 가장 급한 상태 하나를 보인다 —
-  내 차례(background `blocked`)면 깡충거리며 말풍선에 `needs`, 도는 세션이 있으면 팔로 두드리고, 다 쉬면 웅크려 숨만 쉰다. 배너·소리는 내지 않는다.
+  내 차례(background `blocked`)면 껑충 뛰고 몸을 흔들며 손을 흔들고(말풍선에 `needs`), 도는 세션이 있으면 팔을 들어 망치처럼 내리치고, 다 쉬면 주저앉아 숨만 쉰다. 배너·소리는 내지 않는다.
   그림은 Gemini 가 그린 돌 골렘 조각(`Resources/rocky/*.png`, 원본의 절반 크기)을 관절로 이은 컷아웃 리그다 — 조각을 바꾸면
   `RigPart` 의 pivot·at 좌표(PNG 픽셀)도 같이 바꾼다. .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은
   SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
