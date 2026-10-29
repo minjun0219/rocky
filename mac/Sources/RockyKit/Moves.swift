@@ -37,6 +37,13 @@ public struct Clip: Equatable, Sendable {
     public var length: Double
     public var tempo: Double
 
+    public init(move: Move, start: Double, length: Double, tempo: Double) {
+        self.move = move
+        self.start = start
+        self.length = length
+        self.tempo = tempo
+    }
+
     public var end: Double { start + length }
 
     /// 토막 안에서 흐른 비율(0...1).
