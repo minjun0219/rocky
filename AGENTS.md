@@ -85,7 +85,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── plugin/                     ★ Claude Code 플러그인 — 플러그인 캐시로 복사되는 유일한 것
 │   ├── .claude-plugin/plugin.json  플러그인 메타데이터 + MCP 서버 두 개(rocky = 데몬 http, worklog = stdio)
 │   ├── bin/rocky          sh 부트스트랩 → 릴리스 tarball → 네이티브 바이너리(훅 + CLI + MCP 입구)
-│   ├── hooks/hooks.json        SessionStart(ensure-daemon), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
+│   ├── hooks/hooks.json        SessionStart(ensure-daemon — 보드 요약 + 레포 기억 `memory_brief`), UserPromptSubmit(notify-todo), PostToolUse(todo_status → claim-doing), Stop(handoff-stop → log-turn)
 │   │                           + modules: hooks/board-panel/(function hooks — 세션 옆 보드 패널, 상태 계약은 types/index.d.ts)
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
 │   └── scripts/                permalink.ts(/rocky:review-request) · pr-threads.ts(/rocky:review-fix) — 설치 후에도 있으려면 플러그인 안에 있어야 한다
