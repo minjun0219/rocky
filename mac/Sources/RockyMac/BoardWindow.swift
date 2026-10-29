@@ -31,6 +31,12 @@ struct BoardWindow: View {
             }
             .navigationTitle(store.board?.title ?? "rocky")
         }
+        // 메뉴 막대 앱이라 평소엔 Dock 에 없다 — 창이 떠 있는 동안만 Dock 과 ⌘Tab 에 보인다.
+        .onAppear {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .onDisappear { NSApp.setActivationPolicy(.accessory) }
     }
 
     @ViewBuilder private var content: some View {

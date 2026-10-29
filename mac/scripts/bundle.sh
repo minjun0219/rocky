@@ -24,6 +24,8 @@ sed "s/__VERSION__/$version/g" Info.plist > "$app/Contents/Info.plist"
 # 아바타 조각 그림 — SwiftPM 리소스 번들 대신 앱 리소스로(앱은 Bundle.main 에서 먼저 찾는다).
 mkdir -p "$app/Contents/Resources"
 cp -R Sources/RockyMac/Resources/rocky "$app/Contents/Resources/rocky"
+# 앱 아이콘 — 아바타 리그를 그대로 그린 것(Finder · 보드 창을 연 동안의 Dock).
+cp AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
 identity="${ROCKY_MAC_SIGN_IDENTITY:--}"
 if ! codesign --force --sign "$identity" --timestamp=none "$app"; then

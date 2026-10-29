@@ -64,4 +64,6 @@
 - **Linux 컨테이너에는 Swift 가 없다**(클라우드 세션의 네트워크 정책이 swift.org 를 막는다). 빌드 확인은 CI 의 macOS 러너나 오너의 맥에서 한다.
 - **화면(SwiftUI)은 테스트가 못 본다** — 메뉴 막대·창을 바꾸면 맥에서 한 번 띄워 본다(`swift run --package-path mac RockyMac`).
   기본 포트(8636)는 실제 보드다 — 착수·완료·추가 버튼은 실제 보드를 바꾼다.
-- `LSUIElement` 앱이라 Dock 아이콘이 없다. 창을 열 때 `NSApp.activate` 를 먼저 불러야 창이 앞으로 온다.
+- `LSUIElement` 앱이라 평소엔 Dock 아이콘이 없다. 할 일 창이 떠 있는 동안만 `setActivationPolicy(.regular)` 로 Dock·⌘Tab 에 보이고, 닫으면 `.accessory` 로 돌아간다.
+  창을 열 때 `NSApp.activate` 를 먼저 불러야 창이 앞으로 온다. 앱 아이콘은 `mac/AppIcon.icns`(아바타 리그를 그린 것)를 `bundle.sh` 가 넣는다.
+- `rocky update --main` 은 맥 앱을 빌드하지 않는다 — 맥 앱은 `mac/scripts/bundle.sh` 로 따로 만든다.
