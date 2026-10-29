@@ -29,9 +29,13 @@
   내 차례는 처음 4.8초만 크게 뛰며 주먹 인사를 하고, 그 뒤엔 마우스 쪽을 보고 서 있다가 10-20초마다 손만 흔든다(기다리는 세션이 바뀌면 다시 크게).
   착지하면 0.2초 쭈그리고, 점프 전에는 0.3초 쪼그린다. 걷기 박자는 천천히 흔들리고 팔은 몸보다 한 박자 늦다.
   고르는 판정은 `RockyKit` 의 `Choreographer`(후보표 · 가중치 · 길이 범위) 순수 함수이고, 자세(`RockyPose`)는 고른 토막을 그리기만 한다. 몸짓은 돌아다니기를 꺼도 고른다.
-  그림은 이미지 파일 없이 도형으로 그린다(`RockyArt`) — 낮은 돔 몸통(금 · 청록 점), 엄지 없는 세 손가락 팔 둘, 다리 둘, 큰 눈과 작은 입.
-  다리를 셋 이상으로 늘리거나 몸 아래로 곧게 뻗는 것을 붙이지 않는다(오너 결정 2026-10-29 — 세로로 길쭉한 실루엣은 민망하게 읽힌다). 엄지척 대신 주먹 인사를 쓴다.
-  시안과 포즈 시트는 프로젝트 파일 `mac-avatar/`(concept-face · rig-vector)에 있다.
+  그림은 오너가 고른 시안(프로젝트 파일 `mac-avatar/concept-face.jpg`의 네 자세)을 윤곽대로 잘라 낸 조각 PNG 20개(`Resources/rocky/`)를 짜 맞춘 것이다(`RockyArt`) —
+  몸통 · 다리 둘 · 팔(내린 손 · 편 손 · 머리에 댄 손) · 눈 · 눈썹 · 입 조각을 서 있는 자세의 좌표에 놓아 움직이고, 자기 · 갸웃 · 뛰는 중은 시안의 그 자세를 통째로 그린다.
+  시안 픽셀을 그대로 쓰고 엄지만 지웠다(오너 결정 2026-10-29 — 도형으로 다시 그리니 질감과 자세가 시안과 달라졌다. 세 손가락이 컨셉이라 엄지척 대신 주먹 인사를 쓴다).
+  다리를 셋 이상으로 늘리거나 몸 아래로 곧게 뻗는 것을 붙이지 않는다(오너 결정 2026-10-29 — 세로로 길쭉한 실루엣은 민망하게 읽힌다).
+  조각을 자르는 트레이서(Python)와 앱과 같은 셈으로 그려 보는 하네스, 시안 비교는 레포 밖 프로젝트 파일 `mac-avatar/trace/`에 있다 — 조각을 다시 자르면
+  `RockyArt` 의 좌표 표(`Sprite.origin` · 팔의 `pivot` · `theta` · 얼굴 조각의 `from`)를 그 출력(`rig.json`)에 맞춰 같이 고친다.
+  .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은 SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
   메뉴의 토글이나 아바타의 오른쪽 클릭으로 끈다(`defaults` 의 `avatar`). 자리는 돌아다니기를 끈 동안만 패널이 기억한다(`RockyAvatar`).
 - **돌아다니기**(`defaults` 의 `roam`, 기본 켜짐) — 일하는 중이면 창 윗면을 걷고, 발판 끝에서 돌아서거나 뛰어내리고, 앞을 막은 창 옆면이
   `jumpReach`(260pt) 안이면 쪼그렸다가 윗면으로 뛰어오르고 더 높으면 돌아선다. 화면 가장자리에서는 돌아선다(기어오르기는 2026-10-29 오너 결정으로 뺐다). 밟던 창이 사라지거나 옮겨 가면 떨어지고, 누르고 있는 동안은 걷지 않고 포인터에 매달려 있다가(누른 채 멈춰 있어도) 놓으면 그 자리에서 떨어진다. 내 차례·연결 없음이면 서 있고, 다 쉬면 앉는다.
@@ -66,6 +70,7 @@
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |
 | 화면 | `mac/Sources/RockyMac/`(`RockyMacApp` · `MenuContent` · `BoardWindow`) |
+| 아바타 조각 그림 | `mac/Sources/RockyMac/Resources/rocky/` |
 | 번들·서명 | `mac/scripts/bundle.sh`, `mac/Info.plist` |
 
 테스트: `mac/Tests/RockyKitTests`(`swift test --package-path mac`) — RockyKit 만 본다. CI 잡 `mac app (swift build + test)` 가 macOS 러너에서
