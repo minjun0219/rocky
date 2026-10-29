@@ -24,7 +24,7 @@
 
 | # | 질문 | 제안 | 버린 것과 이유 |
 |---|---|---|---|
-| 1 | 누가 빌드하나 | **CI 의 새 워크플로 `nightly.yml`.** 매일 01:30 KST(16:30 UTC) cron + 수동 실행. `release.yml` 의 `assets` job 과 같은 macos-15 빌드·패키지 단계를 쓴다(단계는 재사용 가능한 스크립트로 뽑는다) | 기기 빌드 유지: 위 "왜". push 마다 프리릴리스: 하루 수십 개가 생기고 macOS 러너 시간이 든다 |
+| 1 | 누가 빌드하나 | **CI 의 새 워크플로 `nightly.yml`.** 매일 01:30 KST(16:30 UTC) cron + 수동 실행. `release.yml` 의 `assets` job 과 같은 macos-15 빌드·패키지 단계를 쓴다(패키지 단계는 `scripts/package-macos.sh` 로 뽑았다. `release.yml` 은 안에 그대로 둔다 — 그 수동 실행은 이 스크립트가 없는 옛 태그를 체크아웃한다) | 기기 빌드 유지: 위 "왜". push 마다 프리릴리스: 하루 수십 개가 생기고 macOS 러너 시간이 든다 |
 | 2 | 무엇을 올리나 | **main HEAD 가 지난 nightly 와 다르고, 그 커밋의 `ci.yml` 이 초록일 때만.** 빨강이면 그날은 건너뛰고(어제 nightly 가 그대로 최신) 워크플로 요약에 이유를 남긴다 | 무조건 빌드: 깨진 main 이 모든 기기에 깔린다. 기기 검증(`verify`)을 게이트로: 기기마다 결과가 달라질 수 있고 CI 가 이미 같은 게이트다 |
 | 3 | 이름·버전 | 태그 **`v<package.json 버전>-nightly.<YYYYMMDD>`**, GitHub **prerelease**(`latest` 는 정식 릴리스에 머문다). CI 가 빌드 전에 Cargo 버전을 그 문자열로 바꿔 `CARGO_PKG_VERSION`·`/api/health` 가 nightly 를 말하게 한다(커밋하지 않는다). 산출물은 정식과 같은 `rocky-<tag>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS` | 하나를 덮어쓰는 `nightly` 태그: 받은 기기가 어느 날 것인지 버전으로 구분되지 않는다. 같은 날 두 번이면 `.<YYYYMMDD>.2` |
 | 4 | 몇 개 남기나 | **최근 7개.** 그보다 오랜 nightly 프리릴리스와 태그는 워크플로가 지운다(정식·`-next` 프리릴리스는 건드리지 않는다) | 다 남기기: 릴리스 목록이 nightly 로 덮인다 |
