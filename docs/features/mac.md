@@ -27,7 +27,11 @@
   그림은 Gemini 가 그린 돌 골렘 조각(`Resources/rocky/*.png`, 원본의 절반 크기)을 관절로 이은 컷아웃 리그다 — 조각을 바꾸면
   `RigPart` 의 pivot·at 좌표(PNG 픽셀)도 같이 바꾼다. .app 은 `bundle.sh` 가 복사한 `Contents/Resources/rocky/` 에서, `swift run` 은
   SwiftPM 리소스 번들에서 읽는다(`Bundle.module` 은 .app 에서 번들을 못 찾으면 멈추므로 쓰지 않는다). 그림을 못 읽으면 회색 돌 하나를 그린다.
-  메뉴의 토글이나 아바타의 오른쪽 클릭으로 끈다(`defaults` 의 `avatar`). 자리는 패널이 기억한다(`RockyAvatar`).
+  메뉴의 토글이나 아바타의 오른쪽 클릭으로 끈다(`defaults` 의 `avatar`). 자리는 돌아다니기를 끈 동안만 패널이 기억한다(`RockyAvatar`).
+- **돌아다니기**(`defaults` 의 `roam`, 기본 켜짐) — 일하는 중이면 창 윗면을 걷고, 발판 끝에서 돌아서거나 뛰어내리고, 창 옆면·화면 가장자리를
+  기어오른다. 밟던 창이 사라지거나 옮겨 가면 떨어지고, 끌어다 놓으면 그 자리에서 떨어진다. 내 차례·연결 없음이면 서 있고, 다 쉬면 앉는다.
+  판정(발판·벽·한 걸음)은 `RockyKit` 의 `Roamer` 순수 함수이고, 앱은 초당 30번 걸음을 재고 패널을 옮기기만 한다. 창 목록은
+  `CGWindowListCopyWindowInfo` 로 0.5초마다 위치만 읽는다 — 창 이름을 읽지 않으니 화면 기록 권한을 묻지 않는다. 패널은 로키 칸(말풍선이 뜬 동안은 패널 전체) 위에 마우스가 있을 때만 클릭을 받고, 나머지는 아래 창으로 흘려보낸다(`ignoresMouseEvents`).
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
   받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
 - **실패는 출처로 지운다** — 읽기 실패는 다음 읽기 성공이, 동작 실패는 다음 동작이 지운다.
@@ -49,6 +53,7 @@
 | SSE 파서·묶음 고르기·다시 붙기 간격 | `mac/Sources/RockyKit/Events.swift` |
 | 보드 트리·메뉴 목록 | `mac/Sources/RockyKit/BoardTree.swift` |
 | 세션 묶음·아바타 기분 | `mac/Sources/RockyKit/Sessions.swift` |
+| 돌아다니기(발판·벽·걸음) | `mac/Sources/RockyKit/Roam.swift` |
 | 세션 묻기·아바타 패널 | `mac/Sources/RockyMac/AgentStore.swift`, `mac/Sources/RockyMac/Avatar.swift` |
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |

@@ -213,3 +213,77 @@ final class SessionsTests: XCTestCase {
         XCTAssertEqual(avatarMood(result), .waiting(name: "eel", line: "답", count: 1))
     }
 }
+
+final class RoamTests: XCTestCase {
+    let screen = Box(x: 0, y: 0, width: 1000, height: 800)
+
+    func testLedgesDropCoveredPartsAndKeepTheFloor() {
+        // 앞 창(위)이 뒤 창 윗면의 가운데를 덮는다.
+        let front = Box(x: 300, y: 300, width: 200, height: 300)
+        let back = Box(x: 100, y: 200, width: 600, height: 200)
+        let out = ledges(windows: [front, back], screen: screen)
+        XCTAssertEqual(out.first, Ledge(y: 0, minX: 0, maxX: 1000))
+        XCTAssertTrue(out.contains(Ledge(y: 600, minX: 300, maxX: 500)))
+        XCTAssertTrue(out.contains(Ledge(y: 400, minX: 100, maxX: 300)))
+        XCTAssertTrue(out.contains(Ledge(y: 400, minX: 500, maxX: 700)))
+        XCTAssertEqual(out.count, 4)
+    }
+
+    func testLedgesSkipTopsWithoutHeadroom() {
+        let tall = Box(x: 0, y: 100, width: 400, height: 650)
+        XCTAssertEqual(ledges(windows: [tall], screen: screen).count, 1)
+        XCTAssertTrue(walls(windows: [tall], screen: screen).isEmpty)
+    }
+
+    func testFallsAndLandsOnTheHighestLedgeBelow() {
+        let ground = ledges(windows: [Box(x: 100, y: 0, width: 400, height: 300)], screen: screen)
+        var rocky = Roamer(x: 200, y: 700)
+        for _ in 0 ..< 120 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .roam, random: { 0.99 })
+        }
+        XCTAssertEqual(rocky.y, 300)
+        XCTAssertNotEqual(rocky.action, .fall)
+    }
+
+    func testFallsWhenTheWindowUnderneathVanishes() {
+        let window = ledges(windows: [Box(x: 100, y: 0, width: 400, height: 300)], screen: screen)
+        var rocky = Roamer(x: 200, y: 300)
+        rocky.action = .stand
+        rocky.step(dt: 1 / 30, ledges: window, walls: [], screen: screen, mood: .stay, random: { 0.99 })
+        XCTAssertEqual(rocky.action, .stand)
+        let floorOnly = ledges(windows: [], screen: screen)
+        rocky.step(dt: 1 / 30, ledges: floorOnly, walls: [], screen: screen, mood: .stay, random: { 0.99 })
+        XCTAssertEqual(rocky.action, .fall)
+        for _ in 0 ..< 60 {
+            rocky.step(dt: 1 / 30, ledges: floorOnly, walls: [], screen: screen, mood: .stay, random: { 0.99 })
+        }
+        XCTAssertEqual(rocky.y, 0)
+        XCTAssertEqual(rocky.action, .stand)
+    }
+
+    func testClimbsAWindowSideOntoItsTop() {
+        let windows = [Box(x: 300, y: 0, width: 300, height: 200)]
+        let ground = ledges(windows: windows, screen: screen)
+        let sides = walls(windows: windows, screen: screen)
+        var rocky = Roamer(x: 250, y: 0)
+        rocky.action = .walk
+        // 운이 0.3 이면 벽에서 늘 기어오르고(0.6 미만), 걷다 멈추지는 않는다.
+        for _ in 0 ..< 300 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: sides, screen: screen, mood: .roam, random: { 0.3 })
+            if rocky.y == 200, rocky.action == .walk { break }
+        }
+        XCTAssertEqual(rocky.y, 200)
+        XCTAssertGreaterThan(rocky.x, 300)
+    }
+
+    func testSleepAndStayDoNotWander() {
+        var rocky = Roamer(x: 500, y: 0)
+        rocky.action = .walk
+        let floor = ledges(windows: [], screen: screen)
+        rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .sleep, random: { 0 })
+        XCTAssertEqual(rocky.action, .sit)
+        rocky.step(dt: 1, ledges: floor, walls: [], screen: screen, mood: .stay, random: { 0 })
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertEqual(rocky.x, 500)
+    }
+}
