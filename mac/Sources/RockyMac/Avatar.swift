@@ -497,7 +497,7 @@ private struct RockyPose {
     var legR = 0.0
     /// 몸통 앞으로 내미는 팔 — 머리를 긁거나 닦을 때.
     var front: Side?
-    /// 엎드려 자기 — 다리를 감추고 팔을 몸통 앞으로 늘어뜨린다.
+    /// 엎드려 자기 — 시안처럼 몸통을 바닥에 내려놓고, 왼팔은 바닥에 뻗고 오른팔은 몸 앞에, 오른다리는 뒤로 뻗는다.
     var prone = false
     var gray = false
 
@@ -620,10 +620,8 @@ private struct RockyPose {
             let b = Self.breath(t)
             prone = true
             face = .sleep
-            y = 44 + 1.5 * b
-            squash = 0.82 + 0.012 * b
-            armL = Arm(raise: 40, elbow: -62)
-            armR = Arm(raise: 40, elbow: -62)
+            y = 29 - 1.5 * b
+            squash = 1 + 0.012 * b
         case .unknown:
             // 연결 없음 — 회색으로 머리를 긁으며 갸웃.
             tilt = -12
@@ -783,9 +781,50 @@ private enum RockyArt {
         Path(ellipseIn: CGRect(x: x - rx, y: y - ry, width: rx * 2, height: ry * 2))
     }
 
-    private static func solid(_ gc: GraphicsContext, _ path: Path, _ color: Color = limb) {
-        gc.fill(path, with: .color(color))
+    /// 팔다리 조각 — 칠하고, 돌 질감을 얹고, 테두리를 두른다.
+    private static func solid(_ gc: GraphicsContext, _ path: Path) {
+        gc.fill(path, with: .color(limb))
+        texture(gc, path, limbGrain)
         gc.stroke(path, with: .color(line), style: outline)
+    }
+
+    /// 돌 질감 — 옅은 얼룩과 잔 모래알. 자리는 고정된 의사 난수라 매 프레임 같고, 경로는 한 번만 만든다.
+    private struct Grain {
+        var darkBlots = Path(), lightBlots = Path(), darkDots = Path(), lightDots = Path()
+    }
+
+    private static let bodyGrain = grain(x: 66, y: 34, width: 384, height: 234, count: 1400, seed: 1)
+    private static let limbGrain = grain(x: -50, y: -20, width: 100, height: 110, count: 160, seed: 7)
+
+    private static func grain(x: Double, y: Double, width: Double, height: Double, count: Int, seed: Int) -> Grain {
+        func random(_ i: Int) -> Double {
+            let v = sin(Double(i) * 12.9898 + 78.233) * 43758.5453
+            return v - v.rounded(.down)
+        }
+        var g = Grain()
+        for i in 0 ..< count / 12 {
+            let r = 8 + random(seed + i * 3 + 2) * 18
+            let blot = oval(x + random(seed + i * 3) * width, y + random(seed + i * 3 + 1) * height, r, r * 0.7)
+            if i % 2 == 1 { g.darkBlots.addPath(blot) } else { g.lightBlots.addPath(blot) }
+        }
+        for i in 0 ..< count {
+            let size = 0.7 + random(seed + 502 + i * 3) * 1.3
+            let dot = CGRect(
+                x: x + random(seed + 500 + i * 3) * width, y: y + random(seed + 501 + i * 3) * height,
+                width: size, height: size
+            )
+            if i % 3 != 0 { g.darkDots.addRect(dot) } else { g.lightDots.addRect(dot) }
+        }
+        return g
+    }
+
+    private static func texture(_ gc: GraphicsContext, _ shape: Path, _ g: Grain) {
+        var inside = gc
+        inside.clip(to: shape)
+        inside.fill(g.darkBlots, with: .color(rgb(0x965F32, 0.05)))
+        inside.fill(g.lightBlots, with: .color(rgb(0xFFECC8, 0.07)))
+        inside.fill(g.darkDots, with: .color(rgb(0x784826, 0.16)))
+        inside.fill(g.lightDots, with: .color(rgb(0xFFF0D2, 0.22)))
     }
 
     private static func pen(_ gc: GraphicsContext, _ path: Path, _ width: Double) {
@@ -794,22 +833,33 @@ private enum RockyArt {
 
     /// 뒤에서 앞으로 — 다리, 팔, 몸통, 얼굴, 그리고 앞으로 내민 팔.
     static func draw(_ q: RockyPose, in gc: GraphicsContext) {
+        if q.prone {
+            // 엎드려 자기 — 오른다리는 몸 뒤로 뻗고, 왼팔은 바닥에 길게, 오른팔은 아랫마디만 몸 앞에 내려놓는다.
+            leg(gc, at: CGPoint(x: 412, y: 244), angle: -112)
+            body(gc)
+            var faceLayer = gc
+            faceLayer.translateBy(x: 250, y: 196)
+            faceLayer.scaleBy(x: 0.95, y: 0.95)
+            faceLayer.translateBy(x: -230, y: -188)
+            face(faceLayer, .sleep, look: 0, sleeping: true)
+            arm(gc, at: CGPoint(x: 104, y: 238), angle: 86, elbow: -6, hand: .rest)
+            arm(gc, at: CGPoint(x: 346, y: 214), angle: 22, elbow: 0, hand: .rest, upper: false)
+            return
+        }
         let armL = { arm(gc, at: shoulderL, angle: 52 + q.armL.raise, elbow: -40 + q.armL.elbow, hand: q.armL.hand) }
         let armR = { arm(gc, at: shoulderR, angle: -52 - q.armR.raise, elbow: 40 - q.armR.elbow, hand: q.armR.hand) }
-        if !q.prone {
-            leg(gc, at: hipL, angle: q.legL)
-            leg(gc, at: hipR, angle: q.legR)
-            if q.front != .left { armL() }
-            if q.front != .right { armR() }
-        }
+        leg(gc, at: hipL, angle: q.legL)
+        leg(gc, at: hipR, angle: q.legR)
+        if q.front != .left { armL() }
+        if q.front != .right { armR() }
         body(gc)
         var faceLayer = gc
         faceLayer.translateBy(x: 258, y: 172)
         faceLayer.scaleBy(x: 0.8, y: 0.8)
         faceLayer.translateBy(x: -230, y: -188)
         face(faceLayer, q.blink ? .sleep : q.face, look: q.look, sleeping: q.face == .sleep)
-        if q.prone || q.front == .left { armL() }
-        if q.prone || q.front == .right { armR() }
+        if q.front == .left { armL() }
+        if q.front == .right { armR() }
     }
 
     /// 몸통 — 아래가 둥근 낮은 돔, 가운데가 밝은 음영, 거친 돌 점, 금 둘, 청록 점 셋.
@@ -837,12 +887,9 @@ private enum RockyArt {
         shine.translateBy(x: 205, y: 64)
         shine.rotate(by: .radians(-0.15))
         shine.fill(oval(0, 0, 70, 16), with: .color(rgb(0xFFF0D7, 0.18)))
-        // 돌 질감 — 고정된 자리의 어둡고 밝은 점.
-        for i in 0 ..< 70 {
-            let x = Double(80 + (i * 137) % 360), y = Double(30 + (i * 89) % 225)
-            let dot = i % 2 == 0 ? rgb(0xFFEBC8, 0.18) : rgb(0x784628, 0.10)
-            inside.fill(oval(x, y, 1.8, 1.8), with: .color(dot))
-        }
+        // 돌 질감과, 테두리 안쪽의 밝은 띠.
+        texture(gc, shape, bodyGrain)
+        inside.stroke(shape, with: .color(rgb(0xFFECC8, 0.35)), lineWidth: 10)
         gc.stroke(shape, with: .color(line), style: outline)
         var cracks = Path()
         cracks.addLines([CGPoint(x: 160, y: 66), CGPoint(x: 182, y: 70), CGPoint(x: 194, y: 88), CGPoint(x: 214, y: 98)])
@@ -858,10 +905,20 @@ private enum RockyArt {
 
     /// 팔 — 어깨에서 나오는 굵은 윗마디, 팔꿈치에서 꺾이는 아랫마디, 세 손가락 손(엄지는 없다).
     /// 각도는 도, 0 이면 곧게 아래, + 는 화면 시계 방향.
-    private static func arm(_ gc: GraphicsContext, at: CGPoint, angle: Double, elbow: Double, hand: RockyPose.Hand) {
+    /// `upper` 가 아니면 윗마디를 몸 뒤에 감춘 것으로 보고 아랫마디부터 그린다(엎드린 몸 앞에 내려놓은 팔).
+    private static func arm(
+        _ gc: GraphicsContext, at: CGPoint, angle: Double, elbow: Double, hand: RockyPose.Hand, upper showUpper: Bool = true
+    ) {
         var g = gc
         g.translateBy(x: at.x, y: at.y)
         g.rotate(by: .degrees(angle))
+        if showUpper { upperArm(&g) }
+        g.rotate(by: .degrees(elbow))
+        forearm(g, hand: hand)
+    }
+
+    /// 윗마디를 그리고 팔꿈치로 옮긴다.
+    private static func upperArm(_ g: inout GraphicsContext) {
         var upper = Path()
         upper.move(to: CGPoint(x: -26, y: 0))
         upper.addCurve(to: CGPoint(x: -28, y: 66), control1: CGPoint(x: -36, y: 20), control2: CGPoint(x: -36, y: 48))
@@ -874,7 +931,10 @@ private enum RockyArt {
         crack.addLines([CGPoint(x: -16, y: 22), CGPoint(x: 0, y: 34), CGPoint(x: -4, y: 48)])
         pen(g, crack, 3)
         g.translateBy(x: 0, y: 62)
-        g.rotate(by: .degrees(elbow))
+    }
+
+    private static func forearm(_ gc: GraphicsContext, hand: RockyPose.Hand) {
+        var g = gc
         var fore = Path()
         fore.move(to: CGPoint(x: -29, y: -4))
         fore.addCurve(to: CGPoint(x: -26, y: 34), control1: CGPoint(x: -34, y: 8), control2: CGPoint(x: -32, y: 24))
@@ -932,13 +992,14 @@ private enum RockyArt {
         let eyes = [156.0, 304], ey = 188.0, lx = look * 7
         switch face {
         case .sleep:
-            // 감은 눈 — 아래로 둥근 선.
+            // 감은 눈 — 아래로 둥근 선. 잠든 눈은 시안처럼 크고 굵게, 깜빡임은 작게.
+            let (half, edge, dip) = sleeping ? (24.3, 3.6, 28.4) : (17.8, 4.9, 23)
             var lids = Path()
             for x in eyes {
-                lids.move(to: CGPoint(x: x - 17.8, y: ey + 4.9))
-                lids.addQuadCurve(to: CGPoint(x: x + 17.8, y: ey + 4.9), control: CGPoint(x: x, y: ey + 23))
+                lids.move(to: CGPoint(x: x - half, y: ey + edge))
+                lids.addQuadCurve(to: CGPoint(x: x + half, y: ey + edge), control: CGPoint(x: x, y: ey + dip))
             }
-            pen(gc, lids, 7)
+            pen(gc, lids, sleeping ? 8 : 7)
         case .happy:
             // 웃는 눈 — 위로 둥근 선.
             var lids = Path()
@@ -983,11 +1044,11 @@ private enum RockyArt {
             mark.move(to: CGPoint(x: 214, y: 226))
             mark.addQuadCurve(to: CGPoint(x: 246, y: 226), control: CGPoint(x: 230, y: 240))
         default:
-            // 한쪽 끝이 말린 작은 미소.
-            mark.move(to: CGPoint(x: 204, y: 214))
-            mark.addQuadCurve(to: CGPoint(x: 214, y: 224), control: CGPoint(x: 206, y: 224))
-            mark.move(to: CGPoint(x: 210, y: 224))
-            mark.addQuadCurve(to: CGPoint(x: 254, y: 220), control: CGPoint(x: 232, y: 244))
+            // 오른쪽 끝이 말려 올라간 작은 미소.
+            mark.move(to: CGPoint(x: 206, y: 222))
+            mark.addQuadCurve(to: CGPoint(x: 248, y: 226), control: CGPoint(x: 228, y: 246))
+            mark.move(to: CGPoint(x: 244, y: 228))
+            mark.addQuadCurve(to: CGPoint(x: 254, y: 212), control: CGPoint(x: 254, y: 224))
         }
         pen(gc, mark, 6.5)
     }
