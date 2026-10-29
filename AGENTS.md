@@ -17,15 +17,22 @@
 데몬 + CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
 *EN: One owner, one machine, many agent sessions — hand work out, bring results back to merge, watch and steer from anywhere, record it all.*
 
+> **방향(2026-10-29 오너 결정).** rocky는 자기 세션을 하나 가진 **오케스트레이터 에이전트**로 간다. 데몬(Rust)은 상태와
+> 도구, 로키 에이전트는 판단과 조율, 맥 앱(Swift)은 얼굴을 맡고, 레포 맥락(worklog)과 오너의 개인 맥락 저장소(캐비닛)를
+> 도구로 찾는다. 아직 구현 전이라 아래 표는 오늘의 기준선이다. 보드 기능을 늘리거나 표면을 바꾸기 전에
+> [`docs/design/specs/2026-10-29-rocky-orchestrator-design.md`](./docs/design/specs/2026-10-29-rocky-orchestrator-design.md)의 결정 표와 덜어낼 후보를 먼저 본다.
+> *EN: Direction (2026-10-29): rocky becomes an orchestrator agent with its own session; check the design before growing the board.*
+
 | 하는 일 | 기능 | 개발 문서(`docs/features/`) |
 | --- | --- | --- |
 | **맡긴다** | 보드(할 일 · 노트 · 섹션), 핸드오프와 doing 귀속, 새 세션 띄우기, 수집함(외부 앱은 읽기만), `/rocky:next` | board-model · handoff · spawn · inbox |
 | **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
 | **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 맥 앱(메뉴 막대 · 할 일 창 · 에이전트 아바타), 세션 옆 보드 패널(mod), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · board-panel · mac (화면은 `web/DESIGN.md`) |
 | **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
+| **조율한다**(설계 중) | 로키 에이전트(자기 세션 하나로 세션을 맡기고 깨우고 PR을 챙긴다), 캐비닛(오너의 개인 맥락 저장소) 연결 | 설계 [`2026-10-29-rocky-orchestrator-design`](./docs/design/specs/2026-10-29-rocky-orchestrator-design.md) |
 | 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · 제거 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 · 클라우드 중계소) | daemon-lifecycle · sync |
 
-**새 기능은 이 네 줄 중 하나에 붙는다.** 요청받지 않은 기능이 어디에도 붙지 않으면 범위 밖이다. 오너가 요청한 기능이
+**새 기능은 이 다섯 줄 중 하나에 붙는다.** 요청받지 않은 기능이 어디에도 붙지 않으면 범위 밖이다. 오너가 요청한 기능이
 어디에도 붙지 않으면 만들기 전에 이 표에 줄을 더할지(목표를 넓힐지) 오너에게 묻는다.
 
 ### 구성
@@ -225,6 +232,8 @@ typecheck or tests — pre-push and CI already cover it.*
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
   edges (web, bridges, scripts reading logs.db).*
+  로키 에이전트(설계 중)는 Claude Agent SDK가 TypeScript·Python 판만 있어 가장자리의 Bun + TS 프로세스로 제안돼 있다 —
+  확정되면 위 가장자리 목록에 더한다.
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings`가 게이트다(clippy는
   테스트도 본다). 순수 판정 로직은 `rocky-core`에, 통합 테스트는 `crates/*/tests/it/` 에(크레이트당 실행 파일 하나 — 새 파일은 `tests/it/main.rs`에 `mod`로 단다); 데몬과 CLI는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result`를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
