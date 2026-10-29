@@ -569,3 +569,31 @@ fn statusline_block_reads_dir_link() {
         assert_eq!(load_statusline_block(&path).dir_link, None, "{raw}");
     }
 }
+
+/// `worklog.sessionBrief` — 프로젝트 `rocky.json` 이 사용자 설정을 이긴다. 상시 주입을 막는 폴더(캐비닛)는
+/// 프로젝트 파일 하나로 끈다.
+#[test]
+fn worklog_session_brief_project_overrides_user() {
+    use rocky_core::config::load_worklog_config;
+    let tmp = tempfile::tempdir().unwrap();
+    let user = tmp.path().join("user.json");
+    let project = tmp.path().join("proj");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(&user, r#"{"worklog":{"sessionBrief":true}}"#).unwrap();
+    assert_eq!(
+        load_worklog_config(&user, &project).session_brief,
+        Some(true)
+    );
+    std::fs::write(
+        project.join("rocky.json"),
+        r#"{"worklog":{"sessionBrief":false}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        load_worklog_config(&user, &project).session_brief,
+        Some(false)
+    );
+    let none = tmp.path().join("none.json");
+    let bare = tmp.path().join("bare");
+    assert_eq!(load_worklog_config(&none, &bare).session_brief, None);
+}

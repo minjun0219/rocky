@@ -281,6 +281,8 @@ pub struct Worklog {
     file: PathBuf,
     project_key: String,
     dir_source: WorklogDirSource,
+    /// 키를 계산한 기준 cwd — 기록에 작업 경로 태그(`memory_brief::path_tag`)를 붙일 때 쓴다.
+    cwd: PathBuf,
 }
 
 /// [`Worklog::new`] 옵션. `base_dir` 가 없으면 프로젝트별 기본 경로.
@@ -327,6 +329,7 @@ impl Worklog {
             file,
             project_key,
             dir_source,
+            cwd,
         }
     }
 
@@ -357,6 +360,10 @@ impl Worklog {
 
     pub fn project_key(&self) -> &str {
         &self.project_key
+    }
+
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
     }
 
     /// 저널에 한 줄 append. `content` 는 trim 후 비어 있으면 에러. `page_id` 는 정규화 후 저장.

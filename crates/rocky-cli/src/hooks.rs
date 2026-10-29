@@ -204,8 +204,9 @@ pub fn hook_ensure_daemon(ctx: &CliContext, session_summary: Option<bool>) {
     }
 }
 
-/// 그 레포 워크로그의 기억 몇 줄 — 마지막 recall 다이제스트와 그 뒤의 decision · blocker
-/// (`rocky_core::memory_brief`). 워크로그는 CLI 가 파일로 읽으니 데몬이 없어도 실린다. fail-open.
+/// 이 작업 경로에서 남긴 기억 몇 줄 — 마지막 recall 다이제스트와 그 뒤의 decision · blocker
+/// (`rocky_core::memory_brief`). 워크로그는 CLI 가 파일로 읽으니 데몬이 없어도 실린다. 프로젝트
+/// `rocky.json` 의 `worklog.sessionBrief: false` 면 싣지 않는다. fail-open.
 fn print_memory_brief(input: &serde_json::Value) {
     let cwd = input
         .get("cwd")
@@ -217,6 +218,10 @@ fn print_memory_brief(input: &serde_json::Value) {
         return;
     };
     let config = load_worklog_config(&user_config_path(), &cwd);
+    if config.session_brief == Some(false) {
+        return;
+    }
+    let tag = rocky_core::memory_brief::path_tag(&cwd);
     let env_dir = std::env::var("ROCKY_WORKLOG_DIR").ok();
     let worklog = Worklog::from_env(env_dir.as_deref(), config.dir.as_deref(), Some(cwd));
     let Ok(entries) = worklog.read(&rocky_core::worklog::WorklogReadOptions {
@@ -225,7 +230,7 @@ fn print_memory_brief(input: &serde_json::Value) {
     }) else {
         return;
     };
-    let brief = rocky_core::memory_brief::build_memory_brief(&entries);
+    let brief = rocky_core::memory_brief::build_memory_brief(&entries, &tag);
     if let Some(text) = rocky_core::memory_brief::render_memory_brief(&brief) {
         println!("{text}");
     }
@@ -812,11 +817,12 @@ fn append_turn(
     };
     let content = build_turn_content(&parts, config.capture_max_chars.unwrap_or(800));
     let env_dir = std::env::var("ROCKY_WORKLOG_DIR").ok();
+    let tags = rocky_core::memory_brief::with_path_tag(Some(tags()), &cwd);
     let worklog = Worklog::from_env(env_dir.as_deref(), config.dir.as_deref(), Some(cwd));
     let _ = worklog.append(&WorklogAppendInput {
         content,
         kind: Some("turn".into()),
-        tags: Some(tags()),
+        tags: Some(tags),
         page_id: None,
     });
 }
