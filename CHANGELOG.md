@@ -1,5 +1,27 @@
 # @minjun0219/rocky
 
+## 0.55.0
+
+### Minor Changes
+
+- [`b69100d`](https://github.com/minjun0219/rocky/commit/b69100dace2a64f6a2bc018df528800c4ed71f9f) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱에 에이전트 상태를 알리는 로키 아바타(돌 골렘 조각 그림을 관절로 움직인다)와 메뉴의 "에이전트" 칸을 더한다 — 사람 답을 기다리는 세션이 있으면 아바타가 깡충거리며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 팔로 두드리고, 다 쉬면 웅크려 잠든다. 데몬의 `GET /api/sessions` 를 아바타가 보일 때 15초, 아니면 60초마다 묻는다. 누르면 웹 에이전트 탭이 열린다.
+
+- [#518](https://github.com/minjun0219/rocky/pull/518) [`cd416cf`](https://github.com/minjun0219/rocky/commit/cd416cf2f02bc299f53962f1b561f1eb90bb412d) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱의 로키 아바타가 데스크톱을 돌아다닌다 — 일하는 중이면 창 윗면을 걷고, 창 옆면과 화면 가장자리를 기어오르고, 밟던 창이 사라지면 떨어진다. 끌어다 놓으면 그 자리에서 떨어진다. 메뉴의 "돌아다니기" 토글로 끈다.
+
+- [#510](https://github.com/minjun0219/rocky/pull/510) [`0963d8f`](https://github.com/minjun0219/rocky/commit/0963d8fefa2da6e9b24f99e2155f39141cc09e7f) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky uninstall` 을 더했다. 플러그인·마켓플레이스, launchd job, 떠 있는 데몬, `~/.local/bin/rocky` 링크, `~/.local/share/rocky` 를 걷어내고, 설정·보드·워크로그는 `--purge` 를 붙일 때만 지운다. 실행 전에 목록을 보여 주고 확인을 받는다(`--yes` · `--dry-run`).
+
+- [#520](https://github.com/minjun0219/rocky/pull/520) [`430e5ad`](https://github.com/minjun0219/rocky/commit/430e5add166025b84ac93eaaf544b5788eaf6ee0) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky update --nightly [TAG]` 를 더했다. CI 가 매일 밤 낸 main 의 nightly 프리릴리스(`v<버전>-nightly.<YYYYMMDD>`)를 받아 이 기기를 nightly 모드로 바꾸고 올린다. 기기에서 cargo·bun 으로 빌드하지 않고 tarball 을 받아 체크섬을 확인한다. 그 뒤로 `rocky update` 는 최신 nightly 로 올리고, `rocky update --release` 로 릴리스에 돌아간다.
+
+- [#513](https://github.com/minjun0219/rocky/pull/513) [`eb99549`](https://github.com/minjun0219/rocky/commit/eb995497f5cf35da9bfb6455938283dbe39dbebe) Thanks [@minjun0219](https://github.com/minjun0219)! - 검증 통과 커밋 자동 배포에 배포 창(`verify.targets[].deployWindow`)을 더했다. 창이 있으면 그 시간대(기본 02:00-04:00)에만 `rocky update --main` 을 띄워, 낮에 데몬·플러그인이 바뀌지 않고 밤에 그때의 마지막 통과 커밋이 올라간다.
+
+### Patch Changes
+
+- [#515](https://github.com/minjun0219/rocky/pull/515) [`7c30280`](https://github.com/minjun0219/rocky/commit/7c302809c95b9c0f71fe944d53bf4ef68a1d6036) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱에 아바타 그림으로 만든 앱 아이콘을 넣고, 할 일 창이 떠 있는 동안은 Dock 과 ⌘Tab 에 보이게 한다. 아바타가 손만 흔들지 않고 몸 전체로 움직인다 — 내 차례면 껑충 뛰고 몸을 흔들며 손을 흔들고, 도는 중이면 팔을 들어 내리치고, 다 쉬면 주저앉아 숨만 쉰다.
+
+- [#521](https://github.com/minjun0219/rocky/pull/521) [`031d79b`](https://github.com/minjun0219/rocky/commit/031d79b2cdb23ba66b2c4e261411f91c9184891d) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱: 로키 아바타가 같은 동작만 되풀이하지 않는다. 망치질 사이에 두리번 · 땀 닦기 · 팔 돌리기 같은 쉬는 동작을 섞고, 내 차례는 처음에만 크게 알린 뒤 마우스 쪽을 보며 가끔 손을 흔들고, 착지 · 벽 넘기에 이음 동작이 생겼다.
+
+- [#519](https://github.com/minjun0219/rocky/pull/519) [`ee4c877`](https://github.com/minjun0219/rocky/commit/ee4c8771c41a5494beadd6917705111cc9523856) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱: 로키가 가끔 튜브를 놓아 다른 창 윗면으로 건너간다. 아바타는 한 번 눌러서는 웹 UI 를 열지 않고 두 번 눌러야 열며, 말풍선은 누르면 닫힌다. 로키를 잡고 끄는 동안은 걷지 않아 포인터를 놓치지 않는다.
+
 ## 0.54.0
 
 ### Minor Changes
