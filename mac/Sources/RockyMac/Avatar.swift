@@ -19,6 +19,10 @@ final class AvatarController {
     private let pose = RoamPose()
     private var timer: Timer?
     private var roamer: Roamer?
+    private var roaming = false
+    private var moves = Choreographer()
+    /// 마지막 걸음의 발판 — 서 있는 자리(바닥 · 창 윗면 · 창 끝)를 가린다.
+    private var ledgesHere: [Ledge] = []
     private var windows: [Box] = []
     private var scanned: TimeInterval = 0
     private var last: TimeInterval = 0
@@ -47,7 +51,7 @@ final class AvatarController {
             Task { @MainActor in self?.follow() }
         }
         agents.showAvatar ? show() : hide()
-        if agents.showAvatar, agents.roam { startRoaming() } else { stopRoaming() }
+        if agents.showAvatar, agents.roam { startRoaming() } else if roaming { stopRoaming() }
     }
 
     private func show() {
@@ -63,11 +67,25 @@ final class AvatarController {
             self.panel = panel
         }
         panel?.orderFrontRegardless()
+        startTimer()
     }
 
     private func hide() {
         panel?.orderOut(nil)
         hideTube()
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// 보이는 동안 초당 30번 — 몸짓은 늘 고르고, 돌아다니기가 켜져 있으면 걸음도 잰다.
+    private func startTimer() {
+        guard timer == nil else { return }
+        last = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     private static func floatingPanel(size: NSSize) -> NSPanel {
@@ -126,21 +144,16 @@ final class AvatarController {
     }
 
     private func startRoaming() {
-        guard timer == nil else { return }
+        guard !roaming else { return }
+        roaming = true
         // 초당 30번 옮기는 동안은 자리를 기억하지 않는다 — 매번 설정 파일에 쓰게 된다.
         panel?.setFrameAutosaveName("")
-        last = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     private func stopRoaming() {
-        timer?.invalidate()
-        timer = nil
+        roaming = false
         roamer = nil
+        ledgesHere = []
         placed = nil
         dragging = false
         pose.action = .stand
@@ -155,6 +168,32 @@ final class AvatarController {
         let now = ProcessInfo.processInfo.systemUptime
         let dt = min(now - last, 0.1)
         last = now
+        if roaming { roam(panel, now: now, dt: dt) }
+        choreograph(panel)
+    }
+
+    /// 서 있을 때의 몸짓 — `RockyKit.Choreographer` 가 고르고, 내 차례에 마우스 쪽 보기·창 끝에서 내려다보기만 방향을 바꾼다.
+    private func choreograph(_ panel: NSPanel) {
+        let here = roamer.map { spot(x: $0.x, y: $0.y, ledges: ledgesHere) } ?? .floor
+        let clip = moves.update(
+            now: Date.timeIntervalSinceReferenceDate, mood: agents.mood.moveMood, spot: here,
+            random: { Double.random(in: 0 ..< 1) }
+        )
+        if pose.clip != clip { pose.clip = clip }
+        let squash = roamer?.squash ?? 0, heaving = roamer?.heaving ?? 0
+        if pose.squash != squash { pose.squash = squash }
+        if pose.heaving != heaving { pose.heaving = heaving }
+        guard pose.action == .stand || pose.action == .sit else { return }
+        var facing = pose.facing
+        switch clip.move {
+        case .watch: facing = NSEvent.mouseLocation.x >= panel.frame.minX + Self.foot.x ? 1 : -1
+        case .peek: if case let .edge(toward) = here { facing = toward }
+        default: break
+        }
+        if pose.facing != facing { pose.facing = facing }
+    }
+
+    private func roam(_ panel: NSPanel, now: TimeInterval, dt: Double) {
         let origin = panel.frame.origin
         let foot = NSPoint(x: origin.x + Self.foot.x, y: origin.y + Self.foot.y)
         if roamer == nil { roamer = Roamer(x: foot.x, y: foot.y) }
@@ -180,8 +219,9 @@ final class AvatarController {
             windows = Self.scanWindows()
             scanned = now
         }
+        ledgesHere = ledges(windows: windows, screen: area)
         roamer.step(
-            dt: dt, ledges: ledges(windows: windows, screen: area), walls: walls(windows: windows, screen: area),
+            dt: dt, ledges: ledgesHere, walls: walls(windows: windows, screen: area),
             screen: area, mood: agents.mood.roamMood, random: { Double.random(in: 0 ..< 1) }
         )
         roamer.x = min(max(roamer.x, area.minX + Roamer.halfWidth), area.maxX - Roamer.halfWidth)
@@ -235,6 +275,10 @@ final class RoamPose {
     var facing: Double = 1
     /// 튜브 안에서는 몸을 줄인다.
     var shrunk = false
+    /// 서 있을 때의 몸짓과 이음 동작(착지 반동 · 끙차)의 남은 정도.
+    var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
+    var squash = 0.0
+    var heaving = 0.0
     /// 누른 말풍선 — 같은 글이면 다시 띄우지 않고, 글이 바뀌면(다른 세션이 기다리면) 다시 뜬다.
     var dismissed: String?
 }
@@ -283,6 +327,15 @@ private struct TubeView: View {
 }
 
 extension AvatarMood {
+    /// 몸짓을 고르는 쪽에 넘기는 기분 — 기다리는 세션이 바뀌면 다시 크게 알린다.
+    var moveMood: MoveMood {
+        switch self {
+        case .working: .working
+        case let .waiting(name, _, _): .waiting(who: name)
+        case .resting, .unknown: .other
+        }
+    }
+
     /// 일하는 중이면 돌아다니고, 내 차례·연결 없음이면 그 자리에 서 있고, 다 쉬면 앉아 존다.
     var roamMood: RoamMood {
         switch self {
@@ -311,7 +364,10 @@ struct AvatarView: View {
                     .onTapGesture { pose.dismissed = bubble }
                     .transition(.opacity)
             }
-            Rocky(mood: agents.mood, action: pose.action, facing: pose.facing)
+            Rocky(
+                mood: agents.mood, action: pose.action, facing: pose.facing,
+                clip: pose.clip, squash: pose.squash, heaving: pose.heaving
+            )
                 .frame(width: 96, height: 88)
                 .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
                 .animation(.easeInOut(duration: 0.25), value: pose.shrunk)
@@ -361,6 +417,9 @@ private struct Rocky: View {
     let mood: AvatarMood
     var action: RoamAction = .stand
     var facing: Double = 1
+    var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
+    var squash = 0.0
+    var heaving = 0.0
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { context in
@@ -392,7 +451,7 @@ private struct Rocky: View {
             gc.fill(Path(ellipseIn: CGRect(x: 110, y: 150, width: 140, height: 120)), with: .color(.gray))
             return
         }
-        let q = RigPose(mood, action: action, t: t)
+        let q = RigPose(mood, action: action, t: t, clip: clip, squash: squash, heaving: heaving)
         if q.gray { gc.addFilter(.grayscale(1)) }
         // 왼쪽을 보면 무대를 좌우로 뒤집는다 — 자세는 늘 오른쪽을 보는 것으로 짠다.
         var figure = gc
@@ -505,21 +564,57 @@ private struct RigPose {
         return out
     }
 
-    init(_ mood: AvatarMood, action: RoamAction, t: Double) {
+    /// 숨 — 서로 나누어떨어지지 않는 주기의 사인 둘을 더해 박자가 쉽게 되풀이되지 않게.
+    private static func breath(_ t: Double) -> Double {
+        0.6 * sin(t * 1.9) + 0.4 * sin(t * 3.1 + 1)
+    }
+
+    /// 토막의 앞뒤 0.2초는 바탕 자세와 섞는다 — 동작이 바뀔 때 팔이 튀지 않게.
+    private static func ease(_ clip: Clip, _ t: Double) -> Double {
+        let elapsed = t - clip.start
+        return min(max(0, min(1, elapsed / 0.2)), max(0, min(1, (clip.length - elapsed) / 0.2)))
+    }
+
+    /// 망치질 사이의 바탕 — 망치를 내린 자세.
+    private static let rest: [RigPart: Double] = [
+        .upperL: -40, .foreL: 80, .upperR: 40, .foreR: -100, .legL: 10, .legR: -10,
+    ]
+
+    init(_ mood: AvatarMood, action: RoamAction, t: Double, clip: Clip, squash: Double, heaving: Double) {
         if case .unknown = mood { gray = true }
+        base(mood, action: action, t: t, clip: clip)
+        // 이음 동작 — 착지하면 쭈그렸다 펴고, 벽을 다 오르면 몸을 숙이고 팔로 짚는다.
+        if squash > 0 {
+            let a = sin(.pi * (1 - squash))
+            y += 22 * a
+            angles[.legL, default: 0] += 14 * a
+            angles[.legR, default: 0] -= 14 * a
+        }
+        if heaving > 0 {
+            let a = sin(.pi * (1 - heaving))
+            angles[.torso, default: 0] += 22 * a
+            angles[.upperL, default: 0] += 35 * a
+            angles[.upperR, default: 0] -= 35 * a
+        }
+    }
+
+    private mutating func base(_ mood: AvatarMood, action: RoamAction, t: Double, clip: Clip) {
         switch action {
         case .walk:
-            // 걷기 — 한 발씩 들며 몸을 앞으로 숙이고 팔을 흔든다(0.6초 한 걸음 쌍).
-            let p = sin(2 * .pi * t / 0.6)
+            // 걷기 — 한 발씩 들며 몸을 앞으로 숙이고 팔을 흔든다(0.6초 한 걸음 쌍, 박자는 ±12% 쯤 천천히 흔들린다).
+            // 팔은 몸보다 한 박자 늦게 따라온다.
+            let phase = 2 * .pi * t / 0.6 + 2.5 * sin(t * 0.5)
+            let p = sin(phase)
+            let arm = sin(phase - 0.6)
             y = -5 * abs(p)
             angles = [
-                .torso: 6 + 3 * p, .upperL: -35 + 20 * p, .foreL: 70, .upperR: 35 + 20 * p, .foreR: -70,
+                .torso: 6 + 3 * p, .upperL: -35 + 20 * arm, .foreL: 70, .upperR: 35 + 20 * arm, .foreR: -70,
                 .legL: -4 + 22 * max(0, p), .legR: 4 - 22 * max(0, -p),
             ]
             return
         case .climb, .tube:
             // 기어오르기(튜브 안에서 기어가기도) — 두 팔을 번갈아 뻗고 다리로 민다.
-            let p = sin(2 * .pi * t / 0.8)
+            let p = sin(2 * .pi * t / 0.8 + 2 * sin(t * 0.6))
             angles = [
                 .torso: -4, .upperL: 60 + 20 * p, .foreL: -30, .upperR: -60 + 20 * p, .foreR: 30,
                 .legL: 10 + 20 * p, .legR: -10 + 20 * p,
@@ -537,50 +632,117 @@ private struct RigPose {
         }
         switch mood {
         case .waiting:
-            // 내 차례 — 두 번 껑충 뛰고, 몸을 흔들며 오른손을 크게 흔든다(2.4초 한 바퀴).
-            let phase = t.truncatingRemainder(dividingBy: 2.4)
-            if phase < 1.2 {
-                (y, angles) = Self.hop(sin(.pi * phase.truncatingRemainder(dividingBy: 0.6) / 0.6))
-            } else {
-                let q = phase - 1.2
-                let sway = sin(2 * .pi * q / 1.2)
-                let wave: [RigPart: Double] = [
-                    .torso: 8 * sway, .upperL: -60, .foreL: 170, .upperR: -65, .foreR: -5 + 35 * sin(t * 14),
-                    .legL: 8 + 6 * sway, .legR: -8 + 6 * sway,
-                ]
-                // 뛰기와 흔들기 사이는 0.15초 동안 섞는다 — 팔이 튀지 않게.
-                let w = min(max(0, min(1, q / 0.15)), max(0, min(1, (1.2 - q) / 0.15)))
-                let (y0, from) = Self.hop(0)
-                y = y0 + (-8 * abs(sway) - y0) * w
-                angles = Self.blend(from, wave, w)
-            }
+            waiting(t: t, clip: clip)
         case .working:
-            // 도는 중 — 오른팔을 천천히 들어 망치처럼 내리치고, 그 반동에 몸이 들썩인다(0.8초 한 바퀴).
-            let phase = t.truncatingRemainder(dividingBy: 0.8) / 0.8
-            var lift = 0.0
-            var hit = 0.0
-            if phase < 0.6 {
-                let u = phase / 0.6
-                lift = u * u * (3 - 2 * u)
-            } else if phase < 0.7 {
-                let u = (phase - 0.6) / 0.1
-                lift = 1 - u * u
-            } else {
-                hit = exp(-(phase - 0.7) * 18)
-            }
-            y = -4 * lift + 5 * hit
-            angles = [
-                .torso: -4 * lift + 5 * hit, .upperL: -40, .foreL: 80, .upperR: 40 - 100 * lift, .foreR: -100 + 90 * lift,
-                .legL: 10 + 4 * hit, .legR: -10 - 4 * hit,
-            ]
+            working(t: t, clip: clip)
         case .resting:
             // 다 쉼 — 주저앉아 팔로 몸을 감싸고 숨만 쉰다.
-            y = 50 + sin(t * 1.6) * 2
+            y = 50 + Self.breath(t) * 2
             angles = [.torso: 4, .upperL: -70, .foreL: 120, .upperR: 70, .foreR: -120, .legL: 10, .legR: -10]
         case .unknown:
             // 연결 없음 — 회색으로 고개를 갸웃.
             angles = [.torso: -6, .upperL: -40, .foreL: -150, .upperR: -40, .foreR: -75, .legL: 12, .legR: -12]
         }
+    }
+
+    /// 내 차례 — 처음 몇 초는 두 번 뛰고 손을 크게 흔들고, 그 뒤엔 마우스 쪽을 보고 숨 쉬다가 가끔 손만 흔든다.
+    private mutating func waiting(t: Double, clip: Clip) {
+        let b = Self.breath(t)
+        let lag = Self.breath(t - 0.25)
+        let watch: [RigPart: Double] = [
+            .torso: 3 + 1.5 * b, .upperL: -35 + 3 * lag, .foreL: 70, .upperR: 35 + 3 * lag, .foreR: -70,
+            .legL: 6, .legR: -6,
+        ]
+        func wave(_ t: Double, _ sway: Double) -> [RigPart: Double] {
+            [
+                .torso: 8 * sway, .upperL: -60, .foreL: 170, .upperR: -65, .foreR: -5 + 35 * sin(t * 14),
+                .legL: 8 + 6 * sway, .legR: -8 + 6 * sway,
+            ]
+        }
+        switch clip.move {
+        case .watch:
+            y = -1.5 * b
+            angles = watch
+        case .wave:
+            let sway = sin(2 * .pi * (t - clip.start) / clip.length)
+            let w = Self.ease(clip, t)
+            y = -1.5 * b * (1 - w) - 8 * abs(sway) * w
+            angles = Self.blend(watch, wave(t, sway), w)
+        default:
+            // 크게 알리기(2.4초 한 바퀴) — 토막이 시작된 때부터 세어 늘 뛰기로 시작한다.
+            let phase = (t - clip.start).truncatingRemainder(dividingBy: 2.4)
+            if phase < 1.2 {
+                (y, angles) = Self.hop(sin(.pi * phase.truncatingRemainder(dividingBy: 0.6) / 0.6))
+            } else {
+                let q = phase - 1.2
+                let sway = sin(2 * .pi * q / 1.2)
+                // 뛰기와 흔들기 사이는 0.15초 동안 섞는다 — 팔이 튀지 않게.
+                let w = min(max(0, min(1, q / 0.15)), max(0, min(1, (1.2 - q) / 0.15)))
+                let (y0, from) = Self.hop(0)
+                y = y0 + (-8 * abs(sway) - y0) * w
+                angles = Self.blend(from, wave(t, sway), w)
+            }
+        }
+    }
+
+    /// 도는 중 — 박자(`tempo`)마다 오른팔을 들어 망치처럼 내리치고, 몇 번 치고 나면 쉬는 동작 하나를 한다.
+    private mutating func working(t: Double, clip: Clip) {
+        let u = clip.progress(at: t)
+        let b = Self.breath(t)
+        var move: [RigPart: Double]
+        switch clip.move {
+        case .look:
+            // 두리번 — 몸을 앞뒤로 한 번씩 기울여 둘러본다.
+            let turn = sin(2 * .pi * u)
+            y = -2
+            move = [.torso: 7 * turn, .upperL: -40 + 6 * turn, .foreL: 80, .upperR: 40 + 6 * turn, .foreR: -100]
+        case .wipe:
+            // 땀 닦기 — 오른팔을 들어 몸 위를 문지른다.
+            move = [.torso: -3, .upperL: -40, .foreL: 80, .upperR: -55, .foreR: -150 + 30 * sin(2 * .pi * 2.5 * u)]
+        case .shoulder:
+            // 팔 돌리기 — 두 팔을 엇갈려 크게 돌린다.
+            let s = sin(2 * .pi * 2 * u)
+            move = [.upperL: -40 + 45 * s, .foreL: 40, .upperR: 40 + 45 * s, .foreR: -40]
+        case .stomp:
+            // 발 구르기 — 발을 번갈아 들었다 쿵.
+            let s = sin(2 * .pi * 3 * u)
+            y = 4 * abs(s)
+            move = [.torso: 3 * s, .legL: 10 + 25 * max(0, s), .legR: -10 - 25 * max(0, -s)]
+        case .sit:
+            // 잠깐 앉기 — 주저앉아 숨을 고른다.
+            y = 50 + 2 * b
+            move = [.torso: 4, .upperL: -70, .foreL: 120, .upperR: 70, .foreR: -120]
+        case .peek:
+            // 내려다보기 — 창 끝 쪽으로 몸을 숙인다(방향은 컨트롤러가 끝 쪽으로 돌린다).
+            y = 2
+            move = [.torso: 18 + 3 * sin(t * 2), .upperL: -20, .foreL: 40, .upperR: 20, .foreR: -60, .legL: 6, .legR: -6]
+        default:
+            hammer(t: t, clip: clip)
+            return
+        }
+        let w = Self.ease(clip, t)
+        y *= w
+        angles = Self.blend(Self.rest, Self.rest.merging(move) { $1 }, w)
+    }
+
+    private mutating func hammer(t: Double, clip: Clip) {
+        let phase = ((t - clip.start) / max(clip.tempo, 0.1)).truncatingRemainder(dividingBy: 1)
+        var lift = 0.0
+        var hit = 0.0
+        if phase < 0.6 {
+            let u = phase / 0.6
+            lift = u * u * (3 - 2 * u)
+        } else if phase < 0.7 {
+            let u = (phase - 0.6) / 0.1
+            lift = 1 - u * u
+        } else {
+            hit = exp(-(phase - 0.7) * 18)
+        }
+        y = -4 * lift + 5 * hit
+        angles = [
+            .torso: -4 * lift + 5 * hit, .upperL: -40, .foreL: 80, .upperR: 40 - 100 * lift, .foreR: -100 + 90 * lift,
+            .legL: 10 + 4 * hit, .legR: -10 - 4 * hit,
+        ]
     }
 }
 

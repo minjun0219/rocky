@@ -323,3 +323,81 @@ final class RoamTests: XCTestCase {
         XCTAssertNil(rocky.tube)
     }
 }
+
+final class MovesTests: XCTestCase {
+    let screen = Box(x: 0, y: 0, width: 1000, height: 800)
+
+    func testSpotTellsFloorWindowAndEdge() {
+        let ground = ledges(windows: [Box(x: 300, y: 0, width: 400, height: 300)], screen: screen)
+        XCTAssertEqual(spot(x: 100, y: 0, ledges: ground), .floor)
+        XCTAssertEqual(spot(x: 500, y: 300, ledges: ground), .window)
+        XCTAssertEqual(spot(x: 310, y: 300, ledges: ground), .edge(toward: -1))
+        XCTAssertEqual(spot(x: 690, y: 300, ledges: ground), .edge(toward: 1))
+        // 발판이 없으면(떨어지는 중) 바닥으로 본다.
+        XCTAssertEqual(spot(x: 500, y: 500, ledges: ground), .floor)
+    }
+
+    func testPeekOnlyAtAnEdge() {
+        XCTAssertFalse(Choreographer.breaks(at: .window).contains { $0.move == .peek })
+        XCTAssertTrue(Choreographer.breaks(at: .edge(toward: 1)).contains { $0.move == .peek })
+    }
+
+    func testHammeringAlternatesWithBreaksThatNeverRepeat() {
+        var moves = Choreographer()
+        var now = 0.0
+        var seen: [Clip] = []
+        for _ in 0 ..< 12 {
+            let clip = moves.update(now: now, mood: .working, spot: .window, random: { 0 })
+            seen.append(clip)
+            now = clip.end
+        }
+        XCTAssertEqual(seen.first?.move, .hammer)
+        // 박자 0.7초(범위의 아래 끝) × 3번.
+        XCTAssertEqual(seen.first?.tempo ?? 0, 0.7, accuracy: 1e-9)
+        XCTAssertEqual(seen.first?.length ?? 0, 2.1, accuracy: 1e-9)
+        for (i, clip) in seen.enumerated() {
+            XCTAssertEqual(clip.move == .hammer, i.isMultiple(of: 2), "\(i): \(clip.move)")
+        }
+        let breaks = seen.map(\.move).filter { $0 != .hammer }
+        for (a, b) in zip(breaks, breaks.dropFirst()) {
+            XCTAssertNotEqual(a, b)
+        }
+    }
+
+    func testWeightedPickFollowsTheWeights() {
+        XCTAssertEqual(Choreographer.weighted([4, 3, 2], 0), 0)
+        XCTAssertEqual(Choreographer.weighted([4, 3, 2], 0.5), 1)
+        XCTAssertEqual(Choreographer.weighted([4, 3, 2], 0.99), 2)
+    }
+
+    func testWaitingCheersThenWatchesAndWavesSometimes() {
+        var moves = Choreographer()
+        let cheer = moves.update(now: 0, mood: .waiting(who: "a"), spot: .floor, random: { 0.5 })
+        XCTAssertEqual(cheer.move, .cheer)
+        XCTAssertEqual(cheer.length, Choreographer.cheerLength)
+        let watch = moves.update(now: cheer.end, mood: .waiting(who: "a"), spot: .floor, random: { 0.5 })
+        XCTAssertEqual(watch.move, .watch)
+        XCTAssertEqual(watch.length, 15, accuracy: 1e-9)
+        let wave = moves.update(now: watch.end, mood: .waiting(who: "a"), spot: .floor, random: { 0.5 })
+        XCTAssertEqual(wave.move, .wave)
+        XCTAssertEqual(moves.update(now: wave.end, mood: .waiting(who: "a"), spot: .floor, random: { 0.5 }).move, .watch)
+        // 기다리는 세션이 바뀌면 다시 크게 알린다.
+        XCTAssertEqual(moves.update(now: wave.end + 1, mood: .waiting(who: "b"), spot: .floor, random: { 0.5 }).move, .cheer)
+        XCTAssertEqual(moves.update(now: wave.end + 2, mood: .other, spot: .floor, random: { 0.5 }).move, .mood)
+    }
+
+    func testLandingSquashesThenSettles() {
+        let ground = ledges(windows: [], screen: screen)
+        var rocky = Roamer(x: 500, y: 100)
+        var steps = 0
+        while rocky.action == .fall, steps < 300 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, random: { 0.99 })
+            steps += 1
+        }
+        XCTAssertEqual(rocky.squash, 1, accuracy: 1e-9)
+        for _ in 0 ..< 10 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, random: { 0.99 })
+        }
+        XCTAssertEqual(rocky.squash, 0)
+    }
+}
