@@ -84,7 +84,7 @@ fn only_entries_after_the_last_digest_are_picked() {
     // 최근부터: 결정 하나, 다이제스트, 그 앞의 결정(다이제스트가 정리했으니 빠진다).
     let entries = vec![
         entry(5, "blocker", "CI 의 mac 잡이 큐에 묶임"),
-        entry(4, "decision", "로키 세션의 cwd 는 캐비닛"),
+        entry(4, "decision", "로키 세션의 cwd 는 로키의 집"),
         entry(3, "turn", "user: ..."),
         entry(
             2,
@@ -104,7 +104,7 @@ fn only_entries_after_the_last_digest_are_picked() {
                     "인증은 API 키 먼저 → id:1-b (t)".into()
                 ]
             )),
-            decisions: vec!["로키 세션의 cwd 는 캐비닛".into()],
+            decisions: vec!["로키 세션의 cwd 는 로키의 집".into()],
             blockers: vec!["CI 의 mac 잡이 큐에 묶임".into()],
         }
     );
