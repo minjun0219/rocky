@@ -570,7 +570,7 @@ fn statusline_block_reads_dir_link() {
     }
 }
 
-/// `worklog.sessionBrief` — 프로젝트 `rocky.json` 이 사용자 설정을 이긴다. 상시 주입을 막는 폴더(캐비닛)는
+/// `worklog.sessionBrief` — 프로젝트 `rocky.json` 이 사용자 설정을 이긴다. 상시 주입을 막는 폴더는
 /// 프로젝트 파일 하나로 끈다.
 #[test]
 fn worklog_session_brief_project_overrides_user() {
