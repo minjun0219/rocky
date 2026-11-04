@@ -17,6 +17,7 @@ pub mod format;
 pub mod git_status;
 pub mod hooks;
 pub mod launchd;
+pub mod mac_app;
 pub mod rc_cmd;
 pub mod rc_targets_cmd;
 pub mod statusline_cache;

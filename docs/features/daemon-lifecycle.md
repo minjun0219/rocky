@@ -17,6 +17,7 @@
   자신으로는 새 바이너리를 못 받는다. 목표 버전은 GitHub 최신 릴리스 태그. 할 일 수정은 `rocky edit`(예전 이름이 `update` —
   REF·수정 플래그가 붙은 `rocky update` 는 업데이트를 돌리지 않고 `edit` 으로 안내한다). 0.36.0 의 `rocky upgrade` 는 숨은 별칭으로
   아직 남아 있다("한 릴리스만" 이라던 것 — 걷는 일은 보드 할 일).
+  끝에 그 버전 폴더의 `Rocky.app` 을 `/Applications` 에 깐다(`--release`·`--nightly` 도 같다, 규칙은 [mac](./mac.md) "배포는 릴리스 tarball 로") — 실패는 경고로만.
 - **main 빌드 모드 — 부트스트랩.** `$XDG_DATA_HOME/rocky/current` 가 `main` 을 가리키면 부트스트랩은 플러그인 버전과 상관없이
   `main/rocky`(그 기기에서 GitHub main 을 release 빌드한 것)를 실행하고, 링크를 버전으로 되돌리지 않는다. `ROCKY_BIN` 이 먼저고,
   `main/rocky` 가 없으면(교체 중·지워짐) 그 한 번은 릴리스 경로로 떨어지지만 링크는 그대로 둔다 — 모드는 링크로만 바뀐다.

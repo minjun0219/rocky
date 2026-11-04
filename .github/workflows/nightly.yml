@@ -90,6 +90,11 @@ jobs:
       - name: Build CLI + daemon
         run: cargo build --release --locked -p rocky-cli -p rockyd
 
+      # 맥 앱 — release.yml 과 같다. 앱 빌드가 깨져도 nightly 는 앱 없이 낸다.
+      - name: Build Mac app
+        continue-on-error: true
+        run: mac/scripts/bundle.sh
+
       - name: Check version
         run: |
           got="$(target/release/rocky --version)"

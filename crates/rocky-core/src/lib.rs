@@ -17,6 +17,7 @@ pub mod inbox;
 pub mod limits;
 pub mod local_request;
 pub mod logindex;
+pub mod mac_app;
 pub mod main_build;
 pub mod memory_brief;
 pub mod migrations;
