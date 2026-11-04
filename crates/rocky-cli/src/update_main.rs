@@ -601,6 +601,7 @@ pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
         ));
     }
     println!("✓ 릴리스 v{latest} — 데몬 {before} → {}", daemon_label(ctx));
+    crate::mac_app::sync_and_report(&release, false);
     println!(
         "  {}는 남겨 두었다 — 다시 쓰려면 `rocky update --{pinned}`.",
         if pinned == main_build::NIGHTLY {
@@ -762,6 +763,7 @@ pub fn update_nightly(
     );
     if plan == BuildPlan::Skip {
         println!("✓ 이미 {tag} 를 쓰고 있다");
+        crate::mac_app::sync_and_report(&p.nightly, false);
         return Ok(());
     }
 
@@ -832,6 +834,8 @@ pub fn update_nightly(
     apply_plugin(&p.src, &step, &source, &src, &mut warnings, &mut notes);
 
     println!("✓ {tag} — 데몬 {before} → {}", daemon_label(ctx));
+    // nightly 끼리는 앱 버전(package.json)이 같으니 새로 받았을 때는 버전을 보지 않고 바꾼다.
+    crate::mac_app::sync_and_report(&p.nightly, plan == BuildPlan::Build);
     println!("  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 훅·커맨드가 적용된다.");
     for note in &notes {
         println!("  참고: {note}");

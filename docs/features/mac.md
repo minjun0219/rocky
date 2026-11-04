@@ -60,7 +60,16 @@
   `codesign` 하고, 없으면 ad-hoc(`-`)으로 서명한다. 오너의 맥은 자체 서명 인증서 `rocky` 를 쓴다(2026-10-27):
   `ROCKY_MAC_SIGN_IDENTITY=rocky mac/scripts/bundle.sh`. 서명 안 된·ad-hoc 빌드는 해시가 빌드마다 바뀌어 회사 맥 EDR 이 의심할 수 있다 — 그 맥에는
   인증서로 서명한 번들만 올린다. 앱 버전은 `package.json` 을 따른다(따로 들지 않는다 — 버전 넷을 맞추는 규칙에 다섯째를 더하지 않는다).
-- **배포는 아직 손으로.** 릴리스 tarball 에 넣지 않는다 — `bundle.sh` 로 만든 `mac/build/Rocky.app` 을 `/Applications` 에 옮긴다.
+- **배포는 릴리스 tarball 로**(오너 요청 2026-11-04 — 릴리스로 올려도 앱이 없었다). `release.yml`·`nightly.yml` 이 `bundle.sh`(ad-hoc 서명 — CI 에는
+  인증서가 없다)로 만든 `Rocky.app` 을 tarball 에 넣고, `rocky update`(릴리스 · `--release` · `--nightly`)가 바이너리를 받은 뒤 그 폴더의 앱을 깐다
+  (`rocky_cli::mac_app`, 판정은 `rocky_core::mac_app`). 자리는 이미 깔린 곳(`/Applications` 먼저, 다음 `~/Applications`), 없으면 쓸 수 있는
+  `/Applications`, 아니면 `~/Applications`. 버전(`CFBundleVersion`)이 같으면 두고, nightly 는 앱 버전이 `package.json` 그대로라 새로 받았을 때만 버전을 보지 않고 바꾼다.
+  키체인에 인증서가 있으면 **그 기기에서 다시 서명**한다 — `ROCKY_MAC_SIGN_IDENTITY` 가 있으면 그것(`-` 면 CI 의 ad-hoc 그대로), 없으면
+  `security find-identity -p codesigning` 에 `"rocky"` 가 있을 때만 `rocky`. 같은 폴더의 `.Rocky.app.new` 에 복사 → 격리 속성 지우기 → 서명 → `codesign --verify --strict`
+  를 다 통과한 뒤에야 rename 으로 바꿔 끼우고, 하나라도 실패하면 깔린 앱을 그대로 둔다. 돌고 있던 앱은 SIGTERM(`pkill -f`)으로 내렸다가 다시 띄우고
+  (AppleScript `quit` 은 자동화 권한 창을 띄워 쓰지 않는다), 처음 깐 앱은 띄우고, 깔려 있는데 꺼져 있던 앱은 사람이 끈 것이라 띄우지 않는다.
+  맥 앱 실패는 경고(`⚠`)로만 남기고 바이너리·데몬 업데이트를 되돌리지 않는다. CI 에서 앱 빌드가 깨지면(`continue-on-error`) 앱 없이 낸다 — 바이너리 릴리스를 막지 않는다.
+  앱이 없는 tarball(이 변경 전 릴리스)이면 아무것도 하지 않는다. 플러그인 자동 업데이트(SessionStart 부트스트랩)는 앱을 깔지 않는다 — 훅에서 앱을 내리고 띄우지 않는다.
 
 ## 코드
 
@@ -79,6 +88,7 @@
 | 화면 | `mac/Sources/RockyMac/`(`RockyMacApp` · `MenuContent` · `BoardWindow`) |
 | 아바타 조각 그림 | `mac/Sources/RockyMac/Resources/rocky/` |
 | 번들·서명 | `mac/scripts/bundle.sh`, `mac/Info.plist` |
+| 기기에 깔기(`rocky update`) | `crates/rocky-cli/src/mac_app.rs`, 판정 `crates/rocky-core/src/mac_app.rs`(테스트 `crates/rocky-core/tests/it/mac_app_test.rs`) |
 
 테스트: `mac/Tests/RockyKitTests`(`swift test --package-path mac`) — RockyKit 만 본다. CI 잡 `mac app (swift build + test)` 가 macOS 러너에서
 테스트와 `bundle.sh`(ad-hoc 서명)를 돈다.
@@ -90,4 +100,4 @@
   기본 포트(8636)는 실제 보드다 — 착수·완료·추가 버튼은 실제 보드를 바꾼다.
 - `LSUIElement` 앱이라 평소엔 Dock 아이콘이 없다. 할 일 창이 떠 있는 동안만 `setActivationPolicy(.regular)` 로 Dock·⌘Tab 에 보이고, 닫으면 `.accessory` 로 돌아간다.
   창을 열 때 `NSApp.activate` 를 먼저 불러야 창이 앞으로 온다. 앱 아이콘은 `mac/AppIcon.icns`(아바타를 그린 것)를 `bundle.sh` 가 넣는다.
-- `rocky update --main` 은 맥 앱을 빌드하지 않는다 — 맥 앱은 `mac/scripts/bundle.sh` 로 따로 만든다.
+- `rocky update --main` 은 맥 앱을 빌드하지 않는다 — main 빌드 기기는 `mac/scripts/bundle.sh` 로 따로 만든다(릴리스·nightly 만 tarball 에서 깐다).
