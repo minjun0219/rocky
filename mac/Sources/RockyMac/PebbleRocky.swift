@@ -5,6 +5,9 @@ import SwiftUI
 
 enum PebbleRocky {
     private static let stone = Color(red: 0xae / 255, green: 0xb5 / 255, blue: 0xbd / 255)
+    /// 그늘진 옆면과 팔다리 — 몸보다 한 톤 어둡게(나노바나나 시안에서 얻은 힌트, 2026-11-06).
+    private static let side = Color(red: 0x97 / 255, green: 0x9f / 255, blue: 0xa8 / 255)
+    private static let limb = Color(red: 0x95 / 255, green: 0x9c / 255, blue: 0xa5 / 255)
     private static let ink = Color(red: 0x38 / 255, green: 0x40 / 255, blue: 0x4a / 255)
     private static let cheek = Color(red: 0xf2 / 255, green: 0xa0 / 255, blue: 0xa6 / 255)
     private static let tongue = Color(red: 0xe0 / 255, green: 0x70 / 255, blue: 0x7a / 255)
@@ -44,8 +47,8 @@ enum PebbleRocky {
         face(upper, q)
     }
 
-    private static func outlined(_ gc: GraphicsContext, _ path: Path, width: Double = 7) {
-        gc.fill(path, with: .color(stone))
+    private static func outlined(_ gc: GraphicsContext, _ path: Path, width: Double = 7, fill: Color = limb) {
+        gc.fill(path, with: .color(fill))
         gc.stroke(path, with: .color(ink), style: StrokeStyle(lineWidth: width, lineJoin: .round))
     }
 
@@ -87,29 +90,59 @@ enum PebbleRocky {
         if hand == .curl { outlined(g, dot(0, 86, 26)) }
     }
 
-    /// 꼭대기가 한쪽으로 쏠린 바위 — 비대칭 윤곽에 면 선 하나(얼굴 위로 지나간다)와 왼쪽 위 반짝임 둘.
-    /// 처음엔 위가 볼록한 돔이었는데 오너가 "응가같은 모양", 다음 각진 바위는 "직사각형에서 벗어나 봐"라 해서 후보 넷 중 기운 바위를 골랐다
-    /// (2026-11-06, 후보는 프로젝트 파일 mac-avatar/simple-style/pebble-shapes.png · rock-shapes-2.png).
-    private static func body(_ gc: GraphicsContext) {
-        let corners: [CGPoint] = [
-            CGPoint(x: 112, y: 252), CGPoint(x: 96, y: 204), CGPoint(x: 132, y: 128), CGPoint(x: 214, y: 62),
-            CGPoint(x: 272, y: 56), CGPoint(x: 352, y: 102), CGPoint(x: 412, y: 170), CGPoint(x: 428, y: 236),
-            CGPoint(x: 398, y: 256),
-        ]
-        var rock = Path()
-        rock.addLines(corners)
-        rock.closeSubpath()
-        outlined(gc, rock, width: 8)
+    /// 바위의 꼭짓점 — 꼭대기가 왼쪽으로 쏠렸고, 왼쪽 위에 이 빠진 홈이 하나 있다.
+    private static let corners: [CGPoint] = [
+        CGPoint(x: 112, y: 252), CGPoint(x: 96, y: 204), CGPoint(x: 132, y: 128), CGPoint(x: 160, y: 104),
+        CGPoint(x: 170, y: 116), CGPoint(x: 186, y: 90), CGPoint(x: 214, y: 62), CGPoint(x: 272, y: 56),
+        CGPoint(x: 352, y: 102), CGPoint(x: 412, y: 170), CGPoint(x: 428, y: 236), CGPoint(x: 398, y: 256),
+    ]
 
-        var facet = Path()
-        facet.addLines([CGPoint(x: 214, y: 62), CGPoint(x: 238, y: 118), CGPoint(x: 352, y: 102)])
-        gc.stroke(facet, with: .color(ink.opacity(0.45)), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+    /// 꼭짓점을 `radius` 만큼 둥글린 닫힌 윤곽 — 각졌어도 부드러워 보이게.
+    private static func rounded(_ points: [CGPoint], radius: Double) -> Path {
+        func toward(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
+            let dx = b.x - a.x, dy = b.y - a.y, length = (dx * dx + dy * dy).squareRoot()
+            let k = min(radius, length / 2) / length
+            return CGPoint(x: a.x + dx * k, y: a.y + dy * k)
+        }
+        var path = Path()
+        for i in points.indices {
+            let corner = points[i]
+            let before = toward(corner, points[(i + points.count - 1) % points.count])
+            let after = toward(corner, points[(i + 1) % points.count])
+            if i == 0 { path.move(to: before) } else { path.addLine(to: before) }
+            path.addQuadCurve(to: after, control: corner)
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    /// 꼭대기가 한쪽으로 쏠린 바위 — 둥글린 모서리, 오른쪽 그늘진 옆면, 짧은 금 하나, 왼쪽 위 반짝임 둘.
+    /// 처음엔 위가 볼록한 돔이었는데 오너가 "응가같은 모양", 다음 각진 바위는 "직사각형에서 벗어나 봐"라 해서 후보 넷 중 기운 바위를 골랐고,
+    /// 나노바나나 시안에서 둥근 모서리 · 이 빠진 홈 · 투톤 옆면 · 어두운 팔다리를 가져왔다
+    /// (2026-11-06, 후보와 시안은 프로젝트 파일 mac-avatar/simple-style/).
+    private static func body(_ gc: GraphicsContext) {
+        let rock = rounded(corners, radius: 16)
+        gc.fill(rock, with: .color(stone))
+        var shaded = gc
+        shaded.clip(to: rock)
+        var face = Path()
+        face.addLines([
+            CGPoint(x: 300, y: 40), CGPoint(x: 330, y: 120), CGPoint(x: 352, y: 190), CGPoint(x: 340, y: 270),
+            CGPoint(x: 460, y: 270), CGPoint(x: 460, y: 40),
+        ])
+        face.closeSubpath()
+        shaded.fill(face, with: .color(side))
+        gc.stroke(rock, with: .color(ink), style: StrokeStyle(lineWidth: 8, lineJoin: .round))
+
+        var crack = Path()
+        crack.addLines([CGPoint(x: 398, y: 170), CGPoint(x: 384, y: 188), CGPoint(x: 392, y: 202)])
+        gc.stroke(crack, with: .color(ink.opacity(0.6)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
 
         var shine = gc
-        shine.translateBy(x: 176, y: 116)
-        shine.rotate(by: .degrees(-25))
-        shine.fill(Path(ellipseIn: CGRect(x: -30, y: -13, width: 60, height: 26)), with: .color(.white.opacity(0.55)))
-        gc.fill(dot(214, 94, 5), with: .color(.white.opacity(0.55)))
+        shine.translateBy(x: 200, y: 104)
+        shine.rotate(by: .degrees(-35))
+        shine.fill(Path(ellipseIn: CGRect(x: -26, y: -11, width: 52, height: 22)), with: .color(.white.opacity(0.6)))
+        gc.fill(dot(228, 82, 5), with: .color(.white.opacity(0.6)))
     }
 
     /// 얼굴 — 세로로 긴 점 눈, 볼터치, 고양이 입(ω). 눈은 보는 쪽(`look`)으로 5 옮긴다.
