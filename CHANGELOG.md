@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.58.1
+
+### Patch Changes
+
+- [#536](https://github.com/minjun0219/rocky/pull/536) [`bc36d52`](https://github.com/minjun0219/rocky/commit/bc36d5217d5d45183184609459fbeb234948f122) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱 아바타를 덜 튀고 덜 자게 다듬었다 — 손 조각을 겹쳐 바꾸고 동작 사이를 부드럽게 섞었다. 내 차례 알림은 한 번만 껑충 뛰고(같은 세션은 3분 안에 다시 뛰지 않는다) 그 곁을 가끔 서성인다. 일이 끝나도 5분은 깨어 돌아다니다 잠들고, 화면이 꺼지거나 가려지거나 아예 없으면 움직임을 멈춘다. 걸을 때는 한 발씩 디뎌 발이 미끄러지지 않고, 천천히 출발해 줄여서 서며, 돌아설 때 한 프레임에 뒤집히지 않는다.
+
 ## 0.58.0
 
 ### Minor Changes
