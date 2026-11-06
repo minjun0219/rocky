@@ -67,9 +67,13 @@ public func walls(windows: [Box], screen: Box, headroom: Double = 90) -> [Wall] 
     }
 }
 
-/// 기분이 정하는 움직임 — 일하는 중이면 돌아다니고, 내 차례면 그 자리에 서서 알리고, 다 쉬면 앉아 존다.
+/// 기분이 정하는 움직임 — 일하는 중(과 깨어 있을 때)이면 돌아다니고, 내 차례면 사람 곁에 서서 알리다 가끔 그 곁에서 서성이고(`pace`),
+/// 연결이 없으면 그 자리에 서 있고(`stay`), 다 쉬면 앉아 존다.
 public enum RoamMood: Equatable, Sendable {
-    case roam, stay, sleep
+    case roam, pace, stay, sleep
+
+    /// 사람 곁(`near`)에 서서 기다리는 기분 — 내 차례와 연결 없음.
+    var holds: Bool { self == .pace || self == .stay }
 }
 
 public enum RoamAction: Equatable, Sendable {
@@ -149,6 +153,10 @@ public struct Roamer: Equatable, Sendable {
     public static let followStayRate: Double = 1
     public static let followRoamRate: Double = 0.5
     public static let followRest: Double = 6
+    /// 서성이기(`pace`) — 사람 곁에 `paceRest` 초 넘게 서 있으면 초당 `paceRate` 의 확률로 곁(`near`) 안의 다른 자리로 몇 걸음 옮긴다.
+    /// 제자리에 서서 튀기만 하면 지루하고 정신없었다(2026-11-06 오너 지적).
+    public static let paceRate: Double = 0.2
+    public static let paceRest: Double = 3
 
     public var x: Double
     public var y: Double
@@ -168,6 +176,8 @@ public struct Roamer: Equatable, Sendable {
     var landing: Double = 0
     /// 따라가는 튜브를 놓은 뒤 흐른 시간.
     var sinceFollow: Double = .infinity
+    /// 서성이며 걸어가는 자리(x) — 같은 발판 위, 눈길 곁.
+    var paceTo: Double?
 
     struct Point: Equatable, Sendable {
         var x: Double
@@ -186,6 +196,7 @@ public struct Roamer: Equatable, Sendable {
         action = .fall
         vy = 0
         tube = nil
+        paceTo = nil
     }
 
     /// 튜브를 건너는 데 걸리는 시간.
@@ -211,7 +222,7 @@ public struct Roamer: Equatable, Sendable {
     /// 튜브 안에 들어가 있는지 — 그동안 몸을 줄인다.
     public var insideTube: Bool { action == .tube && tubeAge >= Self.tubeBuild }
 
-    /// 한 프레임. `goal` 은 따라갈 자리(`followGoal`) — 일하는 중이면 그 목줄 안에서 돌아다니고, 내 차례면 그 옆에 가서 선다.
+    /// 한 프레임. `goal` 은 따라갈 자리(`followGoal`) — 일하는 중이면 그 목줄 안에서 돌아다니고, 내 차례면 그 옆에 가서 서고 가끔 서성인다.
     /// 다 쉬는 중에는 보지 않는다.
     public mutating func step(
         dt: Double, ledges: [Ledge], walls: [Wall], screen: Box, mood: RoamMood, goal: Goal? = nil,
@@ -219,6 +230,7 @@ public struct Roamer: Equatable, Sendable {
     ) {
         landing = max(0, landing - dt)
         sinceFollow += dt
+        if mood != .pace || goal == nil { paceTo = nil }
         if tube != nil {
             tubeAge += dt
             if action != .tube, tubeOpacity <= 0 { tube = nil }
@@ -300,6 +312,7 @@ public struct Roamer: Equatable, Sendable {
             guard let ground = ledges.first(where: { abs($0.y - y) <= 2 && x >= $0.minX && x <= $0.maxX }) else {
                 action = .fall
                 vy = 0
+                paceTo = nil
                 return
             }
             y = ground.y
@@ -326,17 +339,40 @@ public struct Roamer: Equatable, Sendable {
         }
     }
 
-    /// 눈길 쪽으로 간다 — 다룬 프레임이면 true. 목표 발판에서 가까우면(내 차례 `near`, 일하는 중 `leash`) 내 차례는 서서 기다리고
-    /// 일하는 중은 그 근처를 평소처럼 돌아다닌다(false). 같은 발판이면 걸어가고, 다른 발판이거나 너무 멀면 튜브를 놓는다.
+    /// 눈길 쪽으로 간다 — 다룬 프레임이면 true. 목표 발판에서 가까우면(내 차례 `near`, 일하는 중 `leash`) 내 차례는 서서 기다리다
+    /// 가끔 그 안에서 서성이고, 일하는 중은 그 근처를 평소처럼 돌아다닌다(false). 같은 발판이면 걸어가고, 다른 발판이거나 너무 멀면 튜브를 놓는다.
     private mutating func follow(
         _ goal: Goal, dt: Double, on ground: Ledge, ledges: [Ledge], walls: [Wall], screen: Box, mood: RoamMood,
         random: () -> Double
     ) -> Bool {
         let onIt = abs(ground.y - goal.y) <= 2 && goal.x >= ground.minX && goal.x <= ground.maxX
         let dx = goal.x - x
-        if onIt, abs(dx) <= (mood == .stay ? Self.near : Self.leash) {
-            guard mood == .stay else { return false }
+        // 서성이는 중 — 고른 자리까지 곧장 걷고 다시 선다. 눈길이 옮겨 그 자리가 곁이 아니게 되거나 창 옆면이 막으면 그만둔다.
+        if let to = paceTo {
+            if onIt, abs(goal.x - to) <= Self.near, !Self.blocked(from: x, to: to, y: y, walls: walls) {
+                let step = Self.walkSpeed * dt
+                if abs(to - x) > step {
+                    facing = to > x ? 1 : -1
+                    x += facing * step
+                    action = .walk
+                    return true
+                }
+                x = to
+            }
+            paceTo = nil
+        }
+        if onIt, abs(dx) <= (mood.holds ? Self.near : Self.leash) {
+            guard mood.holds else { return false }
+            // 막 다다랐으면(걸어왔거나 서성이다 멈췄으면) 한동안 서 있는다.
+            if action == .walk { pause = Self.paceRest }
             action = .stand
+            if mood == .pace {
+                if pause > 0 {
+                    pause -= dt
+                } else if random() < dt * Self.paceRate {
+                    paceTo = paceSpot(near: goal, on: ground, walls: walls, screen: screen, random: random)
+                }
+            }
             return true
         }
         // 막 내려앉았거나 막혀 섰으면 잠깐 숨을 돌린다.
@@ -345,7 +381,7 @@ public struct Roamer: Equatable, Sendable {
             return true
         }
         if !onIt || abs(dx) > Self.followFar {
-            let rate = mood == .stay ? Self.followStayRate : Self.followRoamRate
+            let rate = mood.holds ? Self.followStayRate : Self.followRoamRate
             if tube == nil, sinceFollow >= Self.followRest, random() < dt * rate {
                 lay(toX: goal.x, y: goal.y, screen: screen)
                 sinceFollow = 0
@@ -353,8 +389,8 @@ public struct Roamer: Equatable, Sendable {
             }
             // 튜브를 놓을 때까지 — 내 차례는 서 있고, 일하는 중은 같은 발판이면 걸어가고 아니면 평소처럼 돌아다닌다.
             guard onIt else {
-                if mood == .stay { action = .stand }
-                return mood == .stay
+                if mood.holds { action = .stand }
+                return mood.holds
             }
         }
         let toward: Double = dx >= 0 ? 1 : -1
@@ -377,10 +413,26 @@ public struct Roamer: Equatable, Sendable {
 
     private mutating func settle(_ mood: RoamMood) {
         switch mood {
-        case .roam: action = .stand
-        case .stay: action = .stand
+        case .roam, .pace, .stay: action = .stand
         case .sleep: action = .sit
         }
+    }
+
+    /// 서성일 자리 — 눈길 곁(`goal` 에서 `near` 안)의 같은 발판 위, 지금 자리에서 30pt 넘게 떨어지고 창 옆면에 막히지 않는 곳.
+    /// 발판 끝과 화면 가장자리에서는 몸 반폭보다 조금 더 안쪽이다(걷다 끝에 닿아 돌아서거나 떨어지지 않게). 마땅한 데가 없으면 nil.
+    private func paceSpot(near goal: Goal, on ground: Ledge, walls: [Wall], screen: Box, random: () -> Double) -> Double? {
+        let margin = Self.halfWidth + 4
+        let lo = max(ground.minX, screen.minX) + margin, hi = min(ground.maxX, screen.maxX) - margin
+        guard lo < hi else { return nil }
+        let to = min(max(goal.x + (random() * 2 - 1) * Self.near, lo), hi)
+        guard abs(to - x) >= 30, !Self.blocked(from: x, to: to, y: y, walls: walls) else { return nil }
+        return to
+    }
+
+    /// `from` 에서 `to` 로 걷는 길(몸 반폭까지)을 창 옆면이 막는지.
+    private static func blocked(from: Double, to: Double, y: Double, walls: [Wall]) -> Bool {
+        let lo = min(from, to) - halfWidth, hi = max(from, to) + halfWidth
+        return walls.contains { $0.bottom <= y + 2 && $0.top > y + 10 && $0.x > lo && $0.x < hi }
     }
 
     /// 한 걸음. `wander` 가 false 면(눈길을 따라가는 중) 다른 곳으로 건너가는 튜브를 놓지 않는다 — 사람 곁을 떠나게 된다.

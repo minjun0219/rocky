@@ -112,8 +112,34 @@ public enum AvatarMood: Equatable, Sendable {
     case waiting(name: String, line: String?, count: Int)
     /// 도는 세션이 있다.
     case working(count: Int)
+    /// 다 쉬지만 방금까지 일했다 — 잠들기 전 `Drowsiness.awake` 초 동안 깨어 돌아다닌다.
+    case awake
     /// 다 쉬고 있다(세션이 없을 때도).
     case resting
+}
+
+/// 잠드는 시계 — 일하거나 기다리는 세션을 마지막으로 본 뒤 `awake` 초가 지나야 `resting` 이 된다(그 사이는 `awake`).
+/// interactive 세션은 답을 마치면 바로 idle 로 쉬는 중에 묶여(`agentPhase`), 바로 잠들면 사람과 주고받는 내내 자는 것처럼 보였다
+/// (2026-11-06 오너 지적 — 자꾸 잠만 잔다). 묶음 규칙은 웹과 같은 그대로 두고 아바타만 늦게 잠든다.
+public struct Drowsiness: Equatable, Sendable {
+    public static let awake: Double = 300
+    var lastActive: Double?
+
+    public init() {}
+
+    /// 세션 목록으로 정한 기분(`avatarMood`)을 `now`(초)에 맞춰 고친다.
+    public mutating func mood(_ mood: AvatarMood, now: Double) -> AvatarMood {
+        switch mood {
+        case .waiting, .working:
+            lastActive = now
+            return mood
+        case .resting:
+            guard let lastActive, now - lastActive < Self.awake else { return .resting }
+            return .awake
+        case .awake, .unknown:
+            return mood
+        }
+    }
 }
 
 public func avatarMood(_ result: SessionsResult?) -> AvatarMood {

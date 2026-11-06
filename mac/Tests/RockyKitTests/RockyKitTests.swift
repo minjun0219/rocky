@@ -205,6 +205,22 @@ final class SessionsTests: XCTestCase {
         )
     }
 
+    func testStaysAwakeForAWhileAfterWorkBeforeSleeping() {
+        var sleepy = Drowsiness()
+        // 처음부터 다 쉬면 바로 잔다.
+        XCTAssertEqual(sleepy.mood(.resting, now: 0), .resting)
+        XCTAssertEqual(sleepy.mood(.working(count: 1), now: 10), .working(count: 1))
+        // 일을 마쳐도 `awake` 초 동안은 깨어 있다가 잔다.
+        XCTAssertEqual(sleepy.mood(.resting, now: 20), .awake)
+        XCTAssertEqual(sleepy.mood(.resting, now: 10 + Drowsiness.awake - 1), .awake)
+        XCTAssertEqual(sleepy.mood(.resting, now: 10 + Drowsiness.awake), .resting)
+        // 기다리는 세션도 일로 친다. 연결 없음은 그대로 보인다.
+        let waiting = AvatarMood.waiting(name: "a", line: nil, count: 1)
+        XCTAssertEqual(sleepy.mood(waiting, now: 1000), waiting)
+        XCTAssertEqual(sleepy.mood(.unknown, now: 1001), .unknown)
+        XCTAssertEqual(sleepy.mood(.resting, now: 1002), .awake)
+    }
+
     func testDecodesDaemonShape() throws {
         let json = #"{"available":true,"sessions":[{"cwd":"/r","kind":"background","id":"abc","sessionId":"s1","name":"eel","state":"blocked","startedAt":1,"matched":false,"job":{"needs":"답","updatedAt":"x"}}]}"#
         let result = try JSONDecoder().decode(SessionsResult.self, from: Data(json.utf8))
@@ -507,6 +523,39 @@ final class MovesTests: XCTestCase {
         XCTAssertEqual(moves.update(now: wave.end + 2, mood: .other, spot: .floor, random: { 0.5 }).move, .mood)
     }
 
+    func testSameSessionWaitingAgainSoonDoesNotCheerAgain() {
+        var moves = Choreographer()
+        XCTAssertEqual(moves.update(now: 0, mood: .waiting(who: "a"), spot: .floor, random: { 0.5 }).move, .cheer)
+        XCTAssertEqual(moves.update(now: 10, mood: .working, spot: .floor, random: { 0.5 }).move, .hammer)
+        // 같은 세션이 곧 다시 기다리면 뛰지 않고 지켜본다.
+        XCTAssertEqual(moves.update(now: 20, mood: .waiting(who: "a"), spot: .floor, random: { 0.5 }).move, .watch)
+        // 다른 세션이면 바로 크게 알린다.
+        XCTAssertEqual(moves.update(now: 30, mood: .waiting(who: "b"), spot: .floor, random: { 0.5 }).move, .cheer)
+        // 쉼 시간(cheerCooldown)이 지나면 같은 세션도 다시 크게 알린다.
+        XCTAssertEqual(moves.update(now: 40, mood: .working, spot: .floor, random: { 0.5 }).move, .hammer)
+        let later = 30 + Choreographer.cheerCooldown + 1
+        XCTAssertEqual(moves.update(now: later, mood: .waiting(who: "b"), spot: .floor, random: { 0.5 }).move, .cheer)
+    }
+
+    func testAwakeWatchesAndTakesBreaksWithoutHammering() {
+        var moves = Choreographer()
+        var now = 0.0
+        var seen: [Move] = []
+        for _ in 0 ..< 7 {
+            let clip = moves.update(now: now, mood: .awake, spot: .floor, random: { 0 })
+            seen.append(clip.move)
+            now = clip.end
+        }
+        XCTAssertFalse(seen.contains(.hammer))
+        for (i, move) in seen.enumerated() {
+            XCTAssertEqual(move == .watch, i.isMultiple(of: 2), "\(i): \(move)")
+        }
+        let breaks = seen.filter { $0 != .watch }
+        for (a, b) in zip(breaks, breaks.dropFirst()) {
+            XCTAssertNotEqual(a, b)
+        }
+    }
+
     func testLandingSquashesThenSettles() {
         let ground = ledges(windows: [], screen: screen)
         var rocky = Roamer(x: 500, y: 100)
@@ -602,6 +651,46 @@ final class GazeTests: XCTestCase {
         sleeper.step(dt: 1, ledges: floor, walls: [], screen: screen, mood: .sleep, goal: goal, random: { 0 })
         XCTAssertEqual(sleeper.action, .sit)
         XCTAssertEqual(sleeper.x, 100)
+    }
+
+    func testWaitingPacesBesideTheGazeNowAndThen() {
+        let floor = ledges(windows: [], screen: screen)
+        let goal = Goal(x: 500, y: 0)
+        var rocky = Roamer(x: 500, y: 0)
+        rocky.action = .stand
+        // 운이 안 맞으면 그 자리에 서 있다.
+        rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .pace, goal: goal, random: { 0.99 })
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertEqual(rocky.x, 500)
+        // 운이 맞으면 곁(`near`) 안의 다른 자리로 걸어가 다시 선다 — 눈길 곁을 떠나지 않는다.
+        var walked = false
+        var steps = 0
+        repeat {
+            rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .pace, goal: goal, random: { 0 })
+            walked = walked || rocky.action == .walk
+            XCTAssertLessThanOrEqual(abs(rocky.x - goal.x), Roamer.near + 1e-9)
+            steps += 1
+        } while !(walked && rocky.action == .stand) && steps < 300
+        XCTAssertTrue(walked)
+        XCTAssertEqual(rocky.x, goal.x - Roamer.near, accuracy: 1e-9)
+        // 다다른 뒤엔 `paceRest` 동안 서 있는다.
+        for _ in 0 ..< 60 {
+            rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .pace, goal: goal, random: { 0 })
+            XCTAssertEqual(rocky.action, .stand)
+        }
+        // 창 옆면이 길을 막으면 그쪽으로 서성이지 않고, 연결 없음(`stay`)은 서성이지 않는다.
+        let wall = Wall(x: 470, bottom: 0, top: 300, faces: 1)
+        var blocked = Roamer(x: 500, y: 0)
+        blocked.action = .stand
+        var still = Roamer(x: 500, y: 0)
+        still.action = .stand
+        for _ in 0 ..< 60 {
+            blocked.step(dt: 1 / 30, ledges: floor, walls: [wall], screen: screen, mood: .pace, goal: goal, random: { 0 })
+            still.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .stay, goal: goal, random: { 0 })
+        }
+        XCTAssertEqual(blocked.x, 500)
+        XCTAssertEqual(still.x, 500)
+        XCTAssertEqual(still.action, .stand)
     }
 
     func testTubesToAGoalOnAnotherLedgeThenRests() {

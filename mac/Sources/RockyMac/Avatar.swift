@@ -45,6 +45,9 @@ final class AvatarController {
     /// 왼쪽 버튼이 로키 위에서 눌린 채인지 — 지난 바퀴에 눌려 있었는지로 "막 눌렀다"를 가린다.
     private var dragging = false
     private var wasDown = false
+    /// 화면이 잠들었는지 — 보이지 않는 동안은 박자를 멈춘다(꺼진 화면에서도 CPU 5% 를 쓰던 것, 2026-11-06 실측).
+    private var screensAsleep = false
+    private var observers: [NSObjectProtocol] = []
 
     /// 패널 안 로키 발의 자리 — 로키 칸(96×88)은 패널 오른쪽 아래에 있고, 발은 무대 330 중 312 높이다.
     private static let size = NSSize(width: 240, height: 170)
@@ -54,6 +57,27 @@ final class AvatarController {
         self.agents = agents
         // App.init 은 NSApplication 이 다 뜨기 전에 돈다 — 패널은 다음 바퀴에 만든다.
         Task { @MainActor in self.follow() }
+        let workspace = NSWorkspace.shared.notificationCenter
+        for (name, asleep) in [
+            (NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.screensDidWakeNotification, false),
+        ] {
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.screensAsleep = asleep
+                    self?.updateVisibility()
+                }
+            })
+        }
+    }
+
+    /// 보이는지 따라 박자와 그림을 멈추고 다시 돌린다 — 화면이 잠들었거나 패널이 다 가려지면(화면 잠금 포함) 멈춘다.
+    private func updateVisibility() {
+        let visible = !screensAsleep && (panel?.occlusionState.contains(.visible) ?? false)
+        if pose.visible != visible { pose.visible = visible }
+        guard let frames, frames.isPaused == visible else { return }
+        frames.isPaused = !visible
+        // 멈췄던 동안을 한 걸음으로 치지 않게.
+        if visible { last = ProcessInfo.processInfo.systemUptime }
     }
 
     /// 켜고 끄는 것을 따라간다 — Observation 은 한 번 알리므로 바뀔 때마다 다시 건다.
@@ -79,6 +103,11 @@ final class AvatarController {
             }
             panel.setFrameAutosaveName("RockyAvatar")
             self.panel = panel
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateVisibility() }
+            })
         }
         panel?.orderFrontRegardless()
         startFrames()
@@ -176,7 +205,7 @@ final class AvatarController {
         ledgesHere = []
         placed = nil
         dragging = false
-        pose.action = .stand
+        pose.switchAction(to: .stand)
         pose.shrunk = false
         hideTube()
         panel?.ignoresMouseEvents = false
@@ -271,7 +300,7 @@ final class AvatarController {
         let moved = placed.map { $0 != origin } ?? false
         if dragging || moved {
             roamer?.drop(atX: foot.x, y: foot.y)
-            pose.action = .fall
+            pose.switchAction(to: .fall)
             pose.shrunk = false
             hideTube()
             placed = origin
@@ -302,7 +331,7 @@ final class AvatarController {
         lookAround(roamer, now: now)
         roamer.step(
             dt: dt, ledges: ledgesHere, walls: walls(windows: boxes, screen: area),
-            screen: area, mood: agents.mood.roamMood, goal: goal, random: { Double.random(in: 0 ..< 1) }
+            screen: area, mood: agents.mood.roamMood(during: pose.clip), goal: goal, random: { Double.random(in: 0 ..< 1) }
         )
         roamer.x = min(max(roamer.x, area.minX + Roamer.halfWidth), area.maxX - Roamer.halfWidth)
         self.roamer = roamer
@@ -316,7 +345,7 @@ final class AvatarController {
             hot = NSRect(origin: next, size: Self.size).contains(mouse)
         }
         if panel.ignoresMouseEvents == hot { panel.ignoresMouseEvents = !hot }
-        if pose.action != roamer.action { pose.action = roamer.action }
+        if pose.action != roamer.action { pose.switchAction(to: roamer.action) }
         if pose.facing != roamer.facing { pose.facing = roamer.facing }
         if pose.shrunk != roamer.insideTube { pose.shrunk = roamer.insideTube }
         showTube(roamer)
@@ -370,7 +399,12 @@ private final class FrameTicker: NSObject {
 @MainActor
 @Observable
 final class RoamPose {
-    var action: RoamAction = .stand
+    private(set) var action: RoamAction = .stand
+    /// 바로 앞의 움직임과 바뀐 시각 — 걷다 서거나 떨어지다 내려앉을 때 두 자세를 섞는다(한 프레임에 갈아 끼우면 팔다리가 튄다).
+    private(set) var previous: RoamAction = .stand
+    private(set) var changed: Double = 0
+    /// 패널이 보이는지 — 안 보이면 그림의 박자도 멈춘다.
+    var visible = true
     var facing: Double = 1
     /// 튜브 안에서는 몸을 줄인다.
     var shrunk = false
@@ -382,6 +416,13 @@ final class RoamPose {
     var dismissed: String?
     /// 잠깐 띄우는 혼잣말(`Chatter`) — 내 차례 말풍선이 떠 있으면 그 뒤로 숨는다. 누르면 닫힌다.
     var chat: String?
+
+    func switchAction(to next: RoamAction) {
+        guard next != action else { return }
+        previous = action
+        changed = Date.timeIntervalSinceReferenceDate
+        action = next
+    }
 }
 
 /// 관의 굵기와, 발 자리에서 관 중심선까지의 높이 — 줄어든 로키(약 0.45배)가 관 한가운데 오게.
@@ -433,15 +474,18 @@ extension AvatarMood {
         switch self {
         case .working: .working
         case let .waiting(name, _, _): .waiting(who: name)
+        case .awake: .awake
         case .resting, .unknown: .other
         }
     }
 
-    /// 일하는 중이면 돌아다니고, 내 차례·연결 없음이면 그 자리에 서 있고, 다 쉬면 앉아 존다.
-    var roamMood: RoamMood {
+    /// 일하는 중·깨어 있으면 돌아다니고, 내 차례면 사람 곁에 서 있다 가끔 서성이고(크게 알리거나 손을 흔드는 동안은 서서 — 걷다가도 멈춘다),
+    /// 연결 없음이면 그 자리에 서 있고, 다 쉬면 앉아 존다.
+    func roamMood(during clip: Clip) -> RoamMood {
         switch self {
-        case .working: .roam
-        case .waiting, .unknown: .stay
+        case .working, .awake: .roam
+        case .waiting: clip.move == .cheer || clip.move == .wave ? .stay : .pace
+        case .unknown: .stay
         case .resting: .sleep
         }
     }
@@ -460,8 +504,8 @@ struct AvatarView: View {
                 Bubble(text: chat) { pose.chat = nil }
             }
             Rocky(
-                mood: agents.mood, action: pose.action, facing: pose.facing,
-                clip: pose.clip, squash: pose.squash, crouch: pose.crouch
+                mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
+                facing: pose.facing, clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible
             )
                 .frame(width: 96, height: 88)
                 .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
@@ -522,6 +566,7 @@ extension AvatarMood {
         case .unknown: "데몬에 못 붙었거나 세션 목록을 못 얻었어요"
         case let .waiting(_, _, count): "내 차례인 세션 \(count)개"
         case let .working(count): "도는 세션 \(count)개"
+        case .awake: "다 쉬고 있어요 — 곧 잘게요"
         case .resting: "다 쉬고 있어요"
         }
     }
@@ -532,14 +577,20 @@ extension AvatarMood {
 private struct Rocky: View {
     let mood: AvatarMood
     var action: RoamAction = .stand
+    var previous: RoamAction = .stand
+    var changed: Double = 0
     var facing: Double = 1
     var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
     var squash = 0.0
     var crouch = 0.0
+    var visible = true
+
+    /// 움직임이 바뀔 때 앞 자세와 섞는 시간(초).
+    static let blend = 0.2
 
     var body: some View {
         // 패널을 옮기는 박자(초당 60번)와 같게 — 30이면 패널은 60번 움직이는데 몸은 두 번에 한 번만 바뀌어 덜컥인다.
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: !moving)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: !moving || !visible)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { gc, size in
                 draw(in: &gc, size: size, t: t)
@@ -569,7 +620,13 @@ private struct Rocky: View {
             gc.fill(Path(ellipseIn: CGRect(x: 100, y: 170, width: 160, height: 130)), with: .color(.gray))
             return
         }
-        let q = RockyPose(mood, action: action, t: t, clip: clip, squash: squash, crouch: crouch)
+        var q = RockyPose(mood, action: action, t: t, clip: clip, squash: squash, crouch: crouch)
+        let k = (t - changed) / Self.blend
+        if previous != action, k < 1 {
+            // 걷다 서기 · 떨어지다 내려앉기 — 앞 움직임의 자세에서 부드럽게 넘어온다. 통째 자세(뛰는 중 · 잠)는 섞을 관절이 없어 그대로 바꾼다.
+            let before = RockyPose(mood, action: previous, t: t, clip: clip, squash: squash, crouch: crouch)
+            if before.whole == nil, q.whole == nil { q = RockyPose.mix(before, q, RockyPose.smooth(k)) }
+        }
         if q.gray { gc.addFilter(.grayscale(1)) }
         // 왼쪽을 보면 무대를 좌우로 뒤집는다.
         var figure = gc
@@ -689,7 +746,7 @@ private struct RockyPose {
     /// 손은 h 0.3-0.7 동안 겹쳐 편다 — 절반에서 조각을 갈아 끼우던 때는 0.3초마다 손이 툭툭 바뀌었다.
     private static func hop(_ h: Double) -> RockyPose {
         var q = RockyPose()
-        q.y = -34 * h
+        q.y = -26 * h
         q.face = .joy
         let open = smooth((h - 0.3) / 0.4)
         q.armL = Arm(raise: 105 * h, hand: .open, from: .rest, fade: open)
@@ -717,10 +774,12 @@ private struct RockyPose {
     }
 
     /// 도는 중의 바탕 — 눈썹을 모은 얼굴로 앞을 본다.
+    /// 오른팔은 망치를 쥔 채 20도 — 망치질이 쉬는 자리와 같아야 망치질과 쉬는 동작 사이에 팔이 튀지 않는다.
     private static let work: RockyPose = {
         var q = RockyPose()
         q.face = .focus
         q.look = 1
+        q.armR = Arm(raise: 20)
         return q
     }()
 
@@ -751,8 +810,9 @@ private struct RockyPose {
             let phase = 2 * .pi * t / (action == .tube ? 0.4 : 0.6) + 2.5 * sin(t * 0.5)
             let p = sin(phase)
             let swing = sin(phase - 0.6)
-            // 걸음마다 몸이 살짝 뜬다 — sin² 은 바닥에서 부드럽게 돌아선다. |sin| 이던 때는 바닥에서 뾰족하게 꺾여 공처럼 통통 튀었다.
-            y = -3.5 * p * p
+            // 걸음마다 몸이 아주 살짝만 뜬다 — 박자가 초당 3번 넘어 크게 들썩이면 계속 통통 튀어 정신없다(2026-11-06 오너 지적).
+            // sin² 이라 바닥에서 부드럽게 돌아선다(|sin| 은 바닥에서 뾰족하게 꺾여 공처럼 튀었다). 걸음은 기울기로 보인다.
+            y = -1.2 * p * p
             tilt = 4 + 2 * p
             look = 1
             legL = 12 * p
@@ -792,6 +852,8 @@ private struct RockyPose {
             waiting(t: t, clip: clip)
         case .working:
             working(t: t, clip: clip)
+        case .awake:
+            awake(t: t, clip: clip)
         case .resting:
             // 다 쉼 — 시안처럼 엎드려 잔다. 숨에 맞춰 등이 오르내린다.
             whole = .sleep
@@ -815,8 +877,8 @@ private struct RockyPose {
         func wave(_ elapsed: Double, _ amount: Double) -> RockyPose {
             let beat = sin(2 * .pi * 1.6 * elapsed)
             let sway = sin(2 * .pi * 1.6 * elapsed - 1.2)
+            // 몸은 기울기만 — 위아래로도 흔들면 초당 3번 넘게 들썩여 정신없다.
             var q = RockyPose()
-            q.y = -3 * abs(sway)
             q.face = .happy
             q.tilt = 3 * sway
             q.armR = Arm(raise: 118 + 20 * amount * beat, hand: .open)
@@ -832,13 +894,13 @@ private struct RockyPose {
             let w = Self.ease(clip, t)
             self = Self.mix(watch, wave(t - clip.start, w * w), w)
         default:
-            // 크게 알리기(2.4초 한 바퀴) — 토막이 시작된 때부터 세어 늘 뛰기로 시작한다.
-            let phase = (t - clip.start).truncatingRemainder(dividingBy: 2.4)
-            if phase < 1.2 {
-                self = Self.bounce(phase.truncatingRemainder(dividingBy: 0.6))
+            // 크게 알리기(2.4초) — 한 번 껑충 뛰고 주먹 인사를 한 뒤 선다. 네 번씩 뛰던 때는 정신없었다(2026-11-06 오너 지적).
+            let phase = t - clip.start
+            if phase < 0.6 {
+                self = Self.bounce(phase)
             } else {
-                // 주먹 인사 — 앞으로 주먹을 내밀었다 당긴다(엄지척은 못 한다). 뛰기와 사이는 0.15초 동안 섞는다.
-                let q = phase - 1.2
+                // 주먹 인사 — 앞으로 주먹을 내밀었다 당긴다(엄지척은 못 한다). 뛰기와 사이는 0.25초 동안 섞고, 끝나면 그대로 선다.
+                let q = phase - 0.6
                 var bump = RockyPose()
                 bump.face = .joy
                 bump.tilt = 4
@@ -851,8 +913,31 @@ private struct RockyPose {
 
     /// 도는 중 — 박자(`tempo`)마다 오른주먹을 들어 내리치고, 몇 번 치고 나면 쉬는 동작 하나를 한다.
     private mutating func working(t: Double, clip: Clip) {
+        guard let move = Self.breakMove(clip, t: t, from: Self.work) else {
+            hammer(t: t, clip: clip)
+            return
+        }
+        self = Self.mix(Self.work, move, Self.ease(clip, t))
+    }
+
+    /// 깨어 있음(다 쉬지만 방금까지 일했다) — 망치 없이 숨 쉬며 마우스 쪽을 보다가 쉬는 동작 하나를 한다.
+    private mutating func awake(t: Double, clip: Clip) {
+        var calm = RockyPose()
+        calm.y = -1.5 * Self.breath(t)
+        calm.look = 1
+        calm.armL.raise = 3 * Self.breath(t - 0.25)
+        calm.armR.raise = calm.armL.raise
+        guard let move = Self.breakMove(clip, t: t, from: calm) else {
+            self = calm
+            return
+        }
+        self = Self.mix(calm, move, Self.ease(clip, t))
+    }
+
+    /// 쉬는 동작의 자세 — `base` 위에 고친다. 쉬는 동작이 아닌 토막이면 nil.
+    private static func breakMove(_ clip: Clip, t: Double, from base: RockyPose) -> RockyPose? {
         let u = clip.progress(at: t)
-        var move = Self.work
+        var move = base
         switch clip.move {
         case .look:
             // 두리번 — 몸을 앞뒤로 기울이며 눈을 굴린다.
@@ -874,7 +959,7 @@ private struct RockyPose {
         case .stomp:
             // 발 구르기 — 발을 번갈아 들었다 쿵.
             let s = sin(2 * .pi * 3 * u)
-            move.y = 4 * abs(s)
+            move.y = 3 * s * s
             move.tilt = 3 * s
             move.legL = 10 + 25 * max(0, s)
             move.legR = -10 - 25 * max(0, -s)
@@ -898,10 +983,9 @@ private struct RockyPose {
             move.legL = 6
             move.legR = -6
         default:
-            hammer(t: t, clip: clip)
-            return
+            return nil
         }
-        self = Self.mix(Self.work, move, Self.ease(clip, t))
+        return move
     }
 
     private mutating func hammer(t: Double, clip: Clip) {
@@ -915,11 +999,14 @@ private struct RockyPose {
             let u = (phase - 0.6) / 0.1
             lift = 1 - u * u
         } else {
-            hit = exp(-(phase - 0.7) * 18)
+            // 내리친 충격 — 0.05 박자에 걸쳐 차올랐다 가라앉는다(한 프레임에 꺾이면 덜컥인다).
+            let k = (phase - 0.7) / 0.05
+            hit = k * exp(1 - k)
         }
+        // 몸은 반만 따라 움직인다 — 내리칠 때마다 크게 쿵 하면 망치질 내내 통통 튄다(2026-11-06 오너 지적).
         self = Self.work
-        y = -4 * lift + 5 * hit
-        tilt = 3 * lift + 5 * hit
+        y = -2 * lift + 2.5 * hit
+        tilt = 3 * lift + 4 * hit
         armR = Arm(raise: 20 + 100 * lift)
         legL = 4 * hit
         legR = -4 * hit

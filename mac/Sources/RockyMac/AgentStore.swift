@@ -14,6 +14,9 @@ final class AgentStore {
 
     private(set) var result: SessionsResult?
     private(set) var error: String?
+    /// 아바타의 기분 — 세션 목록을 받을 때마다 정한다. 다 쉬어도 방금까지 일했으면 5분은 깨어 있다(`Drowsiness`).
+    private(set) var mood: AvatarMood = .unknown
+    private var drowsiness = Drowsiness()
     /// 떠 있는 아바타를 보이나 — 다음 실행에도 이어진다. 기본은 켜짐.
     var showAvatar: Bool {
         didSet {
@@ -48,7 +51,6 @@ final class AgentStore {
         follow = UserDefaults.standard.object(forKey: "follow") as? Bool ?? true
     }
 
-    var mood: AvatarMood { avatarMood(error == nil ? result : nil) }
     var rows: [Session] { agentRows(result?.sessions ?? []) }
     var agentsURL: URL? { URL(string: client.base + "/?view=agents") }
 
@@ -75,11 +77,14 @@ final class AgentStore {
             self.result = result
             error = nil
             let now = Date().timeIntervalSinceReferenceDate
+            let mood = drowsiness.mood(avatarMood(result), now: now)
+            if self.mood != mood { self.mood = mood }
             if let text = chatter.update(result.available ? result.sessions : nil, now: now) {
                 chat = AvatarChat(id: (chat?.id ?? 0) + 1, text: text)
             }
         } catch {
             self.error = error.localizedDescription
+            if mood != .unknown { mood = .unknown }
         }
     }
 }
