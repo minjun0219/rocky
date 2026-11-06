@@ -1,5 +1,11 @@
 # @minjun0219/rocky
 
+## 0.57.1
+
+### Patch Changes
+
+- [#530](https://github.com/minjun0219/rocky/pull/530) [`3aa804e`](https://github.com/minjun0219/rocky/commit/3aa804eaa2053e50e994c168aab22bed323277f2) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱이 로그인 항목에 스스로 올라 데몬처럼 로그인할 때 뜨고(메뉴의 "로그인할 때 열기"로 끈다), 아바타는 화면 주사율에 맞춰 초당 60번 움직여 더 이상 프레임 드랍처럼 끊기지 않는다.
+
 ## 0.57.0
 
 ### Minor Changes
