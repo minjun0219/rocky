@@ -296,26 +296,32 @@ pub fn reload_lines(raw: &Value, cli_path: &str, edit: Option<&Edit>) -> Vec<Str
                 unpinned: labels("unpinned"),
                 worktree_on: labels("worktreeOn"),
                 worktree_off: labels("worktreeOff"),
+                options: labels("options"),
                 ..Reload::default()
             };
             let changes = report.changes();
             if !changes.is_empty() {
                 lines.push(format!("  {}", changes.join(" · ")));
             }
-            // 띄우는 방식이라 떠 있는 서버는 그대로다 — 다시 띄우는 법을 알린다.
-            let switched: Vec<&str> = report
+            // 띄우는 방식이라 떠 있는 서버는 그대로다 — 다시 띄우는 법을 알린다. 한 대상이 두 칸에 걸쳐도 한 번만.
+            let mut switched: Vec<&str> = Vec::new();
+            for label in report
                 .worktree_on
                 .iter()
                 .chain(&report.worktree_off)
-                .map(String::as_str)
-                .collect();
+                .chain(&report.options)
+            {
+                if !switched.contains(&label.as_str()) {
+                    switched.push(label);
+                }
+            }
             match switched.as_slice() {
                 [] => {}
                 [one] => lines.push(format!(
-                    "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다: rocky rc restart {one}"
+                    "  떠 있는 서버는 다시 띄워야 바뀐 설정으로 뜬다: rocky rc restart {one}"
                 )),
                 many => lines.push(format!(
-                    "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다({}): rocky rc restart <이름>",
+                    "  떠 있는 서버는 다시 띄워야 바뀐 설정으로 뜬다({}): rocky rc restart <이름>",
                     many.join(" · ")
                 )),
             }
@@ -381,13 +387,16 @@ pub fn render_list(list: &TargetList, path: &str, home: &str) -> String {
         for t in &list.targets {
             let mut memo = Vec::new();
             if t.worktree {
-                memo.push("워크트리");
+                memo.push("워크트리".to_string());
+            }
+            if let Some(config) = &t.config_dir {
+                memo.push(format!("설정 폴더 {}", tilde(config, home)));
             }
             if !t.exists {
-                memo.push("⚠ 폴더가 없다");
+                memo.push("⚠ 폴더가 없다".to_string());
             }
             if t.ambiguous {
-                memo.push("⚠ 이름이 겹쳐 이름으로 부를 수 없다");
+                memo.push("⚠ 이름이 겹쳐 이름으로 부를 수 없다".to_string());
             }
             let line = format!(
                 "{}  {}  {}  {}",
@@ -403,6 +412,12 @@ pub fn render_list(list: &TargetList, path: &str, home: &str) -> String {
         out.push(format!(
             "⚠ 대상이 아닌 워크트리 이름(무시된다): {}",
             list.unmatched_worktree.join(", ")
+        ));
+    }
+    if !list.unmatched_options.is_empty() {
+        out.push(format!(
+            "⚠ 대상이 아닌 options 이름(무시된다): {}",
+            list.unmatched_options.join(", ")
         ));
     }
     out.push(String::new());

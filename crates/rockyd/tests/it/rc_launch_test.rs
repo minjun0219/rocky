@@ -137,6 +137,7 @@ fn config() -> RcConfig {
         pinned: vec!["repo-a".into()],
         targets: vec!["repo-b".into()],
         worktree: vec![],
+        options: Default::default(),
         supervise: false,
         nightly: None,
     }
@@ -279,6 +280,123 @@ async fn fresh_restart_does_not_resume() {
             "--no-create-session-in-dir"
         ]],
         "고정이어도 서버만 새로"
+    );
+}
+
+// ── 대상별 칸(`rc.options`) ──
+
+/// 설정 폴더가 있는 대상은 그 폴더를 `CLAUDE_CONFIG_DIR` 로 띄운다 — 사용자 지침 · 스킬 · 플러그인이 그 폴더 것이 된다.
+/// 이름을 바꾼 대상은 바꾼 이름으로 부르고 그 이름으로 등록한다.
+#[tokio::test]
+async fn a_target_with_a_config_dir_starts_under_it_with_its_name() {
+    let config = RcConfig {
+        options: [(
+            "repo-b".to_string(),
+            rocky_core::config::RcTargetOptions {
+                name: Some("로키".into()),
+                config_dir: Some(".claude-home".into()),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        ..config()
+    };
+    let f = fixture_with(config, false, false, vec![READY]);
+    let result = run(&f, "로키", RcCommand::Start).await;
+    assert!(result.ok, "{}", result.message);
+    assert_eq!(
+        f.world.lock().unwrap().spawns,
+        vec![vec![
+            "env",
+            "CLAUDE_CONFIG_DIR=/w/repo-b/.claude-home",
+            "claude",
+            "rc",
+            "--name",
+            "로키",
+            "--no-create-session-in-dir"
+        ]]
+    );
+    assert!(f._dir.path().join("rc/로키.out").exists());
+}
+
+/// 기본 폴더(`claude`)와 설정 폴더(`env CLAUDE_CONFIG_DIR=… claude`)의 로그인을 따로 답한다. 떠 있는 서버는 없다.
+fn split_auth_runner(default_in: bool, config_in: bool) -> Runner {
+    Arc::new(move |argv: Vec<String>, _stdin, _timeout| {
+        let out = match argv[0].as_str() {
+            "ps" => String::from("    1     0 30-00:00:00 /sbin/launchd\n"),
+            "claude" => format!(r#"{{"loggedIn": {default_in}}}"#),
+            "env" if argv.iter().any(|a| a == "auth") => {
+                format!(r#"{{"loggedIn": {config_in}}}"#)
+            }
+            _ => return Box::pin(async { CmdOutput::failure("없음") }),
+        };
+        Box::pin(async move {
+            CmdOutput {
+                code: 0,
+                stdout: out,
+                stderr: String::new(),
+            }
+        })
+    })
+}
+
+fn config_dir_config() -> RcConfig {
+    RcConfig {
+        options: [(
+            "repo-b".to_string(),
+            rocky_core::config::RcTargetOptions {
+                name: None,
+                config_dir: Some("/cfg/b".into()),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        ..config()
+    }
+}
+
+/// 설정 폴더가 따로인 대상은 그 폴더의 로그인으로 판정한다 — 기본 폴더가 로그아웃이어도 띄우고, 그 폴더가 로그아웃이면
+/// 기본 폴더가 로그인이어도 손대지 않는다.
+#[tokio::test]
+async fn a_config_dir_target_is_judged_by_its_own_login() {
+    let f = fixture_from(
+        config_dir_config(),
+        split_auth_runner(false, true),
+        false,
+        vec![READY],
+    );
+    let result = run(&f, "repo-b", RcCommand::Start).await;
+    assert!(result.ok, "{}", result.message);
+    assert_eq!(f.world.lock().unwrap().spawns.len(), 1);
+
+    let f = fixture_from(
+        config_dir_config(),
+        split_auth_runner(true, false),
+        false,
+        vec![],
+    );
+    let result = run(&f, "repo-b", RcCommand::Start).await;
+    assert!(!result.ok);
+    assert!(
+        result
+            .message
+            .contains("CLAUDE_CONFIG_DIR=/cfg/b claude auth login"),
+        "{}",
+        result.message
+    );
+    assert!(f.world.lock().unwrap().spawns.is_empty());
+    // 설정 폴더가 없는 대상은 여전히 기본 폴더로 판정한다.
+    let f = fixture_from(
+        config_dir_config(),
+        split_auth_runner(false, true),
+        false,
+        vec![],
+    );
+    let result = run(&f, "repo-a", RcCommand::Start).await;
+    assert!(
+        !result.ok && result.message.contains("데몬 쪽 claude 가 로그아웃"),
+        "{}",
+        result.message
     );
 }
 

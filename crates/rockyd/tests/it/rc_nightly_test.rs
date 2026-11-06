@@ -274,6 +274,7 @@ fn config() -> RcConfig {
         pinned: vec!["repo-a".into()],
         targets: vec!["repo-b".into(), "repo-c".into(), "repo-d".into()],
         worktree: vec![],
+        options: Default::default(),
         supervise: true,
         nightly: Some(NightlyConfig::default()),
     }

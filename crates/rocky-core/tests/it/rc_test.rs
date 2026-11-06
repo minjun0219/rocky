@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use rocky_core::config::{load_rc_block, read_rc_block, NightlyConfig, RcConfig};
+use rocky_core::config::{load_rc_block, read_rc_block, NightlyConfig, RcConfig, RcTargetOptions};
 use rocky_core::rc::*;
 
 #[test]
@@ -99,6 +99,7 @@ fn targets_resolve_like_the_shell() {
             " ".into(),
         ],
         worktree: vec![],
+        options: Default::default(),
         supervise: false,
         nightly: None,
     };
@@ -131,6 +132,7 @@ fn worktree_list_marks_targets_without_adding_any() {
             "not-a-target".into(),
             " ".into(),
         ],
+        options: Default::default(),
         supervise: false,
         nightly: None,
     };
@@ -149,6 +151,7 @@ fn custom_root_is_used_for_relative_names() {
         pinned: vec![],
         targets: vec!["x".into()],
         worktree: vec![],
+        options: Default::default(),
         supervise: false,
         nightly: None,
     };
@@ -159,6 +162,7 @@ fn custom_root_is_used_for_relative_names() {
         pinned: vec![],
         targets: vec!["x".into(), "~foo".into()],
         worktree: vec![],
+        options: Default::default(),
         supervise: false,
         nightly: None,
     };
@@ -227,12 +231,14 @@ fn rows_match_by_dir_string_and_list_strays() {
             dir: "/w/a".into(),
             pinned: true,
             worktree: true,
+            config_dir: None,
         },
         Target {
             label: "b".into(),
             dir: "/w/b".into(),
             pinned: false,
             worktree: false,
+            config_dir: None,
         },
     ];
     let live = vec![
@@ -291,6 +297,7 @@ fn a_live_server_is_found_even_off_the_target_list() {
         dir: "/w/a".into(),
         pinned: true,
         worktree: false,
+        config_dir: None,
     }];
     let live = vec![
         LiveServer {
@@ -340,6 +347,7 @@ fn rc_block_is_optional_and_lenient() {
             pinned: vec!["a".into(), "b".into()],
             targets: vec![],
             worktree: vec!["a".into()],
+            options: Default::default(),
             supervise: false,
             nightly: None,
         })
@@ -559,6 +567,7 @@ fn rows_carry_the_live_spawn_mode_next_to_the_setting() {
         dir: format!("/w/{label}"),
         pinned: true,
         worktree,
+        config_dir: None,
     };
     let live = |pid: u32, label: &str, worktree: bool| LiveServer {
         pid,
@@ -692,6 +701,7 @@ fn row(label: &str, pinned: bool, running: bool) -> ServerRow {
         dir: format!("/w/{label}"),
         pinned,
         worktree: false,
+        config_dir: None,
         live_worktree: false,
         running,
         pid: running.then_some(1),
@@ -1703,5 +1713,144 @@ fn a_stray_is_picked_by_pid_or_an_unambiguous_label() {
     assert!(matches!(
         find_stray(&strays, "9"),
         Err(StrayMiss::NotFound(_))
+    ));
+}
+
+// ── 대상별 칸(`rc.options`) ──
+
+fn opt(name: Option<&str>, config_dir: Option<&str>) -> RcTargetOptions {
+    RcTargetOptions {
+        name: name.map(str::to_string),
+        config_dir: config_dir.map(str::to_string),
+    }
+}
+
+#[test]
+fn options_are_read_leniently() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rocky.json");
+    std::fs::write(
+        &path,
+        r#"{"rc":{"pinned":["~/.rocky"],"options":{
+            " ~/.rocky ":{"name":" 로키 ","configDir":".claude-home"},
+            "a":{"name":3,"configDir":" "},
+            "b":"nope",
+            "c":{"configDir":"/c"}
+        }}}"#,
+    )
+    .unwrap();
+    let options = load_rc_block(&path).unwrap().options;
+    // 빈 칸 · 문자열이 아닌 칸은 없는 것, 둘 다 빈 칸(a)과 객체가 아닌 칸(b)은 버린다.
+    assert_eq!(
+        options.into_iter().collect::<Vec<_>>(),
+        vec![
+            ("c".to_string(), opt(None, Some("/c"))),
+            (
+                "~/.rocky".to_string(),
+                opt(Some("로키"), Some(".claude-home"))
+            ),
+        ]
+    );
+}
+
+#[test]
+fn options_rename_a_target_and_give_it_a_config_dir() {
+    let config = RcConfig {
+        pinned: vec!["~/.rocky".into()],
+        targets: vec!["repo-b".into(), "repo-c".into()],
+        options: [
+            // 대상과 같은 폴더로 풀리면 어느 꼴로 적어도 맞는다. 대상이 아닌 키는 대상을 만들지 않는다.
+            (
+                "~/.rocky/".to_string(),
+                opt(Some("로키"), Some(".claude-home")),
+            ),
+            ("repo-b".to_string(), opt(None, Some("~/cfg/b"))),
+            (
+                "/home/u/dev/workspaces/repo-c".to_string(),
+                opt(None, Some("/abs/c/")),
+            ),
+            ("not-a-target".to_string(), opt(Some("x"), None)),
+        ]
+        .into_iter()
+        .collect(),
+        ..RcConfig::default()
+    };
+    let got = resolve_targets(&config, "/home/u");
+    let view: Vec<(&str, &str, Option<&str>)> = got
+        .iter()
+        .map(|t| (t.label.as_str(), t.dir.as_str(), t.config_dir.as_deref()))
+        .collect();
+    assert_eq!(
+        view,
+        vec![
+            // 상대 경로는 대상 폴더 기준이다.
+            (
+                "로키",
+                "/home/u/.rocky",
+                Some("/home/u/.rocky/.claude-home")
+            ),
+            (
+                "repo-b",
+                "/home/u/dev/workspaces/repo-b",
+                Some("/home/u/cfg/b")
+            ),
+            ("repo-c", "/home/u/dev/workspaces/repo-c", Some("/abs/c")),
+        ]
+    );
+    // 현황 행도 설정 폴더를 들고 있다(야간이 대화 기록을 찾는 자리) — 응답에는 싣지 않는다.
+    let (rows, _) = build_rows(&got, &[]);
+    assert_eq!(
+        rows[0].config_dir.as_deref(),
+        Some("/home/u/.rocky/.claude-home")
+    );
+    assert!(serde_json::to_value(&rows[0])
+        .unwrap()
+        .get("configDir")
+        .is_none());
+}
+
+#[test]
+fn a_name_that_clashes_or_cannot_be_a_file_name_keeps_the_folder_name() {
+    let config = RcConfig {
+        pinned: vec!["a".into()],
+        targets: vec!["b".into(), "c".into(), "d".into(), "e".into(), "f".into()],
+        options: [
+            ("a".to_string(), opt(Some("b"), None)), // 다른 대상의 폴더 이름
+            ("b".to_string(), opt(Some(".."), None)),
+            ("c".to_string(), opt(Some("x/y"), None)), // 파일 이름이 못 된다
+            ("d".to_string(), opt(Some("same"), None)),
+            ("e".to_string(), opt(Some("same"), None)), // 앞에서 쓴 이름
+            ("f".to_string(), opt(Some("-c"), None)),   // `--name` 다음에서 플래그로 읽힌다
+        ]
+        .into_iter()
+        .collect(),
+        ..RcConfig::default()
+    };
+    let labels: Vec<String> = resolve_targets(&config, "/home/u")
+        .into_iter()
+        .map(|t| t.label)
+        .collect();
+    assert_eq!(labels, vec!["a", "b", "c", "same", "e", "f"]);
+}
+
+#[test]
+fn a_config_dir_goes_in_front_of_the_command_as_env() {
+    let argv = server_argv("로키", LaunchMode::Server, None, false);
+    assert_eq!(with_config_dir(argv.clone(), None), argv);
+    assert_eq!(
+        with_config_dir(argv, Some("/home/u/.rocky/.claude-home")),
+        vec![
+            "env",
+            "CLAUDE_CONFIG_DIR=/home/u/.rocky/.claude-home",
+            "claude",
+            "rc",
+            "--name",
+            "로키",
+            "--no-create-session-in-dir"
+        ]
+    );
+    // env 가 같은 pid 로 claude 를 실행하니 ps 에는 claude 명령줄만 보인다 — 서버 판정이 그대로 맞는다.
+    assert!(is_server_argv(
+        "claude rc --name 로키 --no-create-session-in-dir"
     ));
 }

@@ -104,7 +104,7 @@ impl RcController {
             current: current.map(str::to_string),
             recorded: std::fs::read_to_string(self.log_path(&row.label, "version")).ok(),
             live_session: row.sessions > 0,
-            last_write: last_write(&self.home, &row.dir),
+            last_write: last_write(&self.home, &row.dir, row.config_dir.as_deref()),
             pinned: row.pinned,
             started: self.carried_start(&row.label, started_at(now, row.uptime_secs)),
             offline: false,
@@ -143,7 +143,7 @@ impl RcController {
         let now = chrono::Utc::now().timestamp();
         let state = NightlyState {
             live_session: h.sessions > 0,
-            last_write: last_write(&self.home, &h.dir),
+            last_write: last_write(&self.home, &h.dir, None),
             started: started_at(now, h.uptime_secs),
             ..Default::default()
         };
@@ -1075,9 +1075,9 @@ where
     out
 }
 
-/// 그 폴더 대화 기록(`~/.claude/projects/<이름>/*.jsonl`) 중 가장 최근 mtime(unix 초) — 그 폴더 워크트리의 기록까지
-/// (`rc::transcript_dir_names`). 없으면 None.
-pub(super) fn last_write(home: &str, dir: &str) -> Option<i64> {
+/// 그 폴더 대화 기록(`~/.claude/projects/<이름>/*.jsonl`, 대상에 설정 폴더가 있으면 `<설정 폴더>/projects/…`) 중 가장 최근
+/// mtime(unix 초) — 그 폴더 워크트리의 기록까지(`rc::transcript_dir_names`). 없으면 None. 내용은 읽지 않는다.
+pub(super) fn last_write(home: &str, dir: &str, config_dir: Option<&str>) -> Option<i64> {
     let worktrees: Vec<String> = std::fs::read_dir(Path::new(dir).join(".claude/worktrees"))
         .map(|entries| {
             entries
@@ -1085,7 +1085,10 @@ pub(super) fn last_write(home: &str, dir: &str) -> Option<i64> {
                 .collect()
         })
         .unwrap_or_default();
-    let projects = Path::new(home).join(".claude/projects");
+    let projects = match config_dir {
+        Some(config) => Path::new(config).join("projects"),
+        None => Path::new(home).join(".claude/projects"),
+    };
     rc::transcript_dir_names(dir, &worktrees)
         .iter()
         .filter_map(|name| newest_jsonl(&projects.join(name)))

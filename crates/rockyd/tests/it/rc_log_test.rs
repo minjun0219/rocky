@@ -15,6 +15,7 @@ fn controller(rc_dir: &Path) -> Arc<RcController> {
             pinned: vec![],
             targets: vec![],
             worktree: vec![],
+            options: Default::default(),
             supervise: false,
             nightly: None,
         }),

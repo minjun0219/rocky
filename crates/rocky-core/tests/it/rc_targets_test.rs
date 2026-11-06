@@ -475,6 +475,7 @@ fn reload_applies_the_lists_and_keeps_the_switches() {
             pinned: vec!["b".into()],
             targets: vec!["a".into(), "d".into()],
             worktree: vec![],
+            options: Default::default(),
             supervise: true,
             nightly: None,
         })
@@ -491,6 +492,7 @@ fn reload_applies_the_lists_and_keeps_the_switches() {
             unpinned: vec!["a".into()],
             worktree_on: vec![],
             worktree_off: vec![],
+            options: Vec::new(),
             restart_needed: vec!["nightly"],
         }
     );
@@ -618,7 +620,7 @@ fn reload_report_serializes_camel_case() {
         serde_json::to_value(&report).unwrap(),
         json!({
             "active": false, "supervise": false, "applied": false, "added": [], "removed": [],
-            "pinned": [], "unpinned": [], "worktreeOn": [], "worktreeOff": [],
+            "pinned": [], "unpinned": [], "worktreeOn": [], "worktreeOff": [], "options": [],
             "restartNeeded": ["supervise"]
         })
     );
@@ -661,4 +663,93 @@ fn auto_reload_logs_list_changes_and_pending_switches_only() {
     );
     // 다른 블록만 고쳤다.
     assert_eq!(auto_reload_line(&Reload::default()), None);
+}
+
+// ── 대상별 칸(`rc.options`) ──
+
+#[test]
+fn list_shows_options_and_names_keys_that_match_no_target() {
+    let doc = json!({ "rc": {
+        "pinned": ["~/.rocky"],
+        "targets": ["beta"],
+        "options": {
+            "~/.rocky": { "name": "로키", "configDir": ".claude-home" },
+            "rokcy": { "name": "x" }
+        }
+    } });
+    let list = list_targets(&doc, HOME, &any_dir);
+    let view: Vec<(&str, Option<&str>)> = list
+        .targets
+        .iter()
+        .map(|t| (t.label.as_str(), t.config_dir.as_deref()))
+        .collect();
+    assert_eq!(
+        view,
+        vec![
+            ("로키", Some("/home/u/.rocky/.claude-home")),
+            ("beta", None)
+        ]
+    );
+    assert_eq!(list.unmatched_options, vec!["rokcy"]);
+}
+
+#[test]
+fn remove_also_drops_the_options_entry() {
+    // 남겨 두면 같은 폴더를 다시 더할 때 말없이 그 이름 · 설정 폴더로 뜬다.
+    let mut doc = json!({ "rc": {
+        "pinned": ["alpha"],
+        "targets": ["beta"],
+        "options": {
+            "~/dev/workspaces/beta": { "configDir": "/c" },
+            "alpha": { "name": "al" }
+        }
+    } });
+    assert_eq!(rm(&mut doc, "beta").map(|e| e.label), Ok("beta".into()));
+    assert_eq!(
+        doc,
+        json!({ "rc": {
+            "pinned": ["alpha"],
+            "targets": [],
+            "options": { "alpha": { "name": "al" } }
+        } })
+    );
+    // 이름을 바꾼 대상은 바꾼 이름으로 고른다. 마지막 칸이 빠지면 options 째 지운다.
+    assert_eq!(rm(&mut doc, "al").map(|e| e.label), Ok("al".into()));
+    assert_eq!(doc, json!({ "rc": { "pinned": [], "targets": [] } }));
+}
+
+#[test]
+fn reload_applies_options_and_names_what_changed() {
+    use rocky_core::config::RcTargetOptions;
+    let current = rc(&["a"], &["b", "c"]);
+    let options: std::collections::BTreeMap<String, RcTargetOptions> = [
+        (
+            "a".to_string(),
+            RcTargetOptions {
+                name: Some("에이".into()),
+                config_dir: None,
+            },
+        ),
+        (
+            "b".to_string(),
+            RcTargetOptions {
+                name: None,
+                config_dir: Some("/c".into()),
+            },
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let file = RcConfig {
+        options: options.clone(),
+        ..current.clone()
+    };
+    let (next, report) = plan_reload(Some(&current), Some(&file), HOME);
+    assert_eq!(next.map(|c| c.options), Some(options));
+    assert_eq!(report.options, vec!["에이".to_string(), "b".to_string()]);
+    assert_eq!(report.changes(), vec!["이름·설정 폴더 바뀜: 에이, b"]);
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["options"],
+        json!(["에이", "b"])
+    );
 }
