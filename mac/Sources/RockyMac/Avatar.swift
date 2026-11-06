@@ -701,7 +701,7 @@ private struct Rocky: View {
             let clip = moment.clip
             moment.clip = Clip(move: .look, start: clip.start, length: clip.length, tempo: clip.tempo)
         }
-        return RockyPose(moment, t: t, look: look)
+        return RockyPose(moment, t: t, style: look)
     }
 
     private func draw(in gc: inout GraphicsContext, size: CGSize, t: Double) {
@@ -1077,8 +1077,8 @@ struct RockyPose {
     /// `mac-avatar/pose/` 의 `tune.js` 로 겹쳐 보며 맞췄다). 통째 그림과 겹쳐 바꾸는 동안 관절은 이 자세 가까이에 있고,
     /// 통째 그림은 이 자세의 x · y · tilt · squash 에서 벗어난 만큼만 같이 움직인다(숨 쉬기).
     /// 돌멩이는 겹쳐 바꿀 통째 그림이 없어 그 자세를 관절로 짠 것(`PebbleRocky.twin`)이 쌍둥이다 — 관절이 곧장 그 자세로 섞여 간다.
-    static func twin(_ whole: Whole, look: AvatarStyle = .concept) -> RockyPose {
-        if look == .pebble { return PebbleRocky.twin(whole) }
+    static func twin(_ whole: Whole, style: AvatarStyle = .concept) -> RockyPose {
+        if style == .pebble { return PebbleRocky.twin(whole) }
         var q = RockyPose()
         switch whole {
         case .sleep:
@@ -1119,9 +1119,9 @@ struct RockyPose {
     /// 잠들기 — 기분이 바뀐 뒤 0-0.5초 주저앉으며 눈을 감고, 0.35-1.15초 엎드려 쌍둥이 자세로 가고, 1.0-1.4초 시안의 잠 그림으로
     /// 겹쳐 바꾼다. 그 뒤엔 숨만 쉰다(등이 오르내린다). 서 있다가 한 프레임 만에 엎드리던 때는 툭 튀었다(2026-11-06).
     private static let lie = (sit: 0.5, flat: 0.35 ... 1.15, show: 1.0 ... 1.4)
-    private static func lieDown(_ e: Double, t: Double, look: AvatarStyle) -> RockyPose {
+    private static func lieDown(_ e: Double, t: Double, style: AvatarStyle) -> RockyPose {
         let b = breath(t)
-        var flat = twin(.sleep, look: look)
+        var flat = twin(.sleep, style: style)
         flat.squash *= 1 + 0.015 * b
         flat.whole = .sleep
         guard e < lie.show.upperBound else {
@@ -1146,8 +1146,8 @@ struct RockyPose {
 
     /// 갸웃 — 연결이 끊긴 뒤 0-0.45초 오른손을 머리 옆으로 올리며 눈썹을 모으고, 0.3-0.6초 시안의 갸웃 그림으로 겹쳐 바꾼다.
     /// 회색은 `init` 이 0.6초에 걸쳐 입힌다.
-    private static func puzzle(_ e: Double, t: Double, look: AvatarStyle) -> RockyPose {
-        let target = twin(.puzzled, look: look)
+    private static func puzzle(_ e: Double, t: Double, style: AvatarStyle) -> RockyPose {
+        let target = twin(.puzzled, style: style)
         var q = e >= 0.6 ? target : mix(calm(t), target, smooth(e / 0.45))
         q.whole = .puzzled
         q.show = span(e, 0.3 ... 0.6)
@@ -1172,7 +1172,7 @@ struct RockyPose {
         return q
     }
 
-    private static func air(_ u: Double, look: AvatarStyle) -> RockyPose {
+    private static func air(_ u: Double, style: AvatarStyle) -> RockyPose {
         var reach = RockyPose()
         reach.face = .joy
         reach.y = -6
@@ -1180,7 +1180,7 @@ struct RockyPose {
         reach.armR = Arm(raise: 95, hand: .open)
         reach.legL = 8
         reach.legR = -8
-        var q = mix(crouched(1), twin(.jump, look: look), smooth(u / leap.unfold))
+        var q = mix(crouched(1), twin(.jump, style: style), smooth(u / leap.unfold))
         q = mix(q, reach, span(u, leap.reach))
         q.whole = .jump
         q.show = min(span(u, leap.show), 1 - span(u, leap.hide))
@@ -1190,8 +1190,8 @@ struct RockyPose {
 
     init() {}
 
-    init(_ moment: Moment, t: Double, look: AvatarStyle = .concept) {
-        base(moment, t: t, look: look)
+    init(_ moment: Moment, t: Double, style: AvatarStyle = .concept) {
+        base(moment, t: t, style: style)
         // 연결 없음 — 0.6초에 걸쳐 회색이 된다(떨어지거나 끌려가도).
         if moment.mood == .unknown { gray = Self.smooth((t - moment.since) / 0.6) }
         // 눈은 4초쯤에 한 번 깜빡인다.
@@ -1211,7 +1211,7 @@ struct RockyPose {
         legR -= 10 * a * rig
     }
 
-    private mutating func base(_ moment: Moment, t: Double, look: AvatarStyle) {
+    private mutating func base(_ moment: Moment, t: Double, style: AvatarStyle) {
         switch moment.action {
         case .walk:
             // 걷기 — 다리와 무게는 발 디딤(`plant`)이 옮긴다. 여기선 가는 쪽을 보며 윗몸을 조금 숙이고 팔을 살짝 내린다.
@@ -1242,7 +1242,7 @@ struct RockyPose {
         case .jump:
             // 쪼그렸다가(앞 60% 에 다 내려가 버틴다) 뛰어 시안의 점프 그림으로 겹쳐 바꾸고, 내려앉기 전에 다시 관절로 다리를 뻗는다.
             self = moment.flight > 0
-                ? Self.air(moment.flight, look: look) : Self.crouched(Self.smooth(min(moment.crouch / Self.leap.down, 1)))
+                ? Self.air(moment.flight, style: style) : Self.crouched(Self.smooth(min(moment.crouch / Self.leap.down, 1)))
             return
         case .fall:
             // 떨어지기 — 손을 펴고 허우적거리며 다리를 벌린다. 디딘 데가 없어 그림자도 없다.
@@ -1265,10 +1265,10 @@ struct RockyPose {
             awake(t: t, clip: moment.clip)
         case .resting:
             // 다 쉼 — 주저앉았다 엎드려 시안처럼 잔다. 숨에 맞춰 등이 오르내린다.
-            self = Self.lieDown(t - moment.since, t: t, look: look)
+            self = Self.lieDown(t - moment.since, t: t, style: style)
         case .unknown:
             // 연결 없음 — 손을 머리로 올려 시안처럼 머리를 긁으며 갸웃(회색은 `init` 이).
-            self = Self.puzzle(t - moment.since, t: t, look: look)
+            self = Self.puzzle(t - moment.since, t: t, style: style)
         }
     }
 
