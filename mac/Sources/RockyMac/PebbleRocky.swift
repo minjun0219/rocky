@@ -1,4 +1,4 @@
-// 돌멩이 로키 — 원작 느낌(사암색 돔 · 금 · 청록 점)을 다 뺀 각진 회색 바윗돌 캐릭터. 오너가 미니멀 벡터 다음으로 하나 더 보자고 했다
+// 돌멩이 로키 — 원작 느낌(사암색 돔 · 금 · 청록 점)을 다 뺀 면이 깎인 회색 돌 캐릭터. 오너가 미니멀 벡터 다음으로 하나 더 보자고 했다
 // (2026-11-06 "원작 느낌 없이 돌맹이 캐릭터로", 자세 시트와 SVG 사본은 프로젝트 파일 mac-avatar/simple-style/pebble-*).
 // 몸통 · 팔다리 · 얼굴만 다르고 자세(`RockyPose`)와 칸 좌표는 원작 조각 · `MinimalRocky` 와 같다 — 통째 자세도 `MinimalRocky.joints` 로 바꿔 받는다.
 import SwiftUI
@@ -14,15 +14,15 @@ enum PebbleRocky {
     private static let shoulders = (left: CGPoint(x: 112, y: 190), right: CGPoint(x: 404, y: 190))
     private static let rest = 37.33
 
-    /// 자는 자세 — 원작처럼 엎드려 팔을 뻗지 않고 팔다리를 다 넣은 채 바닥에 내려앉아 눈을 감는다(2026-11-06 오너가 원래 잠 자세가 이상하다고 해서 그린 후보 셋 중 하나,
+    /// 자는 자세 — 원작처럼 엎드려 팔을 뻗지 않고 팔다리를 다 넣은 채 바닥에 내려앉아 눈을 감는다(2026-11-06 오너가 원래 잠 자세가 이상하다고 해서 그린 후보 셋 중 골랐다,
     /// 후보는 프로젝트 파일 mac-avatar/simple-style/rock-sleep-options.png). 숨에 맞춘 눌림(`squash`)은 그대로 받는다.
     static func asleep(_ q: RockyPose) -> RockyPose {
         var m = q
         m.whole = nil
         m.blink = true
         m.face = .smile
-        // 바위 아래 끝(칸 y 252)이 발바닥(298.75)에 닿게 — 무대에는 `RockyArt.scale`(0.6)배로 올라간다.
-        m.y += (298.75 - 252) * 0.6
+        // 돌 아래 끝(칸 y 260 언저리)이 발바닥(298.75)에 닿게 — 무대에는 `RockyArt.scale`(0.6)배로 올라간다.
+        m.y += (298.75 - 260) * 0.6
         return m
     }
 
@@ -87,24 +87,30 @@ enum PebbleRocky {
         if hand == .curl { outlined(g, dot(0, 86, 26)) }
     }
 
-    /// 모서리가 각진 바윗돌 — 아래 그늘 한 줄과 왼쪽 위 반짝임 둘.
-    /// 처음엔 위가 볼록한 돔이었는데 오너가 "응가같은 모양"이라 해서 후보 넷(납작 조약돌 · 각진 바위 · 공 · 모찌) 중 각진 바위를 골랐다
-    /// (2026-11-06, 후보는 프로젝트 파일 mac-avatar/simple-style/pebble-shapes.png).
+    /// 면이 깎인 원석 같은 돌 — 비대칭 팔각 윤곽에 면 선 몇 줄(얼굴은 비켜 간다)과 왼쪽 위 반짝임 둘.
+    /// 처음엔 위가 볼록한 돔이었는데 오너가 "응가같은 모양", 다음 각진 바위는 "직사각형에서 벗어나 봐"라 해서 바꿨다
+    /// (2026-11-06, 후보는 프로젝트 파일 mac-avatar/simple-style/pebble-shapes.png · rock-shapes-2.png).
     private static func body(_ gc: GraphicsContext) {
         let corners: [CGPoint] = [
-            CGPoint(x: 122, y: 252), CGPoint(x: 96, y: 184), CGPoint(x: 136, y: 104), CGPoint(x: 226, y: 70),
-            CGPoint(x: 326, y: 78), CGPoint(x: 398, y: 118), CGPoint(x: 424, y: 196), CGPoint(x: 398, y: 252),
+            CGPoint(x: 96, y: 228), CGPoint(x: 128, y: 134), CGPoint(x: 242, y: 74), CGPoint(x: 372, y: 104),
+            CGPoint(x: 426, y: 192), CGPoint(x: 404, y: 250), CGPoint(x: 290, y: 262), CGPoint(x: 150, y: 258),
         ]
         var rock = Path()
         rock.addLines(corners)
         rock.closeSubpath()
         outlined(gc, rock, width: 8)
 
+        var facets = Path()
+        facets.addLines([CGPoint(x: 128, y: 134), CGPoint(x: 250, y: 112), CGPoint(x: 242, y: 74)])
+        facets.addLines([CGPoint(x: 250, y: 112), CGPoint(x: 372, y: 104)])
+        facets.addLines([CGPoint(x: 404, y: 250), CGPoint(x: 356, y: 224), CGPoint(x: 290, y: 262)])
+        gc.stroke(facets, with: .color(ink.opacity(0.45)), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+
         var shine = gc
-        shine.translateBy(x: 196, y: 104)
-        shine.rotate(by: .degrees(-20))
-        shine.fill(Path(ellipseIn: CGRect(x: -34, y: -15, width: 68, height: 30)), with: .color(.white.opacity(0.55)))
-        gc.fill(dot(242, 92, 5.5), with: .color(.white.opacity(0.55)))
+        shine.translateBy(x: 178, y: 128)
+        shine.rotate(by: .degrees(-25))
+        shine.fill(Path(ellipseIn: CGRect(x: -30, y: -13, width: 60, height: 26)), with: .color(.white.opacity(0.55)))
+        gc.fill(dot(216, 106, 5), with: .color(.white.opacity(0.55)))
     }
 
     /// 얼굴 — 세로로 긴 점 눈, 볼터치, 고양이 입(ω). 눈은 보는 쪽(`look`)으로 5 옮긴다.
