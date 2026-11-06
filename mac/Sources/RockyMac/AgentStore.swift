@@ -36,6 +36,11 @@ final class AgentStore {
         didSet { UserDefaults.standard.set(follow, forKey: "follow") }
     }
 
+    /// 아바타 모양 — 원작 · 돌멩이. 기본은 원작.
+    var avatarStyle: AvatarStyle {
+        didSet { UserDefaults.standard.set(avatarStyle.rawValue, forKey: AvatarStyle.key) }
+    }
+
     /// 아바타가 할 혼잣말(`Chatter`) — 세션 목록을 새로 받을 때 정하고, 같은 글이 또 나와도 알아보게 번호를 붙인다.
     private(set) var chat: AvatarChat?
     private var chatter = Chatter()
@@ -49,6 +54,7 @@ final class AgentStore {
         showAvatar = UserDefaults.standard.object(forKey: "avatar") as? Bool ?? true
         roam = UserDefaults.standard.object(forKey: "roam") as? Bool ?? true
         follow = UserDefaults.standard.object(forKey: "follow") as? Bool ?? true
+        avatarStyle = AvatarStyle.resolve(UserDefaults.standard.string(forKey: AvatarStyle.key))
     }
 
     var rows: [Session] { agentRows(result?.sessions ?? []) }
@@ -93,4 +99,14 @@ final class AgentStore {
 struct AvatarChat: Equatable {
     var id: Int
     var text: String
+}
+
+extension AvatarStyle {
+    /// 메뉴에 보이는 이름.
+    var title: String {
+        switch self {
+        case .concept: "원작"
+        case .pebble: "돌멩이"
+        }
+    }
 }

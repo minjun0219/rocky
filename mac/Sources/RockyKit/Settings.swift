@@ -21,3 +21,15 @@ public struct DaemonSettings: Equatable, Sendable {
         return DaemonSettings(base: base, actor: actor)
     }
 }
+
+/// 아바타 모양(`defaults` 의 `avatarStyle`) — 원작 시안을 잘라 낸 조각(`concept`)과 원작 느낌을 뺀 회색 돌멩이(`pebble`).
+/// 모르는 값이나 빈 값은 원작이다(비교용으로 잠깐 있던 `minimal` · `all` 도 원작으로 돌아간다).
+public enum AvatarStyle: String, CaseIterable, Sendable {
+    case concept, pebble
+
+    public static let key = "avatarStyle"
+
+    public static func resolve(_ raw: String?) -> AvatarStyle {
+        raw.flatMap { AvatarStyle(rawValue: $0.trimmingCharacters(in: .whitespaces)) } ?? .concept
+    }
+}

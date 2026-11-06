@@ -956,6 +956,37 @@ final class ChatterTests: XCTestCase {
         // 다 쉬면 조르지 않는다.
         XCTAssertNil(chatter.update([Session(sessionId: "c", name: "owl")], now: Chatter.nudge * 3))
     }
+
+    func testAvatarStyleFallsBackToConcept() {
+        XCTAssertEqual(AvatarStyle.resolve(nil), .concept)
+        XCTAssertEqual(AvatarStyle.resolve(""), .concept)
+        XCTAssertEqual(AvatarStyle.resolve("pixel"), .concept)
+        // 비교용으로 잠깐 있던 값은 원작으로 돌아간다.
+        XCTAssertEqual(AvatarStyle.resolve("minimal"), .concept)
+        XCTAssertEqual(AvatarStyle.resolve("all"), .concept)
+        XCTAssertEqual(AvatarStyle.resolve(" pebble "), .pebble)
+        XCTAssertEqual(AvatarStyle.allCases, [.concept, .pebble])
+    }
+
+    func testExtraMovesOnlyWhenAsked() {
+        XCTAssertFalse(Choreographer.breaks(at: .window).contains { $0.move.isExtra })
+        let extras = Set(Choreographer.breaks(at: .window, extras: true).map(\.move).filter(\.isExtra))
+        XCTAssertEqual(extras, Set(Move.allCases.filter(\.isExtra)))
+        XCTAssertEqual(extras.count, 8)
+
+        // 원작만 보이면 새 동작을 고르지 않는다.
+        var plain = Choreographer()
+        var moves = Choreographer()
+        moves.extras = true
+        var sawExtra = false
+        for i in 0 ..< 400 {
+            let r = Double(i % 97) / 97
+            let now = Double(i) * 10
+            if plain.update(now: now, mood: .working, spot: .window, random: { r }).move.isExtra { XCTFail("원작에 새 동작") }
+            if moves.update(now: now, mood: .working, spot: .window, random: { r }).move.isExtra { sawExtra = true }
+        }
+        XCTAssertTrue(sawExtra)
+    }
 }
 
 final class EyeCoverTests: XCTestCase {
