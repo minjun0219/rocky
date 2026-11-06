@@ -29,8 +29,9 @@ enum PebbleRocky {
         return m
     }
 
-    /// `tucked` 면 팔다리를 그리지 않는다(잘 때).
+    /// `tucked` 면 팔다리를 그리지 않는다(잘 때, 그리고 구르기 · 돌인 척하기의 `q.tuck`).
     static func draw(_ q: RockyPose, tucked: Bool = false, in gc: GraphicsContext) {
+        let tucked = tucked || q.tuck
         if !tucked {
             leg(gc, hip: hips.left, angle: q.legL, step: q.stepL)
             leg(gc, hip: hips.right, angle: q.legR, step: q.stepR)
@@ -156,7 +157,7 @@ enum PebbleRocky {
                 Path(ellipseIn: CGRect(x: eye.x + 4 * out - 17, y: eye.y + 18, width: 34, height: 20)),
                 with: .color(cheek.opacity(0.8))
             )
-            if q.blink {
+            if q.blink || (q.face == .wink && i == 0) {
                 var lid = Path()
                 lid.move(to: CGPoint(x: eye.x - 15, y: eye.y))
                 lid.addQuadCurve(to: CGPoint(x: eye.x + 15, y: eye.y), control: CGPoint(x: eye.x, y: eye.y + 12))
@@ -192,7 +193,7 @@ enum PebbleRocky {
             path.move(to: CGPoint(x: mouth.x - 9, y: mouth.y + 2))
             path.addLine(to: CGPoint(x: mouth.x + 9, y: mouth.y + 2))
             gc.stroke(path, with: .color(ink), style: pen)
-        case .smile, .happy:
+        case .smile, .happy, .wink:
             path.move(to: CGPoint(x: mouth.x - 11, y: mouth.y))
             path.addQuadCurve(to: CGPoint(x: mouth.x, y: mouth.y), control: CGPoint(x: mouth.x - 5.5, y: mouth.y + 8))
             path.addQuadCurve(to: CGPoint(x: mouth.x + 11, y: mouth.y), control: CGPoint(x: mouth.x + 5.5, y: mouth.y + 8))

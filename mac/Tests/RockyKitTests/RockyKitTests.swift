@@ -972,4 +972,24 @@ final class ChatterTests: XCTestCase {
         // 패널은 오른쪽 끝 칸을 발 자리로 삼으니 원작이 그 자리에 그대로 선다.
         XCTAssertEqual(AvatarStyle.all.figures, [.pebble, .minimal, .concept])
     }
+
+    func testExtraMovesOnlyWhenAsked() {
+        XCTAssertFalse(Choreographer.breaks(at: .window).contains { $0.move.isExtra })
+        let extras = Set(Choreographer.breaks(at: .window, extras: true).map(\.move).filter(\.isExtra))
+        XCTAssertEqual(extras, Set(Move.allCases.filter(\.isExtra)))
+        XCTAssertEqual(extras.count, 8)
+
+        // 원작만 보이면 새 동작을 고르지 않는다.
+        var plain = Choreographer()
+        var moves = Choreographer()
+        moves.extras = true
+        var sawExtra = false
+        for i in 0 ..< 400 {
+            let r = Double(i % 97) / 97
+            let now = Double(i) * 10
+            if plain.update(now: now, mood: .working, spot: .window, random: { r }).move.isExtra { XCTFail("원작에 새 동작") }
+            if moves.update(now: now, mood: .working, spot: .window, random: { r }).move.isExtra { sawExtra = true }
+        }
+        XCTAssertTrue(sawExtra)
+    }
 }

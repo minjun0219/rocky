@@ -12,6 +12,17 @@ public enum Move: String, CaseIterable, Sendable {
     /// 내 차례 — 처음엔 한 번 껑충 뛰며 주먹 인사를 하고, 그 뒤엔 마우스 쪽을 보고 서 있다가 가끔 손만 흔든다.
     /// 지켜보기(`watch`)는 깨어 있을 때도 쓴다 — 마우스 쪽을 보고 서 있다가 쉬는 동작 하나를 한다.
     case cheer, watch, wave
+    /// 그림체를 미니멀 · 돌멩이로 고르면 더해지는 쉬는 동작 — 구르기, 몸 털기, 기지개, 춤, 돌인 척하기, 하품, 박수, 하트(2026-11-06 오너 "그냥 다 넣자").
+    /// 원작 조각은 돌리기만 해서 구르기나 돌인 척이 어색하니 원작에는 넣지 않는다(`Choreographer.extras`).
+    case roll, shake, stretch, dance, hide, yawn, clap, heart
+
+    /// 미니멀 · 돌멩이에만 있는 동작인지.
+    public var isExtra: Bool {
+        switch self {
+        case .roll, .shake, .stretch, .dance, .hide, .yawn, .clap, .heart: true
+        default: false
+        }
+    }
 }
 
 /// 서 있는 자리 — 창 끝이면 내려다보기가 후보에 든다(`toward` 는 끝이 있는 쪽, +1 오른쪽).
@@ -71,8 +82,8 @@ public struct Break: Equatable, Sendable {
 }
 
 public struct Choreographer: Equatable, Sendable {
-    /// 쉬는 동작 후보 — 창 끝이면 내려다보기가 들고, 바닥이면 앉기가 더 잦다.
-    public static func breaks(at spot: Spot) -> [Break] {
+    /// 쉬는 동작 후보 — 창 끝이면 내려다보기가 들고, 바닥이면 앉기가 더 잦다. `extras` 면 미니멀 · 돌멩이 동작이 더해진다.
+    public static func breaks(at spot: Spot, extras: Bool = false) -> [Break] {
         var out = [
             Break(move: .look, weight: 4, length: 1.6 ... 2.6),
             Break(move: .wipe, weight: 3, length: 1.4 ... 2.0),
@@ -81,6 +92,18 @@ public struct Choreographer: Equatable, Sendable {
             Break(move: .sit, weight: spot == .floor ? 2 : 1, length: 2.5 ... 4),
         ]
         if case .edge = spot { out.append(Break(move: .peek, weight: 3, length: 1.5 ... 2.5)) }
+        if extras {
+            out += [
+                Break(move: .roll, weight: 1, length: 1.6 ... 2.2),
+                Break(move: .shake, weight: 1.5, length: 1.0 ... 1.4),
+                Break(move: .stretch, weight: 1.5, length: 2.0 ... 3.0),
+                Break(move: .dance, weight: 1, length: 2.5 ... 4.0),
+                Break(move: .hide, weight: 1, length: 3.0 ... 5.0),
+                Break(move: .yawn, weight: 1, length: 1.8 ... 2.6),
+                Break(move: .clap, weight: 1, length: 1.5 ... 2.2),
+                Break(move: .heart, weight: 1, length: 1.8 ... 2.6),
+            ]
+        }
         return out
     }
 
@@ -96,6 +119,8 @@ public struct Choreographer: Equatable, Sendable {
     public static let waveLength: Double = 2.4
 
     public private(set) var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
+    /// 미니멀 · 돌멩이 동작도 고르나 — 앱이 그림체를 보고 바퀴마다 정한다. 바꿔도 지금 토막은 마저 한다.
+    public var extras = false
     var mood: MoveMood?
     /// 방금 한 쉬는 동작 — 다음 쉬는 동작에서 뺀다.
     var lastBreak: Move?
@@ -134,7 +159,8 @@ public struct Choreographer: Equatable, Sendable {
     private mutating func next(after move: Move, spot: Spot, random: () -> Double) -> Move {
         switch move {
         case .hammer: return pickBreak(at: spot, random: random)
-        case .look, .wipe, .shoulder, .stomp, .sit, .peek: return mood == .awake ? .watch : .hammer
+        case .look, .wipe, .shoulder, .stomp, .sit, .peek, .roll, .shake, .stretch, .dance, .hide, .yawn, .clap, .heart:
+            return mood == .awake ? .watch : .hammer
         case .cheer, .wave: return .watch
         case .watch: return mood == .awake ? pickBreak(at: spot, random: random) : .wave
         case .mood: return .mood
@@ -143,7 +169,7 @@ public struct Choreographer: Equatable, Sendable {
 
     /// 쉬는 동작 하나 — 가중 랜덤, 방금 한 것은 뺀다.
     private mutating func pickBreak(at spot: Spot, random: () -> Double) -> Move {
-        let options = Self.breaks(at: spot).filter { $0.move != lastBreak }
+        let options = Self.breaks(at: spot, extras: extras).filter { $0.move != lastBreak }
         let pick = Self.weighted(options.map { $0.weight }, random())
         lastBreak = options[pick].move
         return options[pick].move
@@ -164,8 +190,8 @@ public struct Choreographer: Equatable, Sendable {
             clip = Clip(move: .wave, start: now, length: Self.waveLength, tempo: 1)
         case .mood:
             clip = Clip(move: .mood, start: now, length: 0, tempo: 1)
-        case .look, .wipe, .shoulder, .stomp, .sit, .peek:
-            let range = Self.breaks(at: spot).first { $0.move == move }?.length ?? 1 ... 2
+        case .look, .wipe, .shoulder, .stomp, .sit, .peek, .roll, .shake, .stretch, .dance, .hide, .yawn, .clap, .heart:
+            let range = Self.breaks(at: spot, extras: true).first { $0.move == move }?.length ?? 1 ... 2
             clip = Clip(move: move, start: now, length: Self.pick(range, random()), tempo: 1)
         }
     }

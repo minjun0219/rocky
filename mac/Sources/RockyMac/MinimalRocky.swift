@@ -52,15 +52,20 @@ enum MinimalRocky {
     }
 
     /// 뒤에서 앞으로 — 다리, 팔, 몸통, 무늬, 얼굴. `gc` 는 원작 조각과 같은 칸 좌표로 맞춰 둔 것.
+    /// 팔다리를 넣은 자세(`q.tuck` — 구르기 · 돌인 척하기)면 몸통과 얼굴만.
     static func draw(_ q: RockyPose, in gc: GraphicsContext) {
-        leg(gc, hip: hips.left, angle: q.legL, step: q.stepL)
-        leg(gc, hip: hips.right, angle: q.legR, step: q.stepR)
+        if !q.tuck {
+            leg(gc, hip: hips.left, angle: q.legL, step: q.stepL)
+            leg(gc, hip: hips.right, angle: q.legR, step: q.stepR)
+        }
         var upper = gc
         upper.translateBy(x: 258, y: 236 + q.rise)
         upper.rotate(by: .degrees(q.lean))
         upper.translateBy(x: -258, y: -236)
-        arm(upper, left: true, q.armL)
-        arm(upper, left: false, q.armR)
+        if !q.tuck {
+            arm(upper, left: true, q.armL)
+            arm(upper, left: false, q.armR)
+        }
         body(upper)
         face(upper, q)
     }
@@ -157,7 +162,7 @@ enum MinimalRocky {
         let eyes = [CGPoint(x: 216 + shift, y: 160), CGPoint(x: 300 + shift, y: 160)]
         let pen = StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
         for (i, eye) in eyes.enumerated() {
-            if q.blink {
+            if q.blink || (q.face == .wink && i == 0) {
                 // 감은 눈 — 아래로 둥근 선.
                 var lid = Path()
                 lid.move(to: CGPoint(x: eye.x - 16, y: eye.y))
@@ -196,7 +201,7 @@ enum MinimalRocky {
             path.move(to: CGPoint(x: mouth.x - 11, y: mouth.y + 2))
             path.addLine(to: CGPoint(x: mouth.x + 11, y: mouth.y + 2))
             gc.stroke(path, with: .color(ink), style: pen)
-        case .smile, .happy:
+        case .smile, .happy, .wink:
             path.move(to: CGPoint(x: mouth.x - 14, y: mouth.y))
             path.addQuadCurve(to: CGPoint(x: mouth.x + 14, y: mouth.y), control: CGPoint(x: mouth.x, y: mouth.y + 14))
             gc.stroke(path, with: .color(ink), style: pen)
