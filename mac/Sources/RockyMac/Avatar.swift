@@ -299,12 +299,15 @@ final class AvatarController {
         let squash = roamer?.squash ?? 0, crouch = roamer?.crouch ?? 0
         if pose.squash != squash { pose.squash = squash }
         if pose.crouch != crouch { pose.crouch = crouch }
-        guard pose.action == .stand || pose.action == .sit else { return }
-        var facing = pose.facing
-        switch clip.move {
-        case .watch: facing = NSEvent.mouseLocation.x >= panel.frame.minX + Self.foot.x ? 1 : -1
-        case .peek: if case let .edge(toward) = here { facing = toward }
-        default: break
+        // 보는 쪽은 한 바퀴에 한 번만 정한다 — 걷는 쪽에, 서 있을 때의 몸짓(마우스 쪽 보기 · 내려다보기)을 얹어서.
+        // 걸음과 몸짓이 따로 바꾸면 돌아서기(`RoamPose.turn`)가 바퀴마다 처음부터 다시 시작해 끝내 돌아서지 못한다.
+        var facing = roamer?.facing ?? pose.facing
+        if pose.action == .stand || pose.action == .sit {
+            switch clip.move {
+            case .watch: facing = NSEvent.mouseLocation.x >= panel.frame.minX + Self.foot.x ? 1 : -1
+            case .peek: if case let .edge(toward) = here { facing = toward }
+            default: break
+            }
         }
         pose.turn(to: facing)
     }
@@ -367,7 +370,6 @@ final class AvatarController {
         }
         if panel.ignoresMouseEvents == hot { panel.ignoresMouseEvents = !hot }
         if pose.action != roamer.action { pose.switchAction(to: roamer.action) }
-        pose.turn(to: roamer.facing)
         // 발 — 발판 위(뛰기 전 쪼그림까지)면 한 발씩 디디고, 떠 있으면 몸과 같이 옮기며 엉덩이 아래로 끌어온다.
         var feet = self.feet ?? Feet(x: roamer.x)
         switch roamer.action {
