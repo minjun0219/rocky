@@ -40,6 +40,13 @@ struct MenuContent: View {
                     .toggleStyle(.switch)
                     .controlSize(.mini)
             }
+            if agents.showAvatar {
+                Picker("모양", selection: $agents.avatarStyle) {
+                    ForEach(AvatarStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+            }
             AgentList(agents: agents)
 
             Divider()

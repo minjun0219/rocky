@@ -956,4 +956,19 @@ final class ChatterTests: XCTestCase {
         // 다 쉬면 조르지 않는다.
         XCTAssertNil(chatter.update([Session(sessionId: "c", name: "owl")], now: Chatter.nudge * 3))
     }
+
+    func testAvatarStyleFallsBackToConcept() {
+        XCTAssertEqual(AvatarStyle.resolve(nil), .concept)
+        XCTAssertEqual(AvatarStyle.resolve(""), .concept)
+        XCTAssertEqual(AvatarStyle.resolve("pixel"), .concept)
+        XCTAssertEqual(AvatarStyle.resolve("minimal"), .minimal)
+        XCTAssertEqual(AvatarStyle.resolve(" both "), .both)
+    }
+
+    func testBothPutsConceptOnTheFootCell() {
+        XCTAssertEqual(AvatarStyle.concept.figures, [.concept])
+        XCTAssertEqual(AvatarStyle.minimal.figures, [.minimal])
+        // 패널은 오른쪽 끝 칸을 발 자리로 삼으니 원작이 그 자리에 그대로 선다.
+        XCTAssertEqual(AvatarStyle.both.figures, [.minimal, .concept])
+    }
 }

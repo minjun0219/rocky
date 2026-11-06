@@ -21,3 +21,29 @@ public struct DaemonSettings: Equatable, Sendable {
         return DaemonSettings(base: base, actor: actor)
     }
 }
+
+/// 아바타 모양(`defaults` 의 `avatarStyle`) — 원작 시안을 잘라 낸 조각(`concept`), 도형 열몇 개로 그린 미니멀 벡터(`minimal`),
+/// 둘을 나란히 띄워 비교하기(`both`). 모르는 값이나 빈 값은 원작이다.
+public enum AvatarStyle: String, CaseIterable, Sendable {
+    case concept, minimal, both
+
+    public static let key = "avatarStyle"
+
+    public static func resolve(_ raw: String?) -> AvatarStyle {
+        raw.flatMap { AvatarStyle(rawValue: $0.trimmingCharacters(in: .whitespaces)) } ?? .concept
+    }
+
+    /// 그릴 로키들, 왼쪽에서 오른쪽 순서 — 원작은 늘 오른쪽 끝(패널이 발 자리로 삼는 칸)에 선다.
+    public var figures: [AvatarLook] {
+        switch self {
+        case .concept: [.concept]
+        case .minimal: [.minimal]
+        case .both: [.minimal, .concept]
+        }
+    }
+}
+
+/// 로키 하나의 그림체.
+public enum AvatarLook: Sendable {
+    case concept, minimal
+}

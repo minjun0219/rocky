@@ -319,7 +319,7 @@ final class AvatarController {
         // 사람이 로키를 누르고 있는 동안은 걷지 않고 포인터에 매달려 있다 — 누른 채 멈춰 있어도(패널이 안 움직여도)
         // 걷거나 떨어지면 포인터를 놓친다. 놓으면 그 자리에서 떨어진다.
         let down = NSEvent.pressedMouseButtons & 1 != 0
-        if down, !wasDown, Self.figure(at: origin).contains(NSEvent.mouseLocation) { dragging = true }
+        if down, !wasDown, Self.figure(at: origin, count: agents.avatarStyle.figures.count).contains(NSEvent.mouseLocation) { dragging = true }
         wasDown = down
         let moved = placed.map { $0 != origin } ?? false
         if dragging || moved {
@@ -364,7 +364,7 @@ final class AvatarController {
         placed = next
         // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
-        var hot = Self.figure(at: next).contains(mouse)
+        var hot = Self.figure(at: next, count: agents.avatarStyle.figures.count).contains(mouse)
         if pose.chat != nil || agents.mood.bubble.map({ $0 != pose.dismissed }) == true {
             hot = NSRect(origin: next, size: Self.size).contains(mouse)
         }
@@ -384,9 +384,10 @@ final class AvatarController {
         showTube(roamer)
     }
 
-    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88)의 화면 자리.
-    private static func figure(at origin: NSPoint) -> NSRect {
-        NSRect(x: origin.x + size.width - 96, y: origin.y, width: 96, height: 88)
+    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88, 둘 다 띄우면 그 왼쪽에 한 칸 더)의 화면 자리.
+    private static func figure(at origin: NSPoint, count: Int) -> NSRect {
+        let width = 96 * CGFloat(count) + AvatarView.gap * CGFloat(count - 1)
+        return NSRect(x: origin.x + size.width - width, y: origin.y, width: width, height: 88)
     }
 
     /// 화면에 떠 있는 보통 창(레이어 0)들 — 앞에서 뒤 순서, AppKit 좌표로. 자기 창과 아주 작은 창은 뺀다.
@@ -555,19 +556,12 @@ struct AvatarView: View {
             } else if let chat = pose.chat {
                 Bubble(text: chat) { pose.chat = nil }
             }
-            Rocky(
-                mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
-                facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
-                clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible
-            )
-                .frame(width: 96, height: 88)
-                .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
-                .animation(.easeInOut(duration: 0.25), value: pose.shrunk)
-                .help(agents.mood.summary)
-                // 한 번 누르는 건 끌어 옮기다 놓는 것과 헷갈린다 — 웹 에이전트 탭은 두 번 눌러야 연다.
-                .onTapGesture(count: 2) {
-                    if let url = agents.agentsURL { openURL(url) }
+            // 둘 다 띄우면(비교용) 미니멀이 원작 왼쪽에 같은 자세로 나란히 선다.
+            HStack(alignment: .bottom, spacing: Self.gap) {
+                ForEach(agents.avatarStyle.figures, id: \.self) { look in
+                    figure(look)
                 }
+            }
         }
         .frame(width: 240, height: 170, alignment: .bottomTrailing)
         .contextMenu {
@@ -577,11 +571,33 @@ struct AvatarView: View {
             Button(agents.roam ? "돌아다니기 멈추기" : "돌아다니기") { agents.roam.toggle() }
             Button(agents.follow ? "따라다니기 멈추기" : "따라다니기") { agents.follow.toggle() }
                 .disabled(!agents.roam)
+            Picker("모양", selection: Binding(get: { agents.avatarStyle }, set: { agents.avatarStyle = $0 })) {
+                ForEach(AvatarStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
             Button("아바타 숨기기") { agents.showAvatar = false }
         }
         .animation(.easeInOut(duration: 0.3), value: agents.mood)
         .animation(.easeInOut(duration: 0.2), value: pose.dismissed)
         .animation(.easeInOut(duration: 0.3), value: pose.chat)
+    }
+
+    /// 둘 다 띄울 때 두 로키 사이.
+    static let gap: CGFloat = 4
+
+    private func figure(_ look: AvatarLook) -> some View {
+        Rocky(
+            mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
+            facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
+            clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible, look: look
+        )
+            .frame(width: 96, height: 88)
+            .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
+            .animation(.easeInOut(duration: 0.25), value: pose.shrunk)
+            .help(agents.mood.summary)
+            // 한 번 누르는 건 끌어 옮기다 놓는 것과 헷갈린다 — 웹 에이전트 탭은 두 번 눌러야 연다.
+            .onTapGesture(count: 2) {
+                if let url = agents.agentsURL { openURL(url) }
+            }
     }
 }
 
@@ -640,6 +656,8 @@ private struct Rocky: View {
     var squash = 0.0
     var crouch = 0.0
     var visible = true
+    /// 그림체 — 원작 조각(`RockyArt`)이나 미니멀 벡터(`MinimalRocky`). 자세(`RockyPose`)는 둘이 같다.
+    var look = AvatarLook.concept
 
     /// 움직임이 바뀔 때 앞 자세와 섞는 시간(초).
     static let blend = 0.2
@@ -674,7 +692,8 @@ private struct Rocky: View {
                 with: .color(.black.opacity(0.12))
             )
         }
-        guard let art = RockyArt.shared else {
+        let art = RockyArt.shared
+        if look == .concept, art == nil {
             // 그림을 못 읽으면 돌 하나라도.
             gc.fill(Path(ellipseIn: CGRect(x: 100, y: 170, width: 160, height: 130)), with: .color(.gray))
             return
@@ -708,13 +727,24 @@ private struct Rocky: View {
             figure.scaleBy(x: width, y: 1)
             figure.translateBy(x: -180, y: 0)
         }
-        if let whole = q.whole {
+        if look == .minimal {
+            // 미니멀 벡터 — 조각과 같은 칸 좌표로 그리고, 통째 자세도 관절로 짠다(`MinimalRocky.joints`).
+            // 통째 자세는 원작처럼 발 자리를 축으로 눌린다 — 몸통 가운데를 축으로 누르면 발이 뜨니 그만큼 내린다.
+            let m = MinimalRocky.joints(q)
+            let sole = (RockyArt.sole - RockyArt.center.y) * RockyArt.scale
+            let sink = q.whole == nil ? 0 : sole * (1 - m.squash)
+            figure.translateBy(x: 180, y: 312 - sole + m.y + sink)
+            figure.rotate(by: .degrees(m.tilt))
+            figure.scaleBy(x: RockyArt.scale, y: RockyArt.scale * m.squash)
+            figure.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
+            MinimalRocky.draw(m, in: figure)
+        } else if let art, let whole = q.whole {
             // 통째 포즈 — 그림의 아래 끝을 무대의 발 자리(y 312)에, 기울기와 눌림은 그 가운데를 축으로.
             figure.translateBy(x: 180, y: 312 + q.y)
             figure.rotate(by: .degrees(q.tilt))
             figure.scaleBy(x: RockyArt.scale, y: RockyArt.scale * q.squash)
             art.draw(whole, in: figure)
-        } else {
+        } else if let art {
             // 발바닥이 무대의 발 자리(y 312)에 오게 — 기울기와 눌림은 몸통 가운데를 축으로.
             figure.translateBy(x: 180, y: 312 - (RockyArt.sole - RockyArt.center.y) * RockyArt.scale + q.y)
             figure.rotate(by: .degrees(q.tilt))
@@ -734,7 +764,7 @@ private struct Rocky: View {
 
 /// 한 순간의 자세. 팔의 `raise` 는 시안의 내린 팔(0)에서 몸 밖으로 드는 각도, 다리는 화면 시계 방향이 + — 왼다리 +, 오른다리 − 면 벌린다.
 /// `tilt` 도 시계 방향(오른쪽을 볼 때 앞으로 숙임)이 +. `whole` 이 있으면 관절 대신 시안의 그 자세를 통째로 그린다.
-private struct RockyPose {
+struct RockyPose {
     enum Face { case smile, happy, joy, focus, surprise }
     /// 손 — 시안의 내린 손, 점프할 때 편 손, 갸웃할 때 머리에 댄 손(오른손만 있다).
     enum Hand { case rest, open, curl }
