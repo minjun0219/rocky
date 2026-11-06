@@ -67,6 +67,14 @@ public func walls(windows: [Box], screen: Box, headroom: Double = 90) -> [Wall] 
     }
 }
 
+/// 박자(디스플레이 링크)와 그림을 돌릴지 — 아무도 못 보는데 초당 60번 그리면 CPU 5% 를 쓴다(2026-11-06 화면 없는 맥에서 실측).
+/// 화면이 잠들었거나 하나도 없으면 멈추고, 패널이 화면 안에서 다 가려졌으면(화면 잠금 · 화면 보호기 포함) 멈춘다.
+/// 패널이 화면 밖으로 밀려났으면(화면을 뺐을 때) 돌아다니는 동안은 돌린다 — 박자가 돌아야 화면 안으로 걸어 들어온다.
+public func framesRun(screensAsleep: Bool, screenCount: Int, onScreen: Bool, visible: Bool, roaming: Bool) -> Bool {
+    guard !screensAsleep, screenCount > 0 else { return false }
+    return onScreen ? visible : roaming
+}
+
 /// 기분이 정하는 움직임 — 일하는 중(과 깨어 있을 때)이면 돌아다니고, 내 차례면 사람 곁에 서서 알리다 가끔 그 곁에서 서성이고(`pace`),
 /// 연결이 없으면 그 자리에 서 있고(`stay`), 다 쉬면 앉아 존다.
 public enum RoamMood: Equatable, Sendable {

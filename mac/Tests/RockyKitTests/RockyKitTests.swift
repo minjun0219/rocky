@@ -424,6 +424,18 @@ final class RoamTests: XCTestCase {
         XCTAssertEqual(rocky.x, 500)
     }
 
+    func testFramesStopWhenNobodyCanSeeRocky() {
+        // 화면이 잠들었거나 하나도 없으면(화면 없는 맥) 멈춘다.
+        XCTAssertFalse(framesRun(screensAsleep: true, screenCount: 1, onScreen: true, visible: true, roaming: true))
+        XCTAssertFalse(framesRun(screensAsleep: false, screenCount: 0, onScreen: false, visible: true, roaming: true))
+        // 화면 안이면 보이는 동안만 — 다 가려지면(화면 잠금 · 화면 보호기) 멈춘다.
+        XCTAssertTrue(framesRun(screensAsleep: false, screenCount: 1, onScreen: true, visible: true, roaming: false))
+        XCTAssertFalse(framesRun(screensAsleep: false, screenCount: 1, onScreen: true, visible: false, roaming: true))
+        // 화면 밖으로 밀려났으면 돌아다니는 동안은 돌려 걸어 들어오게 한다 — 안 돌아다니면 옮길 일이 없다.
+        XCTAssertTrue(framesRun(screensAsleep: false, screenCount: 1, onScreen: false, visible: false, roaming: true))
+        XCTAssertFalse(framesRun(screensAsleep: false, screenCount: 1, onScreen: false, visible: false, roaming: false))
+    }
+
     func testTubeArcsAboveBothEnds() {
         let tube = Tube(startX: 100, startY: 0, endX: 700, endY: 300, screen: screen)
         XCTAssertEqual(tube.point(at: 0).x, 100)

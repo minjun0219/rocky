@@ -45,7 +45,7 @@ final class AvatarController {
     /// 왼쪽 버튼이 로키 위에서 눌린 채인지 — 지난 바퀴에 눌려 있었는지로 "막 눌렀다"를 가린다.
     private var dragging = false
     private var wasDown = false
-    /// 화면이 잠들었는지 — 보이지 않는 동안은 박자를 멈춘다(꺼진 화면에서도 CPU 5% 를 쓰던 것, 2026-11-06 실측).
+    /// 화면이 잠들었는지 — 아무도 못 보는 동안은 박자를 멈춘다(`RockyKit.framesRun`).
     private var screensAsleep = false
     private var observers: [NSObjectProtocol] = []
 
@@ -68,11 +68,24 @@ final class AvatarController {
                 }
             })
         }
+        // 화면이 붙거나 빠지면 다시 본다 — 하나도 없으면 멈추고, 패널이 화면 밖으로 밀려났으면 걸어 들어오게 돌린다.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateVisibility() }
+        })
     }
 
-    /// 보이는지 따라 박자와 그림을 멈추고 다시 돌린다 — 화면이 잠들었거나 패널이 다 가려지면(화면 잠금 포함) 멈춘다.
+    /// 보이는지 따라 박자와 그림을 멈추고 다시 돌린다 — 판정은 `RockyKit.framesRun`(화면이 잠들었거나 하나도 없거나,
+    /// 패널이 화면 안에서 다 가려지면 멈춘다. 화면 밖으로 밀려났으면 돌아다니는 동안은 돌린다).
     private func updateVisibility() {
-        let visible = !screensAsleep && (panel?.occlusionState.contains(.visible) ?? false)
+        guard let panel else { return }
+        let screens = NSScreen.screens
+        let visible = framesRun(
+            screensAsleep: screensAsleep, screenCount: screens.count,
+            onScreen: screens.contains { $0.frame.intersects(panel.frame) },
+            visible: panel.occlusionState.contains(.visible), roaming: roaming
+        )
         if pose.visible != visible { pose.visible = visible }
         guard let frames, frames.isPaused == visible else { return }
         frames.isPaused = !visible
@@ -111,6 +124,8 @@ final class AvatarController {
         }
         panel?.orderFrontRegardless()
         startFrames()
+        // 알림은 바뀔 때만 온다 — 처음부터 안 보이는 패널(화면 없는 맥 · 잠긴 화면에서 뜸)은 여기서 재야 멈춘다.
+        updateVisibility()
     }
 
     private func hide() {
@@ -195,6 +210,7 @@ final class AvatarController {
         roaming = true
         // 초당 60번 옮기는 동안은 자리를 기억하지 않는다 — 매번 설정 파일에 쓰게 된다.
         panel?.setFrameAutosaveName("")
+        updateVisibility()
     }
 
     private func stopRoaming() {
@@ -210,6 +226,7 @@ final class AvatarController {
         hideTube()
         panel?.ignoresMouseEvents = false
         panel?.setFrameAutosaveName("RockyAvatar")
+        updateVisibility()
     }
 
     private func tick() {
