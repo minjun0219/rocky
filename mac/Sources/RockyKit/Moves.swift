@@ -87,7 +87,7 @@ public struct Choreographer: Equatable, Sendable {
     /// 내 차례 — 처음 크게 알리는 시간(뛰기·흔들기 2.4초 두 바퀴), 그 뒤 손 흔드는 간격과 길이.
     public static let cheerLength: Double = 4.8
     public static let waveEvery: ClosedRange<Double> = 10 ... 20
-    public static let waveLength: Double = 1.6
+    public static let waveLength: Double = 2.4
 
     public private(set) var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
     var mood: MoveMood?

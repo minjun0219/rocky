@@ -610,9 +610,20 @@ private struct RockyPose {
     /// 통째로 그리는 시안의 자세 — 엎드려 자기, 머리를 긁으며 갸웃, 손을 흔들며 뛰기.
     enum Whole { case sleep, puzzled, jump }
 
+    /// 팔. 손 모양이 바뀌는 동안은 `from` 의 손에서 `hand` 로 `fade`(0 … 1)만큼 겹쳐 바꾼다 — 조각을 한 프레임에 갈아 끼우면 손이 튄다.
     struct Arm {
         var raise = 0.0
         var hand = Hand.rest
+        var from: Hand?
+        var fade = 1.0
+
+        /// 겹침이 끝난(0 이나 1) 팔은 보이는 손 하나로 접는다.
+        var settled: Arm {
+            guard let from, from != hand else { return Arm(raise: raise, hand: hand) }
+            if fade <= 0 { return Arm(raise: raise, hand: from) }
+            if fade >= 1 { return Arm(raise: raise, hand: hand) }
+            return self
+        }
     }
 
     var y = 0.0
@@ -633,7 +644,16 @@ private struct RockyPose {
     static func mix(_ a: RockyPose, _ b: RockyPose, _ w: Double) -> RockyPose {
         func lerp(_ x: Double, _ y: Double) -> Double { x + (y - x) * w }
         func arm(_ x: Arm, _ y: Arm) -> Arm {
-            Arm(raise: lerp(x.raise, y.raise), hand: w < 0.5 ? x.hand : y.hand)
+            let raise = lerp(x.raise, y.raise)
+            let a = x.settled, b = y.settled
+            // 둘 다 한 손 모양이면 — 같으면 그대로, 다르면 섞는 정도만큼 겹쳐 바꾼다.
+            if a.from == nil, b.from == nil {
+                return a.hand == b.hand ? Arm(raise: raise, hand: a.hand) : Arm(raise: raise, hand: b.hand, from: a.hand, fade: RockyPose.smooth(w))
+            }
+            // 한쪽이 이미 바꾸는 중이면 가까운 쪽의 겹침을 그대로 쓴다.
+            var out = w < 0.5 ? a : b
+            out.raise = raise
+            return out
         }
         var out = w < 0.5 ? a : b
         out.y = lerp(a.y, b.y)
@@ -652,23 +672,48 @@ private struct RockyPose {
         0.6 * sin(t * 1.9) + 0.4 * sin(t * 3.1 + 1)
     }
 
-    /// 토막의 앞뒤 0.2초는 바탕 자세와 섞는다 — 동작이 바뀔 때 팔이 튀지 않게.
+    /// 0 … 1 을 처음과 끝이 느린 곡선으로 — 직선으로 섞으면 시작과 끝에서 팔이 툭 멈추거나 튀어 나간다.
+    static func smooth(_ x: Double) -> Double {
+        let u = min(max(x, 0), 1)
+        return u * u * (3 - 2 * u)
+    }
+
+    /// 토막의 앞뒤 0.35초는 바탕 자세와 부드럽게 섞는다 — 0.2초 직선이던 때는 팔이 한두 프레임 만에 튀어 올라 끊겨 보였다.
     private static func ease(_ clip: Clip, _ t: Double) -> Double {
         let elapsed = t - clip.start
-        return min(max(0, min(1, elapsed / 0.2)), max(0, min(1, (clip.length - elapsed) / 0.2)))
+        let window = min(0.35, clip.length / 2)
+        return smooth(min(elapsed / window, (clip.length - elapsed) / window))
     }
 
     /// 껑충 — h 가 0(땅)에서 1(가장 높이)으로 갈수록 몸이 뜨고 두 팔을 치켜들며 다리를 벌린다. 높이 뜨면 시안의 점프처럼 손을 편다.
+    /// 손은 h 0.3-0.7 동안 겹쳐 편다 — 절반에서 조각을 갈아 끼우던 때는 0.3초마다 손이 툭툭 바뀌었다.
     private static func hop(_ h: Double) -> RockyPose {
         var q = RockyPose()
-        q.y = -45 * h
+        q.y = -34 * h
         q.face = .joy
-        let hand: Hand = h < 0.5 ? .rest : .open
-        q.armL = Arm(raise: 105 * h, hand: hand)
-        q.armR = Arm(raise: 105 * h, hand: hand)
+        let open = smooth((h - 0.3) / 0.4)
+        q.armL = Arm(raise: 105 * h, hand: .open, from: .rest, fade: open)
+        q.armR = Arm(raise: 105 * h, hand: .open, from: .rest, fade: open)
         q.legL = 20 * h
         q.legR = -20 * h
         return q
+    }
+
+    /// 껑충 한 번(0.6초) — 처음 0.15초는 땅을 딛고 쪼그렸다 펴고, 나머지 0.45초는 포물선으로 뜬다.
+    /// 예전엔 높이를 sin 으로 바로 그려 땅에 닿는 순간 머물지 않고 되튀어 고무공처럼 통통 튀어 보였다.
+    private static func bounce(_ local: Double) -> RockyPose {
+        let contact = 0.15
+        guard local >= contact else {
+            let c = sin(.pi * local / contact)
+            var q = hop(0)
+            q.y = 6 * c
+            q.squash = 1 - 0.08 * c
+            q.legL = 6 * c
+            q.legR = -6 * c
+            return q
+        }
+        let u = (local - contact) / (0.6 - contact)
+        return hop(4 * u * (1 - u))
     }
 
     /// 도는 중의 바탕 — 눈썹을 모은 얼굴로 앞을 본다.
@@ -706,7 +751,8 @@ private struct RockyPose {
             let phase = 2 * .pi * t / (action == .tube ? 0.4 : 0.6) + 2.5 * sin(t * 0.5)
             let p = sin(phase)
             let swing = sin(phase - 0.6)
-            y = -5 * abs(p)
+            // 걸음마다 몸이 살짝 뜬다 — sin² 은 바닥에서 부드럽게 돌아선다. |sin| 이던 때는 바닥에서 뾰족하게 꺾여 공처럼 통통 튀었다.
+            y = -3.5 * p * p
             tilt = 4 + 2 * p
             look = 1
             legL = 12 * p
@@ -764,27 +810,32 @@ private struct RockyPose {
         watch.look = 1
         watch.armL.raise = 3 * Self.breath(t - 0.25)
         watch.armR.raise = watch.armL.raise
-        func wave(_ sway: Double) -> RockyPose {
+        // 손 흔들기 — 든 팔을 초당 1.6번, ±20도로 크게 젓고 몸이 반 박자 늦게 따라 흔들린다.
+        // 예전엔 초당 2.2번 ±12도라 손이 흔드는 게 아니라 떨렸고, 박자가 시작 시각과 무관해 매번 다른 자리에서 튀어 나왔다.
+        func wave(_ elapsed: Double, _ amount: Double) -> RockyPose {
+            let beat = sin(2 * .pi * 1.6 * elapsed)
+            let sway = sin(2 * .pi * 1.6 * elapsed - 1.2)
             var q = RockyPose()
-            q.y = -8 * abs(sway)
+            q.y = -3 * abs(sway)
             q.face = .happy
-            q.tilt = 5 * sway
-            q.armR = Arm(raise: 110 + 12 * sin(t * 14), hand: .open)
-            q.legL = 4 + 4 * sway
-            q.legR = -4 + 4 * sway
+            q.tilt = 3 * sway
+            q.armR = Arm(raise: 118 + 20 * amount * beat, hand: .open)
+            q.legL = 4 + 2 * sway
+            q.legR = -4 + 2 * sway
             return q
         }
         switch clip.move {
         case .watch:
             self = watch
         case .wave:
-            let sway = sin(2 * .pi * (t - clip.start) / clip.length)
-            self = Self.mix(watch, wave(sway), Self.ease(clip, t))
+            // 팔이 다 올라간 뒤에 크게 젓기 시작하고, 내릴 때는 젓기를 먼저 줄인다.
+            let w = Self.ease(clip, t)
+            self = Self.mix(watch, wave(t - clip.start, w * w), w)
         default:
             // 크게 알리기(2.4초 한 바퀴) — 토막이 시작된 때부터 세어 늘 뛰기로 시작한다.
             let phase = (t - clip.start).truncatingRemainder(dividingBy: 2.4)
             if phase < 1.2 {
-                self = Self.hop(sin(.pi * phase.truncatingRemainder(dividingBy: 0.6) / 0.6))
+                self = Self.bounce(phase.truncatingRemainder(dividingBy: 0.6))
             } else {
                 // 주먹 인사 — 앞으로 주먹을 내밀었다 당긴다(엄지척은 못 한다). 뛰기와 사이는 0.15초 동안 섞는다.
                 let q = phase - 1.2
@@ -792,7 +843,7 @@ private struct RockyPose {
                 bump.face = .joy
                 bump.tilt = 4
                 bump.armR = Arm(raise: 60 + 10 * sin(2 * .pi * q / 0.6))
-                let w = min(max(0, min(1, q / 0.15)), max(0, min(1, (1.2 - q) / 0.15)))
+                let w = Self.smooth(min(q / 0.25, (1.2 - q) / 0.25))
                 self = Self.mix(Self.hop(0), bump, w)
             }
         }
@@ -1018,9 +1069,20 @@ private final class RockyArt {
     /// 팔 — 바라는 각도(내린 팔 37.33도 + `raise`)와 조각의 각도의 차만큼 어깨를 축으로 돌린다.
     /// 화면은 y 가 아래로 자라 시계 방향이 + 이므로, 왼팔은 + 로 돌리면 들리고 오른팔은 − 로 돌리면 들린다.
     private func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm) {
-        let limb = Self.limb(left: left, arm.hand)
+        guard let from = arm.from, from != arm.hand, arm.fade < 1 else { return paintArm(gc, left: left, arm.hand, arm.raise) }
+        // 겹쳐 바꾸기 — 앞 절반은 옛 손이 다 보인 채 새 손이 짙어지고, 뒤 절반은 새 손이 다 보인 채 옛 손이 옅어진다
+        // (둘 다 반투명이면 그 사이로 몸통이 비친다).
+        var old = gc, new = gc
+        old.opacity = min(1, 2 * (1 - arm.fade))
+        new.opacity = min(1, 2 * arm.fade)
+        paintArm(old, left: left, from, arm.raise)
+        paintArm(new, left: left, arm.hand, arm.raise)
+    }
+
+    private func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double) {
+        let limb = Self.limb(left: left, hand)
         let shoulder = left ? CGPoint(x: 100, y: 176) : CGPoint(x: 415.5, y: 176)
-        let turn = 37.33 + arm.raise - limb.theta
+        let turn = 37.33 + raise - limb.theta
         var g = gc
         g.translateBy(x: shoulder.x, y: shoulder.y)
         g.rotate(by: .degrees(left ? turn : -turn))
