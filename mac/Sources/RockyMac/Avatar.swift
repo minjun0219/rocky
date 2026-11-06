@@ -52,8 +52,9 @@ final class AvatarController {
     private var observers: [NSObjectProtocol] = []
 
     /// 패널 안 로키 발의 자리 — 로키 칸(96×88)은 패널 오른쪽 아래에 있고, 발은 무대 330 중 312 높이다.
-    private static let size = NSSize(width: 240, height: 170)
-    private static let foot = NSPoint(x: 240 - 48, y: 88 * (330 - 312) / 330)
+    /// 패널 폭은 모양을 모두 띄울 때 로키 셋(96 · 4 · 96 · 4 · 96)이 들어가게 320 이다.
+    static let size = NSSize(width: 320, height: 170)
+    private static let foot = NSPoint(x: size.width - 48, y: 88 * (330 - 312) / 330)
 
     init(agents: AgentStore) {
         self.agents = agents
@@ -114,8 +115,12 @@ final class AvatarController {
             panel.contentView = NSHostingView(rootView: AvatarView(agents: agents, pose: pose))
             if !panel.setFrameUsingName("RockyAvatar"), let screen = NSScreen.main?.visibleFrame {
                 // 처음엔 오른쪽 아래 — 독·메뉴 막대를 피해 보이는 영역 안에.
-                panel.setFrameOrigin(NSPoint(x: screen.maxX - 260, y: screen.minY + 20))
+                panel.setFrameOrigin(NSPoint(x: screen.maxX - Self.size.width - 20, y: screen.minY + 20))
             }
+            // 기억한 자리는 크기도 들고 있다 — 패널이 넓어지기 전(240)에 기억한 것이면 오른쪽 끝(로키 칸)을 그대로 두고 크기만 지금 것으로.
+            let right = panel.frame.maxX
+            panel.setContentSize(Self.size)
+            panel.setFrameOrigin(NSPoint(x: right - panel.frame.width, y: panel.frame.minY))
             panel.setFrameAutosaveName("RockyAvatar")
             self.panel = panel
             observers.append(NotificationCenter.default.addObserver(
@@ -362,7 +367,7 @@ final class AvatarController {
         let next = NSPoint(x: roamer.x - Self.foot.x, y: roamer.y - Self.foot.y)
         if next != origin { panel.setFrameOrigin(next) }
         placed = next
-        // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
+        // 패널은 320×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
         var hot = Self.figure(at: next, count: agents.avatarStyle.figures.count).contains(mouse)
         if pose.chat != nil || agents.mood.bubble.map({ $0 != pose.dismissed }) == true {
@@ -384,7 +389,7 @@ final class AvatarController {
         showTube(roamer)
     }
 
-    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88, 둘 다 띄우면 그 왼쪽에 한 칸 더)의 화면 자리.
+    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88, 모두 띄우면 그 왼쪽에 칸이 더)의 화면 자리.
     private static func figure(at origin: NSPoint, count: Int) -> NSRect {
         let width = 96 * CGFloat(count) + AvatarView.gap * CGFloat(count - 1)
         return NSRect(x: origin.x + size.width - width, y: origin.y, width: width, height: 88)
@@ -556,14 +561,14 @@ struct AvatarView: View {
             } else if let chat = pose.chat {
                 Bubble(text: chat) { pose.chat = nil }
             }
-            // 둘 다 띄우면(비교용) 미니멀이 원작 왼쪽에 같은 자세로 나란히 선다.
+            // 모두 띄우면(비교용) 돌멩이 · 미니멀 · 원작이 같은 자세로 나란히 선다.
             HStack(alignment: .bottom, spacing: Self.gap) {
                 ForEach(agents.avatarStyle.figures, id: \.self) { look in
                     figure(look)
                 }
             }
         }
-        .frame(width: 240, height: 170, alignment: .bottomTrailing)
+        .frame(width: AvatarController.size.width, height: AvatarController.size.height, alignment: .bottomTrailing)
         .contextMenu {
             Button("에이전트 탭 열기") {
                 if let url = agents.agentsURL { openURL(url) }
@@ -581,7 +586,7 @@ struct AvatarView: View {
         .animation(.easeInOut(duration: 0.3), value: pose.chat)
     }
 
-    /// 둘 다 띄울 때 두 로키 사이.
+    /// 모두 띄울 때 로키 사이.
     static let gap: CGFloat = 4
 
     private func figure(_ look: AvatarLook) -> some View {
@@ -656,7 +661,7 @@ private struct Rocky: View {
     var squash = 0.0
     var crouch = 0.0
     var visible = true
-    /// 그림체 — 원작 조각(`RockyArt`)이나 미니멀 벡터(`MinimalRocky`). 자세(`RockyPose`)는 둘이 같다.
+    /// 그림체 — 원작 조각(`RockyArt`), 미니멀 벡터(`MinimalRocky`), 돌멩이(`PebbleRocky`). 자세(`RockyPose`)는 셋이 같다.
     var look = AvatarLook.concept
 
     /// 움직임이 바뀔 때 앞 자세와 섞는 시간(초).
@@ -727,8 +732,8 @@ private struct Rocky: View {
             figure.scaleBy(x: width, y: 1)
             figure.translateBy(x: -180, y: 0)
         }
-        if look == .minimal {
-            // 미니멀 벡터 — 조각과 같은 칸 좌표로 그리고, 통째 자세도 관절로 짠다(`MinimalRocky.joints`).
+        if look != .concept {
+            // 미니멀 벡터 · 돌멩이 — 조각과 같은 칸 좌표로 그리고, 통째 자세도 관절로 짠다(`MinimalRocky.joints`).
             // 통째 자세는 원작처럼 발 자리를 축으로 눌린다 — 몸통 가운데를 축으로 누르면 발이 뜨니 그만큼 내린다.
             let m = MinimalRocky.joints(q)
             let sole = (RockyArt.sole - RockyArt.center.y) * RockyArt.scale
@@ -737,7 +742,7 @@ private struct Rocky: View {
             figure.rotate(by: .degrees(m.tilt))
             figure.scaleBy(x: RockyArt.scale, y: RockyArt.scale * m.squash)
             figure.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
-            MinimalRocky.draw(m, in: figure)
+            if look == .pebble { PebbleRocky.draw(m, in: figure) } else { MinimalRocky.draw(m, in: figure) }
         } else if let art, let whole = q.whole {
             // 통째 포즈 — 그림의 아래 끝을 무대의 발 자리(y 312)에, 기울기와 눌림은 그 가운데를 축으로.
             figure.translateBy(x: 180, y: 312 + q.y)

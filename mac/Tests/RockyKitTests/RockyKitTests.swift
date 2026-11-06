@@ -962,13 +962,14 @@ final class ChatterTests: XCTestCase {
         XCTAssertEqual(AvatarStyle.resolve(""), .concept)
         XCTAssertEqual(AvatarStyle.resolve("pixel"), .concept)
         XCTAssertEqual(AvatarStyle.resolve("minimal"), .minimal)
-        XCTAssertEqual(AvatarStyle.resolve(" both "), .both)
+        XCTAssertEqual(AvatarStyle.resolve(" all "), .all)
+        XCTAssertEqual(AvatarStyle.resolve("pebble"), .pebble)
     }
 
-    func testBothPutsConceptOnTheFootCell() {
+    func testAllPutsConceptOnTheFootCell() {
         XCTAssertEqual(AvatarStyle.concept.figures, [.concept])
         XCTAssertEqual(AvatarStyle.minimal.figures, [.minimal])
         // 패널은 오른쪽 끝 칸을 발 자리로 삼으니 원작이 그 자리에 그대로 선다.
-        XCTAssertEqual(AvatarStyle.both.figures, [.minimal, .concept])
+        XCTAssertEqual(AvatarStyle.all.figures, [.pebble, .minimal, .concept])
     }
 }

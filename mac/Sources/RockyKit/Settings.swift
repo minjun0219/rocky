@@ -23,9 +23,9 @@ public struct DaemonSettings: Equatable, Sendable {
 }
 
 /// 아바타 모양(`defaults` 의 `avatarStyle`) — 원작 시안을 잘라 낸 조각(`concept`), 도형 열몇 개로 그린 미니멀 벡터(`minimal`),
-/// 둘을 나란히 띄워 비교하기(`both`). 모르는 값이나 빈 값은 원작이다.
+/// 원작 느낌을 뺀 회색 돌멩이(`pebble`), 셋을 나란히 띄워 비교하기(`all`). 모르는 값이나 빈 값은 원작이다.
 public enum AvatarStyle: String, CaseIterable, Sendable {
-    case concept, minimal, both
+    case concept, minimal, pebble, all
 
     public static let key = "avatarStyle"
 
@@ -38,12 +38,13 @@ public enum AvatarStyle: String, CaseIterable, Sendable {
         switch self {
         case .concept: [.concept]
         case .minimal: [.minimal]
-        case .both: [.minimal, .concept]
+        case .pebble: [.pebble]
+        case .all: [.pebble, .minimal, .concept]
         }
     }
 }
 
 /// 로키 하나의 그림체.
 public enum AvatarLook: Sendable {
-    case concept, minimal
+    case concept, minimal, pebble
 }
