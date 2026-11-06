@@ -9,12 +9,12 @@ use std::time::Duration;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use serde::Serialize;
 
-use crate::config::RcConfig;
+use crate::config::{RcConfig, RcTargetOptions};
 
 /// 기본 작업 폴더 — 상대 이름은 이 아래로 푼다(`rc.root` 로 바꾼다).
 pub const DEFAULT_ROOT: &str = "~/dev/workspaces";
 
-/// 설정의 이름 하나를 푼 결과. 라벨은 디렉터리 basename 이다.
+/// 설정의 이름 하나를 푼 결과. 라벨은 디렉터리 basename 이다(`rc.options` 의 `name` 이 있으면 그것).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
     pub label: String,
@@ -23,6 +23,9 @@ pub struct Target {
     /// 워크트리 모드(`rc.worktree`) — 서버만 · 새 세션 모드로 띄울 때 `--spawn worktree` 를 붙이고, 재시작 때 세션을
     /// 이어받지 않는다(`restart_mode`).
     pub worktree: bool,
+    /// Claude 설정 폴더(`rc.options` 의 `configDir`, 푼 것) — 서버를 `CLAUDE_CONFIG_DIR` 로 띄우고(`with_config_dir`), 턴 판정은
+    /// 그 폴더의 `projects/` 에서 대화 기록을 찾는다. None 이면 `~/.claude`.
+    pub config_dir: Option<String>,
 }
 
 /// `ps -axww -o pid=,ppid=,etime=,args=` 한 줄.
@@ -116,6 +119,9 @@ pub struct ServerRow {
     /// 워크트리 모드 대상인가(설정 값 — 떠 있는 서버가 그 모드로 떴는지는 `live_worktree`).
     #[serde(skip_serializing_if = "is_false")]
     pub worktree: bool,
+    /// 대상의 Claude 설정 폴더(`Target::config_dir`) — 야간이 대화 기록을 찾는 자리. 현황 응답에는 싣지 않는다.
+    #[serde(skip)]
+    pub config_dir: Option<String>,
     /// 떠 있는 서버가 워크트리 모드로 떴나(`LiveServer::worktree`). `worktree` 와 다르면 다시 띄워야 설정대로 뜬다 — 데몬이
     /// 고친 파일을 알아서 읽어 `rocky rc reload` 가 바뀐 것을 못 알리기도 해서, 현황이 이 차이를 보인다.
     #[serde(skip_serializing_if = "is_false")]
@@ -433,6 +439,11 @@ pub fn resolve_entries(config: &RcConfig, home: &str) -> Vec<TargetEntry> {
         .filter(|n| !n.is_empty())
         .map(|n| resolve_dir(n, home, &root))
         .collect();
+    // 대상별 칸도 대상을 더하지 않는다. 키는 대상과 같은 규칙으로 풀고, 같은 폴더로 풀리는 키가 둘이면 먼저 나온 것(이름 순).
+    let mut options: HashMap<String, &RcTargetOptions> = HashMap::new();
+    for (name, o) in &config.options {
+        options.entry(resolve_dir(name, home, &root)).or_insert(o);
+    }
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let named = config
@@ -449,17 +460,61 @@ pub fn resolve_entries(config: &RcConfig, home: &str) -> Vec<TargetEntry> {
         if !seen.insert(dir.clone()) {
             continue;
         }
+        let config_dir = options
+            .get(&dir)
+            .and_then(|o| o.config_dir.as_deref())
+            .map(|c| resolve_dir(c, home, &dir));
         out.push(TargetEntry {
             entry: name.to_string(),
             target: Target {
                 label: label_of(&dir),
                 worktree: worktree.contains(&dir),
+                config_dir,
                 dir,
                 pinned,
             },
         });
     }
+    // 이름 바꾸기 — 라벨은 로그 파일 · 진행 중 표시 · `--name` 의 키라 둘이 같으면 안 된다. 다른 대상의 폴더 이름이나 앞에서 이미
+    // 쓴 이름과 겹치거나 파일 이름으로 못 쓰면 폴더 이름 그대로 둔다.
+    let basenames: Vec<String> = out.iter().map(|e| e.target.label.clone()).collect();
+    let mut renamed = HashSet::new();
+    for (i, e) in out.iter_mut().enumerate() {
+        let Some(name) = options.get(&e.target.dir).and_then(|o| o.name.as_deref()) else {
+            continue;
+        };
+        let clash = basenames
+            .iter()
+            .enumerate()
+            .any(|(j, b)| j != i && b == name);
+        if usable_label(name) && !clash && renamed.insert(name.to_string()) {
+            e.target.label = name.to_string();
+        }
+    }
     out
+}
+
+/// 라벨로 쓸 수 있나 — `rc/<라벨>.out` 같은 파일 이름이 되므로 `/` · 제어 문자 · `.` · `..` 은 안 되고, `--name` 의 값이라
+/// `-` 로 시작하면 claude 가 플래그로 읽을 수 있어 안 된다.
+fn usable_label(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.chars().any(char::is_control)
+}
+
+/// 대상의 Claude 설정 폴더를 argv 에 얹는다 — `env CLAUDE_CONFIG_DIR=<폴더> <argv…>`. `env` 가 같은 pid 로 `claude` 를
+/// 실행하므로 `ps` 에는 `claude rc --name …` 으로 보여 서버 판정(`is_server_argv`)이 그대로 맞는다. None 이면 그대로.
+pub fn with_config_dir(argv: Vec<String>, config_dir: Option<&str>) -> Vec<String> {
+    match config_dir {
+        Some(dir) => ["env".to_string(), format!("CLAUDE_CONFIG_DIR={dir}")]
+            .into_iter()
+            .chain(argv)
+            .collect(),
+        None => argv,
+    }
 }
 
 /// 대상의 라벨 — 폴더 이름(basename). `/` 는 빈 문자열이다.
@@ -525,6 +580,13 @@ pub fn auth_hint(keychain_mdat: Option<i64>, file_mtime: Option<i64>) -> Option<
 pub const LOGGED_OUT_REFUSAL: &str =
     "데몬 쪽 claude 가 로그아웃이다 — 손대지 않았다. 셸에서 `claude auth login` 뒤 다시(macOS 면 먼저 `security unlock-keychain`)";
 
+/// 설정 폴더가 따로인 대상(`rc.options` 의 `configDir`)이 그 폴더에서 로그아웃일 때의 거절 — 로그인이 기본 폴더와 따로다.
+pub fn config_dir_logged_out(config_dir: &str) -> String {
+    format!(
+        "이 대상의 설정 폴더({config_dir})가 로그아웃이다 — 손대지 않았다. 셸에서 `CLAUDE_CONFIG_DIR={config_dir} claude auth login` 뒤 다시"
+    )
+}
+
 /// `agy remote-control status` → 첫 `Daemon state = `, `Daemon pid = `, `Instance name: ` 의 첫 단어.
 pub fn parse_agy_status(out: &str) -> AgyStatus {
     let first = |prefix: &str| {
@@ -559,6 +621,7 @@ pub fn build_rows(targets: &[Target], live: &[LiveServer]) -> (Vec<ServerRow>, V
                 dir: t.dir.clone(),
                 pinned: t.pinned,
                 worktree: t.worktree,
+                config_dir: t.config_dir.clone(),
                 live_worktree: hit.is_some_and(|s| s.worktree),
                 running: hit.is_some(),
                 pid: hit.map(|s| s.pid),

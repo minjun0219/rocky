@@ -522,11 +522,24 @@ pub struct RcConfig {
     /// 워크트리 모드로 띄울 폴더(`pinned` · `targets` 에 적힌 것 중) — 앱 · 프로젝트가 여는 세션마다 제 git 워크트리를
     /// 받는다(`claude rc --spawn worktree`). 같은 폴더에 세션 여럿이 떠도 작업 트리를 나눠 쓰지 않는다.
     pub worktree: Vec<String>,
+    /// 대상별 칸(`pinned` · `targets` 에 적힌 이름 → 칸) — 표시 이름과 Claude 설정 폴더. `worktree` 처럼 대상을 더하지는 않는다.
+    pub options: std::collections::BTreeMap<String, RcTargetOptions>,
     /// 감시 — 꺼진 고정 서버와, 야간 재시작이 내리고 못 띄워 되살림 표식이 남은 서버를 데몬이 스스로 띄운다. 기본
     /// 꺼짐(옛 주기 잡과 동시에 띄우지 않게 켜는 날을 고른다).
     pub supervise: bool,
     /// 야간 재시작 — 블록이 있을 때만 돈다(기본 꺼짐).
     pub nightly: Option<NightlyConfig>,
+}
+
+/// `rc.options` 의 칸 하나. 둘 다 비면 칸이 없는 것과 같다.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RcTargetOptions {
+    /// 라벨(`--name` · 로그 파일 · `rocky rc start <이름>`)을 폴더 이름 대신 이것으로. 못 쓰는 이름이면 폴더 이름으로 돌아간다
+    /// (`rocky_core::rc::resolve_entries`).
+    pub name: Option<String>,
+    /// 서버를 `CLAUDE_CONFIG_DIR=<이 폴더>` 로 띄운다 — 사용자 지침 · 스킬 · 플러그인 · 훅 · 로그인 · 대화 기록이 이 폴더 것이 된다.
+    /// 상대 경로는 대상 폴더 기준.
+    pub config_dir: Option<String>,
 }
 
 /// `rc.nightly` — 매일 `at` 에 `claude update` 뒤 구버전이면서 쉬는 서버만 다시 띄운다(`rocky_core::rc` 의 야간 판정).
@@ -627,9 +640,38 @@ pub fn parse_rc_block(block: &serde_json::Map<String, serde_json::Value>) -> RcC
         pinned: names("pinned"),
         targets: names("targets"),
         worktree: names("worktree"),
+        options: parse_rc_options(block.get("options")),
         supervise: block.get("supervise").and_then(|v| v.as_bool()) == Some(true),
         nightly: block.get("nightly").and_then(parse_nightly),
     }
+}
+
+/// `rc.options` → 이름(앞뒤 공백 뗀 것)별 칸. 객체가 아닌 값 · 문자열이 아닌 칸 · 빈 문자열은 없는 것으로 읽는다(fail-open),
+/// 둘 다 빈 칸은 버린다.
+fn parse_rc_options(
+    value: Option<&serde_json::Value>,
+) -> std::collections::BTreeMap<String, RcTargetOptions> {
+    let Some(map) = value.and_then(|v| v.as_object()) else {
+        return Default::default();
+    };
+    map.iter()
+        .filter_map(|(key, v)| {
+            let field = |name: &str| {
+                v.get(name)
+                    .and_then(|s| s.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            };
+            let options = RcTargetOptions {
+                name: field("name"),
+                config_dir: field("configDir"),
+            };
+            let key = key.trim();
+            (!key.is_empty() && options != RcTargetOptions::default())
+                .then(|| (key.to_string(), options))
+        })
+        .collect()
 }
 
 /// `rocky.json` 의 `access` 블록 — Cloudflare Access 로 들어온 사람에게 원격 제어를 여는 설정. 데몬은 사용자 설정만

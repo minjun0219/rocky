@@ -986,8 +986,17 @@ impl RcController {
         // 확실히 로그아웃일 때만 막는다(모르면 띄워 본다). 데몬이 launchd 로 돌면 셸과 자격을 읽는 곳이 다르다 —
         // launchd 맥락은 키체인을 읽어서, 셸은 로그인돼 있어도 여기는 로그아웃일 수 있다(2026-10-05 실측).
         // 그대로 띄우면 서버가 "You must be logged in" 으로 곧 내려가고, 재시작이면 떠 있던 서버까지 잃는다.
-        if status.auth == rc::AuthState::Out {
-            return Err(rc::LOGGED_OUT_REFUSAL.into());
+        // 설정 폴더가 따로인 대상은 그 폴더의 로그인으로 판정한다 — 로그인이 따로다. 받은 뒤 칸이 바뀌었을 수 있어 지금 설정으로.
+        match self.refresh_worktree(target).config_dir {
+            Some(dir) => {
+                if self.auth_state_in(&dir).await == rc::AuthState::Out {
+                    return Err(rc::config_dir_logged_out(&dir));
+                }
+            }
+            None if status.auth == rc::AuthState::Out => {
+                return Err(rc::LOGGED_OUT_REFUSAL.into());
+            }
+            None => {}
         }
         let live = status.live_server(&target.dir);
         // 받은 뒤 rocky.json 이 바뀌었을 수 있다 — 여기부터는 지금 설정의 워크트리 값으로 판정하고 띄운다.
@@ -1068,19 +1077,19 @@ impl RcController {
         .await
     }
 
-    /// 받은 대상에 지금 설정의 워크트리 값을 얹는다 — `begin` 뒤 버전 조회 · 턴 대기(최대 10분) 사이에 rocky.json 이 바뀌었을
-    /// 수 있다. 라벨 · 폴더는 그대로 둔다(진행 중 표시 · 로그의 키). 그 사이 목록에서 빠졌거나 rc 가 꺼졌으면 받을 때 값.
+    /// 받은 대상에 지금 설정의 워크트리 값과 설정 폴더를 얹는다 — `begin` 뒤 버전 조회 · 턴 대기(최대 10분) 사이에 rocky.json 이
+    /// 바뀌었을 수 있다. 라벨 · 폴더는 그대로 둔다(진행 중 표시 · 로그의 키). 그 사이 목록에서 빠졌거나 rc 가 꺼졌으면 받을 때 값.
     fn refresh_worktree(&self, target: &Target) -> Target {
-        let worktree = self
-            .config()
-            .and_then(|config| {
-                rc::resolve_targets(&config, &self.home)
-                    .into_iter()
-                    .find(|t| t.dir == target.dir)
-            })
-            .map_or(target.worktree, |t| t.worktree);
+        let Some(now) = self.config().and_then(|config| {
+            rc::resolve_targets(&config, &self.home)
+                .into_iter()
+                .find(|t| t.dir == target.dir)
+        }) else {
+            return target.clone();
+        };
         Target {
-            worktree,
+            worktree: now.worktree,
+            config_dir: now.config_dir,
             ..target.clone()
         }
     }
@@ -1099,7 +1108,7 @@ impl RcController {
         let busy = |sessions: usize| {
             rc::turn_in_progress(
                 sessions > 0,
-                nightly::last_write(&self.home, &target.dir),
+                nightly::last_write(&self.home, &target.dir, target.config_dir.as_deref()),
                 chrono::Utc::now().timestamp(),
                 rc::TURN_QUIET,
             )
@@ -1156,6 +1165,25 @@ impl RcController {
         out.ok()
             .then(|| rc::parse_claude_version(&out.stdout))
             .flatten()
+    }
+
+    /// 그 설정 폴더의 로그인 — `env CLAUDE_CONFIG_DIR=<폴더> claude auth status --json`. 형식을 모르거나 못 재면 Unknown(띄워 본다).
+    async fn auth_state_in(&self, config_dir: &str) -> rc::AuthState {
+        let out = (self.runner)(
+            rc::with_config_dir(
+                vec![
+                    "claude".into(),
+                    "auth".into(),
+                    "status".into(),
+                    "--json".into(),
+                ],
+                Some(config_dir),
+            ),
+            String::new(),
+            PROBE_TIMEOUT,
+        )
+        .await;
+        rc::parse_auth_status(&out.stdout)
     }
 
     /// 띄우고 등록까지 본다. `already served` 면 쉬었다 다시, 이어받기가 안 뜨면 새로 한 번 더.
@@ -1306,7 +1334,10 @@ impl RcController {
             .map_err(|e| format!("로그 폴더를 못 만든다({}): {e}", self.log_dir.display()))?;
         // 이어 붙인 기동 시각을 지운다 — 새로 뜬 서버는 지금부터 쓰인 것이다. 야간은 뜬 뒤에 다시 쓴다(`rc::carried_start`).
         let _ = std::fs::remove_file(self.log_path(&target.label, "since"));
-        let argv = rc::server_argv(&target.label, mode, session, target.worktree);
+        let argv = rc::with_config_dir(
+            rc::server_argv(&target.label, mode, session, target.worktree),
+            target.config_dir.as_deref(),
+        );
         let pid = self
             .spawn_logged(&argv, Path::new(&target.dir), &target.label)
             .map_err(|e| {

@@ -140,7 +140,7 @@ async fn a_target_added_to_the_file_is_startable_after_reload() {
         body,
         json!({
             "active": true, "supervise": false, "applied": true, "added": ["ogpeek"], "removed": [],
-            "pinned": [], "unpinned": [], "worktreeOn": [], "worktreeOff": [], "restartNeeded": [],
+            "pinned": [], "unpinned": [], "worktreeOn": [], "worktreeOff": [], "options": [], "restartNeeded": [],
             "path": fx.path.to_string_lossy(),
         })
     );

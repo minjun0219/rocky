@@ -126,7 +126,7 @@ fn reload_names_worktree_switches_and_how_to_apply_them() {
         [
             "✓ 데몬이 대상 목록을 다시 읽었다",
             "  워크트리 켬: rocky",
-            "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다: rocky rc restart rocky",
+            "  떠 있는 서버는 다시 띄워야 바뀐 설정으로 뜬다: rocky rc restart rocky",
         ]
     );
     let two = reloaded(json!({ "worktreeOn": ["a"], "worktreeOff": ["b"] }));
@@ -135,7 +135,21 @@ fn reload_names_worktree_switches_and_how_to_apply_them() {
         [
             "✓ 데몬이 대상 목록을 다시 읽었다",
             "  워크트리 켬: a · 워크트리 끔: b",
-            "  떠 있는 서버는 다시 띄워야 바뀐 모드로 뜬다(a · b): rocky rc restart <이름>",
+            "  떠 있는 서버는 다시 띄워야 바뀐 설정으로 뜬다(a · b): rocky rc restart <이름>",
+        ]
+    );
+}
+
+#[test]
+fn reload_names_a_target_once_when_both_its_mode_and_options_changed() {
+    // 한 대상이 워크트리 · 이름 · 설정 폴더에 함께 걸려도 다시 띄울 이름은 한 번만.
+    let raw = reloaded(json!({ "worktreeOn": ["로키"], "options": ["로키"] }));
+    assert_eq!(
+        reload_lines(&raw, PATH, None),
+        [
+            "✓ 데몬이 대상 목록을 다시 읽었다",
+            "  워크트리 켬: 로키 · 이름·설정 폴더 바뀜: 로키",
+            "  떠 있는 서버는 다시 띄워야 바뀐 설정으로 뜬다: rocky rc restart 로키",
         ]
     );
 }
@@ -219,6 +233,7 @@ fn line(label: &str, dir: &str, pinned: bool, exists: bool, ambiguous: bool) -> 
         entry: label.into(),
         pinned,
         worktree: false,
+        config_dir: None,
         exists,
         ambiguous,
     }
@@ -239,6 +254,7 @@ fn list_is_a_table_with_memos_and_a_footer() {
             },
         ],
         unmatched_worktree: vec!["rokcy".into()],
+        unmatched_options: Vec::new(),
     };
     assert_eq!(
         render_list(&list, "~/.config/rocky/rocky.json", "/home/u"),
@@ -257,6 +273,7 @@ rocky        ~/dev/workspaces/rocky  워크트리
         root: "/w".into(),
         targets: vec![],
         unmatched_worktree: vec![],
+        unmatched_options: Vec::new(),
     };
     assert_eq!(
         render_list(&off, "/c/rocky.json", "/home/u"),

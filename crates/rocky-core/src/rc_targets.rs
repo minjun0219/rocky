@@ -1,4 +1,4 @@
-//! `rocky rc targets` · `rocky rc reload` — rocky.json 의 rc 대상 목록(`pinned` · `targets` · `worktree`)을 고치는 판정과, 떠 있는
+//! `rocky rc targets` · `rocky rc reload` — rocky.json 의 rc 대상 목록(`pinned` · `targets` · `worktree` · `options`)을 고치는 판정과, 떠 있는
 //! 데몬이 고친 목록을 다시 읽을 때 무엇을 바로 쓰고 무엇을 데몬 재시작으로 미루는지. 파일 읽기 · 쓰기는 CLI, 다시 읽기는
 //! 데몬(`rockyd::rc::RcSettings` — 파일이 바뀌면 알아서, `rocky rc reload` 면 바로)이 한다.
 
@@ -172,7 +172,8 @@ pub fn add_target(
 }
 
 /// `rocky rc targets rm` — 라벨(폴더 이름)이나 경로로 대상을 골라 rocky.json 문서에서 뺀다. 그 폴더로 풀리는 이름은
-/// `pinned` · `targets` 양쪽에서 모두 지우고 `worktree` 에서도 지운다(남겨 두면 다시 더할 때 말없이 워크트리 모드로 뜬다).
+/// `pinned` · `targets` 양쪽에서 모두 지우고 `worktree` · `options` 에서도 지운다(남겨 두면 다시 더할 때 말없이 워크트리 모드 ·
+/// 그 설정 폴더로 뜬다).
 /// 라벨이 같은 대상이 둘 이상이면 거절한다(경로로 고르게).
 pub fn remove_target(doc: &mut Value, key: &str, cwd: &str, home: &str) -> Result<Edit, String> {
     let Picked {
@@ -185,6 +186,7 @@ pub fn remove_target(doc: &mut Value, key: &str, cwd: &str, home: &str) -> Resul
     remove_dir(block, "pinned", &found.target.dir, home, &root);
     remove_dir(block, "targets", &found.target.dir, home, &root);
     remove_dir(block, "worktree", &found.target.dir, home, &root);
+    remove_options(block, &found.target.dir, home, &root);
     Ok(Edit {
         change: Change::Removed,
         label: found.target.label,
@@ -349,6 +351,20 @@ fn remove_dir(block: &mut Map<String, Value>, key: &str, dir: &str, home: &str, 
     }
 }
 
+/// `rc.options` 에서 그 폴더로 풀리는 키를 지운다 — 비면 칸째 지운다.
+fn remove_options(block: &mut Map<String, Value>, dir: &str, home: &str, root: &str) {
+    let Some(Value::Object(options)) = block.get_mut("options") else {
+        return;
+    };
+    options.retain(|name, _| {
+        let name = name.trim();
+        name.is_empty() || resolve_dir(name, home, root) != dir
+    });
+    if options.is_empty() {
+        block.remove("options");
+    }
+}
+
 /// `rocky rc targets` 의 한 줄.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -360,6 +376,9 @@ pub struct TargetLine {
     pub pinned: bool,
     /// 워크트리 모드 대상인가(`rc.worktree`).
     pub worktree: bool,
+    /// Claude 설정 폴더(`rc.options` 의 `configDir`, 푼 것).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_dir: Option<String>,
     /// 폴더가 이 기기에 있나.
     pub exists: bool,
     /// 라벨이 같은 대상이 또 있다 — 이름으로 부르면 거절된다.
@@ -380,6 +399,8 @@ pub struct TargetList {
     /// `worktree` 에 적혔지만 어느 대상으로도 풀리지 않는 이름 — 무시된다. 손으로만 적는 목록이라 오타면 말없이 같은 폴더
     /// 모드로 뜬다.
     pub unmatched_worktree: Vec<String>,
+    /// `options` 의 키 중 어느 대상으로도 풀리지 않는 것 — 무시된다. 오타면 말없이 폴더 이름 · `~/.claude` 로 뜬다.
+    pub unmatched_options: Vec<String>,
 }
 
 pub fn list_targets(doc: &Value, home: &str, is_dir: &dyn Fn(&str) -> bool) -> TargetList {
@@ -397,6 +418,15 @@ pub fn list_targets(doc: &Value, home: &str, is_dir: &dyn Fn(&str) -> bool) -> T
             unmatched_worktree.push(name.to_string());
         }
     }
+    let unmatched_options = config
+        .options
+        .keys()
+        .filter(|name| {
+            let dir = resolve_dir(name, home, &root);
+            !entries.iter().any(|e| e.target.dir == dir)
+        })
+        .cloned()
+        .collect();
     let targets = entries
         .iter()
         .map(|e| TargetLine {
@@ -405,6 +435,7 @@ pub fn list_targets(doc: &Value, home: &str, is_dir: &dyn Fn(&str) -> bool) -> T
             entry: e.entry.clone(),
             pinned: e.target.pinned,
             worktree: e.target.worktree,
+            config_dir: e.target.config_dir.clone(),
             exists: is_dir(&e.target.dir),
             ambiguous: entries
                 .iter()
@@ -419,6 +450,7 @@ pub fn list_targets(doc: &Value, home: &str, is_dir: &dyn Fn(&str) -> bool) -> T
         root,
         targets,
         unmatched_worktree,
+        unmatched_options,
     }
 }
 
@@ -468,6 +500,8 @@ pub struct Reload {
     /// 워크트리 모드를 켜거나 끈 대상 — 떠 있는 서버는 다시 띄워야 그 모드로 뜬다.
     pub worktree_on: Vec<String>,
     pub worktree_off: Vec<String>,
+    /// 이름이나 설정 폴더(`options`)가 바뀐 대상(새 라벨) — 워크트리처럼 떠 있는 서버는 다시 띄워야 바뀐 대로 뜬다.
+    pub options: Vec<String>,
     /// 파일과 다르지만 데몬을 다시 띄워야 반영되는 칸 — `enabled` · `supervise` · `nightly`. 기동기와 감시 · 야간 루프는
     /// 기동 때 정해진다.
     pub restart_needed: Vec<&'static str>,
@@ -484,6 +518,7 @@ impl Reload {
             ("고정 풂", &self.unpinned),
             ("워크트리 켬", &self.worktree_on),
             ("워크트리 끔", &self.worktree_off),
+            ("이름·설정 폴더 바뀜", &self.options),
         ]
         .iter()
         .filter(|(_, labels)| !labels.is_empty())
@@ -517,7 +552,7 @@ pub fn auto_reload_line(report: &Reload) -> Option<String> {
 }
 
 /// 지금 쓰는 설정(`current` — 기동 때 rc 가 꺼져 있었으면 None)에 파일에서 다시 읽은 블록(`file` — 없거나 꺼졌으면 None)을
-/// 얹는다. 대상 목록(`root` · `pinned` · `targets` · `worktree`)만 바로 바꾸고 기능 스위치는 그대로 둔다. 바꿀 설정이 있으면
+/// 얹는다. 대상 목록(`root` · `pinned` · `targets` · `worktree` · `options`)만 바로 바꾸고 기능 스위치는 그대로 둔다. 바꿀 설정이 있으면
 /// 첫째 값이 Some.
 pub fn plan_reload(
     current: Option<&RcConfig>,
@@ -545,6 +580,7 @@ pub fn plan_reload(
         pinned: file.pinned.clone(),
         targets: file.targets.clone(),
         worktree: file.worktree.clone(),
+        options: file.options.clone(),
         ..current.clone()
     };
     let before = resolve_targets(current, home);
@@ -568,6 +604,9 @@ pub fn plan_reload(
             (false, true) => report.worktree_on.push(t.label.clone()),
             (true, false) => report.worktree_off.push(t.label.clone()),
             _ => {}
+        }
+        if old.label != t.label || old.config_dir != t.config_dir {
+            report.options.push(t.label.clone());
         }
     }
     report.removed = before
