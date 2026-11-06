@@ -4,6 +4,7 @@
 // 튜브를 놓아 창 윗면으로 오르거나 다른 창으로 건너간다. 두 번 누르면 웹 에이전트 탭이 열리고, 말풍선은 누르면 닫힌다.
 // 따라다니기를 켜면 사람이 보는 곳(멈춘 포인터 · 입력 중인 앞 창) 옆으로 느긋하게 다가가고, 가끔 말풍선으로 세션 소식을 혼잣말한다.
 import AppKit
+import Carbon
 import QuartzCore
 import RockyKit
 import SwiftUI
@@ -36,6 +37,8 @@ final class AvatarController {
     private var gaze = GazeTracker()
     private var goal: Goal?
     private var gazed: TimeInterval = 0
+    /// 비밀번호를 칠 때 눈 가리기.
+    private var eyes = EyeCover()
     /// 마지막으로 띄운 혼잣말 번호와 내릴 시각.
     private var chatSeen = 0
     private var chatUntil: TimeInterval = 0
@@ -238,6 +241,9 @@ final class AvatarController {
         let now = ProcessInfo.processInfo.systemUptime
         let dt = min(now - last, 0.1)
         last = now
+        // 비밀번호 칸 — 시스템의 보안 입력이 켜졌는지는 권한 없이 읽는다(어느 앱이 켰는지는 모른다).
+        let cover = eyes.update(secure: IsSecureEventInputEnabled() == true, now: now, dt: dt)
+        if pose.cover != cover { pose.cover = cover }
         if roaming { roam(panel, now: now, dt: dt) }
         choreograph(panel)
         chat(now: now)
@@ -293,6 +299,8 @@ final class AvatarController {
     private func choreograph(_ panel: NSPanel) {
         let now = Date.timeIntervalSinceReferenceDate
         let here = roamer.map { spot(x: $0.x, y: $0.y, ledges: ledgesHere) } ?? .floor
+        // 돌멩이면 돌멩이에만 있는 동작도 고른다.
+        moves.extras = agents.avatarStyle != .concept
         let clip = moves.update(
             now: now, mood: agents.mood.moveMood, spot: here,
             random: { Double.random(in: 0 ..< 1) }
@@ -361,9 +369,12 @@ final class AvatarController {
         let boxes = windows
         ledgesHere = ledges(windows: boxes, screen: area)
         lookAround(roamer, now: now)
+        // 눈을 가린 동안은 걷지 않고(앞을 못 본다) 눈길도 따라가지 않는다 — 비밀번호 칸으로 다가가면 안 된다.
+        var mood = agents.mood.roamMood(during: pose.clip)
+        if eyes.covering, mood == .roam { mood = .stay }
         roamer.step(
             dt: dt, ledges: ledgesHere, walls: walls(windows: boxes, screen: area),
-            screen: area, mood: agents.mood.roamMood(during: pose.clip), goal: goal, random: { Double.random(in: 0 ..< 1) }
+            screen: area, mood: mood, goal: eyes.covering ? nil : goal, random: { Double.random(in: 0 ..< 1) }
         )
         roamer.x = min(max(roamer.x, area.minX + Roamer.halfWidth), area.maxX - Roamer.halfWidth)
         self.roamer = roamer
@@ -463,6 +474,8 @@ final class RoamPose {
     var dismissed: String?
     /// 잠깐 띄우는 혼잣말(`Chatter`) — 내 차례 말풍선이 떠 있으면 그 뒤로 숨는다. 누르면 닫힌다.
     var chat: String?
+    /// 두 손으로 눈을 가린 정도(0 … 1, `EyeCover`).
+    var cover = 0.0
 
     func switchAction(to next: RoamAction) {
         guard next != action else { return }
@@ -576,7 +589,8 @@ struct AvatarView: View {
             Rocky(
                 shifts: pose.shifts ?? Shifts(Moment(mood: agents.mood.poseMood, action: pose.action, clip: pose.clip)),
                 facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
-                squash: pose.squash, visible: pose.visible, still: pose.still
+                squash: pose.squash, visible: pose.visible, still: pose.still, cover: pose.cover,
+                look: agents.avatarStyle
             )
                 .frame(width: 96, height: 88)
                 .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
@@ -595,6 +609,9 @@ struct AvatarView: View {
             Button(agents.roam ? "돌아다니기 멈추기" : "돌아다니기") { agents.roam.toggle() }
             Button(agents.follow ? "따라다니기 멈추기" : "따라다니기") { agents.follow.toggle() }
                 .disabled(!agents.roam)
+            Picker("모양", selection: Binding(get: { agents.avatarStyle }, set: { agents.avatarStyle = $0 })) {
+                ForEach(AvatarStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
             Button("아바타 숨기기") { agents.showAvatar = false }
         }
         .animation(.easeInOut(duration: 0.3), value: agents.mood)
@@ -655,6 +672,10 @@ private struct Rocky: View {
     var visible = true
     /// 그림이 더 바뀌지 않는다(연결 없이 갸웃한 채) — 박자를 멈춘다.
     var still = false
+    /// 두 손으로 눈을 가린 정도(0 … 1, `RockyPose.coverEyes`).
+    var cover = 0.0
+    /// 그림체 — 원작 조각(`RockyArt`)이나 돌멩이(`PebbleRocky`). 자세(`RockyPose`)는 둘이 같다.
+    var look = AvatarStyle.concept
 
     /// 돌아서는 시간과 그동안 몸을 좁히는 정도 — 가장 좁을 때(가운데) 좌우를 바꾼다. 한 프레임에 뒤집던 때는 툭 튀어 보였다(2026-11-06).
     static let turn = 0.22
@@ -673,13 +694,23 @@ private struct Rocky: View {
         }
     }
 
+    /// 한 층의 자세. 원작은 돌멩이 동작(`Move.isExtra`)을 하지 않는다 — 돌멩이에서 원작으로 바꾼 직후 남은 토막은 두리번으로 대신한다.
+    private func pose(_ moment: Moment, t: Double) -> RockyPose {
+        var moment = moment
+        if look == .concept, moment.clip.move.isExtra {
+            let clip = moment.clip
+            moment.clip = Clip(move: .look, start: clip.start, length: clip.length, tempo: clip.tempo)
+        }
+        return RockyPose(moment, t: t, look: look)
+    }
+
     private func draw(in gc: inout GraphicsContext, size: CGSize, t: Double) {
         // 무대는 360×330 — 프레임에 맞춰 늘린다.
         gc.scaleBy(x: size.width / 360, y: size.height / 330)
         // 층마다 그 장면의 자세를 짜서 아래 층부터 섞는다 — 늦게 얹은 층일수록 덜 섞여 들어와 있다.
-        var q = RockyPose(shifts.layers[0].moment, t: t)
+        var q = pose(shifts.layers[0].moment, t: t)
         for layer in shifts.layers.dropFirst() {
-            q = RockyPose.mix(q, RockyPose(layer.moment, t: t), RockyPose.smooth(layer.weight(at: t)))
+            q = RockyPose.mix(q, pose(layer.moment, t: t), RockyPose.smooth(layer.weight(at: t)))
         }
         q.land(squash)
         // 돌아서는 중이면 몸을 좁혔다 펴고, 가운데까지는 앞에 보던 쪽을 본다.
@@ -689,6 +720,7 @@ private struct Rocky: View {
             width = 1 - Self.squeeze * sin(.pi * turning)
             if turning < 0.5 { facing = wasFacing }
         }
+        if cover > 0 { q.coverEyes(cover) }
         // 발 — 디딘 발은 땅에 붙어 있게 다리를 그 자리로 옮기고, 든 발 반대쪽으로 무게를 싣는다.
         let feet = stance.drawn(facing: facing)
         q.plant(left: feet.left, right: feet.right)
@@ -699,7 +731,8 @@ private struct Rocky: View {
                 with: .color(.black.opacity(0.12 * q.shadow))
             )
         }
-        guard let art = RockyArt.shared else {
+        let art = RockyArt.shared
+        if look == .concept, art == nil {
             // 그림을 못 읽으면 돌 하나라도.
             gc.fill(Path(ellipseIn: CGRect(x: 100, y: 170, width: 160, height: 130)), with: .color(.gray))
             return
@@ -716,34 +749,59 @@ private struct Rocky: View {
             figure.scaleBy(x: width, y: 1)
             figure.translateBy(x: -180, y: 0)
         }
-        // 관절 자세와 시안의 통째 그림 — 겹쳐 바꾸는 동안 앞 절반은 관절이 다 보인 채 그림이 짙어지고, 뒤 절반은 그림이 다 보인 채
-        // 관절이 옅어진다(둘 다 반투명이면 그 사이로 뒤가 비친다). 그림은 늘 관절 위에 얹는다.
         let show = q.whole == nil ? 0 : q.show
-        if show < 1 {
-            // 발바닥이 무대의 발 자리(y 312)에 오게 — 기울기와 눌림은 몸통 가운데를 축으로.
-            var rig = figure
-            rig.translateBy(x: 180 + q.x, y: 312 - (RockyArt.sole - RockyArt.center.y) * RockyArt.scale + q.y)
-            rig.rotate(by: .degrees(q.tilt))
-            rig.scaleBy(x: RockyArt.scale, y: RockyArt.scale * q.squash)
-            rig.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
-            let opacity = min(1, 2 * (1 - show))
-            if opacity < 1 {
-                // 조각이 겹친 자리(몸통 뒤의 팔다리)가 비치지 않게 한 장으로 모아 옅게 한다.
-                rig.opacity = opacity
-                rig.drawLayer { layer in art.draw(q, in: layer) }
-            } else {
-                art.draw(q, in: rig)
+        // 발바닥이 무대의 발 자리(y 312)에 오게 — 기울기와 눌림은 몸통 가운데를 축으로.
+        let sole = (RockyArt.sole - RockyArt.center.y) * RockyArt.scale
+        if look == .pebble {
+            // 돌멩이 — 조각과 같은 칸 좌표로 관절만 그린다. 겹쳐 바꿀 통째 그림이 없어 통째 자세도 관절로 짜 두었다(`PebbleRocky.twin`).
+            // 통째 자세는 원작 그림처럼 발 자리를 축으로 눌린다 — 몸통 가운데를 축으로 누르면 발이 뜨니 그 자세가 보이는 만큼 내린다.
+            // 잘 때는 팔다리를 다 넣고(원작 그림이 짙어지는 동안 옅어진다) 바닥에 내려앉아 그냥 돌이 된다.
+            let sink = sole * (1 - q.squash) * show
+            figure.translateBy(x: 180 + q.x, y: 312 - sole + q.y + sink)
+            figure.rotate(by: .degrees(q.tilt))
+            figure.scaleBy(x: RockyArt.scale, y: RockyArt.scale * q.squash)
+            figure.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
+            PebbleRocky.draw(q, limbs: q.whole == .sleep ? 1 - show : 1, in: figure)
+        } else if let art {
+            // 관절 자세와 시안의 통째 그림 — 겹쳐 바꾸는 동안 앞 절반은 관절이 다 보인 채 그림이 짙어지고, 뒤 절반은 그림이 다 보인 채
+            // 관절이 옅어진다(둘 다 반투명이면 그 사이로 뒤가 비친다). 그림은 늘 관절 위에 얹는다.
+            if show < 1 {
+                var rig = figure
+                rig.translateBy(x: 180 + q.x, y: 312 - sole + q.y)
+                rig.rotate(by: .degrees(q.tilt))
+                rig.scaleBy(x: RockyArt.scale, y: RockyArt.scale * q.squash)
+                rig.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
+                let opacity = min(1, 2 * (1 - show))
+                if opacity < 1 {
+                    // 조각이 겹친 자리(몸통 뒤의 팔다리)가 비치지 않게 한 장으로 모아 옅게 한다.
+                    rig.opacity = opacity
+                    rig.drawLayer { layer in art.draw(q, in: layer) }
+                } else {
+                    art.draw(q, in: rig)
+                }
+            }
+            if let whole = q.whole, show > 0 {
+                // 통째 그림 — 아래 끝을 무대의 발 자리(y 312)에. 그 쌍둥이 자세에서 벗어난 만큼(숨 · 착지 자세로 가기)만 같이 움직인다.
+                let anchor = RockyPose.twin(whole)
+                var sprite = figure
+                sprite.translateBy(x: 180 + q.x - anchor.x, y: 312 + q.y - anchor.y)
+                sprite.rotate(by: .degrees(q.tilt - anchor.tilt))
+                sprite.scaleBy(x: RockyArt.scale, y: RockyArt.scale * q.squash / anchor.squash)
+                sprite.opacity = min(1, 2 * show)
+                art.draw(whole, in: sprite)
             }
         }
-        if let whole = q.whole, show > 0 {
-            // 통째 그림 — 아래 끝을 무대의 발 자리(y 312)에. 그 쌍둥이 자세에서 벗어난 만큼(숨 · 착지 자세로 가기)만 같이 움직인다.
-            let anchor = RockyPose.twin(whole)
-            var sprite = figure
-            sprite.translateBy(x: 180 + q.x - anchor.x, y: 312 + q.y - anchor.y)
-            sprite.rotate(by: .degrees(q.tilt - anchor.tilt))
-            sprite.scaleBy(x: RockyArt.scale, y: RockyArt.scale * q.squash / anchor.squash)
-            sprite.opacity = min(1, 2 * show)
-            art.draw(whole, in: sprite)
+        // 춤추면 음표, 하트면 하트가 머리 위로 떠오른다(돌멩이).
+        let top = shifts.current
+        let clip = top.clip
+        if look != .concept, top.action == .stand || top.action == .sit, t >= clip.start, t < clip.end,
+           let mark = clip.move == .dance ? "♪" : clip.move == .heart ? "♥" : nil {
+            let rise = ((t - clip.start).truncatingRemainder(dividingBy: 1.2)) / 1.2
+            gc.draw(
+                Text(mark).font(.system(size: 44, weight: .bold))
+                    .foregroundColor((clip.move == .heart ? Color.pink : Color.secondary).opacity(1 - rise)),
+                at: CGPoint(x: 290 + rise * 16, y: 150 - rise * 60)
+            )
         }
         if q.whole == .sleep, show > 0 {
             let rise = (t.truncatingRemainder(dividingBy: 3)) / 3
@@ -756,10 +814,11 @@ private struct Rocky: View {
 }
 
 /// 한 순간의 자세. 팔의 `raise` 는 시안의 내린 팔(0)에서 몸 밖으로 드는 각도, 다리는 화면 시계 방향이 + — 왼다리 +, 오른다리 − 면 벌린다.
-/// `tilt` 도 시계 방향(오른쪽을 볼 때 앞으로 숙임)이 +. `whole` 이 보이면(`show`) 관절 위에 시안의 그 자세를 통째로 겹쳐 그린다.
-private struct RockyPose {
-    /// 표정 — `sleep` 은 감은 눈(자는 그림의 눈꺼풀).
-    enum Face { case smile, happy, joy, focus, surprise, sleep }
+/// `tilt` 도 시계 방향(오른쪽을 볼 때 앞으로 숙임)이 +. `whole` 이 보이면(`show`) 관절 위에 시안의 그 자세를 통째로 겹쳐 그린다
+/// (돌멩이는 그 자세도 관절로 짜 두어 관절만 그린다 — `PebbleRocky.twin`).
+struct RockyPose {
+    /// 표정 — `sleep` 은 감은 눈(자는 그림의 눈꺼풀), `wink` 는 왼눈만 감는다(돌인 척하기 — 돌멩이에만 있다).
+    enum Face { case smile, happy, joy, focus, surprise, sleep, wink }
     /// 손 — 시안의 내린 손, 점프할 때 편 손, 갸웃할 때 머리에 댄 손(오른손만 있다).
     enum Hand { case rest, open, curl }
     /// 통째로 그리는 시안의 자세 — 엎드려 자기, 머리를 긁으며 갸웃, 손을 흔들며 뛰기.
@@ -809,6 +868,10 @@ private struct RockyPose {
     /// 회색(연결 없음)과 그림자의 짙기(0 … 1).
     var gray = 0.0
     var shadow = 1.0
+    /// 눈 가리기(0 … 1) — 어깨를 안쪽 위로 올리고 팔을 몸 앞으로 그린다(`coverEyes`).
+    var shy = 0.0
+    /// 팔다리를 몸 안에 넣었나(구르기 · 돌인 척하기) — 돌멩이만 따른다.
+    var tuck = false
 
     /// 통째 그림이 들 때 — 관절은 앞 75% 동안 그 그림의 쌍둥이 자세로 가고 그림은 뒤 40% 동안 짙어진다.
     /// 날 때 — 그림은 앞 40% 동안 옅어지고 관절은 25% 부터 움직인다. 겹쳐 보이는 동안 두 모습이 거의 같은 자리에 있게.
@@ -921,6 +984,31 @@ private struct RockyPose {
         0.6 * sin(t * 1.9) + 0.4 * sin(t * 3.1 + 1)
     }
 
+    /// 두 손으로 눈 가리기 — 편 손을 몸 앞으로 140도 모아 올리고 어깨를 안쪽 위로 끌어올린다. 손 아래 눈은 감는다.
+    /// 시안 조각만으로 짠 자세다(새로 그리지 않는다) — 각도와 어깨 자리는 조각을 짜 맞춰 본 시트로 골랐다(2026-11-06).
+    /// 통째 자세(잠 · 갸웃 · 뛰기)면 가리는 앞 절반 동안 서 있는 자세로 돌아온다 — 통째 그림에서 날 때처럼 그림이 옅어진 뒤 일어난다(`mix`).
+    mutating func coverEyes(_ amount: Double) {
+        if whole != nil {
+            var stand = RockyPose()
+            stand.gray = gray
+            stand.shadow = shadow
+            self = Self.mix(self, stand, Self.span(amount, 0 ... 0.5))
+        }
+        let s = Self.smooth(amount)
+        func up(_ arm: Arm) -> Arm {
+            let from = arm.settled
+            let raise = from.raise + (Self.coverRaise - from.raise) * s
+            return from.hand == .open ? Arm(raise: raise, hand: .open) : Arm(raise: raise, hand: .open, from: from.hand, fade: s)
+        }
+        armL = up(armL)
+        armR = up(armR)
+        shy = s
+        look = 0
+        if amount > 0.6 { blink = true }
+    }
+
+    static let coverRaise = -140.0
+
     /// 0 … 1 을 처음과 끝이 느린 곡선으로 — 직선으로 섞으면 시작과 끝에서 팔이 툭 멈추거나 튀어 나간다.
     static func smooth(_ x: Double) -> Double {
         let u = min(max(x, 0), 1)
@@ -988,7 +1076,9 @@ private struct RockyPose {
     /// 쌍둥이 자세 — 시안의 통째 그림과 겹쳐 놓았을 때 몸통 · 팔 · 다리가 거의 같은 자리에 오는 관절 자세(프로젝트 파일
     /// `mac-avatar/pose/` 의 `tune.js` 로 겹쳐 보며 맞췄다). 통째 그림과 겹쳐 바꾸는 동안 관절은 이 자세 가까이에 있고,
     /// 통째 그림은 이 자세의 x · y · tilt · squash 에서 벗어난 만큼만 같이 움직인다(숨 쉬기).
-    static func twin(_ whole: Whole) -> RockyPose {
+    /// 돌멩이는 겹쳐 바꿀 통째 그림이 없어 그 자세를 관절로 짠 것(`PebbleRocky.twin`)이 쌍둥이다 — 관절이 곧장 그 자세로 섞여 간다.
+    static func twin(_ whole: Whole, look: AvatarStyle = .concept) -> RockyPose {
+        if look == .pebble { return PebbleRocky.twin(whole) }
         var q = RockyPose()
         switch whole {
         case .sleep:
@@ -1029,9 +1119,9 @@ private struct RockyPose {
     /// 잠들기 — 기분이 바뀐 뒤 0-0.5초 주저앉으며 눈을 감고, 0.35-1.15초 엎드려 쌍둥이 자세로 가고, 1.0-1.4초 시안의 잠 그림으로
     /// 겹쳐 바꾼다. 그 뒤엔 숨만 쉰다(등이 오르내린다). 서 있다가 한 프레임 만에 엎드리던 때는 툭 튀었다(2026-11-06).
     private static let lie = (sit: 0.5, flat: 0.35 ... 1.15, show: 1.0 ... 1.4)
-    private static func lieDown(_ e: Double, t: Double) -> RockyPose {
+    private static func lieDown(_ e: Double, t: Double, look: AvatarStyle) -> RockyPose {
         let b = breath(t)
-        var flat = twin(.sleep)
+        var flat = twin(.sleep, look: look)
         flat.squash *= 1 + 0.015 * b
         flat.whole = .sleep
         guard e < lie.show.upperBound else {
@@ -1056,8 +1146,9 @@ private struct RockyPose {
 
     /// 갸웃 — 연결이 끊긴 뒤 0-0.45초 오른손을 머리 옆으로 올리며 눈썹을 모으고, 0.3-0.6초 시안의 갸웃 그림으로 겹쳐 바꾼다.
     /// 회색은 `init` 이 0.6초에 걸쳐 입힌다.
-    private static func puzzle(_ e: Double, t: Double) -> RockyPose {
-        var q = e >= 0.6 ? twin(.puzzled) : mix(calm(t), twin(.puzzled), smooth(e / 0.45))
+    private static func puzzle(_ e: Double, t: Double, look: AvatarStyle) -> RockyPose {
+        let target = twin(.puzzled, look: look)
+        var q = e >= 0.6 ? target : mix(calm(t), target, smooth(e / 0.45))
         q.whole = .puzzled
         q.show = span(e, 0.3 ... 0.6)
         return q
@@ -1081,7 +1172,7 @@ private struct RockyPose {
         return q
     }
 
-    private static func air(_ u: Double) -> RockyPose {
+    private static func air(_ u: Double, look: AvatarStyle) -> RockyPose {
         var reach = RockyPose()
         reach.face = .joy
         reach.y = -6
@@ -1089,7 +1180,7 @@ private struct RockyPose {
         reach.armR = Arm(raise: 95, hand: .open)
         reach.legL = 8
         reach.legR = -8
-        var q = mix(crouched(1), twin(.jump), smooth(u / leap.unfold))
+        var q = mix(crouched(1), twin(.jump, look: look), smooth(u / leap.unfold))
         q = mix(q, reach, span(u, leap.reach))
         q.whole = .jump
         q.show = min(span(u, leap.show), 1 - span(u, leap.hide))
@@ -1099,8 +1190,8 @@ private struct RockyPose {
 
     init() {}
 
-    init(_ moment: Moment, t: Double) {
-        base(moment, t: t)
+    init(_ moment: Moment, t: Double, look: AvatarStyle = .concept) {
+        base(moment, t: t, look: look)
         // 연결 없음 — 0.6초에 걸쳐 회색이 된다(떨어지거나 끌려가도).
         if moment.mood == .unknown { gray = Self.smooth((t - moment.since) / 0.6) }
         // 눈은 4초쯤에 한 번 깜빡인다.
@@ -1120,7 +1211,7 @@ private struct RockyPose {
         legR -= 10 * a * rig
     }
 
-    private mutating func base(_ moment: Moment, t: Double) {
+    private mutating func base(_ moment: Moment, t: Double, look: AvatarStyle) {
         switch moment.action {
         case .walk:
             // 걷기 — 다리와 무게는 발 디딤(`plant`)이 옮긴다. 여기선 가는 쪽을 보며 윗몸을 조금 숙이고 팔을 살짝 내린다.
@@ -1150,7 +1241,8 @@ private struct RockyPose {
             return
         case .jump:
             // 쪼그렸다가(앞 60% 에 다 내려가 버틴다) 뛰어 시안의 점프 그림으로 겹쳐 바꾸고, 내려앉기 전에 다시 관절로 다리를 뻗는다.
-            self = moment.flight > 0 ? Self.air(moment.flight) : Self.crouched(Self.smooth(min(moment.crouch / Self.leap.down, 1)))
+            self = moment.flight > 0
+                ? Self.air(moment.flight, look: look) : Self.crouched(Self.smooth(min(moment.crouch / Self.leap.down, 1)))
             return
         case .fall:
             // 떨어지기 — 손을 펴고 허우적거리며 다리를 벌린다. 디딘 데가 없어 그림자도 없다.
@@ -1173,10 +1265,10 @@ private struct RockyPose {
             awake(t: t, clip: moment.clip)
         case .resting:
             // 다 쉼 — 주저앉았다 엎드려 시안처럼 잔다. 숨에 맞춰 등이 오르내린다.
-            self = Self.lieDown(t - moment.since, t: t)
+            self = Self.lieDown(t - moment.since, t: t, look: look)
         case .unknown:
             // 연결 없음 — 손을 머리로 올려 시안처럼 머리를 긁으며 갸웃(회색은 `init` 이).
-            self = Self.puzzle(t - moment.since, t: t)
+            self = Self.puzzle(t - moment.since, t: t, look: look)
         }
     }
 
@@ -1289,6 +1381,63 @@ private struct RockyPose {
             move.armR = Arm(raise: 30)
             move.legL = 6
             move.legR = -6
+        case .roll:
+            // 데굴데굴 — 팔다리를 넣고 바닥에 내려앉아 한 바퀴 구른다.
+            move.tuck = true
+            move.face = .surprise
+            move.y = 20
+            // 토막의 75% 에 다 구르고 0도로 적는다 — 끝의 0.35초는 바탕 자세와 섞으니(`ease`) 360도로 남기면 섞으며 거꾸로 한 바퀴 되돌아 돈다.
+            move.tilt = (360 * smooth((u - 0.15) / 0.6)).truncatingRemainder(dividingBy: 360)
+        case .shake:
+            // 몸 털기 — 빠르게 좌우로 흔들며 팔을 벌려 턴다.
+            let s = sin(2 * .pi * 7 * u)
+            move.face = .focus
+            move.tilt = 8 * s
+            move.armL = Arm(raise: 30 + 10 * s, hand: .open)
+            move.armR = Arm(raise: 30 - 10 * s, hand: .open)
+        case .stretch:
+            // 기지개 — 눈을 감고 두 팔을 쭉 뻗으며 몸을 늘인다.
+            let e = sin(.pi * u)
+            move.face = .joy
+            move.blink = true
+            move.armL = Arm(raise: 150 * e, hand: .open)
+            move.armR = Arm(raise: 150 * e, hand: .open)
+            move.squash = 1 + 0.08 * e
+            move.y = -6 * e
+        case .dance:
+            // 춤 — 좌우로 몸을 흔들며 팔을 번갈아 올리고 발을 구른다.
+            let s = sin(2 * .pi * 2 * u)
+            move.face = .happy
+            move.tilt = 10 * s
+            move.y = -3 * s * s
+            move.armL = Arm(raise: 90 + 40 * s, hand: .open)
+            move.armR = Arm(raise: 90 - 40 * s, hand: .open)
+            move.legL = 8 + 10 * max(0, s)
+            move.legR = -8 - 10 * max(0, -s)
+        case .hide:
+            // 돌인 척하기 — 팔다리를 넣고 바닥에 내려앉아 한쪽 눈만 슬쩍 뜬다.
+            move.tuck = true
+            move.face = .wink
+            move.y = 27
+        case .yawn:
+            // 하품 — 눈을 감고 입을 벌리며 한 팔을 쭉 뻗는다.
+            let e = sin(.pi * u)
+            move.face = .surprise
+            move.blink = true
+            move.armL = Arm(raise: 120 * e, hand: .open)
+            move.tilt = -4 * e
+            move.squash = 1 + 0.04 * e
+        case .clap:
+            // 박수 — 두 손을 펴 앞에서 짝짝.
+            let s = sin(2 * .pi * 4 * u)
+            move.face = .joy
+            move.armL = Arm(raise: 80 + 15 * s, hand: .open)
+            move.armR = Arm(raise: 80 + 15 * s, hand: .open)
+        case .heart:
+            // 하트 — 두 주먹을 머리 위로 모은다(하트는 화면이 그린다).
+            move.face = .happy
+            move.armL = Arm(raise: 160, hand: .curl)
+            move.armR = Arm(raise: 160, hand: .curl)
         default:
             return nil
         }
@@ -1446,13 +1595,25 @@ private final class RockyArt {
         upper.translateBy(x: 258, y: 236 + q.rise)
         upper.rotate(by: .degrees(q.lean))
         upper.translateBy(x: -258, y: -236)
-        arm(upper, left: true, q.armL)
-        arm(upper, left: false, q.armR)
+        // 눈을 가리는 동안은 팔을 몸 앞에 — 몸 뒤에 두면 손이 얼굴에 닿지 못한다. 조금만 올렸을 때(0.15 아래)는 그대로 뒤에.
+        let front = q.shy > 0.15
+        if !front {
+            arm(upper, left: true, q.armL, shy: q.shy)
+            arm(upper, left: false, q.armR, shy: q.shy)
+        }
         paint(.body, in: upper)
+        paintFace(q, in: upper)
+        if front {
+            arm(upper, left: true, q.armL, shy: q.shy)
+            arm(upper, left: false, q.armR, shy: q.shy)
+        }
+    }
+
+    /// 얼굴 — 표정을 바꾸는 중이면 겹쳐 바꾼다. 두 표정에 같은 조각(같은 눈 · 입)은 한 번만 다 그리고, 다른 조각만 앞 절반은 옛 것이 다 보인 채
+    /// 새 것이 짙어지고 뒤 절반은 새 것이 다 보인 채 옛 것이 옅어진다. 같은 조각까지 둘 다 반투명으로 겹치면 눈 · 입이 흐려 보인다.
+    private func paintFace(_ q: RockyPose, in upper: GraphicsContext) {
         let now = Self.face(q.face, blink: q.blink, look: q.look)
         guard let from = q.faceFrom, from != q.face, q.faceFade < 1 else { return paint(now, in: upper) }
-        // 표정 겹쳐 바꾸기 — 두 표정에 같은 조각(같은 눈 · 입)은 한 번만 다 그리고, 다른 조각만 앞 절반은 옛 것이 다 보인 채 새 것이
-        // 짙어지고 뒤 절반은 새 것이 다 보인 채 옛 것이 옅어진다. 같은 조각까지 둘 다 반투명으로 겹치면 눈 · 입이 흐려 보인다.
         let was = Self.face(from, blink: q.blink, look: q.look)
         var old = upper, new = upper
         old.opacity = min(1, 2 * (1 - q.faceFade))
@@ -1502,20 +1663,24 @@ private final class RockyArt {
 
     /// 팔 — 바라는 각도(내린 팔 37.33도 + `raise`)와 조각의 각도의 차만큼 어깨를 축으로 돌린다.
     /// 화면은 y 가 아래로 자라 시계 방향이 + 이므로, 왼팔은 + 로 돌리면 들리고 오른팔은 − 로 돌리면 들린다.
-    private func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm) {
-        guard let from = arm.from, from != arm.hand, arm.fade < 1 else { return paintArm(gc, left: left, arm.hand, arm.raise) }
+    private func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm, shy: Double) {
+        guard let from = arm.from, from != arm.hand, arm.fade < 1 else {
+            return paintArm(gc, left: left, arm.hand, arm.raise, shy: shy)
+        }
         // 겹쳐 바꾸기 — 앞 절반은 옛 손이 다 보인 채 새 손이 짙어지고, 뒤 절반은 새 손이 다 보인 채 옛 손이 옅어진다
         // (둘 다 반투명이면 그 사이로 몸통이 비친다).
         var old = gc, new = gc
         old.opacity = min(1, 2 * (1 - arm.fade))
         new.opacity = min(1, 2 * arm.fade)
-        paintArm(old, left: left, from, arm.raise)
-        paintArm(new, left: left, arm.hand, arm.raise)
+        paintArm(old, left: left, from, arm.raise, shy: shy)
+        paintArm(new, left: left, arm.hand, arm.raise, shy: shy)
     }
 
-    private func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double) {
+    /// `shy` 만큼 어깨를 안쪽으로 15, 위로 30 옮긴다 — 내린 어깨 자리에서는 140도 올려도 손이 볼에 머문다.
+    private func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double, shy: Double) {
         let limb = Self.limb(left: left, hand)
-        let shoulder = left ? CGPoint(x: 100, y: 176) : CGPoint(x: 415.5, y: 176)
+        let inward = 15 * shy, lift = 30 * shy
+        let shoulder = left ? CGPoint(x: 100 + inward, y: 176 - lift) : CGPoint(x: 415.5 - inward, y: 176 - lift)
         let turn = 37.33 + raise - limb.theta
         var g = gc
         g.translateBy(x: shoulder.x, y: shoulder.y)

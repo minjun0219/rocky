@@ -1108,4 +1108,63 @@ final class ChatterTests: XCTestCase {
         // 다 쉬면 조르지 않는다.
         XCTAssertNil(chatter.update([Session(sessionId: "c", name: "owl")], now: Chatter.nudge * 3))
     }
+
+    func testAvatarStyleFallsBackToConcept() {
+        XCTAssertEqual(AvatarStyle.resolve(nil), .concept)
+        XCTAssertEqual(AvatarStyle.resolve(""), .concept)
+        XCTAssertEqual(AvatarStyle.resolve("pixel"), .concept)
+        // 비교용으로 잠깐 있던 값은 원작으로 돌아간다.
+        XCTAssertEqual(AvatarStyle.resolve("minimal"), .concept)
+        XCTAssertEqual(AvatarStyle.resolve("all"), .concept)
+        XCTAssertEqual(AvatarStyle.resolve(" pebble "), .pebble)
+        XCTAssertEqual(AvatarStyle.allCases, [.concept, .pebble])
+    }
+
+    func testExtraMovesOnlyWhenAsked() {
+        XCTAssertFalse(Choreographer.breaks(at: .window).contains { $0.move.isExtra })
+        let extras = Set(Choreographer.breaks(at: .window, extras: true).map(\.move).filter(\.isExtra))
+        XCTAssertEqual(extras, Set(Move.allCases.filter(\.isExtra)))
+        XCTAssertEqual(extras.count, 8)
+
+        // 원작만 보이면 새 동작을 고르지 않는다.
+        var plain = Choreographer()
+        var moves = Choreographer()
+        moves.extras = true
+        var sawExtra = false
+        for i in 0 ..< 400 {
+            let r = Double(i % 97) / 97
+            let now = Double(i) * 10
+            if plain.update(now: now, mood: .working, spot: .window, random: { r }).move.isExtra { XCTFail("원작에 새 동작") }
+            if moves.update(now: now, mood: .working, spot: .window, random: { r }).move.isExtra { sawExtra = true }
+        }
+        XCTAssertTrue(sawExtra)
+    }
+}
+
+final class EyeCoverTests: XCTestCase {
+    func testCoversWhileSecureInputIsOnAndUncoversAfter() {
+        var cover = EyeCover()
+        XCTAssertEqual(cover.update(secure: false, now: 0, dt: 0.1), 0)
+        XCTAssertEqual(cover.update(secure: true, now: 1, dt: 0.15), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(cover.update(secure: true, now: 1.2, dt: 0.15), 1, accuracy: 1e-9)
+        XCTAssertEqual(cover.update(secure: true, now: 1.3, dt: 0.15), 1)
+        XCTAssertTrue(cover.covering)
+        XCTAssertEqual(cover.update(secure: false, now: 2, dt: 0.15), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(cover.update(secure: false, now: 2.2, dt: 0.15), 0, accuracy: 1e-9)
+        XCTAssertFalse(cover.covering)
+    }
+
+    func testGivesUpOnSecureInputLeftOn() {
+        var cover = EyeCover()
+        cover.update(secure: true, now: 0, dt: 1)
+        XCTAssertEqual(cover.amount, 1)
+        cover.update(secure: true, now: EyeCover.giveUp - 1, dt: 0.1)
+        XCTAssertEqual(cover.amount, 1)
+        cover.update(secure: true, now: EyeCover.giveUp, dt: 1)
+        XCTAssertEqual(cover.amount, 0)
+        // 한 번 껐다 켜면(새 비밀번호 칸) 다시 가린다.
+        cover.update(secure: false, now: EyeCover.giveUp + 1, dt: 1)
+        cover.update(secure: true, now: EyeCover.giveUp + 2, dt: 1)
+        XCTAssertEqual(cover.amount, 1)
+    }
 }
