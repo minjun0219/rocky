@@ -56,6 +56,17 @@
   (`SMAppService.mainApp`, `LoginItem.swift`)에 스스로 오른다 — .app 으로 처음 뜰 때 한 번만 저절로 올리고(`defaults` 의 `loginItemOffered`),
   그 뒤에 메뉴의 "로그인할 때 열기"나 시스템 설정 > 일반 > 로그인 항목에서 끈 것은 되살리지 않는다. 데몬·훅·`rocky daemon install` 은 앱을 띄우지 않는다 —
   앱은 데몬의 클라이언트라 둘 중 누가 먼저 떠도 SSE 가 다시 붙는다. `swift run` 의 실행 파일은 올릴 수 없어 토글을 숨긴다.
+- **따라다니기**(`defaults` 의 `follow`, 기본 켜짐, 돌아다니기가 켜져 있을 때만) — 사람이 보는 곳 옆으로 간다(오너 요청 2026-11-06 — 창 · 포인터 · 활동을 따라다니게).
+  눈길(`GazeTracker`)은 포인터가 0.6초 멈춘 자리, 키 입력이 3초 안이고 포인터보다 나중이면 앞 앱의 맨 앞 창 윗변(포인터가 그 창 위면 포인터 x, 아니면 창 가운데)이다.
+  거슬리지 않게 하는 장치가 셋이다 — 움직이는 포인터는 따라가지 않고, 180pt 안쪽으로 옮긴 것은 무시하며, 로키 발 160pt 안의 포인터(로키를 누르려는 손)는 눈길로 치지 않는다.
+  입력이 120초 넘게 없으면 눈길을 놓고 평소처럼 돈다. 설 자리(`followGoal`)는 눈길 바로 아래가 아니라 옆으로 110pt 비켜선, 눈길보다 낮은 발판 중 가장 높은 곳(양쪽 중 더 높은 쪽, 같으면 로키가 있는 쪽)이다.
+  `Roamer` 는 내 차례(`stay`)면 60pt 안까지 다가가 서서(말풍선이 눈길 곁에 뜬다) 기다리고, 일하는 중(`roam`)이면 220pt 목줄 안에서 평소처럼 돌되 다른 창으로 건너가는 튜브는 놓지 않는다. 다 쉬면 보지 않는다.
+  다른 발판이거나 같은 발판이라도 400pt 넘게 멀면 튜브로 가는데, 초당 확률(내 차례 100%, 일하는 중 50%)로 놓고 한 번 놓으면 6초 동안은 다시 놓지 않는다. 창 옆면에 막히면 튜브로 넘거나 서서 그쪽을 본다.
+  신호는 권한 없이 읽는다 — 포인터 자리 `NSEvent.mouseLocation`, 마지막 입력 뒤 흐른 초 `CGEventSource.secondsSinceLastEventType`(이동 · 끌기 · 스크롤 · 누름, 키), 앞 창은
+  `NSWorkspace.frontmostApplication` 의 pid 로 이미 읽은 창 목록에서 찾는다(창 이름 · 접근성 API 를 쓰지 않는다). 키 입력 시계를 못 읽으면 앞 창은 안 보고 포인터만 본다. 0.1초마다 다시 본다.
+  레포 밖 `mac-avatar/roam/roam.py` 는 따라다니기를 흉내 내지 않는다 — 눈길이 없을 때(`goal` nil)의 비율은 그대로라 바닥 시간 측정은 유효하다.
+- **혼잣말 말풍선**(`Chatter`) — 세션 목록을 새로 받을 때 돌던 세션이 쉬거나 끝나면 "X 일을 마쳤어요", 새로 돌면 "X 일을 시작했어요", 일하는 동안 4분마다 "X — 지금 하는 일"(`agentLine`)을 6초 띄운다.
+  처음 받은 목록은 보기만 한다(켤 때 쏟아지지 않게). 내 차례 말풍선이 우선이고, 누르면 닫히며, 입력이 120초 넘게 없으면(자리를 비움) 띄우지 않고 버린다. 묶음 규칙은 `agentPhase` 그대로다.
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
   받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
 - **실패는 출처로 지운다** — 읽기 실패는 다음 읽기 성공이, 동작 실패는 다음 동작이 지운다.
@@ -88,6 +99,8 @@
 | 세션 묶음·아바타 기분 | `mac/Sources/RockyKit/Sessions.swift` |
 | 돌아다니기(발판·벽·걸음·튜브) | `mac/Sources/RockyKit/Roam.swift` |
 | 몸짓 고르기(후보표·가중치·서 있는 자리) | `mac/Sources/RockyKit/Moves.swift` |
+| 눈길 좇기·설 자리 | `mac/Sources/RockyKit/Gaze.swift` |
+| 혼잣말(세션 소식 말풍선) | `mac/Sources/RockyKit/Chatter.swift` |
 | 세션 묻기·아바타 패널 | `mac/Sources/RockyMac/AgentStore.swift`, `mac/Sources/RockyMac/Avatar.swift` |
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
 | 로그인 항목 | `mac/Sources/RockyMac/LoginItem.swift` |

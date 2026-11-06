@@ -2,6 +2,7 @@
 // 내 차례인 세션이 있으면 껑충 뛰고 주먹 인사를 하며 말풍선에 기다리는 것을 띄우고, 도는 세션이 있으면 주먹으로 두드리고, 다 쉬면 엎드려 잠든다.
 // 창은 늘 위에 뜨는 패널이고 포커스를 가져가지 않는다. 돌아다니기를 켜면 창 윗면을 걷고, 끌어다 놓으면 떨어지고,
 // 튜브를 놓아 창 윗면으로 오르거나 다른 창으로 건너간다. 두 번 누르면 웹 에이전트 탭이 열리고, 말풍선은 누르면 닫힌다.
+// 따라다니기를 켜면 사람이 보는 곳(멈춘 포인터 · 입력 중인 앞 창) 옆으로 느긋하게 다가가고, 가끔 말풍선으로 세션 소식을 혼잣말한다.
 import AppKit
 import QuartzCore
 import RockyKit
@@ -25,8 +26,17 @@ final class AvatarController {
     private var moves = Choreographer()
     /// 마지막 걸음의 발판 — 서 있는 자리(바닥 · 창 윗면 · 창 끝)를 가린다.
     private var ledgesHere: [Ledge] = []
-    private var windows: [Box] = []
+    /// 창 목록(앞에서 뒤 순서)과 그 주인 — 앞 앱의 맨 앞 창을 찾는 데 쓴다.
+    private var seen: [SeenWindow] = []
+    private var windows: [Box] { seen.map(\.box) }
     private var scanned: TimeInterval = 0
+    /// 사람의 눈길과 그 옆에 설 자리 — 0.1초마다 다시 본다.
+    private var gaze = GazeTracker()
+    private var goal: Goal?
+    private var gazed: TimeInterval = 0
+    /// 마지막으로 띄운 혼잣말 번호와 내릴 시각.
+    private var chatSeen = 0
+    private var chatUntil: TimeInterval = 0
     /// 창 목록을 읽는 중인지 — 한 번에 하나만.
     private var scanning = false
     private var last: TimeInterval = 0
@@ -161,6 +171,8 @@ final class AvatarController {
     private func stopRoaming() {
         roaming = false
         roamer = nil
+        gaze = GazeTracker()
+        goal = nil
         ledgesHere = []
         placed = nil
         dragging = false
@@ -178,6 +190,52 @@ final class AvatarController {
         last = now
         if roaming { roam(panel, now: now, dt: dt) }
         choreograph(panel)
+        chat(now: now)
+    }
+
+    /// 혼잣말 — 새 말이 오면 6초 띄운다. 사람이 자리를 비웠으면(입력이 `GazeTracker.away` 넘게 없음) 버린다 — 아무도 못 본다.
+    private func chat(now: TimeInterval) {
+        if let chat = agents.chat, chat.id != chatSeen {
+            chatSeen = chat.id
+            if Self.idleSeconds() < GazeTracker.away {
+                pose.chat = chat.text
+                chatUntil = now + 6
+            }
+        }
+        if pose.chat != nil, now > chatUntil { pose.chat = nil }
+    }
+
+    /// 포인터가 마지막으로 움직인(끌기 · 스크롤 포함) 뒤 흐른 초 — 권한 없이 읽는 시스템 입력 시계.
+    private static func pointerIdle() -> Double {
+        let types: [CGEventType] = [.mouseMoved, .leftMouseDragged, .scrollWheel, .leftMouseDown]
+        return types.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? .infinity
+    }
+
+    private static func keyIdle() -> Double {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+    }
+
+    private static func idleSeconds() -> Double { min(pointerIdle(), keyIdle()) }
+
+    /// 눈길 옆에 설 자리를 다시 정한다 — 앞 앱의 맨 앞 창은 방금 읽은 창 목록에서 주인 pid 로 찾는다(로키 자신은 목록에 없다).
+    private func lookAround(_ roamer: Roamer, now: TimeInterval) {
+        guard agents.follow else {
+            if goal != nil || gaze.target != nil {
+                gaze = GazeTracker()
+                goal = nil
+            }
+            return
+        }
+        guard now - gazed >= 0.1 else { return }
+        gazed = now
+        let mouse = NSEvent.mouseLocation
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let focus = front.flatMap { pid in seen.first { $0.pid == pid }?.box }
+        let target = gaze.update(GazeInput(
+            pointerX: mouse.x, pointerY: mouse.y, sincePointer: Self.pointerIdle(), sinceKey: Self.keyIdle(),
+            focus: focus, rockyX: roamer.x, rockyY: roamer.y
+        ))
+        goal = target.flatMap { followGoal(gaze: $0, ledges: ledgesHere, fromX: roamer.x) }
     }
 
     /// 서 있을 때의 몸짓 — `RockyKit.Choreographer` 가 고르고, 내 차례에 마우스 쪽 보기·창 끝에서 내려다보기만 방향을 바꾼다.
@@ -227,22 +285,24 @@ final class AvatarController {
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             if scanned == 0 {
                 // 처음 한 번은 기다린다 — 창 목록 없이 걸으면 창 윗면에 서 있던 로키가 떨어진다.
-                windows = Self.scanWindows(top: top)
+                seen = Self.scanWindows(top: top)
             } else {
                 // 창이 많으면 수 ms-수십 ms 걸린다 — 메인 스레드에서 읽으면 0.5초마다 한 번씩 걸음이 멈칫한다.
                 scanning = true
                 Task { [weak self] in
                     let found = await Task.detached(priority: .userInitiated) { Self.scanWindows(top: top) }.value
-                    self?.windows = found
+                    self?.seen = found
                     self?.scanning = false
                 }
             }
             scanned = now
         }
-        ledgesHere = ledges(windows: windows, screen: area)
+        let boxes = windows
+        ledgesHere = ledges(windows: boxes, screen: area)
+        lookAround(roamer, now: now)
         roamer.step(
-            dt: dt, ledges: ledgesHere, walls: walls(windows: windows, screen: area),
-            screen: area, mood: agents.mood.roamMood, random: { Double.random(in: 0 ..< 1) }
+            dt: dt, ledges: ledgesHere, walls: walls(windows: boxes, screen: area),
+            screen: area, mood: agents.mood.roamMood, goal: goal, random: { Double.random(in: 0 ..< 1) }
         )
         roamer.x = min(max(roamer.x, area.minX + Roamer.halfWidth), area.maxX - Roamer.halfWidth)
         self.roamer = roamer
@@ -252,7 +312,7 @@ final class AvatarController {
         // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
         var hot = Self.figure(at: next).contains(mouse)
-        if let bubble = agents.mood.bubble, bubble != pose.dismissed {
+        if pose.chat != nil || agents.mood.bubble.map({ $0 != pose.dismissed }) == true {
             hot = NSRect(origin: next, size: Self.size).contains(mouse)
         }
         if panel.ignoresMouseEvents == hot { panel.ignoresMouseEvents = !hot }
@@ -269,22 +329,28 @@ final class AvatarController {
 
     /// 화면에 떠 있는 보통 창(레이어 0)들 — 앞에서 뒤 순서, AppKit 좌표로. 자기 창과 아주 작은 창은 뺀다.
     /// `top` 은 주 화면의 윗변 — `NSScreen` 은 메인 스레드에서 읽어 넘긴다(이 함수는 메인 스레드 밖에서 돈다).
-    nonisolated private static func scanWindows(top: CGFloat) -> [Box] {
+    nonisolated private static func scanWindows(top: CGFloat) -> [SeenWindow] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
         let me = ProcessInfo.processInfo.processIdentifier
         return list.compactMap { info in
             guard (info[kCGWindowLayer as String] as? Int) == 0,
-                  (info[kCGWindowOwnerPID as String] as? Int32) != me,
+                  let pid = info[kCGWindowOwnerPID as String] as? Int32, pid != me,
                   (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
                   let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                   let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   rect.width >= 80, rect.height >= 40
             else { return nil }
             // CG 창 좌표는 주 화면 왼쪽 위가 원점이고 y 가 아래로 자란다.
-            return Box(x: rect.minX, y: top - rect.maxY, width: rect.width, height: rect.height)
+            return SeenWindow(box: Box(x: rect.minX, y: top - rect.maxY, width: rect.width, height: rect.height), pid: pid)
         }
     }
+}
+
+/// 창 목록의 한 줄 — 자리와 주인 앱의 pid.
+private struct SeenWindow: Sendable {
+    var box: Box
+    var pid: Int32
 }
 
 /// 디스플레이 링크의 박자를 받는 쪽 — `CADisplayLink` 의 target 은 Objective-C 객체여야 한다.
@@ -314,6 +380,8 @@ final class RoamPose {
     var crouch = 0.0
     /// 누른 말풍선 — 같은 글이면 다시 띄우지 않고, 글이 바뀌면(다른 세션이 기다리면) 다시 뜬다.
     var dismissed: String?
+    /// 잠깐 띄우는 혼잣말(`Chatter`) — 내 차례 말풍선이 떠 있으면 그 뒤로 숨는다. 누르면 닫힌다.
+    var chat: String?
 }
 
 /// 관의 굵기와, 발 자리에서 관 중심선까지의 높이 — 줄어든 로키(약 0.45배)가 관 한가운데 오게.
@@ -387,15 +455,9 @@ struct AvatarView: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
             if let bubble = agents.mood.bubble, bubble != pose.dismissed {
-                Text(bubble)
-                    .font(.caption)
-                    .lineLimit(3)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .frame(maxWidth: 220, alignment: .trailing)
-                    .onTapGesture { pose.dismissed = bubble }
-                    .transition(.opacity)
+                Bubble(text: bubble) { pose.dismissed = bubble }
+            } else if let chat = pose.chat {
+                Bubble(text: chat) { pose.chat = nil }
             }
             Rocky(
                 mood: agents.mood, action: pose.action, facing: pose.facing,
@@ -416,10 +478,31 @@ struct AvatarView: View {
                 if let url = agents.agentsURL { openURL(url) }
             }
             Button(agents.roam ? "돌아다니기 멈추기" : "돌아다니기") { agents.roam.toggle() }
+            Button(agents.follow ? "따라다니기 멈추기" : "따라다니기") { agents.follow.toggle() }
+                .disabled(!agents.roam)
             Button("아바타 숨기기") { agents.showAvatar = false }
         }
         .animation(.easeInOut(duration: 0.3), value: agents.mood)
         .animation(.easeInOut(duration: 0.2), value: pose.dismissed)
+        .animation(.easeInOut(duration: 0.3), value: pose.chat)
+    }
+}
+
+/// 로키 머리 위 말풍선 — 누르면 닫힌다.
+private struct Bubble: View {
+    let text: String
+    let close: () -> Void
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .lineLimit(3)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .frame(maxWidth: 220, alignment: .trailing)
+            .onTapGesture(perform: close)
+            .transition(.opacity)
     }
 }
 

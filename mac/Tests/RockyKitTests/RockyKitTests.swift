@@ -522,3 +522,161 @@ final class MovesTests: XCTestCase {
         XCTAssertEqual(rocky.squash, 0)
     }
 }
+
+final class GazeTests: XCTestCase {
+    let screen = Box(x: 0, y: 0, width: 1000, height: 800)
+
+    func input(
+        _ x: Double, _ y: Double, pointer: Double = 1, key: Double = 999, focus: Box? = nil,
+        rocky: (Double, Double) = (900, 0)
+    ) -> GazeInput {
+        GazeInput(
+            pointerX: x, pointerY: y, sincePointer: pointer, sinceKey: key, focus: focus,
+            rockyX: rocky.0, rockyY: rocky.1
+        )
+    }
+
+    func testLooksAtTheSettledPointerOnlyAfterItStops() {
+        var gaze = GazeTracker()
+        XCTAssertNil(gaze.update(input(300, 400, pointer: 0.1)))
+        XCTAssertEqual(gaze.update(input(300, 400)), GazePoint(x: 300, y: 400))
+        // 조금 옮긴 것은 무시하고, 멀리 옮기면 따라간다.
+        XCTAssertEqual(gaze.update(input(400, 400)), GazePoint(x: 300, y: 400))
+        XCTAssertEqual(gaze.update(input(600, 500)), GazePoint(x: 600, y: 500))
+        // 움직이는 동안은 하던 눈길 그대로.
+        XCTAssertEqual(gaze.update(input(100, 100, pointer: 0.2)), GazePoint(x: 600, y: 500))
+    }
+
+    func testTypingLooksAtTheFrontWindowTop() {
+        var gaze = GazeTracker()
+        let editor = Box(x: 100, y: 100, width: 600, height: 400)
+        // 포인터가 창 밖이면 창 가운데, 창 위면 포인터 쪽.
+        XCTAssertEqual(gaze.update(input(900, 700, pointer: 30, key: 0.5, focus: editor)), GazePoint(x: 400, y: 500))
+        var other = GazeTracker()
+        XCTAssertEqual(other.update(input(150, 300, pointer: 30, key: 0.5, focus: editor)), GazePoint(x: 150, y: 500))
+    }
+
+    func testIgnoresAPointerReachingForRockyAndLetsGoWhenAway() {
+        var gaze = GazeTracker()
+        XCTAssertNil(gaze.update(input(880, 40, rocky: (900, 0))))
+        XCTAssertNotNil(gaze.update(input(300, 400)))
+        XCTAssertNil(gaze.update(input(300, 400, pointer: 200, key: 200)))
+        XCTAssertNil(gaze.target)
+    }
+
+    func testGoalStandsBesideTheGazeOnTheHighestLedgeBelow() {
+        let ground = ledges(windows: [Box(x: 100, y: 0, width: 600, height: 300)], screen: screen)
+        // 로키가 오른쪽에 있으면 눈길 오른쪽으로 비켜 선다 — 눈길 아래의 창 윗면에.
+        XCTAssertEqual(
+            followGoal(gaze: GazePoint(x: 400, y: 450), ledges: ground, fromX: 900), Goal(x: 510, y: 300)
+        )
+        XCTAssertEqual(
+            followGoal(gaze: GazePoint(x: 400, y: 450), ledges: ground, fromX: 0), Goal(x: 290, y: 300)
+        )
+        // 그쪽에 설 데가 없으면 반대쪽, 눈길이 창 윗면보다 낮으면 바닥.
+        XCTAssertEqual(
+            followGoal(gaze: GazePoint(x: 650, y: 450), ledges: ground, fromX: 900), Goal(x: 540, y: 300)
+        )
+        XCTAssertEqual(
+            followGoal(gaze: GazePoint(x: 400, y: 200), ledges: ground, fromX: 900), Goal(x: 510, y: 0)
+        )
+    }
+
+    func testWaitingWalksToTheGoalAndStands() {
+        let floor = ledges(windows: [], screen: screen)
+        var rocky = Roamer(x: 500, y: 0)
+        rocky.action = .stand
+        let goal = Goal(x: 700, y: 0)
+        var steps = 0
+        while abs(rocky.x - goal.x) > Roamer.near, steps < 600 {
+            rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .stay, goal: goal, random: { 0.99 })
+            steps += 1
+        }
+        XCTAssertLessThan(steps, 600)
+        XCTAssertEqual(rocky.facing, 1)
+        rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .stay, goal: goal, random: { 0.99 })
+        XCTAssertEqual(rocky.action, .stand)
+        // 다 쉬는 중엔 따라가지 않는다.
+        var sleeper = Roamer(x: 100, y: 0)
+        sleeper.action = .stand
+        sleeper.step(dt: 1, ledges: floor, walls: [], screen: screen, mood: .sleep, goal: goal, random: { 0 })
+        XCTAssertEqual(sleeper.action, .sit)
+        XCTAssertEqual(sleeper.x, 100)
+    }
+
+    func testTubesToAGoalOnAnotherLedgeThenRests() {
+        let ground = ledges(windows: [Box(x: 400, y: 0, width: 400, height: 300)], screen: screen)
+        let goal = Goal(x: 600, y: 300)
+        var rocky = Roamer(x: 100, y: 0)
+        rocky.action = .stand
+        // 서두르지 않는다 — 운이 안 맞으면 그 자리에 서서 기다린다.
+        rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, goal: goal, random: { 0.99 })
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertNil(rocky.tube)
+        rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, goal: goal, random: { 0 })
+        XCTAssertEqual(rocky.action, .tube)
+        XCTAssertEqual(rocky.tube?.endX, 600)
+        XCTAssertEqual(rocky.tube?.endY, 300)
+        var steps = 0
+        while rocky.action == .tube, steps < 1000 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, goal: goal, random: { 0 })
+            steps += 1
+        }
+        XCTAssertEqual(rocky.y, 300)
+        XCTAssertEqual(rocky.x, 600, accuracy: 1e-9)
+        // 눈길이 바로 다시 옮겨도 `followRest` 동안은 튜브를 또 놓지 않는다.
+        let back = Goal(x: 100, y: 0)
+        for _ in 0 ..< 30 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .stay, goal: back, random: { 0 })
+        }
+        XCTAssertNotEqual(rocky.action, .tube)
+    }
+
+    func testWorkingRoamsWithinTheLeashWithoutWanderingTubes() {
+        let ground = ledges(windows: [Box(x: 600, y: 0, width: 300, height: 300)], screen: screen)
+        var rocky = Roamer(x: 200, y: 0)
+        rocky.action = .walk
+        // 목줄 안이면 평소처럼 걷지만, 다른 창으로 건너가는 튜브는 놓지 않는다(goal 없으면 random 0 이면 놓는다).
+        rocky.step(
+            dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .roam, goal: Goal(x: 250, y: 0), random: { 0 }
+        )
+        XCTAssertNil(rocky.tube)
+        XCTAssertNotEqual(rocky.action, .tube)
+        // 목줄 밖이면 그쪽으로 돌아선다.
+        var far = Roamer(x: 200, y: 0)
+        far.action = .walk
+        far.facing = -1
+        far.step(
+            dt: 1 / 30, ledges: ground, walls: [], screen: screen, mood: .roam, goal: Goal(x: 520, y: 0), random: { 0.99 }
+        )
+        XCTAssertEqual(far.facing, 1)
+        XCTAssertGreaterThan(far.x, 200)
+    }
+}
+
+final class ChatterTests: XCTestCase {
+    func testPrimesSilentlyThenTellsStartsAndFinishes() {
+        var chatter = Chatter()
+        let idle = Session(sessionId: "a", name: "eel", status: "idle")
+        let busy = Session(sessionId: "a", name: "eel", status: "busy")
+        XCTAssertNil(chatter.update([busy], now: 0))
+        XCTAssertNil(chatter.update([busy], now: 15))
+        XCTAssertEqual(chatter.update([idle], now: 30), "eel 일을 마쳤어요")
+        XCTAssertEqual(
+            chatter.update([busy, Session(sessionId: "b", name: "fox", status: "busy")], now: 45), "eel 외 1개 일을 시작했어요"
+        )
+        // 못 읽은 목록은 지나간다.
+        XCTAssertNil(chatter.update(nil, now: 60))
+    }
+
+    func testNudgesWhatIsRunningNowAndThen() {
+        var chatter = Chatter()
+        let busy = Session(sessionId: "a", name: "eel", status: "busy", job: JobSummary(detail: "테스트 고치는 중"))
+        XCTAssertNil(chatter.update([busy], now: 0))
+        XCTAssertNil(chatter.update([busy], now: Chatter.nudge - 1))
+        XCTAssertEqual(chatter.update([busy], now: Chatter.nudge), "eel — 테스트 고치는 중")
+        XCTAssertNil(chatter.update([busy], now: Chatter.nudge + 15))
+        // 다 쉬면 조르지 않는다.
+        XCTAssertNil(chatter.update([Session(sessionId: "c", name: "owl")], now: Chatter.nudge * 3))
+    }
+}
