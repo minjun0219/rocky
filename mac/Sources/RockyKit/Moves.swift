@@ -9,7 +9,8 @@ public enum Move: String, CaseIterable, Sendable {
     case mood
     /// 도는 중 — 망치질, 그리고 망치질 사이에 쉬는 동작들.
     case hammer, look, wipe, shoulder, stomp, sit, peek
-    /// 내 차례 — 처음엔 크게 뛰며 손을 흔들고, 그 뒤엔 마우스 쪽을 보고 서 있다가 가끔 손만 흔든다.
+    /// 내 차례 — 처음엔 한 번 껑충 뛰며 주먹 인사를 하고, 그 뒤엔 마우스 쪽을 보고 서 있다가 가끔 손만 흔든다.
+    /// 지켜보기(`watch`)는 깨어 있을 때도 쓴다 — 마우스 쪽을 보고 서 있다가 쉬는 동작 하나를 한다.
     case cheer, watch, wave
 }
 
@@ -57,6 +58,8 @@ public enum MoveMood: Equatable, Sendable {
     case working
     /// 내 차례 — 기다리는 세션이 바뀌면(`who`) 다시 크게 알린다.
     case waiting(who: String)
+    /// 깨어 있다(다 쉬지만 방금까지 일했다) — 망치 없이 지켜보기와 쉬는 동작을 오간다.
+    case awake
     case other
 }
 
@@ -84,15 +87,21 @@ public struct Choreographer: Equatable, Sendable {
     /// 망치질 한 번의 박자와, 쉬기 전에 내리치는 횟수.
     public static let hammerTempo: ClosedRange<Double> = 0.7 ... 0.95
     public static let strikes: ClosedRange<Int> = 3 ... 7
-    /// 내 차례 — 처음 크게 알리는 시간(뛰기·흔들기 2.4초 두 바퀴), 그 뒤 손 흔드는 간격과 길이.
-    public static let cheerLength: Double = 4.8
+    /// 내 차례 — 처음 크게 알리는 시간(한 번 껑충 뛰고 주먹 인사), 그 뒤 손 흔드는 간격과 길이.
+    /// 네 번 뛰던 4.8초는 정신없었다(2026-11-06 오너 지적).
+    public static let cheerLength: Double = 2.4
+    /// 같은 세션이 이 시간(초) 안에 다시 기다리면 크게 알리지 않고 지켜보기로 시작한다 — 일과 기다림을 오가는 세션마다 뛰면 자꾸 튄다.
+    public static let cheerCooldown: Double = 180
     public static let waveEvery: ClosedRange<Double> = 10 ... 20
-    public static let waveLength: Double = 1.6
+    public static let waveLength: Double = 2.4
 
     public private(set) var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
     var mood: MoveMood?
     /// 방금 한 쉬는 동작 — 다음 쉬는 동작에서 뺀다.
     var lastBreak: Move?
+    /// 마지막으로 크게 알린 세션과 그 시각 — `cheerCooldown` 을 잰다.
+    var cheeredWho: String?
+    var cheeredAt = -Double.infinity
 
     public init() {}
 
@@ -102,33 +111,42 @@ public struct Choreographer: Equatable, Sendable {
         if mood != self.mood {
             self.mood = mood
             lastBreak = nil
-            begin(first(for: mood), now: now, spot: spot, random: random)
+            begin(first(for: mood, now: now), now: now, spot: spot, random: random)
+            if clip.move == .cheer, case let .waiting(who) = mood {
+                cheeredWho = who
+                cheeredAt = now
+            }
         } else if now >= clip.end, clip.move != .mood {
             begin(next(after: clip.move, spot: spot, random: random), now: now, spot: spot, random: random)
         }
         return clip
     }
 
-    private func first(for mood: MoveMood) -> Move {
+    private func first(for mood: MoveMood, now: Double) -> Move {
         switch mood {
         case .working: .hammer
-        case .waiting: .cheer
+        case let .waiting(who): who == cheeredWho && now - cheeredAt < Self.cheerCooldown ? .watch : .cheer
+        case .awake: .watch
         case .other: .mood
         }
     }
 
     private mutating func next(after move: Move, spot: Spot, random: () -> Double) -> Move {
         switch move {
-        case .hammer:
-            let options = Self.breaks(at: spot).filter { $0.move != lastBreak }
-            let pick = Self.weighted(options.map { $0.weight }, random())
-            lastBreak = options[pick].move
-            return lastBreak!
-        case .look, .wipe, .shoulder, .stomp, .sit, .peek: return .hammer
+        case .hammer: return pickBreak(at: spot, random: random)
+        case .look, .wipe, .shoulder, .stomp, .sit, .peek: return mood == .awake ? .watch : .hammer
         case .cheer, .wave: return .watch
-        case .watch: return .wave
+        case .watch: return mood == .awake ? pickBreak(at: spot, random: random) : .wave
         case .mood: return .mood
         }
+    }
+
+    /// 쉬는 동작 하나 — 가중 랜덤, 방금 한 것은 뺀다.
+    private mutating func pickBreak(at spot: Spot, random: () -> Double) -> Move {
+        let options = Self.breaks(at: spot).filter { $0.move != lastBreak }
+        let pick = Self.weighted(options.map { $0.weight }, random())
+        lastBreak = options[pick].move
+        return options[pick].move
     }
 
     private mutating func begin(_ move: Move, now: Double, spot: Spot, random: () -> Double) {
