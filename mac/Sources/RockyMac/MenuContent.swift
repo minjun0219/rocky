@@ -6,6 +6,7 @@ import SwiftUI
 struct MenuContent: View {
     let store: BoardStore
     @Bindable var agents: AgentStore
+    let loginItem: LoginItem
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
 
@@ -71,6 +72,18 @@ struct MenuContent: View {
             }
 
             Divider()
+            if loginItem.available {
+                Toggle("로그인할 때 열기", isOn: Binding(get: { loginItem.enabled }, set: { loginItem.set($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .help("데몬처럼 로그인할 때 이 앱도 띄운다 — 시스템 설정 > 일반 > 로그인 항목과 같은 것")
+                if let error = loginItem.error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+            }
             HStack {
                 Button("할 일 창 열기") {
                     NSApp.activate(ignoringOtherApps: true)
@@ -87,7 +100,10 @@ struct MenuContent: View {
         }
         .padding(14)
         .frame(width: 340)
-        .onAppear { agents.refresh() }
+        .onAppear {
+            agents.refresh()
+            loginItem.reload()
+        }
     }
 }
 

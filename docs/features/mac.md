@@ -48,8 +48,14 @@
   로키는 관 안에서 0.45배로 줄어든다. 튜브는 한 번에 하나, 건너는 중엔 기분이 바뀌어도 마저 건너고, 끌어다 놓으면 관이 사라진다.
   비율을 바꾸면 바닥에 머무는 시간을 다시 잰다 — 레포 밖 프로젝트 파일 `mac-avatar/roam/`의 `roam.py`(`Roamer` 의 Python 사본)와 `sim.py`(창 배치 셋, 25초마다 창 전환)로
   2026-10-29 에 잰 값은 바닥에 있는 시간이 창이 섞인 화면 35%(전 63%), 작은 창들 13%(전 50%), 다 큰 창 90%(전 100%)다.
-  판정(발판·벽·한 걸음)은 `RockyKit` 의 `Roamer` 순수 함수이고, 앱은 초당 30번 걸음을 재고 패널을 옮기기만 한다. 창 목록은
-  `CGWindowListCopyWindowInfo` 로 0.5초마다 위치만 읽는다 — 창 이름을 읽지 않으니 화면 기록 권한을 묻지 않는다. 패널은 로키 칸(말풍선이 떠 있는 동안은 패널 전체) 위에 마우스가 있을 때만 클릭을 받고, 나머지는 아래 창으로 흘려보낸다(`ignoresMouseEvents`).
+  판정(발판·벽·한 걸음)은 `RockyKit` 의 `Roamer` 순수 함수이고, 앱은 걸음을 재고 패널을 옮기기만 한다. 박자는 패널 화면의 디스플레이 링크(`NSView.displayLink`, 30-60fps, 120Hz 화면에서도 60)이고
+  로키 그림(`TimelineView`)도 같은 60이다 — `Timer` 로 초당 30번 옮기던 때는 화면 주사율과 어긋나 패널이 들쭉날쭉 멈춰 프레임 드랍처럼 보였다(2026-11-06).
+  둘 중 하나만 낮추지 않는다. 창 목록은 `CGWindowListCopyWindowInfo` 로 0.5초마다 위치만 읽는다(처음 한 번만 기다리고, 그 뒤엔 메인 스레드 밖에서 —
+  창이 많으면 수십 ms 걸려 걸음이 멈칫했다) — 창 이름을 읽지 않으니 화면 기록 권한을 묻지 않는다. 패널은 로키 칸(말풍선이 떠 있는 동안은 패널 전체) 위에 마우스가 있을 때만 클릭을 받고, 나머지는 아래 창으로 흘려보낸다(`ignoresMouseEvents`).
+- **로그인할 때 뜬다**(오너 요청 2026-11-06 — 데몬은 launchd 로 로그인 때 뜨는데 앱은 사람이 열어야 했다). 앱이 macOS 로그인 항목
+  (`SMAppService.mainApp`, `LoginItem.swift`)에 스스로 오른다 — .app 으로 처음 뜰 때 한 번만 저절로 올리고(`defaults` 의 `loginItemOffered`),
+  그 뒤에 메뉴의 "로그인할 때 열기"나 시스템 설정 > 일반 > 로그인 항목에서 끈 것은 되살리지 않는다. 데몬·훅·`rocky daemon install` 은 앱을 띄우지 않는다 —
+  앱은 데몬의 클라이언트라 둘 중 누가 먼저 떠도 SSE 가 다시 붙는다. `swift run` 의 실행 파일은 올릴 수 없어 토글을 숨긴다.
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
   받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
 - **실패는 출처로 지운다** — 읽기 실패는 다음 읽기 성공이, 동작 실패는 다음 동작이 지운다.
@@ -84,6 +90,7 @@
 | 몸짓 고르기(후보표·가중치·서 있는 자리) | `mac/Sources/RockyKit/Moves.swift` |
 | 세션 묻기·아바타 패널 | `mac/Sources/RockyMac/AgentStore.swift`, `mac/Sources/RockyMac/Avatar.swift` |
 | 설정 풀기 | `mac/Sources/RockyKit/Settings.swift` |
+| 로그인 항목 | `mac/Sources/RockyMac/LoginItem.swift` |
 | 상태·SSE 루프 | `mac/Sources/RockyMac/BoardStore.swift` |
 | 화면 | `mac/Sources/RockyMac/`(`RockyMacApp` · `MenuContent` · `BoardWindow`) |
 | 아바타 조각 그림 | `mac/Sources/RockyMac/Resources/rocky/` |
