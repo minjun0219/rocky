@@ -63,9 +63,9 @@ enum PebbleRocky {
         return m
     }
 
-    /// `tucked` 면 팔다리를 그리지 않는다(잘 때, 그리고 구르기 · 돌인 척하기의 `q.tuck`).
+    /// `tucked` 면 팔다리를 그리지 않는다(잘 때, 그리고 구르기 · 돌인 척하기의 `q.tuck` — 눈을 가리는 중이면 팔을 꺼낸다).
     static func draw(_ q: RockyPose, tucked: Bool = false, in gc: GraphicsContext) {
-        let tucked = tucked || q.tuck
+        let tucked = tucked || (q.tuck && q.shy < 0.5)
         if !tucked {
             leg(gc, hip: hips.left, angle: q.legL, step: q.stepL)
             leg(gc, hip: hips.right, angle: q.legR, step: q.stepR)
@@ -74,12 +74,18 @@ enum PebbleRocky {
         upper.translateBy(x: 258, y: 236 + q.rise)
         upper.rotate(by: .degrees(q.lean))
         upper.translateBy(x: -258, y: -236)
-        if !tucked {
-            arm(upper, left: true, q.armL)
-            arm(upper, left: false, q.armR)
+        // 비밀번호를 칠 때(`RockyPose.coverEyes`)는 원작처럼 팔을 몸 앞에 그려 두 손으로 눈을 가린다.
+        let front = q.shy > 0.15
+        if !tucked, !front {
+            arm(upper, left: true, q.armL, shy: q.shy)
+            arm(upper, left: false, q.armR, shy: q.shy)
         }
         body(upper)
         face(upper, q)
+        if !tucked, front {
+            arm(upper, left: true, q.armL, shy: q.shy)
+            arm(upper, left: false, q.armR, shy: q.shy)
+        }
     }
 
     private static func outlined(_ gc: GraphicsContext, _ path: Path, width: Double = 7, fill: Color = limb) {
@@ -102,19 +108,25 @@ enum PebbleRocky {
         outlined(g, capsule(CGRect(x: -24, y: 6, width: 48, height: 57)))
     }
 
-    private static func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm) {
-        guard let from = arm.from, from != arm.hand, arm.fade < 1 else { return paintArm(gc, left: left, arm.hand, arm.raise) }
+    private static func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm, shy: Double) {
+        guard let from = arm.from, from != arm.hand, arm.fade < 1 else {
+            return paintArm(gc, left: left, arm.hand, arm.raise, shy: shy)
+        }
         var old = gc, new = gc
         old.opacity = min(1, 2 * (1 - arm.fade))
         new.opacity = min(1, 2 * arm.fade)
-        paintArm(old, left: left, from, arm.raise)
-        paintArm(new, left: left, arm.hand, arm.raise)
+        paintArm(old, left: left, from, arm.raise, shy: shy)
+        paintArm(new, left: left, arm.hand, arm.raise, shy: shy)
     }
 
     /// 짧은 팔 — 편 손은 끝에 손가락 셋, 주먹은 끝에 동그란 주먹.
-    private static func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double) {
+    /// `shy` 만큼 어깨를 안쪽으로 15 옮긴다 — 그러면 140도 모아 올린 손(`RockyPose.coverRaise`)이 두 눈(x 214 · 302, y 166) 위에 온다.
+    private static func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double, shy: Double) {
         var g = gc
-        let shoulder = left ? shoulders.left : shoulders.right
+        let inward = 15 * shy
+        let shoulder = left
+            ? CGPoint(x: shoulders.left.x + inward, y: shoulders.left.y)
+            : CGPoint(x: shoulders.right.x - inward, y: shoulders.right.y)
         let turn = rest + raise
         g.translateBy(x: shoulder.x, y: shoulder.y)
         g.rotate(by: .degrees(left ? turn : -turn))

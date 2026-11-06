@@ -4,6 +4,7 @@
 // 튜브를 놓아 창 윗면으로 오르거나 다른 창으로 건너간다. 두 번 누르면 웹 에이전트 탭이 열리고, 말풍선은 누르면 닫힌다.
 // 따라다니기를 켜면 사람이 보는 곳(멈춘 포인터 · 입력 중인 앞 창) 옆으로 느긋하게 다가가고, 가끔 말풍선으로 세션 소식을 혼잣말한다.
 import AppKit
+import Carbon
 import QuartzCore
 import RockyKit
 import SwiftUI
@@ -36,6 +37,8 @@ final class AvatarController {
     private var gaze = GazeTracker()
     private var goal: Goal?
     private var gazed: TimeInterval = 0
+    /// 비밀번호를 칠 때 눈 가리기.
+    private var eyes = EyeCover()
     /// 마지막으로 띄운 혼잣말 번호와 내릴 시각.
     private var chatSeen = 0
     private var chatUntil: TimeInterval = 0
@@ -238,6 +241,9 @@ final class AvatarController {
         let now = ProcessInfo.processInfo.systemUptime
         let dt = min(now - last, 0.1)
         last = now
+        // 비밀번호 칸 — 시스템의 보안 입력이 켜졌는지는 권한 없이 읽는다(어느 앱이 켰는지는 모른다).
+        let cover = eyes.update(secure: IsSecureEventInputEnabled() == true, now: now, dt: dt)
+        if pose.cover != cover { pose.cover = cover }
         if roaming { roam(panel, now: now, dt: dt) }
         choreograph(panel)
         chat(now: now)
@@ -355,9 +361,12 @@ final class AvatarController {
         let boxes = windows
         ledgesHere = ledges(windows: boxes, screen: area)
         lookAround(roamer, now: now)
+        // 눈을 가린 동안은 걷지 않고(앞을 못 본다) 눈길도 따라가지 않는다 — 비밀번호 칸으로 다가가면 안 된다.
+        var mood = agents.mood.roamMood(during: pose.clip)
+        if eyes.covering, mood == .roam { mood = .stay }
         roamer.step(
             dt: dt, ledges: ledgesHere, walls: walls(windows: boxes, screen: area),
-            screen: area, mood: agents.mood.roamMood(during: pose.clip), goal: goal, random: { Double.random(in: 0 ..< 1) }
+            screen: area, mood: mood, goal: eyes.covering ? nil : goal, random: { Double.random(in: 0 ..< 1) }
         )
         roamer.x = min(max(roamer.x, area.minX + Roamer.halfWidth), area.maxX - Roamer.halfWidth)
         self.roamer = roamer
@@ -456,6 +465,8 @@ final class RoamPose {
     var dismissed: String?
     /// 잠깐 띄우는 혼잣말(`Chatter`) — 내 차례 말풍선이 떠 있으면 그 뒤로 숨는다. 누르면 닫힌다.
     var chat: String?
+    /// 두 손으로 눈을 가린 정도(0 … 1, `EyeCover`).
+    var cover = 0.0
 
     func switchAction(to next: RoamAction) {
         guard next != action else { return }
@@ -560,7 +571,8 @@ struct AvatarView: View {
             Rocky(
                 mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
                 facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
-                clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible, look: agents.avatarStyle
+                clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible, cover: pose.cover,
+                look: agents.avatarStyle
             )
                 .frame(width: 96, height: 88)
                 .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
@@ -645,6 +657,7 @@ private struct Rocky: View {
     var squash = 0.0
     var crouch = 0.0
     var visible = true
+    var cover = 0.0
     /// 그림체 — 원작 조각(`RockyArt`)이나 돌멩이(`PebbleRocky`). 자세(`RockyPose`)는 둘이 같다.
     var look = AvatarStyle.concept
 
@@ -704,6 +717,7 @@ private struct Rocky: View {
             width = 1 - Self.squeeze * sin(.pi * turning)
             if turning < 0.5 { facing = wasFacing }
         }
+        if cover > 0 { q.coverEyes(cover) }
         // 발 — 디딘 발은 땅에 붙어 있게 다리를 그 자리로 옮기고, 든 발 반대쪽으로 무게를 싣는다.
         let feet = stance.drawn(facing: facing)
         q.plant(left: feet.left, right: feet.right)
@@ -811,6 +825,8 @@ struct RockyPose {
     var rise = 0.0
     var whole: Whole?
     var gray = false
+    /// 눈 가리기(0 … 1) — 어깨를 안쪽 위로 올리고 팔을 몸 앞으로 그린다(`coverEyes`).
+    var shy = 0.0
     /// 팔다리를 몸 안에 넣었나(구르기 · 돌인 척하기) — 돌멩이만 따른다.
     var tuck = false
 
@@ -868,6 +884,29 @@ struct RockyPose {
     }
 
     /// 0 … 1 을 처음과 끝이 느린 곡선으로 — 직선으로 섞으면 시작과 끝에서 팔이 툭 멈추거나 튀어 나간다.
+    /// 두 손으로 눈 가리기 — 편 손을 몸 앞으로 140도 모아 올리고 어깨를 안쪽 위로 끌어올린다. 손 아래 눈은 감는다.
+    /// 시안 조각만으로 짠 자세다(새로 그리지 않는다) — 각도와 어깨 자리는 조각을 짜 맞춰 본 시트로 골랐다(2026-11-06).
+    /// 통째 자세(잠 · 갸웃 · 뛰기)는 관절이 없어 절반을 넘으면 서 있는 조각으로 바꾼다.
+    mutating func coverEyes(_ amount: Double) {
+        if whole != nil {
+            guard amount >= 0.5 else { return }
+            self = RockyPose()
+        }
+        let s = Self.smooth(amount)
+        func up(_ arm: Arm) -> Arm {
+            let from = arm.settled
+            let raise = from.raise + (Self.coverRaise - from.raise) * s
+            return from.hand == .open ? Arm(raise: raise, hand: .open) : Arm(raise: raise, hand: .open, from: from.hand, fade: s)
+        }
+        armL = up(armL)
+        armR = up(armR)
+        shy = s
+        look = 0
+        if amount > 0.6 { blink = true }
+    }
+
+    static let coverRaise = -140.0
+
     static func smooth(_ x: Double) -> Double {
         let u = min(max(x, 0), 1)
         return u * u * (3 - 2 * u)
@@ -1341,8 +1380,12 @@ private final class RockyArt {
         upper.translateBy(x: 258, y: 236 + q.rise)
         upper.rotate(by: .degrees(q.lean))
         upper.translateBy(x: -258, y: -236)
-        arm(upper, left: true, q.armL)
-        arm(upper, left: false, q.armR)
+        // 눈을 가리는 동안은 팔을 몸 앞에 — 몸 뒤에 두면 손이 얼굴에 닿지 못한다. 조금만 올렸을 때(0.15 아래)는 그대로 뒤에.
+        let front = q.shy > 0.15
+        if !front {
+            arm(upper, left: true, q.armL, shy: q.shy)
+            arm(upper, left: false, q.armR, shy: q.shy)
+        }
         paint(.body, in: upper)
         for piece in Self.face(q.face, blink: q.blink, look: q.look) {
             var g = upper
@@ -1351,6 +1394,10 @@ private final class RockyArt {
             g.scaleBy(x: piece.flip ? -piece.scale : piece.scale, y: piece.scale)
             g.translateBy(x: -piece.from.x, y: -piece.from.y)
             paint(piece.sprite, in: g)
+        }
+        if front {
+            arm(upper, left: true, q.armL, shy: q.shy)
+            arm(upper, left: false, q.armR, shy: q.shy)
         }
     }
 
@@ -1382,20 +1429,24 @@ private final class RockyArt {
 
     /// 팔 — 바라는 각도(내린 팔 37.33도 + `raise`)와 조각의 각도의 차만큼 어깨를 축으로 돌린다.
     /// 화면은 y 가 아래로 자라 시계 방향이 + 이므로, 왼팔은 + 로 돌리면 들리고 오른팔은 − 로 돌리면 들린다.
-    private func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm) {
-        guard let from = arm.from, from != arm.hand, arm.fade < 1 else { return paintArm(gc, left: left, arm.hand, arm.raise) }
+    private func arm(_ gc: GraphicsContext, left: Bool, _ arm: RockyPose.Arm, shy: Double) {
+        guard let from = arm.from, from != arm.hand, arm.fade < 1 else {
+            return paintArm(gc, left: left, arm.hand, arm.raise, shy: shy)
+        }
         // 겹쳐 바꾸기 — 앞 절반은 옛 손이 다 보인 채 새 손이 짙어지고, 뒤 절반은 새 손이 다 보인 채 옛 손이 옅어진다
         // (둘 다 반투명이면 그 사이로 몸통이 비친다).
         var old = gc, new = gc
         old.opacity = min(1, 2 * (1 - arm.fade))
         new.opacity = min(1, 2 * arm.fade)
-        paintArm(old, left: left, from, arm.raise)
-        paintArm(new, left: left, arm.hand, arm.raise)
+        paintArm(old, left: left, from, arm.raise, shy: shy)
+        paintArm(new, left: left, arm.hand, arm.raise, shy: shy)
     }
 
-    private func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double) {
+    /// `shy` 만큼 어깨를 안쪽으로 15, 위로 30 옮긴다 — 내린 어깨 자리에서는 140도 올려도 손이 볼에 머문다.
+    private func paintArm(_ gc: GraphicsContext, left: Bool, _ hand: RockyPose.Hand, _ raise: Double, shy: Double) {
         let limb = Self.limb(left: left, hand)
-        let shoulder = left ? CGPoint(x: 100, y: 176) : CGPoint(x: 415.5, y: 176)
+        let inward = 15 * shy, lift = 30 * shy
+        let shoulder = left ? CGPoint(x: 100 + inward, y: 176 - lift) : CGPoint(x: 415.5 - inward, y: 176 - lift)
         let turn = 37.33 + raise - limb.theta
         var g = gc
         g.translateBy(x: shoulder.x, y: shoulder.y)
