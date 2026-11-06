@@ -28,6 +28,10 @@ struct MenuContent: View {
             HStack {
                 Text("에이전트").font(.subheadline.bold())
                 Spacer()
+                Toggle("따라다니기", isOn: $agents.follow)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .disabled(!agents.showAvatar || !agents.roam)
                 Toggle("돌아다니기", isOn: $agents.roam)
                     .toggleStyle(.switch)
                     .controlSize(.mini)

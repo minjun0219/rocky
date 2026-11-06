@@ -28,6 +28,15 @@ final class AgentStore {
         didSet { UserDefaults.standard.set(roam, forKey: "roam") }
     }
 
+    /// 돌아다니는 동안 사람의 눈길(포인터 · 앞 창 · 입력)을 따라가나 — 끄면 화면을 제멋대로 돈다. 기본은 켜짐.
+    var follow: Bool {
+        didSet { UserDefaults.standard.set(follow, forKey: "follow") }
+    }
+
+    /// 아바타가 할 혼잣말(`Chatter`) — 세션 목록을 새로 받을 때 정하고, 같은 글이 또 나와도 알아보게 번호를 붙인다.
+    private(set) var chat: AvatarChat?
+    private var chatter = Chatter()
+
     private let client: DaemonClient
     private var poll: Task<Void, Never>?
     private var wake: Task<Void, Never>?
@@ -36,6 +45,7 @@ final class AgentStore {
         self.client = client
         showAvatar = UserDefaults.standard.object(forKey: "avatar") as? Bool ?? true
         roam = UserDefaults.standard.object(forKey: "roam") as? Bool ?? true
+        follow = UserDefaults.standard.object(forKey: "follow") as? Bool ?? true
     }
 
     var mood: AvatarMood { avatarMood(error == nil ? result : nil) }
@@ -61,10 +71,21 @@ final class AgentStore {
 
     private func load() async {
         do {
-            result = try await client.sessions()
+            let result = try await client.sessions()
+            self.result = result
             error = nil
+            let now = Date().timeIntervalSinceReferenceDate
+            if let text = chatter.update(result.available ? result.sessions : nil, now: now) {
+                chat = AvatarChat(id: (chat?.id ?? 0) + 1, text: text)
+            }
         } catch {
             self.error = error.localizedDescription
         }
     }
+}
+
+/// 아바타의 혼잣말 한 마디 — 같은 글이 다시 나와도 `id` 로 새 말인 줄 안다.
+struct AvatarChat: Equatable {
+    var id: Int
+    var text: String
 }
