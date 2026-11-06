@@ -1,6 +1,6 @@
 // 돌멩이 로키 — 원작 느낌(사암색 돔 · 금 · 청록 점)을 다 뺀 꼭대기가 쏠린 회색 바위 캐릭터. 오너가 고른 두 번째 그림체다
 // (2026-11-06 "원작 느낌 없이 돌맹이 캐릭터로", 자세 시트와 SVG 사본은 프로젝트 파일 mac-avatar/simple-style/pebble-*).
-// 자세(`RockyPose`)와 칸 좌표는 원작 조각과 같다 — 통째 자세(갸웃 · 뛰는 중)는 관절 자세로 바꿔 받는다(`joints`).
+// 자세(`RockyPose`)와 칸 좌표는 원작 조각과 같다 — 통째 자세(잠 · 갸웃 · 뛰는 중)는 관절 자세로 짜서 원작의 쌍둥이 자세 자리에 쓴다(`twin`).
 // 처음엔 미니멀 벡터(원작 색을 도형으로)와 나란히 비교했는데 오너가 원작과 돌멩이 둘만 남기기로 했다(2026-11-06).
 import SwiftUI
 
@@ -51,6 +51,20 @@ enum PebbleRocky {
         return m
     }
 
+    /// 원작의 쌍둥이 자세(`RockyPose.twin`) 자리 — 겹쳐 바꿀 통째 그림이 없으니 그 자세를 관절로 짠 것이 곧 쌍둥이다.
+    /// 자세를 바꿀 때 관절이 이리로 섞여 간다(원작은 쌍둥이 자세로 간 뒤 그림을 겹쳐 바꾼다). 잘 때는 다리를 몸 안으로 올려 넣어
+    /// 바닥에 내려앉는 동안 바닥을 뚫지 않게 하고, 팔은 잠드는 동안 옅어진다(`draw` 의 `limbs`).
+    static func twin(_ whole: RockyPose.Whole) -> RockyPose {
+        var q = RockyPose()
+        q.whole = whole
+        guard whole == .sleep else { return joints(q) }
+        var m = asleep(q)
+        m.face = .sleep
+        m.stepL = CGSize(width: 0, height: -60)
+        m.stepR = CGSize(width: 0, height: -60)
+        return m
+    }
+
     /// 자는 자세 — 원작처럼 엎드려 팔을 뻗지 않고 팔다리를 다 넣은 채 바닥에 내려앉아 눈을 감는다(2026-11-06 오너가 원래 잠 자세가 이상하다고 해서 그린 후보 셋 중 골랐다,
     /// 후보는 프로젝트 파일 mac-avatar/simple-style/rock-sleep-options.png). 숨에 맞춘 눌림(`squash`)은 그대로 받는다.
     static func asleep(_ q: RockyPose) -> RockyPose {
@@ -63,12 +77,13 @@ enum PebbleRocky {
         return m
     }
 
-    /// `tucked` 면 팔다리를 그리지 않는다(잘 때, 그리고 구르기 · 돌인 척하기의 `q.tuck` — 눈을 가리는 중이면 팔을 꺼낸다).
-    static func draw(_ q: RockyPose, tucked: Bool = false, in gc: GraphicsContext) {
-        let tucked = tucked || (q.tuck && q.shy < 0.5)
-        if !tucked {
-            leg(gc, hip: hips.left, angle: q.legL, step: q.stepL)
-            leg(gc, hip: hips.right, angle: q.legR, step: q.stepR)
+    /// `limbs` 는 팔다리의 짙기(0 … 1) — 잠들며 팔다리를 넣는 동안 옅어지고 0 이면 그리지 않는다.
+    /// 구르기 · 돌인 척하기(`q.tuck`)도 팔다리를 넣는다 — 눈을 가리는 중이면 팔을 꺼낸다.
+    static func draw(_ q: RockyPose, limbs: Double = 1, in gc: GraphicsContext) {
+        let limbs = q.tuck && q.shy < 0.5 ? 0 : limbs
+        faded(gc, limbs) { g in
+            leg(g, hip: hips.left, angle: q.legL, step: q.stepL)
+            leg(g, hip: hips.right, angle: q.legR, step: q.stepR)
         }
         var upper = gc
         upper.translateBy(x: 258, y: 236 + q.rise)
@@ -76,16 +91,29 @@ enum PebbleRocky {
         upper.translateBy(x: -258, y: -236)
         // 비밀번호를 칠 때(`RockyPose.coverEyes`)는 원작처럼 팔을 몸 앞에 그려 두 손으로 눈을 가린다.
         let front = q.shy > 0.15
-        if !tucked, !front {
-            arm(upper, left: true, q.armL, shy: q.shy)
-            arm(upper, left: false, q.armR, shy: q.shy)
+        if !front {
+            faded(upper, limbs) { g in
+                arm(g, left: true, q.armL, shy: q.shy)
+                arm(g, left: false, q.armR, shy: q.shy)
+            }
         }
         body(upper)
         face(upper, q)
-        if !tucked, front {
-            arm(upper, left: true, q.armL, shy: q.shy)
-            arm(upper, left: false, q.armR, shy: q.shy)
+        if front {
+            faded(upper, limbs) { g in
+                arm(g, left: true, q.armL, shy: q.shy)
+                arm(g, left: false, q.armR, shy: q.shy)
+            }
         }
+    }
+
+    /// 옅게 그리기 — 겹친 도형(팔과 손가락, 윤곽선)이 비치지 않게 한 장으로 모아 옅게 한다.
+    private static func faded(_ gc: GraphicsContext, _ opacity: Double, _ paint: (GraphicsContext) -> Void) {
+        guard opacity > 0 else { return }
+        guard opacity < 1 else { return paint(gc) }
+        var g = gc
+        g.opacity = opacity
+        g.drawLayer { layer in paint(layer) }
     }
 
     private static func outlined(_ gc: GraphicsContext, _ path: Path, width: Double = 7, fill: Color = limb) {
@@ -193,7 +221,9 @@ enum PebbleRocky {
     }
 
     /// 얼굴 — 세로로 긴 점 눈, 볼터치, 고양이 입(ω). 눈은 보는 쪽(`look`)으로 5 옮긴다.
+    /// 표정을 바꾸는 중(`faceFrom`)이면 절반까지는 앞 표정이다 — 선으로 그린 얼굴이라 원작 조각처럼 겹쳐 바꾸지 않는다.
     private static func face(_ gc: GraphicsContext, _ q: RockyPose) {
+        let face = q.faceFrom.map { q.faceFade < 0.5 ? $0 : q.face } ?? q.face
         let shift = 5 * q.look
         let pen = StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
         for (i, x) in [214.0, 302].enumerated() {
@@ -203,12 +233,12 @@ enum PebbleRocky {
                 Path(ellipseIn: CGRect(x: eye.x + 4 * out - 17, y: eye.y + 18, width: 34, height: 20)),
                 with: .color(cheek.opacity(0.8))
             )
-            if q.blink || (q.face == .wink && i == 0) {
+            if q.blink || face == .sleep || (face == .wink && i == 0) {
                 var lid = Path()
                 lid.move(to: CGPoint(x: eye.x - 15, y: eye.y))
                 lid.addQuadCurve(to: CGPoint(x: eye.x + 15, y: eye.y), control: CGPoint(x: eye.x, y: eye.y + 12))
                 gc.stroke(lid, with: .color(ink), style: pen)
-            } else if q.face == .happy || q.face == .joy {
+            } else if face == .happy || face == .joy {
                 var arc = Path()
                 arc.move(to: CGPoint(x: eye.x - 14, y: eye.y + 5))
                 arc.addQuadCurve(to: CGPoint(x: eye.x + 14, y: eye.y + 5), control: CGPoint(x: eye.x, y: eye.y - 13))
@@ -217,7 +247,7 @@ enum PebbleRocky {
                 gc.fill(Path(ellipseIn: CGRect(x: eye.x - 11, y: eye.y - 15, width: 22, height: 30)), with: .color(ink))
                 gc.fill(dot(eye.x + 3, eye.y - 6, 4), with: .color(.white))
             }
-            if q.face == .focus {
+            if face == .focus {
                 var brow = Path()
                 brow.move(to: CGPoint(x: eye.x + 16 * out, y: eye.y - 30))
                 brow.addLine(to: CGPoint(x: eye.x - 8 * out, y: eye.y - 24))
@@ -226,7 +256,7 @@ enum PebbleRocky {
         }
         let mouth = CGPoint(x: 258 + shift, y: 194)
         var path = Path()
-        switch q.face {
+        switch face {
         case .joy:
             path.move(to: CGPoint(x: mouth.x - 16, y: mouth.y - 4))
             path.addQuadCurve(to: CGPoint(x: mouth.x + 16, y: mouth.y - 4), control: CGPoint(x: mouth.x, y: mouth.y + 22))
@@ -239,7 +269,7 @@ enum PebbleRocky {
             path.move(to: CGPoint(x: mouth.x - 9, y: mouth.y + 2))
             path.addLine(to: CGPoint(x: mouth.x + 9, y: mouth.y + 2))
             gc.stroke(path, with: .color(ink), style: pen)
-        case .smile, .happy, .wink:
+        case .smile, .happy, .wink, .sleep:
             path.move(to: CGPoint(x: mouth.x - 11, y: mouth.y))
             path.addQuadCurve(to: CGPoint(x: mouth.x, y: mouth.y), control: CGPoint(x: mouth.x - 5.5, y: mouth.y + 8))
             path.addQuadCurve(to: CGPoint(x: mouth.x + 11, y: mouth.y), control: CGPoint(x: mouth.x + 5.5, y: mouth.y + 8))

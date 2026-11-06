@@ -170,6 +170,8 @@ public struct Roamer: Equatable, Sendable {
     public static let walkAccel: Double = 180
     /// 설 자리에 다가가며 줄일 때 가장 느린 빠르기 — 0 에 가까워지면 마지막 한두 pt 를 오래 기어간다.
     static let creep: Double = 8
+    /// 자다 깨면 이만큼 제자리에서 일어난 뒤에 걷는다 — 그림이 엎드린 그림에서 일어서는 동안(`Shifts.outOfWhole`) 미끄러지지 않게.
+    public static let wakeUp: Double = 1
 
     public var x: Double
     public var y: Double
@@ -233,7 +235,13 @@ public struct Roamer: Equatable, Sendable {
 
     /// 점프 전 쪼그림(0 → 1) — 뛰기 직전에 가장 깊다. 떠 있는 동안과 점프가 아닐 때는 0.
     public var crouch: Double {
-        action == .jump && jumpAge < Self.jumpCrouch ? jumpAge / Self.jumpCrouch : 0
+        action == .jump && jumpAge <= Self.jumpCrouch ? jumpAge / Self.jumpCrouch : 0
+    }
+
+    /// 뜬 정도(0 → 1) — 발이 땅을 떠난 뒤 내려설 때까지. 쪼그리는 동안과 점프가 아닐 때는 0.
+    /// 그림이 이륙 · 착지 때 관절 자세와 시안의 점프 그림을 겹쳐 바꾸는 데 쓴다.
+    public var flight: Double {
+        action == .jump && jumpAge > Self.jumpCrouch ? min((jumpAge - Self.jumpCrouch) / Self.jumpAir, 1) : 0
     }
 
     /// 튜브 안에 들어가 있는지 — 그동안 몸을 줄인다.
@@ -435,10 +443,13 @@ public struct Roamer: Equatable, Sendable {
         return true
     }
 
+    /// 기분에 맞게 서거나 앉는다. 자는 동안은 깨면 일어날 시간(`wakeUp`)을 쥐고 있다 — 깨어 돌아다니게 되면 그만큼 서 있다가 걷는다.
     private mutating func settle(_ mood: RoamMood) {
         switch mood {
         case .roam, .pace, .stay: action = .stand
-        case .sleep: action = .sit
+        case .sleep:
+            action = .sit
+            pause = Self.wakeUp
         }
     }
 

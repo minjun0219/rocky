@@ -299,6 +299,52 @@ final class RoamTests: XCTestCase {
         XCTAssertGreaterThan(rocky.squash, 0)
     }
 
+    func testJumpCrouchesThenFlies() {
+        let windows = [Box(x: 300, y: 0, width: 300, height: 200)]
+        let ground = ledges(windows: windows, screen: screen)
+        let sides = walls(windows: windows, screen: screen)
+        var rocky = Roamer(x: 250, y: 0)
+        rocky.action = .walk
+        var crouched = 0.0, flight = 0.0, flew = false
+        for _ in 0 ..< 300 {
+            rocky.step(dt: 1 / 30, ledges: ground, walls: sides, screen: screen, mood: .roam, random: { 0.3 })
+            guard rocky.action == .jump else {
+                if flew { break }
+                continue
+            }
+            // 쪼그리는 동안은 뜨지 않고 뜬 뒤로는 쪼그리지 않는다 — 그림이 둘 사이를 한 번에 건너뛰지 않게 쪼그림은 다 내려간 뒤에 뜬다.
+            XCTAssertTrue(rocky.crouch == 0 || rocky.flight == 0)
+            if rocky.flight > 0, !flew { XCTAssertGreaterThan(crouched, 0.9) }
+            // 뜬 정도는 내려설 때까지 늘기만 한다.
+            XCTAssertGreaterThanOrEqual(rocky.flight, flight)
+            crouched = max(crouched, rocky.crouch)
+            flight = rocky.flight
+            if flight > 0 { flew = true }
+        }
+        XCTAssertTrue(flew)
+        XCTAssertGreaterThan(flight, 0.9)
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertEqual(rocky.flight, 0)
+        XCTAssertEqual(rocky.y, 200)
+    }
+
+    func testStandsUpBeforeWalkingAfterSleep() {
+        let floor = ledges(windows: [], screen: screen)
+        var rocky = Roamer(x: 500, y: 0)
+        rocky.action = .stand
+        rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .sleep, random: { 0 })
+        XCTAssertEqual(rocky.action, .sit)
+        // 깨면 그림이 엎드린 그림에서 일어서는 동안(`wakeUp`) 제자리에 있다가 걷는다 — 바로 걸으면 엎드린 채 미끄러진다.
+        var waited = 0.0
+        while rocky.action != .walk, waited < 5 {
+            rocky.step(dt: 1 / 30, ledges: floor, walls: [], screen: screen, mood: .roam, random: { 0 })
+            waited += 1 / 30
+        }
+        XCTAssertEqual(rocky.action, .walk)
+        XCTAssertEqual(waited, Roamer.wakeUp, accuracy: 2.0 / 30)
+        XCTAssertEqual(rocky.x, 500)
+    }
+
     func testLaysATubeOverAWindowTooTallToJump() {
         let windows = [Box(x: 300, y: 0, width: 300, height: Roamer.jumpReach + 40)]
         let ground = ledges(windows: windows, screen: screen)
@@ -545,6 +591,112 @@ final class RoamTests: XCTestCase {
         let before = rocky.x
         rocky.step(dt: dt, ledges: top, walls: [], screen: screen, mood: .roam, random: { 0.5 })
         XCTAssertEqual(before - rocky.x, Roamer.walkAccel * dt * dt, accuracy: 1e-9)
+    }
+}
+
+final class ShiftsTests: XCTestCase {
+    let watch = Clip(move: .watch, start: 0, length: 30, tempo: 1)
+    let hammer = Clip(move: .hammer, start: 0, length: 30, tempo: 0.8)
+    let still = Clip(move: .mood, start: 0, length: 0, tempo: 1)
+
+    func testFirstMomentIsAlreadySettled() {
+        let shifts = Shifts(Moment(mood: .resting, action: .sit, clip: still))
+        XCTAssertEqual(shifts.layers.count, 1)
+        XCTAssertEqual(shifts.layers[0].weight(at: 0), 1)
+        // 앱을 켜자마자 잠들기 동작을 하지 않게 — 기분은 오래전에 시작된 것으로 친다.
+        XCTAssertEqual(shifts.current.since, -.infinity)
+    }
+
+    func testSameSceneOnlyUpdatesFlowingValues() {
+        var shifts = Shifts(Moment(mood: .awake, action: .jump, clip: watch))
+        shifts.update(Moment(mood: .awake, action: .jump, clip: watch, crouch: 0.5), now: 10)
+        shifts.update(Moment(mood: .awake, action: .jump, clip: watch, flight: 0.3), now: 10.1)
+        XCTAssertEqual(shifts.layers.count, 1)
+        XCTAssertEqual(shifts.current.crouch, 0)
+        XCTAssertEqual(shifts.current.flight, 0.3)
+    }
+
+    func testChangeLayersOnTopUntilItCoversTheRest() {
+        var shifts = Shifts(Moment(mood: .awake, action: .stand, clip: watch))
+        shifts.update(Moment(mood: .awake, action: .walk, clip: watch), now: 10)
+        XCTAssertEqual(shifts.layers.count, 2)
+        XCTAssertEqual(shifts.layers[1].start, 10)
+        XCTAssertEqual(shifts.layers[1].length, Shifts.actionShift)
+        XCTAssertEqual(shifts.layers[1].weight(at: 10.1), 0.5, accuracy: 1e-9)
+        shifts.update(Moment(mood: .awake, action: .walk, clip: watch), now: 10.1)
+        XCTAssertEqual(shifts.layers.count, 2)
+        // 다 섞여 들어오면 아래 층은 버린다.
+        shifts.update(Moment(mood: .awake, action: .walk, clip: watch), now: 10.5)
+        XCTAssertEqual(shifts.layers.count, 1)
+        XCTAssertEqual(shifts.current.action, .walk)
+    }
+
+    func testOlderLayersKeepTheValuesTheyHadWhenLeft() {
+        // 뛰다가 내려앉으면 아래 층은 내려앉을 때의 뜬 정도 그대로 섞여 사라진다.
+        var shifts = Shifts(Moment(mood: .awake, action: .jump, clip: watch))
+        shifts.update(Moment(mood: .awake, action: .jump, clip: watch, flight: 1), now: 10)
+        shifts.update(Moment(mood: .awake, action: .stand, clip: watch), now: 10.02)
+        XCTAssertEqual(shifts.layers.count, 2)
+        XCTAssertEqual(shifts.layers[0].moment.flight, 1)
+        XCTAssertEqual(shifts.current.flight, 0)
+    }
+
+    func testMoodStartMovesOnlyWhenTheMoodChanges() {
+        var shifts = Shifts(Moment(mood: .awake, action: .stand, clip: watch))
+        shifts.update(Moment(mood: .resting, action: .stand, clip: watch), now: 10)
+        XCTAssertEqual(shifts.current.since, 10)
+        // 움직임만 바뀌면(서 있다 앉기) 잠들기 동작을 처음부터 다시 하지 않는다.
+        shifts.update(Moment(mood: .resting, action: .sit, clip: watch), now: 11)
+        XCTAssertEqual(shifts.current.since, 10)
+        shifts.update(Moment(mood: .working, action: .sit, clip: hammer), now: 12)
+        XCTAssertEqual(shifts.current.since, 12)
+    }
+
+    func testShiftLengthFollowsWhatChanged() {
+        let stand = Moment(mood: .awake, action: .stand, clip: watch)
+        var walk = stand
+        walk.action = .walk
+        var work = stand
+        work.mood = .working
+        work.clip = hammer
+        var wave = stand
+        wave.clip = Clip(move: .wave, start: 5, length: 2.4, tempo: 1)
+        let sleep = Moment(mood: .resting, action: .sit, clip: still)
+        var dozing = sleep
+        dozing.action = .stand
+        var puzzled = sleep
+        puzzled.mood = .unknown
+        puzzled.action = .stand
+        XCTAssertEqual(Shifts.length(from: stand, to: walk), Shifts.actionShift)
+        XCTAssertEqual(Shifts.length(from: stand, to: work), Shifts.moveShift)
+        XCTAssertEqual(Shifts.length(from: stand, to: wave), Shifts.moveShift)
+        XCTAssertEqual(Shifts.length(from: stand, to: sleep), Shifts.intoWhole)
+        XCTAssertEqual(Shifts.length(from: sleep, to: work), Shifts.outOfWhole)
+        // 자다가 연결이 끊기면 잠 그림이 옅어진 뒤 갸웃 그림이 짙어진다.
+        XCTAssertEqual(Shifts.length(from: sleep, to: puzzled), Shifts.outOfWhole)
+        // 같은 통째 그림 그대로면 짧게.
+        XCTAssertEqual(Shifts.length(from: dozing, to: sleep), Shifts.actionShift)
+        // 뛰거나 떨어지는 동안은 통째 장면이 아니다.
+        var falling = sleep
+        falling.action = .fall
+        XCTAssertFalse(falling.whole)
+        XCTAssertEqual(Shifts.length(from: falling, to: sleep), Shifts.intoWhole)
+    }
+
+    func testKeepsAtMostAFewLayers() {
+        var shifts = Shifts(Moment(mood: .awake, action: .stand, clip: watch))
+        let actions: [RoamAction] = [.walk, .stand, .walk, .stand, .walk, .stand]
+        for (i, action) in actions.enumerated() {
+            shifts.update(Moment(mood: .awake, action: action, clip: watch), now: 10 + 0.01 * Double(i))
+        }
+        XCTAssertEqual(shifts.layers.count, Shifts.most)
+        XCTAssertEqual(shifts.current.action, .stand)
+    }
+
+    func testPoseMoodDropsNamesAndCounts() {
+        XCTAssertEqual(AvatarMood.working(count: 2).poseMood, AvatarMood.working(count: 1).poseMood)
+        XCTAssertEqual(AvatarMood.waiting(name: "a", line: nil, count: 1).poseMood, .waiting)
+        XCTAssertEqual(AvatarMood.unknown.poseMood, .unknown)
     }
 }
 
