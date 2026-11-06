@@ -71,16 +71,10 @@ enum PebbleRocky {
         if hand == .curl { outlined(g, dot(0, 86, 26)) }
     }
 
-    /// 매끈한 조약돌 — 아래 그늘 한 줄과 왼쪽 위 반짝임 둘.
+    /// 매끈한 납작 조약돌(가로로 긴 타원) — 아래 그늘 한 줄과 왼쪽 위 반짝임 둘.
+    /// 처음엔 위가 볼록한 돔이었는데 오너가 "응가같은 모양"이라 해서 타원으로 바꿨다(2026-11-06, 후보 넷은 프로젝트 파일 pebble-shapes.png).
     private static func body(_ gc: GraphicsContext) {
-        var pebble = Path()
-        pebble.move(to: CGPoint(x: 258, y: 58))
-        pebble.addCurve(to: CGPoint(x: 422, y: 192), control1: CGPoint(x: 372, y: 58), control2: CGPoint(x: 424, y: 128))
-        pebble.addCurve(to: CGPoint(x: 258, y: 260), control1: CGPoint(x: 420, y: 244), control2: CGPoint(x: 362, y: 260))
-        pebble.addCurve(to: CGPoint(x: 94, y: 192), control1: CGPoint(x: 154, y: 260), control2: CGPoint(x: 96, y: 244))
-        pebble.addCurve(to: CGPoint(x: 258, y: 58), control1: CGPoint(x: 92, y: 128), control2: CGPoint(x: 144, y: 58))
-        pebble.closeSubpath()
-        outlined(gc, pebble, width: 8)
+        outlined(gc, Path(ellipseIn: CGRect(x: 88, y: 84, width: 340, height: 176)), width: 8)
 
         var under = Path()
         under.move(to: CGPoint(x: 118, y: 214))
@@ -88,10 +82,10 @@ enum PebbleRocky {
         gc.stroke(under, with: .color(shade.opacity(0.7)), style: StrokeStyle(lineWidth: 12, lineCap: .round))
 
         var shine = gc
-        shine.translateBy(x: 186, y: 100)
-        shine.rotate(by: .degrees(-24))
-        shine.fill(Path(ellipseIn: CGRect(x: -38, y: -18, width: 76, height: 36)), with: .color(.white.opacity(0.55)))
-        gc.fill(dot(236, 84, 6), with: .color(.white.opacity(0.55)))
+        shine.translateBy(x: 200, y: 108)
+        shine.rotate(by: .degrees(-20))
+        shine.fill(Path(ellipseIn: CGRect(x: -34, y: -15, width: 68, height: 30)), with: .color(.white.opacity(0.55)))
+        gc.fill(dot(246, 96, 5.5), with: .color(.white.opacity(0.55)))
     }
 
     /// 얼굴 — 세로로 긴 점 눈, 볼터치, 고양이 입(ω). 눈은 보는 쪽(`look`)으로 5 옮긴다.
