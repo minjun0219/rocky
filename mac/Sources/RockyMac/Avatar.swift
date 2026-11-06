@@ -52,9 +52,8 @@ final class AvatarController {
     private var observers: [NSObjectProtocol] = []
 
     /// 패널 안 로키 발의 자리 — 로키 칸(96×88)은 패널 오른쪽 아래에 있고, 발은 무대 330 중 312 높이다.
-    /// 패널 폭은 모양을 모두 띄울 때 로키 셋(96 · 4 · 96 · 4 · 96)이 들어가게 320 이다.
-    static let size = NSSize(width: 320, height: 170)
-    private static let foot = NSPoint(x: size.width - 48, y: 88 * (330 - 312) / 330)
+    private static let size = NSSize(width: 240, height: 170)
+    private static let foot = NSPoint(x: 240 - 48, y: 88 * (330 - 312) / 330)
 
     init(agents: AgentStore) {
         self.agents = agents
@@ -115,12 +114,8 @@ final class AvatarController {
             panel.contentView = NSHostingView(rootView: AvatarView(agents: agents, pose: pose))
             if !panel.setFrameUsingName("RockyAvatar"), let screen = NSScreen.main?.visibleFrame {
                 // 처음엔 오른쪽 아래 — 독·메뉴 막대를 피해 보이는 영역 안에.
-                panel.setFrameOrigin(NSPoint(x: screen.maxX - Self.size.width - 20, y: screen.minY + 20))
+                panel.setFrameOrigin(NSPoint(x: screen.maxX - 260, y: screen.minY + 20))
             }
-            // 기억한 자리는 크기도 들고 있다 — 패널이 넓어지기 전(240)에 기억한 것이면 오른쪽 끝(로키 칸)을 그대로 두고 크기만 지금 것으로.
-            let right = panel.frame.maxX
-            panel.setContentSize(Self.size)
-            panel.setFrameOrigin(NSPoint(x: right - panel.frame.width, y: panel.frame.minY))
             panel.setFrameAutosaveName("RockyAvatar")
             self.panel = panel
             observers.append(NotificationCenter.default.addObserver(
@@ -296,7 +291,7 @@ final class AvatarController {
     /// 서 있을 때의 몸짓 — `RockyKit.Choreographer` 가 고르고, 내 차례에 마우스 쪽 보기·창 끝에서 내려다보기만 방향을 바꾼다.
     private func choreograph(_ panel: NSPanel) {
         let here = roamer.map { spot(x: $0.x, y: $0.y, ledges: ledgesHere) } ?? .floor
-        // 미니멀 · 돌멩이가 보이면(모두 포함) 그 그림체에만 있는 동작도 고른다.
+        // 돌멩이면 돌멩이에만 있는 동작도 고른다.
         moves.extras = agents.avatarStyle != .concept
         let clip = moves.update(
             now: Date.timeIntervalSinceReferenceDate, mood: agents.mood.moveMood, spot: here,
@@ -326,7 +321,7 @@ final class AvatarController {
         // 사람이 로키를 누르고 있는 동안은 걷지 않고 포인터에 매달려 있다 — 누른 채 멈춰 있어도(패널이 안 움직여도)
         // 걷거나 떨어지면 포인터를 놓친다. 놓으면 그 자리에서 떨어진다.
         let down = NSEvent.pressedMouseButtons & 1 != 0
-        if down, !wasDown, Self.figure(at: origin, count: agents.avatarStyle.figures.count).contains(NSEvent.mouseLocation) { dragging = true }
+        if down, !wasDown, Self.figure(at: origin).contains(NSEvent.mouseLocation) { dragging = true }
         wasDown = down
         let moved = placed.map { $0 != origin } ?? false
         if dragging || moved {
@@ -369,9 +364,9 @@ final class AvatarController {
         let next = NSPoint(x: roamer.x - Self.foot.x, y: roamer.y - Self.foot.y)
         if next != origin { panel.setFrameOrigin(next) }
         placed = next
-        // 패널은 320×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
+        // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
-        var hot = Self.figure(at: next, count: agents.avatarStyle.figures.count).contains(mouse)
+        var hot = Self.figure(at: next).contains(mouse)
         if pose.chat != nil || agents.mood.bubble.map({ $0 != pose.dismissed }) == true {
             hot = NSRect(origin: next, size: Self.size).contains(mouse)
         }
@@ -391,10 +386,9 @@ final class AvatarController {
         showTube(roamer)
     }
 
-    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88, 모두 띄우면 그 왼쪽에 칸이 더)의 화면 자리.
-    private static func figure(at origin: NSPoint, count: Int) -> NSRect {
-        let width = 96 * CGFloat(count) + AvatarView.gap * CGFloat(count - 1)
-        return NSRect(x: origin.x + size.width - width, y: origin.y, width: width, height: 88)
+    /// 패널이 `origin` 에 있을 때 로키 칸(패널 오른쪽 아래 96×88)의 화면 자리.
+    private static func figure(at origin: NSPoint) -> NSRect {
+        NSRect(x: origin.x + size.width - 96, y: origin.y, width: 96, height: 88)
     }
 
     /// 화면에 떠 있는 보통 창(레이어 0)들 — 앞에서 뒤 순서, AppKit 좌표로. 자기 창과 아주 작은 창은 뺀다.
@@ -563,14 +557,21 @@ struct AvatarView: View {
             } else if let chat = pose.chat {
                 Bubble(text: chat) { pose.chat = nil }
             }
-            // 모두 띄우면(비교용) 돌멩이 · 미니멀 · 원작이 같은 자세로 나란히 선다.
-            HStack(alignment: .bottom, spacing: Self.gap) {
-                ForEach(agents.avatarStyle.figures, id: \.self) { look in
-                    figure(look)
+            Rocky(
+                mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
+                facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
+                clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible, look: agents.avatarStyle
+            )
+                .frame(width: 96, height: 88)
+                .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
+                .animation(.easeInOut(duration: 0.25), value: pose.shrunk)
+                .help(agents.mood.summary)
+                // 한 번 누르는 건 끌어 옮기다 놓는 것과 헷갈린다 — 웹 에이전트 탭은 두 번 눌러야 연다.
+                .onTapGesture(count: 2) {
+                    if let url = agents.agentsURL { openURL(url) }
                 }
-            }
         }
-        .frame(width: AvatarController.size.width, height: AvatarController.size.height, alignment: .bottomTrailing)
+        .frame(width: 240, height: 170, alignment: .bottomTrailing)
         .contextMenu {
             Button("에이전트 탭 열기") {
                 if let url = agents.agentsURL { openURL(url) }
@@ -586,25 +587,6 @@ struct AvatarView: View {
         .animation(.easeInOut(duration: 0.3), value: agents.mood)
         .animation(.easeInOut(duration: 0.2), value: pose.dismissed)
         .animation(.easeInOut(duration: 0.3), value: pose.chat)
-    }
-
-    /// 모두 띄울 때 로키 사이.
-    static let gap: CGFloat = 4
-
-    private func figure(_ look: AvatarLook) -> some View {
-        Rocky(
-            mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
-            facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
-            clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible, look: look
-        )
-            .frame(width: 96, height: 88)
-            .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
-            .animation(.easeInOut(duration: 0.25), value: pose.shrunk)
-            .help(agents.mood.summary)
-            // 한 번 누르는 건 끌어 옮기다 놓는 것과 헷갈린다 — 웹 에이전트 탭은 두 번 눌러야 연다.
-            .onTapGesture(count: 2) {
-                if let url = agents.agentsURL { openURL(url) }
-            }
     }
 }
 
@@ -663,8 +645,8 @@ private struct Rocky: View {
     var squash = 0.0
     var crouch = 0.0
     var visible = true
-    /// 그림체 — 원작 조각(`RockyArt`), 미니멀 벡터(`MinimalRocky`), 돌멩이(`PebbleRocky`). 자세(`RockyPose`)는 셋이 같다.
-    var look = AvatarLook.concept
+    /// 그림체 — 원작 조각(`RockyArt`)이나 돌멩이(`PebbleRocky`). 자세(`RockyPose`)는 둘이 같다.
+    var look = AvatarStyle.concept
 
     /// 움직임이 바뀔 때 앞 자세와 섞는 시간(초).
     static let blend = 0.2
@@ -705,7 +687,7 @@ private struct Rocky: View {
             gc.fill(Path(ellipseIn: CGRect(x: 100, y: 170, width: 160, height: 130)), with: .color(.gray))
             return
         }
-        // 원작은 미니멀 · 돌멩이 동작(`Move.isExtra`)을 하지 않는다 — 모두 띄웠을 때 원작은 그동안 두리번거린다.
+        // 원작은 돌멩이 동작(`Move.isExtra`)을 하지 않는다 — 돌멩이에서 원작으로 바꾼 직후 남은 토막은 두리번으로 대신한다.
         let clip = look == .concept && self.clip.move.isExtra
             ? Clip(move: .look, start: self.clip.start, length: self.clip.length, tempo: self.clip.tempo) : self.clip
         var q = RockyPose(mood, action: action, t: t, clip: clip, squash: squash, crouch: crouch)
@@ -737,19 +719,19 @@ private struct Rocky: View {
             figure.scaleBy(x: width, y: 1)
             figure.translateBy(x: -180, y: 0)
         }
-        if look != .concept {
-            // 미니멀 벡터 · 돌멩이 — 조각과 같은 칸 좌표로 그리고, 통째 자세도 관절로 짠다(`MinimalRocky.joints`).
+        if look == .pebble {
+            // 돌멩이 — 조각과 같은 칸 좌표로 그리고, 통째 자세도 관절로 짠다(`PebbleRocky.joints`).
             // 통째 자세는 원작처럼 발 자리를 축으로 눌린다 — 몸통 가운데를 축으로 누르면 발이 뜨니 그만큼 내린다.
-            // 돌멩이는 잘 때 팔다리를 다 넣고 바닥에 내려앉아 그냥 돌이 된다(`PebbleRocky.asleep`).
-            let tucked = look == .pebble && q.whole == .sleep
-            let m = tucked ? PebbleRocky.asleep(q) : MinimalRocky.joints(q)
+            // 잘 때는 팔다리를 다 넣고 바닥에 내려앉아 그냥 돌이 된다(`PebbleRocky.asleep`).
+            let tucked = q.whole == .sleep
+            let m = tucked ? PebbleRocky.asleep(q) : PebbleRocky.joints(q)
             let sole = (RockyArt.sole - RockyArt.center.y) * RockyArt.scale
             let sink = q.whole == nil ? 0 : sole * (1 - m.squash)
             figure.translateBy(x: 180, y: 312 - sole + m.y + sink)
             figure.rotate(by: .degrees(m.tilt))
             figure.scaleBy(x: RockyArt.scale, y: RockyArt.scale * m.squash)
             figure.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
-            if look == .pebble { PebbleRocky.draw(m, tucked: tucked, in: figure) } else { MinimalRocky.draw(m, in: figure) }
+            PebbleRocky.draw(m, tucked: tucked, in: figure)
         } else if let art, let whole = q.whole {
             // 통째 포즈 — 그림의 아래 끝을 무대의 발 자리(y 312)에, 기울기와 눌림은 그 가운데를 축으로.
             figure.translateBy(x: 180, y: 312 + q.y)
@@ -764,7 +746,7 @@ private struct Rocky: View {
             figure.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
             art.draw(q, in: figure)
         }
-        // 춤추면 음표, 하트면 하트가 머리 위로 떠오른다(미니멀 · 돌멩이).
+        // 춤추면 음표, 하트면 하트가 머리 위로 떠오른다(돌멩이).
         if look != .concept, action == .stand || action == .sit, t >= clip.start, t < clip.end,
            let mark = clip.move == .dance ? "♪" : clip.move == .heart ? "♥" : nil {
             let rise = ((t - clip.start).truncatingRemainder(dividingBy: 1.2)) / 1.2
@@ -787,7 +769,7 @@ private struct Rocky: View {
 /// 한 순간의 자세. 팔의 `raise` 는 시안의 내린 팔(0)에서 몸 밖으로 드는 각도, 다리는 화면 시계 방향이 + — 왼다리 +, 오른다리 − 면 벌린다.
 /// `tilt` 도 시계 방향(오른쪽을 볼 때 앞으로 숙임)이 +. `whole` 이 있으면 관절 대신 시안의 그 자세를 통째로 그린다.
 struct RockyPose {
-    /// `wink` 는 왼눈만 감는다(돌인 척하기 — 미니멀 · 돌멩이에만 있다).
+    /// `wink` 는 왼눈만 감는다(돌인 척하기 — 돌멩이에만 있다).
     enum Face { case smile, happy, joy, focus, surprise, wink }
     /// 손 — 시안의 내린 손, 점프할 때 편 손, 갸웃할 때 머리에 댄 손(오른손만 있다).
     enum Hand { case rest, open, curl }
@@ -829,7 +811,7 @@ struct RockyPose {
     var rise = 0.0
     var whole: Whole?
     var gray = false
-    /// 팔다리를 몸 안에 넣었나(구르기 · 돌인 척하기) — 미니멀 · 돌멩이만 따른다.
+    /// 팔다리를 몸 안에 넣었나(구르기 · 돌인 척하기) — 돌멩이만 따른다.
     var tuck = false
 
     /// 두 자세 사이 — 수는 섞고, 표정·손 모양처럼 섞을 수 없는 것은 절반을 넘으면 바꾼다.

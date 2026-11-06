@@ -1,6 +1,7 @@
-// 돌멩이 로키 — 원작 느낌(사암색 돔 · 금 · 청록 점)을 다 뺀 꼭대기가 쏠린 회색 바위 캐릭터. 오너가 미니멀 벡터 다음으로 하나 더 보자고 했다
+// 돌멩이 로키 — 원작 느낌(사암색 돔 · 금 · 청록 점)을 다 뺀 꼭대기가 쏠린 회색 바위 캐릭터. 오너가 고른 두 번째 그림체다
 // (2026-11-06 "원작 느낌 없이 돌맹이 캐릭터로", 자세 시트와 SVG 사본은 프로젝트 파일 mac-avatar/simple-style/pebble-*).
-// 몸통 · 팔다리 · 얼굴만 다르고 자세(`RockyPose`)와 칸 좌표는 원작 조각 · `MinimalRocky` 와 같다 — 통째 자세도 `MinimalRocky.joints` 로 바꿔 받는다.
+// 자세(`RockyPose`)와 칸 좌표는 원작 조각과 같다 — 통째 자세(갸웃 · 뛰는 중)는 관절 자세로 바꿔 받는다(`joints`).
+// 처음엔 미니멀 벡터(원작 색을 도형으로)와 나란히 비교했는데 오너가 원작과 돌멩이 둘만 남기기로 했다(2026-11-06).
 import SwiftUI
 
 enum PebbleRocky {
@@ -16,6 +17,39 @@ enum PebbleRocky {
     private static let hips = (left: CGPoint(x: 170, y: 236), right: CGPoint(x: 346, y: 236))
     private static let shoulders = (left: CGPoint(x: 112, y: 190), right: CGPoint(x: 404, y: 190))
     private static let rest = 37.33
+
+    /// 통째 자세(잠 · 갸웃 · 뛰는 중)는 그릴 조각이 없으니 관절 자세로 바꾼다 — 원작 시안의 그 자세를 흉내 낸다.
+    static func joints(_ q: RockyPose) -> RockyPose {
+        guard let whole = q.whole else { return q }
+        var m = q
+        m.whole = nil
+        switch whole {
+        case .jump:
+            // 두 손을 펴 치켜들고 다리를 벌린다.
+            m.face = .joy
+            m.armL = RockyPose.Arm(raise: 115, hand: .open)
+            m.armR = RockyPose.Arm(raise: 100, hand: .open)
+            m.legL = 25
+            m.legR = -25
+        case .puzzled:
+            // 오른손 주먹을 머리에 대고 눈썹을 모은 채 갸웃.
+            m.face = .focus
+            m.look = -0.4
+            m.armL = RockyPose.Arm(raise: -5)
+            m.armR = RockyPose.Arm(raise: 165, hand: .curl)
+            m.tilt -= 5
+        case .sleep:
+            // 눈을 감고 납작 엎드려 팔다리를 옆으로 뻗는다.
+            m.blink = true
+            m.face = .smile
+            m.squash *= 0.8
+            m.armL = RockyPose.Arm(raise: 55)
+            m.armR = RockyPose.Arm(raise: 55)
+            m.legL = 72
+            m.legR = -72
+        }
+        return m
+    }
 
     /// 자는 자세 — 원작처럼 엎드려 팔을 뻗지 않고 팔다리를 다 넣은 채 바닥에 내려앉아 눈을 감는다(2026-11-06 오너가 원래 잠 자세가 이상하다고 해서 그린 후보 셋 중 골랐다,
     /// 후보는 프로젝트 파일 mac-avatar/simple-style/rock-sleep-options.png). 숨에 맞춘 눌림(`squash`)은 그대로 받는다.

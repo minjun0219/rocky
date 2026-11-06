@@ -12,11 +12,11 @@ public enum Move: String, CaseIterable, Sendable {
     /// 내 차례 — 처음엔 한 번 껑충 뛰며 주먹 인사를 하고, 그 뒤엔 마우스 쪽을 보고 서 있다가 가끔 손만 흔든다.
     /// 지켜보기(`watch`)는 깨어 있을 때도 쓴다 — 마우스 쪽을 보고 서 있다가 쉬는 동작 하나를 한다.
     case cheer, watch, wave
-    /// 그림체를 미니멀 · 돌멩이로 고르면 더해지는 쉬는 동작 — 구르기, 몸 털기, 기지개, 춤, 돌인 척하기, 하품, 박수, 하트(2026-11-06 오너 "그냥 다 넣자").
+    /// 그림체를 돌멩이로 고르면 더해지는 쉬는 동작 — 구르기, 몸 털기, 기지개, 춤, 돌인 척하기, 하품, 박수, 하트(2026-11-06 오너 "그냥 다 넣자").
     /// 원작 조각은 돌리기만 해서 구르기나 돌인 척이 어색하니 원작에는 넣지 않는다(`Choreographer.extras`).
     case roll, shake, stretch, dance, hide, yawn, clap, heart
 
-    /// 미니멀 · 돌멩이에만 있는 동작인지.
+    /// 돌멩이에만 있는 동작인지.
     public var isExtra: Bool {
         switch self {
         case .roll, .shake, .stretch, .dance, .hide, .yawn, .clap, .heart: true
@@ -82,7 +82,7 @@ public struct Break: Equatable, Sendable {
 }
 
 public struct Choreographer: Equatable, Sendable {
-    /// 쉬는 동작 후보 — 창 끝이면 내려다보기가 들고, 바닥이면 앉기가 더 잦다. `extras` 면 미니멀 · 돌멩이 동작이 더해진다.
+    /// 쉬는 동작 후보 — 창 끝이면 내려다보기가 들고, 바닥이면 앉기가 더 잦다. `extras` 면 돌멩이 동작이 더해진다.
     public static func breaks(at spot: Spot, extras: Bool = false) -> [Break] {
         var out = [
             Break(move: .look, weight: 4, length: 1.6 ... 2.6),
@@ -119,7 +119,7 @@ public struct Choreographer: Equatable, Sendable {
     public static let waveLength: Double = 2.4
 
     public private(set) var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
-    /// 미니멀 · 돌멩이 동작도 고르나 — 앱이 그림체를 보고 바퀴마다 정한다. 바꿔도 지금 토막은 마저 한다.
+    /// 돌멩이 동작도 고르나 — 앱이 그림체를 보고 바퀴마다 정한다. 바꿔도 지금 토막은 마저 한다.
     public var extras = false
     var mood: MoveMood?
     /// 방금 한 쉬는 동작 — 다음 쉬는 동작에서 뺀다.

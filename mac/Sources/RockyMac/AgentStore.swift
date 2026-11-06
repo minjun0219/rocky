@@ -36,7 +36,7 @@ final class AgentStore {
         didSet { UserDefaults.standard.set(follow, forKey: "follow") }
     }
 
-    /// 아바타 모양 — 원작 · 미니멀 벡터 · 돌멩이 · 모두 나란히(비교용). 기본은 원작.
+    /// 아바타 모양 — 원작 · 돌멩이. 기본은 원작.
     var avatarStyle: AvatarStyle {
         didSet { UserDefaults.standard.set(avatarStyle.rawValue, forKey: AvatarStyle.key) }
     }
@@ -106,9 +106,7 @@ extension AvatarStyle {
     var title: String {
         switch self {
         case .concept: "원작"
-        case .minimal: "미니멀"
         case .pebble: "돌멩이"
-        case .all: "모두"
         }
     }
 }
