@@ -22,6 +22,8 @@ final class AvatarController {
     private let pose = RoamPose()
     private var frames: CADisplayLink?
     private var roamer: Roamer?
+    /// 두 발 — 걸을 때 한 발씩 디딘다(`RockyKit.Feet`).
+    private var feet: Feet?
     private var roaming = false
     private var moves = Choreographer()
     /// 마지막 걸음의 발판 — 서 있는 자리(바닥 · 창 윗면 · 창 끝)를 가린다.
@@ -216,6 +218,8 @@ final class AvatarController {
     private func stopRoaming() {
         roaming = false
         roamer = nil
+        feet = nil
+        pose.stance = .rest
         gaze = GazeTracker()
         goal = nil
         ledgesHere = []
@@ -302,7 +306,7 @@ final class AvatarController {
         case .peek: if case let .edge(toward) = here { facing = toward }
         default: break
         }
-        if pose.facing != facing { pose.facing = facing }
+        pose.turn(to: facing)
     }
 
     private func roam(_ panel: NSPanel, now: TimeInterval, dt: Double) {
@@ -363,7 +367,17 @@ final class AvatarController {
         }
         if panel.ignoresMouseEvents == hot { panel.ignoresMouseEvents = !hot }
         if pose.action != roamer.action { pose.switchAction(to: roamer.action) }
-        if pose.facing != roamer.facing { pose.facing = roamer.facing }
+        pose.turn(to: roamer.facing)
+        // 발 — 발판 위(뛰기 전 쪼그림까지)면 한 발씩 디디고, 떠 있으면 몸과 같이 옮기며 엉덩이 아래로 끌어온다.
+        var feet = self.feet ?? Feet(x: roamer.x)
+        switch roamer.action {
+        case .walk, .stand, .sit: feet.step(x: roamer.x, dt: dt)
+        case .jump where roamer.crouch > 0: feet.step(x: roamer.x, dt: dt)
+        case .jump, .fall, .tube: feet.airborne(x: roamer.x, dt: dt)
+        }
+        self.feet = feet
+        let stance = feet.stance(at: roamer.x)
+        if pose.stance != stance { pose.stance = stance }
         if pose.shrunk != roamer.insideTube { pose.shrunk = roamer.insideTube }
         showTube(roamer)
     }
@@ -422,7 +436,12 @@ final class RoamPose {
     private(set) var changed: Double = 0
     /// 패널이 보이는지 — 안 보이면 그림의 박자도 멈춘다.
     var visible = true
-    var facing: Double = 1
+    /// 보는 쪽 — 바꾸면(`turn`) 그림이 `Rocky.turn` 초 동안 몸을 좁혔다 펴며 돌아선다. 돌아선 시각과 그 앞에 보이던 쪽.
+    private(set) var facing: Double = 1
+    private(set) var turned = -Double.infinity
+    private(set) var wasFacing: Double = 1
+    /// 두 발의 자리(`RockyKit.Feet`) — 디딘 발은 화면에 붙어 있다.
+    var stance = Stance.rest
     /// 튜브 안에서는 몸을 줄인다.
     var shrunk = false
     /// 서 있을 때의 몸짓, 착지 반동의 남은 정도, 점프 전 쪼그림.
@@ -439,6 +458,20 @@ final class RoamPose {
         previous = action
         changed = Date.timeIntervalSinceReferenceDate
         action = next
+    }
+
+    /// 돌아선다 — 아직 돌아서는 앞 절반(그림이 옛 쪽을 보는 동안)에 다시 돌면 보이던 쪽에서 이어 돈다. 보이던 쪽으로 돌아오면 그냥 멈춘다.
+    func turn(to next: Double) {
+        guard next != facing else { return }
+        let now = Date.timeIntervalSinceReferenceDate
+        let shown = now - turned < Rocky.turn / 2 ? wasFacing : facing
+        facing = next
+        if shown == next {
+            turned = -.infinity
+        } else {
+            wasFacing = shown
+            turned = now
+        }
     }
 }
 
@@ -522,7 +555,8 @@ struct AvatarView: View {
             }
             Rocky(
                 mood: agents.mood, action: pose.action, previous: pose.previous, changed: pose.changed,
-                facing: pose.facing, clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible
+                facing: pose.facing, turned: pose.turned, wasFacing: pose.wasFacing, stance: pose.stance,
+                clip: pose.clip, squash: pose.squash, crouch: pose.crouch, visible: pose.visible
             )
                 .frame(width: 96, height: 88)
                 .scaleEffect(pose.shrunk ? 0.45 : 1, anchor: UnitPoint(x: 0.5, y: 312 / 330))
@@ -597,6 +631,9 @@ private struct Rocky: View {
     var previous: RoamAction = .stand
     var changed: Double = 0
     var facing: Double = 1
+    var turned = -Double.infinity
+    var wasFacing: Double = 1
+    var stance = Stance.rest
     var clip = Clip(move: .mood, start: 0, length: 0, tempo: 1)
     var squash = 0.0
     var crouch = 0.0
@@ -604,6 +641,9 @@ private struct Rocky: View {
 
     /// 움직임이 바뀔 때 앞 자세와 섞는 시간(초).
     static let blend = 0.2
+    /// 돌아서는 시간과 그동안 몸을 좁히는 정도 — 가장 좁을 때(가운데) 좌우를 바꾼다. 한 프레임에 뒤집던 때는 툭 튀어 보였다(2026-11-06).
+    static let turn = 0.22
+    static let squeeze = 0.14
 
     var body: some View {
         // 패널을 옮기는 박자(초당 60번)와 같게 — 30이면 패널은 60번 움직이는데 몸은 두 번에 한 번만 바뀌어 덜컥인다.
@@ -644,12 +684,27 @@ private struct Rocky: View {
             let before = RockyPose(mood, action: previous, t: t, clip: clip, squash: squash, crouch: crouch)
             if before.whole == nil, q.whole == nil { q = RockyPose.mix(before, q, RockyPose.smooth(k)) }
         }
+        // 돌아서는 중이면 몸을 좁혔다 펴고, 가운데까지는 앞에 보던 쪽을 본다.
+        var facing = self.facing, width = 1.0
+        let turning = (t - turned) / Self.turn
+        if turning >= 0, turning < 1 {
+            width = 1 - Self.squeeze * sin(.pi * turning)
+            if turning < 0.5 { facing = wasFacing }
+        }
+        // 발 — 디딘 발은 땅에 붙어 있게 다리를 그 자리로 옮기고, 든 발 반대쪽으로 무게를 싣는다.
+        let feet = stance.drawn(facing: facing)
+        q.plant(left: feet.left, right: feet.right)
         if q.gray { gc.addFilter(.grayscale(1)) }
         // 왼쪽을 보면 무대를 좌우로 뒤집는다.
         var figure = gc
         if facing < 0 {
             figure.translateBy(x: 360, y: 0)
             figure.scaleBy(x: -1, y: 1)
+        }
+        if width != 1 {
+            figure.translateBy(x: 180, y: 0)
+            figure.scaleBy(x: width, y: 1)
+            figure.translateBy(x: -180, y: 0)
         }
         if let whole = q.whole {
             // 통째 포즈 — 그림의 아래 끝을 무대의 발 자리(y 312)에, 기울기와 눌림은 그 가운데를 축으로.
@@ -711,6 +766,12 @@ private struct RockyPose {
     var armR = Arm()
     var legL = 0.0
     var legR = 0.0
+    /// 다리 조각을 옮기는 만큼(조각 칸) — 발을 디딜 자리에 놓으려고. 엉덩이 위쪽은 몸통 뒤라 옮겨도 틈이 없다.
+    var stepL = CGSize.zero
+    var stepR = CGSize.zero
+    /// 윗몸(팔 · 몸통 · 얼굴)만 엉덩이 줄 가운데를 축으로 기울이는 각도(시계 방향 +)와 들어 올리는 높이(조각 칸, 위가 −) — 디딘 다리는 그대로 둔다.
+    var lean = 0.0
+    var rise = 0.0
     var whole: Whole?
     var gray = false
 
@@ -738,7 +799,28 @@ private struct RockyPose {
         out.armR = arm(a.armR, b.armR)
         out.legL = lerp(a.legL, b.legL)
         out.legR = lerp(a.legR, b.legR)
+        out.stepL = CGSize(width: lerp(a.stepL.width, b.stepL.width), height: lerp(a.stepL.height, b.stepL.height))
+        out.stepR = CGSize(width: lerp(a.stepR.width, b.stepR.width), height: lerp(a.stepR.height, b.stepR.height))
+        out.lean = lerp(a.lean, b.lean)
+        out.rise = lerp(a.rise, b.rise)
         return out
+    }
+
+    /// 발 디딤(`RockyKit.Feet`)을 얹는다 — 두 발은 그림의 왼다리 · 오른다리(앞이 +). 다리를 디딜 자리로 옮겨 그쪽으로 기울이고,
+    /// 발을 들면 윗몸을 반대쪽으로 3도 기울여 무게를 옮기며 아주 조금(0.4pt) 들고, 든 발 쪽 팔을 벌려 균형을 잡는다.
+    /// 들썩임은 든 높이의 제곱(`sin²`)이라 발을 들고 디딜 때 바닥에서 꺾이지 않는다.
+    mutating func plant(left: Footing, right: Footing) {
+        guard whole == nil else { return }
+        let l = RockyArt.place(left: true, left), r = RockyArt.place(left: false, right)
+        legL += l.angle
+        stepL = l.step
+        legR += r.angle
+        stepR = r.step
+        let hl = left.lift / Feet.height, hr = right.lift / Feet.height, up = max(hl, hr)
+        lean += 3 * (hl - hr)
+        rise -= 0.4 * RockyArt.cellsPerPoint * up * up
+        armL.raise += 10 * hl - 4 * hr
+        armR.raise += 10 * hr - 4 * hl
     }
 
     /// 숨 — 서로 나누어떨어지지 않는 주기의 사인 둘을 더해 박자가 쉽게 되풀이되지 않게.
@@ -821,10 +903,18 @@ private struct RockyPose {
 
     private mutating func base(_ mood: AvatarMood, action: RoamAction, t: Double, clip: Clip, crouch: Double) {
         switch action {
-        case .walk, .tube:
-            // 걷기(튜브 안에서 기어가기도) — 뒤뚱뒤뚱 몸을 흔들며 팔을 젓는다(박자는 ±12% 쯤 천천히 흔들린다).
+        case .walk:
+            // 걷기 — 다리와 무게는 발 디딤(`plant`)이 옮긴다. 여기선 가는 쪽을 보며 윗몸을 조금 숙이고 팔을 살짝 내린다.
+            // 예전엔 두 다리를 시간 박자로 같은 쪽으로만 흔들어 발이 몸과 같이 미끄러졌다(2026-11-06 캡처 실측).
+            look = 1
+            lean = 2
+            armL.raise = -4
+            armR.raise = -4
+            return
+        case .tube:
+            // 튜브 안에서 기어가기 — 줄어든 채 빨리 지나가니 발을 디디지 않고 뒤뚱뒤뚱 몸을 흔들며 팔을 젓는다.
             // 팔은 몸보다 한 박자 늦게 따라온다.
-            let phase = 2 * .pi * t / (action == .tube ? 0.4 : 0.6) + 2.5 * sin(t * 0.5)
+            let phase = 2 * .pi * t / 0.4 + 2.5 * sin(t * 0.5)
             let p = sin(phase)
             let swing = sin(phase - 0.6)
             // 걸음마다 몸이 아주 살짝만 뜬다 — 박자가 초당 3번 넘어 크게 들썩이면 계속 통통 튀어 정신없다(2026-11-06 오너 지적).
@@ -1039,6 +1129,26 @@ private final class RockyArt {
     static let scale = 0.6
     static let center = CGPoint(x: 258, y: 160)
     static let sole = 298.75
+    /// 1pt(패널)가 조각 칸으로 몇인지 — 무대 360 이 96pt 이고 조각은 무대에 `scale` 배로 올라간다.
+    static let cellsPerPoint = 360.0 / 96.0 / scale
+    /// 다리 — 엉덩이(돌리는 축)와 엉덩이에서 본 발바닥 가운데(조각의 아래 끝에서 잰 것).
+    private static let hips = (left: CGPoint(x: 164, y: 236), right: CGPoint(x: 352, y: 236))
+    private static let soles = (left: CGVector(dx: 154.8 - 164, dy: 298 - 236), right: CGVector(dx: 360.86 - 352, dy: 298 - 236))
+    /// 발을 1pt 옮길 때 다리를 기울이는 각도 — 나머지는 조각을 옮긴다.
+    private static let legLean = 1.6
+
+    /// 발을 엉덩이 아래 제자리에서 `footing.offset`(pt, 앞이 +)만큼 옮기고 `footing.lift`(pt)만큼 든 다리 — 기울기(도)와 조각을 옮길 만큼.
+    /// 발바닥 가운데가 그 자리에 오게 기울여 생긴 어긋남을 옮김으로 메운다.
+    static func place(left: Bool, _ footing: Footing) -> (angle: Double, step: CGSize) {
+        let sole = left ? soles.left : soles.right
+        let angle = -legLean * footing.offset
+        let c = cos(angle * .pi / 180), s = sin(angle * .pi / 180)
+        let turned = CGVector(dx: sole.dx * c - sole.dy * s, dy: sole.dx * s + sole.dy * c)
+        return (angle, CGSize(
+            width: footing.offset * cellsPerPoint - (turned.dx - sole.dx),
+            height: -footing.lift * cellsPerPoint - (turned.dy - sole.dy)
+        ))
+    }
 
     static let shared: RockyArt? = RockyArt()
 
@@ -1129,13 +1239,18 @@ private final class RockyArt {
 
     /// 뒤에서 앞으로 — 다리, 팔, 몸통, 얼굴. 팔다리는 몸통 뒤로 들어가는 자리까지 그려 두었으니 돌려도 틈이 없다.
     func draw(_ q: RockyPose, in gc: GraphicsContext) {
-        leg(gc, .legL, hip: CGPoint(x: 164, y: 236), angle: q.legL)
-        leg(gc, .legR, hip: CGPoint(x: 352, y: 236), angle: q.legR)
-        arm(gc, left: true, q.armL)
-        arm(gc, left: false, q.armR)
-        paint(.body, in: gc)
+        leg(gc, .legL, hip: Self.hips.left, angle: q.legL, step: q.stepL)
+        leg(gc, .legR, hip: Self.hips.right, angle: q.legR, step: q.stepR)
+        // 윗몸 — 엉덩이 줄 가운데(258, 236)를 축으로 기울이고 들어 올린다. 다리는 디딘 자리에 그대로.
+        var upper = gc
+        upper.translateBy(x: 258, y: 236 + q.rise)
+        upper.rotate(by: .degrees(q.lean))
+        upper.translateBy(x: -258, y: -236)
+        arm(upper, left: true, q.armL)
+        arm(upper, left: false, q.armR)
+        paint(.body, in: upper)
         for piece in Self.face(q.face, blink: q.blink, look: q.look) {
-            var g = gc
+            var g = upper
             g.translateBy(x: piece.to.x, y: piece.to.y)
             g.rotate(by: .degrees(piece.turn))
             g.scaleBy(x: piece.flip ? -piece.scale : piece.scale, y: piece.scale)
@@ -1144,9 +1259,9 @@ private final class RockyArt {
         }
     }
 
-    private func leg(_ gc: GraphicsContext, _ sprite: Sprite, hip: CGPoint, angle: Double) {
+    private func leg(_ gc: GraphicsContext, _ sprite: Sprite, hip: CGPoint, angle: Double, step: CGSize) {
         var g = gc
-        g.translateBy(x: hip.x, y: hip.y)
+        g.translateBy(x: hip.x + step.width, y: hip.y + step.height)
         g.rotate(by: .degrees(angle))
         g.translateBy(x: -hip.x, y: -hip.y)
         paint(sprite, in: g)

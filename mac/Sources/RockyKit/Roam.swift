@@ -165,6 +165,11 @@ public struct Roamer: Equatable, Sendable {
     /// 제자리에 서서 튀기만 하면 지루하고 정신없었다(2026-11-06 오너 지적).
     public static let paceRate: Double = 0.2
     public static let paceRest: Double = 3
+    /// 걷기 시작하거나 돌아서면 이만큼씩(pt/s²) 빨라져 0.25초에 `walkSpeed` 에 붙고, 설 자리가 다가오면 같은 만큼 줄여 그 자리에 선다.
+    /// 쉬려고 설 때도 줄여서 선다. 예전엔 한 프레임 만에 45pt/s 로 나가고 한 프레임에 멈춰 미끄러지듯 보였다(2026-11-06 캡처 실측).
+    public static let walkAccel: Double = 180
+    /// 설 자리에 다가가며 줄일 때 가장 느린 빠르기 — 0 에 가까워지면 마지막 한두 pt 를 오래 기어간다.
+    static let creep: Double = 8
 
     public var x: Double
     public var y: Double
@@ -186,6 +191,10 @@ public struct Roamer: Equatable, Sendable {
     var sinceFollow: Double = .infinity
     /// 서성이며 걸어가는 자리(x) — 같은 발판 위, 눈길 곁.
     var paceTo: Double?
+    /// 지금 걷는 빠르기(pt/s) — 걷지 않으면 0.
+    public private(set) var speed: Double = 0
+    /// 쉬려고 줄이는 중이면 다 서고 나서 쉴 시간.
+    var resting: Double?
 
     struct Point: Equatable, Sendable {
         var x: Double
@@ -238,6 +247,10 @@ public struct Roamer: Equatable, Sendable {
     ) {
         landing = max(0, landing - dt)
         sinceFollow += dt
+        if action != .walk {
+            speed = 0
+            resting = nil
+        }
         if mood != .pace || goal == nil { paceTo = nil }
         if tube != nil {
             tubeAge += dt
@@ -358,9 +371,9 @@ public struct Roamer: Equatable, Sendable {
         // 서성이는 중 — 고른 자리까지 곧장 걷고 다시 선다. 눈길이 옮겨 그 자리가 곁이 아니게 되거나 창 옆면이 막으면 그만둔다.
         if let to = paceTo {
             if onIt, abs(goal.x - to) <= Self.near, !Self.blocked(from: x, to: to, y: y, walls: walls) {
-                let step = Self.walkSpeed * dt
+                turn(toward: to > x ? 1 : -1)
+                let step = accelerate(dt: dt, room: abs(to - x)) * dt
                 if abs(to - x) > step {
-                    facing = to > x ? 1 : -1
                     x += facing * step
                     action = .walk
                     return true
@@ -403,8 +416,11 @@ public struct Roamer: Equatable, Sendable {
         }
         let toward: Double = dx >= 0 ? 1 : -1
         action = .walk
-        facing = toward
-        walk(dt: dt, on: ground, ledges: ledges, walls: walls, screen: screen, wander: false, random: random)
+        turn(toward: toward)
+        walk(
+            dt: dt, on: ground, ledges: ledges, walls: walls, screen: screen, wander: false,
+            room: onIt && mood.holds ? abs(dx) - Self.near : .infinity, random: random
+        )
         // 창 옆면에 막혀 돌아섰으면 — 다음 프레임에 또 돌아서며 제자리걸음하지 않게 튜브로 넘거나, 못 넘으면 서서 그쪽을 본다.
         if action == .walk, facing != toward {
             if tube == nil, sinceFollow >= Self.followRest {
@@ -444,10 +460,21 @@ public struct Roamer: Equatable, Sendable {
     }
 
     /// 한 걸음. `wander` 가 false 면(눈길을 따라가는 중) 다른 곳으로 건너가는 튜브를 놓지 않는다 — 사람 곁을 떠나게 된다.
+    /// `room` 은 설 자리까지 남은 거리 — 가까우면 줄여서 다가간다.
     private mutating func walk(
-        dt: Double, on ground: Ledge, ledges: [Ledge], walls: [Wall], screen: Box, wander: Bool, random: () -> Double
+        dt: Double, on ground: Ledge, ledges: [Ledge], walls: [Wall], screen: Box, wander: Bool,
+        room: Double = .infinity, random: () -> Double
     ) {
-        let next = x + facing * Self.walkSpeed * dt
+        // 쉬려고 줄이다 다 멈췄으면 선다.
+        if let rest = resting, speed <= Self.walkAccel * dt {
+            speed = 0
+            resting = nil
+            action = .stand
+            pause = rest
+            return
+        }
+        let pace = resting == nil ? accelerate(dt: dt, room: room) : slowDown(dt: dt)
+        let next = x + facing * pace * dt
         let front = x + facing * Self.halfWidth
         let nextFront = next + facing * Self.halfWidth
         // 앞을 막는 창 옆면 — 윗면에 설 자리가 있으면 닿을 만한 높이는 뛰어오르고 더 높으면 튜브를 놓아 넘어간다. 아니면 돌아선다.
@@ -467,12 +494,12 @@ public struct Roamer: Equatable, Sendable {
                     return
                 }
             }
-            facing = -facing
+            turn(toward: -facing)
             return
         }
         // 화면 가장자리 — 돌아선다.
         if nextFront <= screen.minX || nextFront >= screen.maxX {
-            facing = -facing
+            turn(toward: -facing)
             return
         }
         // 발판 끝 — 건너편 발판이 가까우면 건너뛰고, 아니면 가끔 뛰어내리고 대개는 돌아선다.
@@ -484,14 +511,14 @@ public struct Roamer: Equatable, Sendable {
                 action = .fall
                 vy = 0
             } else {
-                facing = -facing
+                turn(toward: -facing)
             }
             return
         }
         x = next
         // 가끔 튜브를 놓아 다른 곳으로 건너간다 — 한 번에 하나만. 바닥에서는 위쪽 창 윗면으로 자주 올라가고,
         // 올라갈 창이 없으면 화면을 크게 돌아 바닥의 먼 곳으로, 창 위에서는 멀리 있는 다른 창 윗면으로 건너간다.
-        if wander, tube == nil {
+        if wander, tube == nil, resting == nil {
             let onFloor = ground.y <= screen.minY
             let tops = ledges.filter {
                 $0 != ground && $0.y > screen.minY && $0.maxX - $0.minX >= Self.halfWidth * 2 + 20
@@ -517,11 +544,29 @@ public struct Roamer: Equatable, Sendable {
                 }
             }
         }
-        // 가끔 멈춰 숨을 돌린다 — 초당 8% 쯤.
-        if random() < dt * 0.08 {
-            action = .stand
-            pause = 1.5 + random() * 3
+        // 가끔 멈춰 숨을 돌린다 — 초당 8% 쯤. 걸음을 줄여 다 멈추면 선다.
+        if resting == nil, random() < dt * 0.08 {
+            resting = 1.5 + random() * 3
         }
+    }
+
+    /// 이번 프레임의 걷는 빠르기 — `walkAccel` 로 붙이고, 설 자리까지 `room` 이 남았으면 그 안에 설 만큼으로 줄인다.
+    private mutating func accelerate(dt: Double, room: Double) -> Double {
+        let brake = max((2 * Self.walkAccel * max(room, 0)).squareRoot(), Self.creep)
+        speed = min(Self.walkSpeed, speed + Self.walkAccel * dt, brake)
+        return speed
+    }
+
+    private mutating func slowDown(dt: Double) -> Double {
+        speed = max(0, speed - Self.walkAccel * dt)
+        return speed
+    }
+
+    /// 걷는 쪽을 바꾼다 — 돌아서면 섰다가 다시 빨라진다.
+    private mutating func turn(toward: Double) {
+        guard facing != toward else { return }
+        facing = toward
+        speed = 0
     }
 
     /// 뛰기 시작한다 — 쪼그렸다가(`jumpCrouch`) 떠올라 `landing` 에 내려앉는다.

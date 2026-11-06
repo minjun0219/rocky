@@ -471,6 +471,182 @@ final class RoamTests: XCTestCase {
         }
         XCTAssertNil(rocky.tube)
     }
+
+    func testStartsSlowlyAndEasesIntoItsPacingSpot() {
+        // 걷기 시작하면 `walkAccel` 로 빨라지고 설 자리가 다가오면 줄여서 그 자리에 선다 — 한 프레임 만에 45pt/s 로 나가거나 서지 않는다.
+        let floor = ledges(windows: [], screen: screen)
+        let goal = Goal(x: 500, y: 0)
+        var rocky = Roamer(x: 500, y: 0)
+        rocky.action = .stand
+        let dt = 1.0 / 60
+        var moves: [Double] = []
+        var steps = 0
+        repeat {
+            let before = rocky.x
+            rocky.step(dt: dt, ledges: floor, walls: [], screen: screen, mood: .pace, goal: goal, random: { 0 })
+            if rocky.x != before { moves.append(abs(rocky.x - before)) }
+            steps += 1
+        } while !(!moves.isEmpty && rocky.action == .stand) && steps < 600
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertEqual(rocky.x, goal.x - Roamer.near, accuracy: 1e-9)
+        guard let first = moves.first, let top = moves.max(), let peak = moves.firstIndex(of: top) else {
+            return XCTFail("걷지 않았다")
+        }
+        XCTAssertEqual(first, Roamer.walkAccel * dt * dt, accuracy: 1e-9)
+        XCTAssertEqual(top, Roamer.walkSpeed * dt, accuracy: 1e-9)
+        // 다 빨라질 때까지는 줄지 않고, 그 뒤로는 늘지 않는다.
+        let rising = moves.prefix(peak + 1)
+        for (a, b) in zip(rising, rising.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(b, a - 1e-9)
+        }
+        let falling = moves.suffix(from: peak)
+        for (a, b) in zip(falling, falling.dropFirst()) {
+            XCTAssertLessThanOrEqual(b, a + 1e-9)
+        }
+    }
+
+    func testEasesToAStopBeforeResting() {
+        // 가끔 쉴 때도 한 프레임에 서지 않는다 — `walkAccel` 로 줄여 다 멈춘 뒤에 선다.
+        let top = ledges(windows: [Box(x: 100, y: 0, width: 800, height: 300)], screen: screen)
+        var rocky = Roamer(x: 300, y: 300)
+        rocky.action = .walk
+        let dt = 1.0 / 60
+        for _ in 0 ..< 30 {
+            rocky.step(dt: dt, ledges: top, walls: [], screen: screen, mood: .roam, random: { 0.99 })
+        }
+        XCTAssertEqual(rocky.speed, Roamer.walkSpeed)
+        // 운이 0 이면 쉬기로 한다 — 이 창 위에서는 건너갈 다른 창이 없어 튜브는 놓지 않는다.
+        var speeds: [Double] = []
+        while rocky.action == .walk, speeds.count < 120 {
+            rocky.step(dt: dt, ledges: top, walls: [], screen: screen, mood: .roam, random: { 0 })
+            speeds.append(rocky.speed)
+        }
+        XCTAssertEqual(rocky.action, .stand)
+        XCTAssertEqual(rocky.pause, 1.5, accuracy: 1e-9)
+        XCTAssertGreaterThan(speeds.count, 10)
+        for (a, b) in zip(speeds, speeds.dropFirst()) {
+            XCTAssertLessThanOrEqual(b, a)
+        }
+    }
+
+    func testTurnsAroundFromAStandstill() {
+        // 발판 끝에서 돌아서면 섰다가 다시 빨라진다 — 45pt/s 그대로 되돌아가지 않는다.
+        let top = ledges(windows: [Box(x: 100, y: 0, width: 300, height: 300)], screen: screen)
+        var rocky = Roamer(x: 300, y: 300)
+        rocky.action = .walk
+        let dt = 1.0 / 60
+        var steps = 0
+        while rocky.facing > 0, steps < 600 {
+            rocky.step(dt: dt, ledges: top, walls: [], screen: screen, mood: .roam, random: { 0.5 })
+            steps += 1
+        }
+        XCTAssertEqual(rocky.facing, -1)
+        XCTAssertEqual(rocky.speed, 0)
+        let before = rocky.x
+        rocky.step(dt: dt, ledges: top, walls: [], screen: screen, mood: .roam, random: { 0.5 })
+        XCTAssertEqual(before - rocky.x, Roamer.walkAccel * dt * dt, accuracy: 1e-9)
+    }
+}
+
+final class FeetTests: XCTestCase {
+    let dt = 1.0 / 60
+
+    /// 걷는 몸의 자리(60Hz) — `walkAccel` 로 빨라져 `cruise` 초 동안 `walkSpeed` 로 가다가 같은 만큼 줄여 서고, `hold` 초 서 있는다.
+    func path(toward: Double, cruise: Double, hold: Double) -> [Double] {
+        let ramp = Roamer.walkSpeed / Roamer.walkAccel
+        var out: [Double] = []
+        var x = 0.0, t = 0.0
+        while t < ramp * 2 + cruise + hold {
+            t += dt
+            let v: Double
+            if t < ramp {
+                v = Roamer.walkAccel * t
+            } else if t < ramp + cruise {
+                v = Roamer.walkSpeed
+            } else {
+                v = max(0, Roamer.walkSpeed - Roamer.walkAccel * (t - ramp - cruise))
+            }
+            x += toward * v * dt
+            out.append(x)
+        }
+        return out
+    }
+
+    func testPlantedFeetStayPutAndTakeTurns() {
+        for toward in [1.0, -1.0] {
+            var feet = Feet(x: 0)
+            var last = 0.0
+            var lifts: [Int] = []
+            var walkingLifts: [Int] = []
+            for x in path(toward: toward, cruise: 2, hold: 1) {
+                let before = feet.feet
+                let walking = abs(x - last) / dt > 0.5
+                feet.step(x: x, dt: dt)
+                last = x
+                for i in 0 ..< 2 {
+                    // 디딘 발은 화면에 붙어 있다 — 빨라지든 줄든 몸만 그 위를 지나간다.
+                    if before[i].age == nil, feet.feet[i].age == nil {
+                        XCTAssertEqual(feet.feet[i].x, before[i].x)
+                    }
+                    if before[i].age == nil, feet.feet[i].age != nil {
+                        lifts.append(i)
+                        if walking { walkingLifts.append(i) }
+                    }
+                }
+                // 두 발을 한꺼번에 들지 않는다.
+                XCTAssertFalse(feet.feet.allSatisfy { $0.age != nil })
+            }
+            // 가는 쪽 발이 먼저 나가고, 걷는 동안은 한 발씩 번갈아 든다.
+            let front = toward > 0 ? 1 : 0
+            XCTAssertEqual(lifts.first, front)
+            XCTAssertGreaterThanOrEqual(walkingLifts.count, 8)
+            for (a, b) in zip(walkingLifts, walkingLifts.dropFirst()) {
+                XCTAssertNotEqual(a, b)
+            }
+            // 다 서면 벌어진 발을 모아 엉덩이 아래에 선다.
+            let stance = feet.stance(at: last)
+            XCTAssertLessThanOrEqual(abs(stance.left.offset), Feet.settle)
+            XCTAssertLessThanOrEqual(abs(stance.right.offset), Feet.settle)
+            XCTAssertEqual(stance.left.lift, 0)
+            XCTAssertEqual(stance.right.lift, 0)
+        }
+    }
+
+    func testFeetTuckUnderTheBodyInTheAir() {
+        var feet = Feet(x: 0)
+        var x = 0.0
+        // 걸어서 두 발이 벌어진 때에 뛰어오른다.
+        for next in path(toward: 1, cruise: 2, hold: 0) {
+            feet.step(x: next, dt: dt)
+            x = next
+            let stance = feet.stance(at: x)
+            if max(abs(stance.left.offset), abs(stance.right.offset)) > 3 { break }
+        }
+        let spread = feet.stance(at: x)
+        XCTAssertGreaterThan(max(abs(spread.left.offset), abs(spread.right.offset)), 3)
+        // 떠 있는 동안 발은 몸과 같이 가며 0.3초 안에 엉덩이 아래로 모인다 — 한 프레임에 붙이면 다리가 툭 튄다.
+        x += 300 * dt
+        feet.airborne(x: x, dt: dt)
+        let first = feet.stance(at: x)
+        XCTAssertGreaterThan(max(abs(first.left.offset), abs(first.right.offset)), 1)
+        for _ in 1 ..< 18 {
+            x += 300 * dt
+            feet.airborne(x: x, dt: dt)
+        }
+        let tucked = feet.stance(at: x)
+        XCTAssertLessThan(abs(tucked.left.offset), 0.2)
+        XCTAssertLessThan(abs(tucked.right.offset), 0.2)
+        XCTAssertLessThan(max(tucked.left.lift, tucked.right.lift), 0.2)
+    }
+
+    func testDrawnLegsSwapWhenFacingLeft() {
+        // 왼쪽을 보면 그림을 뒤집으므로 화면의 오른발이 그림의 왼다리이고 앞뒤도 바뀐다.
+        let stance = Stance(left: Footing(offset: 3, lift: 1), right: Footing(offset: -2, lift: 0))
+        XCTAssertEqual(stance.drawn(facing: 1).left, stance.left)
+        XCTAssertEqual(stance.drawn(facing: 1).right, stance.right)
+        XCTAssertEqual(stance.drawn(facing: -1).left, Footing(offset: 2, lift: 0))
+        XCTAssertEqual(stance.drawn(facing: -1).right, Footing(offset: -3, lift: 1))
+    }
 }
 
 final class MovesTests: XCTestCase {
