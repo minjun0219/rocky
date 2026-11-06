@@ -246,7 +246,7 @@
               "configDir": {
                 "type": "string",
                 "minLength": 1,
-                "description": "서버를 `CLAUDE_CONFIG_DIR=<폴더>` 로 띄운다 — 사용자 지침 · 스킬 · 플러그인 · 훅 · MCP 등록 · 로그인 · 대화 기록이 그 폴더 것이 된다. 상대 경로는 대상 폴더 기준, `~/` 는 홈 기준. 새 폴더는 처음 한 번 `CLAUDE_CONFIG_DIR=<폴더> claude auth login` 과 workspace trust 가 필요하다."
+                "description": "서버를 `CLAUDE_CONFIG_DIR=<폴더>` 로 띄운다 — 사용자 설정 · 스킬 · 플러그인 · 훅 · MCP 등록 · 로그인 · 대화 기록이 그 폴더 것이 된다. 대상 폴더가 홈 아래면 `~/.claude/CLAUDE.md` 가 상위 폴더 지침으로 그래도 실리니 그 폴더 settings.json 의 `claudeMdExcludes` 로 뺀다. 상대 경로는 대상 폴더 기준, `~/` 는 홈 기준. 새 폴더는 처음 한 번 로그인(`CLAUDE_CONFIG_DIR=<폴더> claude auth login`) · workspace trust · Remote Control 확인(`claude remote-control` 에 y)이 필요하다."
               }
             },
             "additionalProperties": false

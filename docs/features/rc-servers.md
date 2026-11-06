@@ -93,7 +93,13 @@
   붙인다) `--setting-sources` 같은 플래그를 넘길 길이 없지만, 서버의 env 는 자식 세션에 그대로 이어진다(2026-11-06 — 떠 있는
   서버의 환경 변수가 자식에 모두 있었다). 상대 경로는 대상 폴더
   기준. 턴 판정은 그 폴더의 `projects/` 에서 대화 기록의 mtime 만 잰다 — 내용은 읽지 않는다(`last_write`). 새 설정 폴더는 로그인이
-  따로다(`claude -p` 가 `Not logged in` — 2026-11-06 실측). 그래서 띄우기 · 재시작은 그 폴더의 로그인으로 판정한다(`env
+  따로다(`claude -p` 가 `Not logged in` — 2026-11-06 실측). **`CLAUDE_CONFIG_DIR` 만으로 전역 지침이 다 빠지지는 않는다** —
+  홈 아래 대상(`~/.rocky`)에서 `~/.claude/CLAUDE.md` 가 상위 폴더의 프로젝트 지침으로 실렸다(2026-11-06 실측). 그 설정 폴더 settings.json
+  의 `claudeMdExcludes`(`["/Users/<나>/.claude/**"]`)로 빼면 그 대상의 `CLAUDE.md` 만 남았다. claude.ai 계정에서 동기화되는 플러그인 ·
+  스킬은 설정 폴더와 상관없이 실린다. 새 설정 폴더는 Remote Control 도 처음 한 번 묻는다 — 데몬이 띄우면 답할 사람이 없어
+  `"Enable Remote Control?" got no answer` 로 뜨자마자 내려간다(기동 실패의 메시지가 그대로 알린다). 사람이 대상 폴더에서
+  `CLAUDE_CONFIG_DIR=<폴더> claude remote-control` 로 한 번 `y` 하고 끄면, 그 등록이 claude.ai 에 4분쯤 남아 데몬은 `already served`
+  로 60 · 120초 뒤 다시 띄운다(같은 날 실측 — 기존 재시도 규칙 그대로). 그래서 띄우기 · 재시작은 그 폴더의 로그인으로 판정한다(`env
   CLAUDE_CONFIG_DIR=… claude auth status --json`, `auth_state_in`) — 그 폴더가 확실히 로그아웃이면 손대지 않고
   (`config_dir_logged_out`), 기본 폴더가 로그아웃이어도 띄운다. 감시 · 야간이 로그아웃으로 멈추는 판정과 자격 끊김 알림 ·
   `authSuspect` 는 여전히 기본 폴더 기준이다. 다시 읽기는 이름 · 설정 폴더가 바뀐 대상을 `options` 로 알리고, 떠 있는 서버는 다시
