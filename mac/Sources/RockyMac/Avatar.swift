@@ -735,14 +735,16 @@ private struct Rocky: View {
         if look != .concept {
             // 미니멀 벡터 · 돌멩이 — 조각과 같은 칸 좌표로 그리고, 통째 자세도 관절로 짠다(`MinimalRocky.joints`).
             // 통째 자세는 원작처럼 발 자리를 축으로 눌린다 — 몸통 가운데를 축으로 누르면 발이 뜨니 그만큼 내린다.
-            let m = MinimalRocky.joints(q)
+            // 돌멩이는 잘 때 팔다리를 다 넣고 바닥에 내려앉아 그냥 돌이 된다(`PebbleRocky.asleep`).
+            let tucked = look == .pebble && q.whole == .sleep
+            let m = tucked ? PebbleRocky.asleep(q) : MinimalRocky.joints(q)
             let sole = (RockyArt.sole - RockyArt.center.y) * RockyArt.scale
             let sink = q.whole == nil ? 0 : sole * (1 - m.squash)
             figure.translateBy(x: 180, y: 312 - sole + m.y + sink)
             figure.rotate(by: .degrees(m.tilt))
             figure.scaleBy(x: RockyArt.scale, y: RockyArt.scale * m.squash)
             figure.translateBy(x: -RockyArt.center.x, y: -RockyArt.center.y)
-            if look == .pebble { PebbleRocky.draw(m, in: figure) } else { MinimalRocky.draw(m, in: figure) }
+            if look == .pebble { PebbleRocky.draw(m, tucked: tucked, in: figure) } else { MinimalRocky.draw(m, in: figure) }
         } else if let art, let whole = q.whole {
             // 통째 포즈 — 그림의 아래 끝을 무대의 발 자리(y 312)에, 기울기와 눌림은 그 가운데를 축으로.
             figure.translateBy(x: 180, y: 312 + q.y)
