@@ -1,5 +1,13 @@
 # @minjun0219/rocky
 
+## 0.58.0
+
+### Minor Changes
+
+- [#534](https://github.com/minjun0219/rocky/pull/534) [`c0629fa`](https://github.com/minjun0219/rocky/commit/c0629fa9f5a72e9d399917ea362192ca4f7c5c14) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱 아바타가 사람이 보는 곳(멈춘 포인터 · 입력 중인 앞 창) 옆으로 느긋하게 따라가고, 일하는 동안 가끔 말풍선으로 세션 소식(시작 · 마침 · 지금 하는 일)을 알린다. 메뉴와 오른쪽 클릭의 "따라다니기"로 끈다.
+
+- [#531](https://github.com/minjun0219/rocky/pull/531) [`c90e478`](https://github.com/minjun0219/rocky/commit/c90e478ee19d8cb2f36a0ff9751b9c9e6dbbbc8b) Thanks [@minjun0219](https://github.com/minjun0219)! - rc 대상마다 칸(`rc.options`)을 줄 수 있다 — `name` 은 폴더 이름 대신 쓸 라벨, `configDir` 은 그 서버를 `CLAUDE_CONFIG_DIR=<폴더>` 로 띄워 사용자 지침 · 스킬 · 플러그인 · 로그인 · 대화 기록을 그 폴더 것으로 나눈다. 전역 맥락 없이 자기 폴더에서 뜨는 세션을 rc 로 띄울 때 쓴다. `rocky rc targets` 가 설정 폴더와 대상이 아닌 키를 보이고, `rocky rc targets rm` 은 그 칸도 지운다.
+
 ## 0.57.1
 
 ### Patch Changes
