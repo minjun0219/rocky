@@ -9,6 +9,7 @@ struct RockyMacApp: App {
     @State private var store: BoardStore
     @State private var agents: AgentStore
     @State private var avatar: AvatarController
+    @State private var loginItem: LoginItem
 
     init() {
         let store = BoardStore(
@@ -23,11 +24,12 @@ struct RockyMacApp: App {
         _store = State(initialValue: store)
         _agents = State(initialValue: agents)
         _avatar = State(initialValue: AvatarController(agents: agents))
+        _loginItem = State(initialValue: LoginItem())
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(store: store, agents: agents)
+            MenuContent(store: store, agents: agents, loginItem: loginItem)
         } label: {
             MenuLabel(store: store, agents: agents)
         }

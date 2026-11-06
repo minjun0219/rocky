@@ -3,11 +3,13 @@
 // 창은 늘 위에 뜨는 패널이고 포커스를 가져가지 않는다. 돌아다니기를 켜면 창 윗면을 걷고, 끌어다 놓으면 떨어지고,
 // 튜브를 놓아 창 윗면으로 오르거나 다른 창으로 건너간다. 두 번 누르면 웹 에이전트 탭이 열리고, 말풍선은 누르면 닫힌다.
 import AppKit
+import QuartzCore
 import RockyKit
 import SwiftUI
 
-/// 아바타 패널을 띄우고 걷는다 — `AgentStore.showAvatar` 를 따른다. `roam` 이 켜져 있으면 초당 30번 로키를 한 걸음씩
-/// 움직여(`RockyKit.Roamer`) 패널을 옮긴다. 창 목록은 0.5초마다 다시 읽는다 — 위치만 읽으니 화면 기록 권한은 필요 없다.
+/// 아바타 패널을 띄우고 걷는다 — `AgentStore.showAvatar` 를 따른다. `roam` 이 켜져 있으면 화면 주사율에 맞춰(초당 60번)
+/// 로키를 한 걸음씩 움직여(`RockyKit.Roamer`) 패널을 옮긴다. 창 목록은 0.5초마다 메인 스레드 밖에서 다시 읽는다 —
+/// 위치만 읽으니 화면 기록 권한은 필요 없다.
 @MainActor
 final class AvatarController {
     private var panel: NSPanel?
@@ -17,7 +19,7 @@ final class AvatarController {
     private var shownTube: Tube?
     private let agents: AgentStore
     private let pose = RoamPose()
-    private var timer: Timer?
+    private var frames: CADisplayLink?
     private var roamer: Roamer?
     private var roaming = false
     private var moves = Choreographer()
@@ -25,6 +27,8 @@ final class AvatarController {
     private var ledgesHere: [Ledge] = []
     private var windows: [Box] = []
     private var scanned: TimeInterval = 0
+    /// 창 목록을 읽는 중인지 — 한 번에 하나만.
+    private var scanning = false
     private var last: TimeInterval = 0
     /// 마지막으로 옮겨 놓은 자리 — 이것과 다르면 사람이 끌어다 놓은 것이다.
     private var placed: NSPoint?
@@ -67,25 +71,29 @@ final class AvatarController {
             self.panel = panel
         }
         panel?.orderFrontRegardless()
-        startTimer()
+        startFrames()
     }
 
     private func hide() {
         panel?.orderOut(nil)
         hideTube()
-        timer?.invalidate()
-        timer = nil
+        frames?.invalidate()
+        frames = nil
     }
 
-    /// 보이는 동안 초당 30번 — 몸짓은 늘 고르고, 돌아다니기가 켜져 있으면 걸음도 잰다.
-    private func startTimer() {
-        guard timer == nil else { return }
+    /// 보이는 동안 화면이 그릴 때마다(초당 60번) — 몸짓은 늘 고르고, 돌아다니기가 켜져 있으면 걸음도 잰다.
+    /// `Timer` 로 초당 30번 옮기던 것은 화면 주사율(60 · 120Hz)과 박자가 어긋나 패널이 2-5 프레임씩 들쭉날쭉 멈춰 프레임 드랍처럼 보였다.
+    /// 디스플레이 링크는 패널이 있는 화면의 주사율을 따른다 — 120Hz 화면에서도 60을 넘지 않게 묶어 고르게 나눠 떨어지게 한다.
+    private func startFrames() {
+        guard frames == nil, let view = panel?.contentView else { return }
         last = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
+        let ticker = FrameTicker { [weak self] in
             MainActor.assumeIsolated { self?.tick() }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        let link = view.displayLink(target: ticker, selector: #selector(FrameTicker.step(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        frames = link
     }
 
     private static func floatingPanel(size: NSSize) -> NSPanel {
@@ -146,7 +154,7 @@ final class AvatarController {
     private func startRoaming() {
         guard !roaming else { return }
         roaming = true
-        // 초당 30번 옮기는 동안은 자리를 기억하지 않는다 — 매번 설정 파일에 쓰게 된다.
+        // 초당 60번 옮기는 동안은 자리를 기억하지 않는다 — 매번 설정 파일에 쓰게 된다.
         panel?.setFrameAutosaveName("")
     }
 
@@ -215,8 +223,20 @@ final class AvatarController {
         guard var roamer else { return }
         let screen = (NSScreen.screens.first { $0.frame.contains(foot) } ?? NSScreen.main)?.visibleFrame ?? .zero
         let area = Box(x: screen.minX, y: screen.minY, width: screen.width, height: screen.height)
-        if now - scanned > 0.5 {
-            windows = Self.scanWindows()
+        if now - scanned > 0.5, !scanning {
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            if scanned == 0 {
+                // 처음 한 번은 기다린다 — 창 목록 없이 걸으면 창 윗면에 서 있던 로키가 떨어진다.
+                windows = Self.scanWindows(top: top)
+            } else {
+                // 창이 많으면 수 ms-수십 ms 걸린다 — 메인 스레드에서 읽으면 0.5초마다 한 번씩 걸음이 멈칫한다.
+                scanning = true
+                Task { [weak self] in
+                    let found = await Task.detached(priority: .userInitiated) { Self.scanWindows(top: top) }.value
+                    self?.windows = found
+                    self?.scanning = false
+                }
+            }
             scanned = now
         }
         ledgesHere = ledges(windows: windows, screen: area)
@@ -248,10 +268,10 @@ final class AvatarController {
     }
 
     /// 화면에 떠 있는 보통 창(레이어 0)들 — 앞에서 뒤 순서, AppKit 좌표로. 자기 창과 아주 작은 창은 뺀다.
-    private static func scanWindows() -> [Box] {
+    /// `top` 은 주 화면의 윗변 — `NSScreen` 은 메인 스레드에서 읽어 넘긴다(이 함수는 메인 스레드 밖에서 돈다).
+    nonisolated private static func scanWindows(top: CGFloat) -> [Box] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
-        let top = NSScreen.screens.first?.frame.maxY ?? 0
         let me = ProcessInfo.processInfo.processIdentifier
         return list.compactMap { info in
             guard (info[kCGWindowLayer as String] as? Int) == 0,
@@ -264,6 +284,19 @@ final class AvatarController {
             // CG 창 좌표는 주 화면 왼쪽 위가 원점이고 y 가 아래로 자란다.
             return Box(x: rect.minX, y: top - rect.maxY, width: rect.width, height: rect.height)
         }
+    }
+}
+
+/// 디스플레이 링크의 박자를 받는 쪽 — `CADisplayLink` 의 target 은 Objective-C 객체여야 한다.
+private final class FrameTicker: NSObject {
+    private let action: () -> Void
+
+    init(_ action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    @objc func step(_: CADisplayLink) {
+        action()
     }
 }
 
@@ -422,7 +455,8 @@ private struct Rocky: View {
     var crouch = 0.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !moving)) { context in
+        // 패널을 옮기는 박자(초당 60번)와 같게 — 30이면 패널은 60번 움직이는데 몸은 두 번에 한 번만 바뀌어 덜컥인다.
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: !moving)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { gc, size in
                 draw(in: &gc, size: size, t: t)
