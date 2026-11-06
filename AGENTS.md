@@ -234,7 +234,7 @@ typecheck or tests — pre-push and CI already cover it.*
   edges (web, bridges, scripts reading logs.db).*
   로키 에이전트(설계 중)의 데이터는 로키의 집 `~/.rocky/`에 있고 rocky는 하네스(띄우기·도구·연결)만 맡는다 — rockyd는
   `~/.rocky`의 내용을 해석하지 않는다. 로키는 개인 맥락 저장소가 무엇인지 모르고 설정으로 꽂힌 MCP로만 묻는다(2026-11-03):
-  저장소 이름(예: 캐비닛)이나 연동 코드를 `crates/`·`plugin/`·로키 지시에 넣지 않는다.
+  저장소 이름이나 연동 코드를 `crates/`·`plugin/`·로키 지시에 넣지 않는다.
 - **Rust 규칙**: `cargo fmt` + `cargo clippy --workspace --all-targets -- -D warnings`가 게이트다(clippy는
   테스트도 본다). 순수 판정 로직은 `rocky-core`에, 통합 테스트는 `crates/*/tests/it/` 에(크레이트당 실행 파일 하나 — 새 파일은 `tests/it/main.rs`에 `mod`로 단다); 데몬과 CLI는 배선만
   한다. 훅은 fail-open — 훅 입구에서 `Result`를 내보내지 않는다. 에러에는 맥락(입력값·경로·상태 코드)을 담는다.
