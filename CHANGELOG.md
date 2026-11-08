@@ -1,5 +1,17 @@
 # @minjun0219/rocky
 
+## 0.59.0
+
+### Minor Changes
+
+- [#541](https://github.com/minjun0219/rocky/pull/541) [`90b5295`](https://github.com/minjun0219/rocky/commit/90b52958e94e565170a81fc68f0a1604976285ff) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱 아바타에 돌멩이 그림체를 더했다. 메뉴의 "모양"(또는 아바타 오른쪽 클릭)에서 원작과 돌멩이를 바꾼다(`defaults` 의 `avatarStyle`). 원작 조각 그림은 그대로다. 돌멩이에는 쉬는 동작 여덟 개(구르기 · 몸 털기 · 기지개 · 춤 · 돌인 척하기 · 하품 · 박수 · 하트)가 더 있다.
+
+### Patch Changes
+
+- [#539](https://github.com/minjun0219/rocky/pull/539) [`0dfbbd7`](https://github.com/minjun0219/rocky/commit/0dfbbd7cec6a3d0686f599eec31e26fb8d70492e) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱 아바타가 비밀번호를 칠 때(시스템 보안 입력이 켜지면) 두 손으로 눈을 가리고, 그동안은 걷거나 포인터를 따라가지 않는다.
+
+- [#540](https://github.com/minjun0219/rocky/pull/540) [`fa5058f`](https://github.com/minjun0219/rocky/commit/fa5058f3ed2a1d97232387ebafd42758e6653696) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱 아바타가 자세를 바꿀 때 한 프레임에 갈아 끼우지 않고 넘어간다. 잠들 땐 주저앉아 눈을 감은 뒤 엎드리고, 깨면 일어선 뒤에 걷는다. 뛸 때는 쪼그렸다 펴며 점프 그림으로, 내려앉기 전에 다리를 뻗으며 돌아온다. 기분이 바뀌면 표정 · 팔이 섞여 바뀌고, 연결이 끊기면 손을 머리로 올리며 천천히 회색이 된다. 돌멩이 그림체도 같은 자세 사이를 섞어 넘어가고, 자다가 비밀번호 칸이 뜨면 툭 서지 않고 일어나며 눈을 가린다. 시안 조각 그림은 그대로 쓰고 옮기고 겹쳐 바꾸기만 한다.
+
 ## 0.58.1
 
 ### Patch Changes
