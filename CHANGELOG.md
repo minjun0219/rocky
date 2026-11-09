@@ -1,5 +1,13 @@
 # @minjun0219/rocky
 
+## 0.59.1
+
+### Patch Changes
+
+- [#545](https://github.com/minjun0219/rocky/pull/545) [`6545b75`](https://github.com/minjun0219/rocky/commit/6545b758a04652d8479425c9694ffce345042622) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱: 바닥에 선 창의 윗면 끝에서 뛰어내린 아바타가 그 창 앞을 그냥 지나가지 않는다 — 몸 절반이 창 옆면에 걸친 채 내려앉아도 옆면이 막는다.
+
+- [#543](https://github.com/minjun0219/rocky/pull/543) [`a0f0a13`](https://github.com/minjun0219/rocky/commit/a0f0a13bc139af4c3bd49ae742c05c20c7b880c5) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱: 아바타가 다시 화면을 걸어 다닌다 — 창 위치의 소수점이 버려진 것을 끌어 옮긴 것으로 읽어 걸음마다 제자리에 떨어지던 문제를 고쳤다.
+
 ## 0.59.0
 
 ### Minor Changes
