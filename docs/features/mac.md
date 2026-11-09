@@ -173,4 +173,7 @@
   기본 포트(8636)는 실제 보드다 — 착수·완료·추가 버튼은 실제 보드를 바꾼다.
 - `LSUIElement` 앱이라 평소엔 Dock 아이콘이 없다. 할 일 창이 떠 있는 동안만 `setActivationPolicy(.regular)` 로 Dock·⌘Tab 에 보이고, 닫으면 `.accessory` 로 돌아간다.
   창을 열 때 `NSApp.activate` 를 먼저 불러야 창이 앞으로 온다. 앱 아이콘은 `mac/AppIcon.icns`(아바타를 그린 것)를 `bundle.sh` 가 넣는다.
+- **AppKit 은 창 위치를 정수 pt 로 맞춘다** — `setFrameOrigin(100.75, …)` 뒤 `frame.origin` 은 100 이다(1배 화면 실측). 아바타는 끌어 옮겼는지를
+  "지난번에 놓은 자리와 지금 자리가 다른가"로 보므로, 놓은 자리는 반드시 `panel.frame.origin` 에서 다시 읽는다. 계산한 소수점 자리를 기억하면
+  매 걸음을 끌기로 읽어 그 자리에 떨어뜨리고 로키가 한 발도 못 나간다(#519 부터 2026-11-09 까지 그랬다).
 - `rocky update --main` 은 맥 앱을 빌드하지 않는다 — main 빌드 기기는 `mac/scripts/bundle.sh` 로 따로 만든다(릴리스·nightly 만 tarball 에서 깐다).
