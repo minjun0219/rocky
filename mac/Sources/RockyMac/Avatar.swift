@@ -380,7 +380,9 @@ final class AvatarController {
         self.roamer = roamer
         let next = NSPoint(x: roamer.x - Self.foot.x, y: roamer.y - Self.foot.y)
         if next != origin { panel.setFrameOrigin(next) }
-        placed = next
+        // 놓인 자리는 패널에서 다시 읽는다 — AppKit 은 창 위치를 정수 pt 로 맞춰 `next` 의 소수점을 버린다. `next` 를 기억하면
+        // 다음 바퀴에 그 차이를 사람이 끌어 옮긴 것으로 읽어 매 걸음 그 자리에 떨어뜨리고, 로키는 한 발도 못 나간다(2026-11-09 실측).
+        placed = panel.frame.origin
         // 패널은 240×170 이지만 로키는 오른쪽 아래 96×88 뿐 — 그 밖의 클릭은 아래 창으로 흘려보낸다(말풍선이 뜬 동안은 패널 전체).
         let mouse = NSEvent.mouseLocation
         var hot = Self.figure(at: next).contains(mouse)
