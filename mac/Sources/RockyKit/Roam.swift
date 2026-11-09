@@ -486,17 +486,19 @@ public struct Roamer: Equatable, Sendable {
         }
         let pace = resting == nil ? accelerate(dt: dt, room: room) : slowDown(dt: dt)
         let next = x + facing * pace * dt
-        let front = x + facing * Self.halfWidth
         let nextFront = next + facing * Self.halfWidth
         // 앞을 막는 창 옆면 — 윗면에 설 자리가 있으면 닿을 만한 높이는 뛰어오르고 더 높으면 튜브를 놓아 넘어간다. 아니면 돌아선다.
+        // 몸 가운데가 아직 옆면 앞이고 다음 걸음의 앞쪽 끝이 옆면에 닿으면 막힌다 — 뛰어내린 자리처럼 몸 절반이 이미 옆면을 넘어 있어도 막는다.
+        // 앞쪽 끝이 옆면을 지나는 순간만 보면, 걸친 채 내려앉은 로키는 창 앞을 그냥 지나간다(2026-11-09 실측).
         if let wall = walls.first(where: {
             $0.faces == -facing && $0.bottom <= y + 2 && $0.top > y + 10
-                && (front - $0.x) * (nextFront - $0.x) <= 0
+                && ($0.x - x) * facing > 0 && (nextFront - $0.x) * facing >= 0
         }) {
             let landing = Point(x: wall.x + facing * Self.halfWidth * 2, y: wall.top)
             if let top = Self.ledge(at: landing, in: ledges) {
                 if wall.top - y <= Self.jumpReach, random() < 0.7 {
-                    x = wall.x - facing * Self.halfWidth
+                    // 옆면에 닿게 한 걸음 마저 딛는다. 이미 걸쳐 있으면 그 자리에서 쪼그린다 — 바깥으로 물러나면 한 프레임에 튄다.
+                    x = facing > 0 ? max(x, wall.x - Self.halfWidth) : min(x, wall.x + Self.halfWidth)
                     jump(to: landing)
                     return
                 }

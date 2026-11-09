@@ -422,6 +422,27 @@ final class RoamTests: XCTestCase {
         XCTAssertEqual(dropper.y, 0)
     }
 
+    func testDoesNotWalkIntoAFloorWindowItLandedHalfAcross() {
+        // 바닥에 선 창의 윗면 끝에서 뛰어내리면 몸 가운데가 끝을 막 지난 자리에 내려앉아 몸 절반이 창 옆면 안쪽에 걸친다.
+        // 거기서 창 쪽으로 걸어도 옆면이 막아야 한다 — 앞쪽 끝이 옆면을 지나는 순간만 보면 이미 지난 뒤라 창 앞을 그냥 지나갔다(2026-11-09 실측).
+        let windows = [Box(x: 300, y: 0, width: 300, height: 200)]
+        let ground = ledges(windows: windows, screen: screen)
+        let sides = walls(windows: windows, screen: screen)
+        var turner = Roamer(x: 298, y: 0)
+        turner.action = .walk
+        for _ in 0 ..< 60 {
+            turner.step(dt: 1 / 30, ledges: ground, walls: sides, screen: screen, mood: .roam, random: { 0.9 })
+            XCTAssertLessThanOrEqual(turner.x, 298)
+        }
+        XCTAssertEqual(turner.facing, -1)
+        // 뛰어오르면 그 자리에서 쪼그린다 — 옆면 바깥으로 몸 반폭만큼 물러나 튀지 않는다.
+        var jumper = Roamer(x: 298, y: 0)
+        jumper.action = .walk
+        jumper.step(dt: 1 / 30, ledges: ground, walls: sides, screen: screen, mood: .roam, random: { 0.3 })
+        XCTAssertEqual(jumper.action, .jump)
+        XCTAssertEqual(jumper.x, 298)
+    }
+
     func testTubesUpFromTheFloorMoreOftenThanBetweenWindowTops() {
         // 운 0.004 는 바닥에서 오르는 확률(dt × upRate)보다 작고 창 위에서 건너는 확률(dt × tubeRate)보다 크다.
         let windows = [Box(x: 100, y: 0, width: 300, height: 300), Box(x: 600, y: 0, width: 300, height: 300)]
