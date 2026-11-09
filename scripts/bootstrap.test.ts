@@ -302,11 +302,11 @@ describe('bin/rocky bootstrap', () => {
       const names = ['rocky', 'rockyd'];
       if (layout === 'app') {
         // 앱이 바이너리를 품은 tarball(package-macos.sh) — 맨 위 이름은 앱 안을 가리키는 링크다.
-        const macos = join(stage, 'Rocky.app', 'Contents', 'MacOS');
+        const macos = join(stage, 'Rocky.app', 'Contents', 'Helpers');
         mkdirSync(macos, { recursive: true });
         for (const name of ['rocky', 'rockyd']) {
           fakeExec(join(macos, name), `#!/bin/sh\necho "${version}-app:$*"\n`);
-          symlinkSync(`Rocky.app/Contents/MacOS/${name}`, join(stage, name));
+          symlinkSync(`Rocky.app/Contents/Helpers/${name}`, join(stage, name));
         }
         names.push('Rocky.app');
       } else {
@@ -377,8 +377,10 @@ describe('bin/rocky bootstrap', () => {
         release.stop();
       }
       const installedDir = join(dir, 'data', 'rocky', 'v1.2.0');
-      expect(readlinkSync(join(installedDir, 'rocky'))).toBe('Rocky.app/Contents/MacOS/rocky');
-      expect(existsSync(join(installedDir, 'Rocky.app', 'Contents', 'MacOS', 'rockyd'))).toBe(true);
+      expect(readlinkSync(join(installedDir, 'rocky'))).toBe('Rocky.app/Contents/Helpers/rocky');
+      expect(existsSync(join(installedDir, 'Rocky.app', 'Contents', 'Helpers', 'rockyd'))).toBe(
+        true,
+      );
     });
   });
 

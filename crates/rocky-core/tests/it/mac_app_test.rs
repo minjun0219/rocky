@@ -84,11 +84,11 @@ fn should_launch_when_running_or_first_install() {
 
 #[test]
 fn resource_candidates_look_beside_the_binary_then_in_the_bundle_resources() {
-    let exe = Path::new("/Applications/Rocky.app/Contents/MacOS/rockyd");
+    let exe = Path::new("/Applications/Rocky.app/Contents/Helpers/rockyd");
     assert_eq!(
         resource_candidates(exe, "dist"),
         vec![
-            PathBuf::from("/Applications/Rocky.app/Contents/MacOS/dist"),
+            PathBuf::from("/Applications/Rocky.app/Contents/Helpers/dist"),
             PathBuf::from("/Applications/Rocky.app/Contents/Resources/dist"),
         ]
     );
@@ -113,8 +113,8 @@ fn sign_order_signs_nested_binaries_before_the_bundle() {
     assert_eq!(
         all,
         vec![
-            PathBuf::from("/x/Rocky.app/Contents/MacOS/rocky"),
-            PathBuf::from("/x/Rocky.app/Contents/MacOS/rockyd"),
+            PathBuf::from("/x/Rocky.app/Contents/Helpers/rocky"),
+            PathBuf::from("/x/Rocky.app/Contents/Helpers/rockyd"),
             PathBuf::from("/x/Rocky.app"),
         ]
     );

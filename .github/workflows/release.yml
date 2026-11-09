@@ -154,11 +154,11 @@ jobs:
           stage="$(mktemp -d)"
           app_ok=0
           if [ -d mac/build/Rocky.app ] && codesign --verify --strict mac/build/Rocky.app; then ditto mac/build/Rocky.app "$stage/Rocky.app"; app_ok=1; fi
-          if [ "$app_ok" = 1 ] && [ -x "$stage/Rocky.app/Contents/MacOS/rocky" ] && [ -x "$stage/Rocky.app/Contents/MacOS/rockyd" ]; then
+          if [ "$app_ok" = 1 ] && [ -x "$stage/Rocky.app/Contents/Helpers/rocky" ] && [ -x "$stage/Rocky.app/Contents/Helpers/rockyd" ]; then
             # 앱이 바이너리를 품었으면(bundle.sh --payload) 앱이 정본이다. 맨 위 rocky·rockyd·dist·tui.js 는 앱 안을 가리키는 링크로
             # 둔다 — 옛 부트스트랩·`rocky update --nightly` 가 맨 위 이름을 찾는다(설계 2026-11-09-mac-app-bundle-design.md 6번).
-            ln -s Rocky.app/Contents/MacOS/rocky "$stage/rocky"
-            ln -s Rocky.app/Contents/MacOS/rockyd "$stage/rockyd"
+            ln -s Rocky.app/Contents/Helpers/rocky "$stage/rocky"
+            ln -s Rocky.app/Contents/Helpers/rockyd "$stage/rockyd"
             ln -s Rocky.app/Contents/Resources/dist "$stage/dist"
             if [ -f "$stage/Rocky.app/Contents/Resources/tui.js" ]; then ln -s Rocky.app/Contents/Resources/tui.js "$stage/tui.js"; fi
           else

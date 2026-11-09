@@ -4,7 +4,7 @@
 # 버전은 레포의 package.json 을 따른다 — 앱 버전을 따로 들지 않는다.
 #
 #   mac/scripts/bundle.sh             앱만(개발·CI 의 빌드 확인)
-#   mac/scripts/bundle.sh --payload   rocky·rockyd·웹 UI·TUI·플러그인도 앱 안에 — 릴리스·nightly 가 쓴다. 미리
+#   mac/scripts/bundle.sh --payload   rocky·rockyd(Contents/Helpers)·웹 UI·TUI·플러그인도 앱 안에 — 릴리스·nightly 가 쓴다. 미리
 #                                     `cargo build --release -p rocky-cli -p rockyd` 와 `bun run build:ui`(·`build:tui`)가 돼 있어야 한다.
 #                                     설계: docs/design/specs/2026-11-09-mac-app-bundle-design.md
 set -eu
@@ -41,7 +41,8 @@ cp -R Sources/RockyMac/Resources/rocky "$app/Contents/Resources/rocky"
 # 앱 아이콘 — 아바타를 그대로 그린 것(Finder · 보드 창을 연 동안의 Dock).
 cp AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 
-# 함께 싣는 것 — 바이너리는 Contents/MacOS, 나머지는 Contents/Resources. 하나라도 빠지면 반쪽 앱을 내지 않고 멈춘다
+# 함께 싣는 것 — 바이너리는 Contents/Helpers, 나머지는 Contents/Resources. 바이너리를 Contents/MacOS 에 두면 대소문자를 가리지 않는
+# 볼륨(macOS 기본)에서 CLI rocky 가 앱 실행 파일 Rocky 를 덮어쓴다. 하나라도 빠지면 반쪽 앱을 내지 않고 멈춘다
 # (워크플로는 이 단계가 깨지면 앱 없이 옛 레이아웃으로 묶는다).
 if [ "$payload" = 1 ]; then
   repo="$here/.."
@@ -49,7 +50,8 @@ if [ "$payload" = 1 ]; then
     "$repo/.claude-plugin/marketplace.json" "$repo/plugin/.claude-plugin/plugin.json"; do
     [ -e "$f" ] || { echo "bundle.sh: --payload 인데 $f 가 없어요 — 먼저 빌드해 주세요" >&2; exit 1; }
   done
-  cp "$repo/target/release/rocky" "$repo/target/release/rockyd" "$app/Contents/MacOS/"
+  mkdir -p "$app/Contents/Helpers"
+  cp "$repo/target/release/rocky" "$repo/target/release/rockyd" "$app/Contents/Helpers/"
   cp -R "$repo/dist" "$app/Contents/Resources/dist"
   if [ -f "$repo/tui/dist/tui.js" ]; then cp "$repo/tui/dist/tui.js" "$app/Contents/Resources/tui.js"; fi
   # 플러그인 — 폴더 마켓플레이스 모양 그대로(marketplace.json 의 source 가 "./plugin").
@@ -60,7 +62,7 @@ fi
 
 # 서명은 안쪽부터 — 함께 실은 실행 파일을 먼저, 번들을 마지막에(`--deep` 은 쓰지 않는다). 순서는 rocky_core::mac_app::sign_order 와 같다.
 identity="${ROCKY_MAC_SIGN_IDENTITY:--}"
-for target in "$app/Contents/MacOS/rocky" "$app/Contents/MacOS/rockyd" "$app"; do
+for target in "$app/Contents/Helpers/rocky" "$app/Contents/Helpers/rockyd" "$app"; do
   [ -e "$target" ] || continue
   if ! codesign --force --sign "$identity" --timestamp=none "$target"; then
     echo "bundle.sh: '$identity' 로 $target 을 서명하지 못했어요 — 'security find-identity -p codesigning' 으로 이름을 확인해 주세요" >&2
