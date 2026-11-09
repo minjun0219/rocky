@@ -18,6 +18,8 @@
 	<string>__VERSION__</string>
 	<key>CFBundleVersion</key>
 	<string>__VERSION__</string>
+	<key>RockyCommit</key>
+	<string>__COMMIT__</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>

@@ -293,16 +293,31 @@ describe('bin/rocky bootstrap', () => {
     });
 
     /** 진짜 tarball 을 로컬 서버로 서빙해 다운로드 경로를 끝까지 태운다(가짜 uname 으로 어느 러너든). */
-    function fakeRelease(version: string): { base: string; stop: () => void } {
+    function fakeRelease(
+      version: string,
+      layout: 'loose' | 'app' = 'loose',
+    ): { base: string; stop: () => void } {
       const stage = join(dir, `stage-${version}`);
       mkdirSync(stage, { recursive: true });
-      // tarball 에도 링크째 담는다 — 풀린 새 파일을 띄우면 검사를 다시 거친다.
-      for (const name of ['rocky', 'rockyd']) {
-        fakeExec(join(stage, name), `#!/bin/sh\necho "${version}:$*"\n`);
+      const names = ['rocky', 'rockyd'];
+      if (layout === 'app') {
+        // 앱이 바이너리를 품은 tarball(package-macos.sh) — 맨 위 이름은 앱 안을 가리키는 링크다.
+        const macos = join(stage, 'Rocky.app', 'Contents', 'MacOS');
+        mkdirSync(macos, { recursive: true });
+        for (const name of ['rocky', 'rockyd']) {
+          fakeExec(join(macos, name), `#!/bin/sh\necho "${version}-app:$*"\n`);
+          symlinkSync(`Rocky.app/Contents/MacOS/${name}`, join(stage, name));
+        }
+        names.push('Rocky.app');
+      } else {
+        // tarball 에도 링크째 담는다 — 풀린 새 파일을 띄우면 검사를 다시 거친다.
+        for (const name of ['rocky', 'rockyd']) {
+          fakeExec(join(stage, name), `#!/bin/sh\necho "${version}:$*"\n`);
+        }
       }
       const asset = `rocky-v${version}-aarch64-apple-darwin.tar.gz`;
       const tgz = join(dir, asset);
-      const tar = Bun.spawnSync({ cmd: ['tar', '-czf', tgz, '-C', stage, 'rocky', 'rockyd'] });
+      const tar = Bun.spawnSync({ cmd: ['tar', '-czf', tgz, '-C', stage, ...names] });
       if (tar.exitCode !== 0) {
         throw new Error(`tar failed: ${tar.stderr.toString()}`);
       }
@@ -347,6 +362,23 @@ describe('bin/rocky bootstrap', () => {
       expect(readlinkSync(join(dir, '.local', 'bin', 'rocky'))).toBe(
         join(dir, 'data', 'rocky', 'current', 'rocky'),
       );
+    });
+    test('앱이 바이너리를 품은 tarball 도 맨 위 링크로 받아 실행한다', async () => {
+      const release = fakeRelease('1.2.0', 'app');
+      try {
+        const r = await runAsync(['ls'], {
+          CLAUDE_PLUGIN_ROOT: pluginRoot('1.2.0'),
+          ROCKY_RELEASE_BASE: release.base,
+          PATH: darwinArm64Path(),
+        });
+        expect(r.code, r.err).toBe(0);
+        expect(r.out).toBe('1.2.0-app:ls\n');
+      } finally {
+        release.stop();
+      }
+      const installedDir = join(dir, 'data', 'rocky', 'v1.2.0');
+      expect(readlinkSync(join(installedDir, 'rocky'))).toBe('Rocky.app/Contents/MacOS/rocky');
+      expect(existsSync(join(installedDir, 'Rocky.app', 'Contents', 'MacOS', 'rockyd'))).toBe(true);
     });
   });
 

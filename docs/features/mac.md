@@ -141,6 +141,13 @@
   (AppleScript `quit` 은 자동화 권한 창을 띄워 쓰지 않는다), 처음 깐 앱은 띄우고, 깔려 있는데 꺼져 있던 앱은 사람이 끈 것이라 띄우지 않는다.
   맥 앱 실패는 경고(`⚠`)로만 남기고 바이너리·데몬 업데이트를 되돌리지 않는다. CI 에서 앱 빌드가 깨지면(`continue-on-error`) 앱 없이 낸다 — 바이너리 릴리스를 막지 않는다.
   앱이 없는 tarball(이 변경 전 릴리스)이면 아무것도 하지 않는다. 플러그인 자동 업데이트(SessionStart 부트스트랩)는 앱을 깔지 않는다 — 훅에서 앱을 내리고 띄우지 않는다.
+- **앱이 바이너리를 품는다**(오너 결정 2026-11-09, 설계 [`2026-11-09-mac-app-bundle-design`](../design/specs/2026-11-09-mac-app-bundle-design.md) 1번 PR).
+  릴리스·nightly 는 `bundle.sh --payload` 로 `Contents/MacOS/{rocky,rockyd}`, `Contents/Resources/{dist/,tui.js,marketplace/}`(레포의
+  `.claude-plugin/marketplace.json` + `plugin/` 사본)를 앱 안에 싣고, `Info.plist` 의 `RockyCommit` 에 커밋을 굽는다. 하나라도 빠지면 반쪽 앱을 내지 않고 멈춘다.
+  **서명은 안쪽부터**(`rocky_core::mac_app::sign_order` — 실은 실행 파일 → 번들, `--deep` 금지): 안쪽이 서명되지 않은 채 번들을 서명하면 `codesign` 이
+  "In subcomponent" 로 실패한다. 기기의 다시 서명(`rocky_cli::mac_app`)도 같은 순서다. tarball 은 앱이 정본이고 맨 위 `rocky`·`rockyd`·`dist`·`tui.js` 는
+  앱 안을 가리키는 링크다(옛 부트스트랩·`--nightly` 가 맨 위 이름을 찾는다) — 앱이 없거나 바이너리 없이 묶였으면 옛 레이아웃. `rockyd`·`rocky tui` 는 실제 파일
+  옆에 없으면 번들의 `Contents/Resources/` 에서 찾는다(`mac_app::resource_candidates`). 기기 동작(데몬이 어디서 도는지, 마켓플레이스)은 아직 그대로다 — 앱 모드는 다음 PR.
 
 ## 코드
 

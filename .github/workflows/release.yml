@@ -133,7 +133,7 @@ jobs:
       # 릴리스는 막지 않는다 — 앱 없이 묶고, 기기는 깔린 앱을 그대로 둔다. bundle.sh 가 없는 옛 태그는 건너뛴다.
       - name: Build Mac app
         continue-on-error: true
-        run: if [ -f mac/scripts/bundle.sh ]; then mac/scripts/bundle.sh; fi
+        run: if [ -f mac/scripts/bundle.sh ]; then mac/scripts/bundle.sh --payload; fi
 
       - name: Package
         id: package
@@ -145,20 +145,31 @@ jobs:
             echo "러너 타깃이 aarch64-apple-darwin 이 아니다: $TARGET — 문서와 산출물 이름이 어긋난다"
             exit 1
           fi
-          mkdir -p out
           # tarball = CLI + 데몬 + 웹 UI(dist/) + TUI 번들(tui.js) + 맥 앱(Rocky.app). 플러그인 부트스트랩(bin/rocky)이 이 레이아웃
-          # 그대로 설치한다(필수 검사는 rocky·rockyd 둘 — dist/ 는 데몬이, tui.js 는 `rocky tui` 가 옆에서 찾고,
-          # Rocky.app 은 `rocky update` 가 /Applications 로 옮긴다).
-          # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
+          # 그대로 설치한다(필수 검사는 rocky·rockyd 둘). scripts/package-macos.sh 와 같은 단계다 — 이 job 의 수동 실행은 그 파일이 없는
+          # 옛 태그를 체크아웃할 수 있어 여기 그대로 적는다.
           [ -f dist/index.html ] || { echo "dist/index.html 이 없다 — 웹 UI 빌드가 안 됐다"; exit 1; }
-          cp -R dist target/release/dist
-          tui=""
-          if [ -f tui/dist/tui.js ]; then cp tui/dist/tui.js target/release/tui.js; tui=tui.js; fi
-          app=""
-          rm -rf target/release/Rocky.app
-          if [ -d mac/build/Rocky.app ] && codesign --verify --strict mac/build/Rocky.app; then ditto mac/build/Rocky.app target/release/Rocky.app; app=Rocky.app; fi
-          COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
-            -C target/release rocky rockyd dist $tui $app
+          mkdir -p out
+          # 맥 앱 — `mac/scripts/bundle.sh` 가 만든 것이 있고 서명 검증을 통과하면 넣는다(빌드가 중간에 깨진 앱은 뺀다). ditto 는 서명을 그대로 옮긴다.
+          stage="$(mktemp -d)"
+          app_ok=0
+          if [ -d mac/build/Rocky.app ] && codesign --verify --strict mac/build/Rocky.app; then ditto mac/build/Rocky.app "$stage/Rocky.app"; app_ok=1; fi
+          if [ "$app_ok" = 1 ] && [ -x "$stage/Rocky.app/Contents/MacOS/rocky" ] && [ -x "$stage/Rocky.app/Contents/MacOS/rockyd" ]; then
+            # 앱이 바이너리를 품었으면(bundle.sh --payload) 앱이 정본이다. 맨 위 rocky·rockyd·dist·tui.js 는 앱 안을 가리키는 링크로
+            # 둔다 — 옛 부트스트랩·`rocky update --nightly` 가 맨 위 이름을 찾는다(설계 2026-11-09-mac-app-bundle-design.md 6번).
+            ln -s Rocky.app/Contents/MacOS/rocky "$stage/rocky"
+            ln -s Rocky.app/Contents/MacOS/rockyd "$stage/rockyd"
+            ln -s Rocky.app/Contents/Resources/dist "$stage/dist"
+            if [ -f "$stage/Rocky.app/Contents/Resources/tui.js" ]; then ln -s Rocky.app/Contents/Resources/tui.js "$stage/tui.js"; fi
+          else
+            # 앱이 없거나 바이너리 없이 묶인 앱 — 옛 레이아웃(맨 위에 실제 파일)으로.
+            cp target/release/rocky target/release/rockyd "$stage/"
+            cp -R dist "$stage/dist"
+            if [ -f tui/dist/tui.js ]; then cp tui/dist/tui.js "$stage/tui.js"; fi
+          fi
+          # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
+          COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" -C "$stage" $(cd "$stage" && ls -A)
+          rm -rf "$stage"
           (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
           ls -la out
 
