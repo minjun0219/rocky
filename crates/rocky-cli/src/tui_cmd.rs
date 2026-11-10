@@ -29,17 +29,11 @@ pub fn tui_args(script: &str, port: u16, board: &str, actor: Option<&str>) -> Ve
     args
 }
 
-/// 실행 파일(링크면 실제 파일) 옆의 `tui.js` — 앱 번들 안이면 `Contents/Resources/tui.js` 도 본다. 둘 다 없으면 옆자리를
-/// 돌려줘 "없다" 메시지가 그 경로를 말하게 한다.
+/// 실행 파일(링크면 실제 파일) 옆의 `tui.js`.
 fn script_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
-    let candidates = rocky_core::mac_app::resource_candidates(&exe, TUI_SCRIPT);
-    candidates
-        .iter()
-        .find(|p| p.is_file())
-        .or(candidates.first())
-        .cloned()
+    Some(exe.parent()?.join(TUI_SCRIPT))
 }
 
 /// # Errors

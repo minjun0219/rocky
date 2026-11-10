@@ -1,7 +1,7 @@
 #!/bin/sh
-# 빌드된 CLI·데몬·웹 UI·TUI·맥 앱 을 릴리스 tarball 하나로 묶는다 — `out/rocky-<TAG>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS`.
+# 빌드된 CLI·데몬·웹 UI·TUI·플러그인 사본·맥 앱 을 릴리스 tarball 하나로 묶는다 — `out/rocky-<TAG>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS`.
 # 플러그인 부트스트랩(plugin/bin/rocky)과 `rocky update --nightly` 가 이 레이아웃 그대로 푼다(필수는 rocky·rockyd 둘 —
-# dist/ 는 데몬이, tui.js 는 `rocky tui` 가 옆에서 찾는다). 앱이 바이너리를 품었으면 그 넷은 앱 안을 가리키는 링크다. nightly.yml 이 쓴다. release.yml 의 assets job 은 같은 단계를
+# dist/ 는 데몬이, tui.js 는 `rocky tui` 가 옆에서 찾는다). nightly.yml 이 쓴다. release.yml 의 assets job 은 같은 단계를
 # 안에 적어 둔다 — 그 job 의 수동 실행은 옛 태그를 체크아웃해서 이 파일이 없을 수 있다.
 #
 #   scripts/package-macos.sh <TAG>    target/release/{rocky,rockyd}, dist/, tui/dist/tui.js 가 있어야 한다(mac/build/Rocky.app 은 있으면)
@@ -16,25 +16,22 @@ if [ "$TARGET" != "aarch64-apple-darwin" ]; then
 fi
 [ -f dist/index.html ] || { echo "dist/index.html 이 없다 — 웹 UI 빌드가 안 됐다"; exit 1; }
 mkdir -p out
-# 맥 앱 — `mac/scripts/bundle.sh` 가 만든 것이 있고 서명 검증을 통과하면 넣는다(빌드가 중간에 깨진 앱은 뺀다). ditto 는 서명을 그대로 옮긴다.
-stage="$(mktemp -d)"
-app_ok=0
-if [ -d mac/build/Rocky.app ] && codesign --verify --strict mac/build/Rocky.app; then ditto mac/build/Rocky.app "$stage/Rocky.app"; app_ok=1; fi
-if [ "$app_ok" = 1 ] && [ -x "$stage/Rocky.app/Contents/Helpers/rocky" ] && [ -x "$stage/Rocky.app/Contents/Helpers/rockyd" ]; then
-  # 앱이 바이너리를 품었으면(bundle.sh --payload) 앱이 정본이다. 맨 위 rocky·rockyd·dist·tui.js 는 앱 안을 가리키는 링크로
-  # 둔다 — 옛 부트스트랩·`rocky update --nightly` 가 맨 위 이름을 찾는다(설계 2026-11-09-mac-app-bundle-design.md 6번).
-  ln -s Rocky.app/Contents/Helpers/rocky "$stage/rocky"
-  ln -s Rocky.app/Contents/Helpers/rockyd "$stage/rockyd"
-  ln -s Rocky.app/Contents/Resources/dist "$stage/dist"
-  if [ -f "$stage/Rocky.app/Contents/Resources/tui.js" ]; then ln -s Rocky.app/Contents/Resources/tui.js "$stage/tui.js"; fi
-else
-  # 앱이 없거나 바이너리 없이 묶인 앱 — 옛 레이아웃(맨 위에 실제 파일)으로.
-  cp target/release/rocky target/release/rockyd "$stage/"
-  cp -R dist "$stage/dist"
-  if [ -f tui/dist/tui.js ]; then cp tui/dist/tui.js "$stage/tui.js"; fi
-fi
+rm -rf target/release/dist
+cp -R dist target/release/dist
+tui=""
+if [ -f tui/dist/tui.js ]; then cp tui/dist/tui.js target/release/tui.js; tui=tui.js; fi
+# 맥 앱 — `mac/scripts/bundle.sh` 가 만든 것이 있고 서명 검증을 통과하면 넣는다(빌드가 중간에 깨진 앱은 뺀다)(`rocky update` 가 /Applications 로 옮긴다). ditto 는 서명을 그대로 옮긴다.
+app=""
+rm -rf target/release/Rocky.app
+if [ -d mac/build/Rocky.app ] && codesign --verify --strict mac/build/Rocky.app; then ditto mac/build/Rocky.app target/release/Rocky.app; app=Rocky.app; fi
+# 플러그인 사본 — 폴더 마켓플레이스 모양 그대로(marketplace.json 의 source 가 "./plugin"). 버전 폴더가 배포 단위라 플러그인도
+# 바이너리와 같은 커밋으로 함께 받는다(설계 2026-11-09-mac-app-bundle-design.md, A안).
+rm -rf target/release/marketplace
+mkdir -p target/release/marketplace/.claude-plugin
+cp .claude-plugin/marketplace.json target/release/marketplace/.claude-plugin/
+cp -R plugin target/release/marketplace/plugin
 # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
-COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" -C "$stage" $(cd "$stage" && ls -A)
-rm -rf "$stage"
+COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
+  -C target/release rocky rockyd dist marketplace $tui $app
 (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
 ls -la out

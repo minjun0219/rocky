@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-/// 웹 UI dist 를 찾는다 — env > 실행 파일 옆 `dist/`(앱 번들 안이면 `Contents/Resources/dist`도) > cwd 의 `dist/`.
+/// 웹 UI dist 를 찾는다 — env > 실행 파일 옆 `dist/` > cwd 의 `dist/`.
 ///
 /// 실행 파일 옆을 보는 이유: 릴리스 tarball 이 `rocky`/`rockyd`/`dist/` 를 한
 /// 디렉터리로 풀리고 부트스트랩이 그대로 설치하므로, 데몬은 env 없이도 자기 옆의 UI 를
@@ -17,11 +17,8 @@ fn resolve_ui_dist() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
         .map(|exe| std::fs::canonicalize(&exe).unwrap_or(exe))
-        .and_then(|exe| {
-            rocky_core::mac_app::resource_candidates(&exe, "dist")
-                .into_iter()
-                .find_map(has_index)
-        })
+        .and_then(|exe| exe.parent().map(|dir| dir.join("dist")))
+        .and_then(has_index)
         .or_else(|| {
             std::env::current_dir()
                 .ok()

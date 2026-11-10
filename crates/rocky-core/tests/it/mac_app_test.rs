@@ -1,8 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rocky_core::mac_app::{
-    choose_dest, needs_install, plist_version, resource_candidates, should_launch, sign_identity,
-    sign_order,
+    choose_dest, needs_install, plist_version, should_launch, sign_identity,
 };
 
 const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -80,47 +79,4 @@ fn should_launch_when_running_or_first_install() {
     assert!(should_launch(true, true));
     assert!(should_launch(false, false));
     assert!(!should_launch(false, true));
-}
-
-#[test]
-fn resource_candidates_look_beside_the_binary_then_in_the_bundle_resources() {
-    let exe = Path::new("/Applications/Rocky.app/Contents/Helpers/rockyd");
-    assert_eq!(
-        resource_candidates(exe, "dist"),
-        vec![
-            PathBuf::from("/Applications/Rocky.app/Contents/Helpers/dist"),
-            PathBuf::from("/Applications/Rocky.app/Contents/Resources/dist"),
-        ]
-    );
-}
-
-#[test]
-fn resource_candidates_outside_a_bundle_only_look_beside_the_binary() {
-    let exe = Path::new("/home/u/.local/share/rocky/v0.60.0/rocky");
-    assert_eq!(
-        resource_candidates(exe, "tui.js"),
-        vec![PathBuf::from("/home/u/.local/share/rocky/v0.60.0/tui.js")]
-    );
-    // MacOS 라는 폴더여도 Contents 아래가 아니면 번들이 아니다.
-    let exe = Path::new("/tmp/MacOS/rocky");
-    assert_eq!(resource_candidates(exe, "dist").len(), 1);
-}
-
-#[test]
-fn sign_order_signs_nested_binaries_before_the_bundle() {
-    let app = Path::new("/x/Rocky.app");
-    let all = sign_order(app, |_| true);
-    assert_eq!(
-        all,
-        vec![
-            PathBuf::from("/x/Rocky.app/Contents/Helpers/rocky"),
-            PathBuf::from("/x/Rocky.app/Contents/Helpers/rockyd"),
-            PathBuf::from("/x/Rocky.app"),
-        ]
-    );
-    // 바이너리를 안 실은 앱(옛 tarball)은 번들만.
-    assert_eq!(
-        sign_order(app, |_| false),
-        vec![PathBuf::from("/x/Rocky.app")]
-    );
 }

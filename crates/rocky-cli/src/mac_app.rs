@@ -2,7 +2,7 @@
 //! `rocky_core::mac_app`, 여기는 ditto·codesign·pgrep·open 을 부르는 배선이다(규칙은 `docs/features/mac.md`).
 //!
 //! 순서: 받은 폴더의 `Rocky.app` 버전과 깔린 것을 견준다 → 같은 폴더의 `.Rocky.app.new` 로 복사 → 격리 속성 지우기 →
-//! (키체인에 인증서가 있으면) 그 인증서로 안쪽 실행 파일부터 다시 서명하고 검증 → 돌고 있으면 내린다 → rename 으로 바꿔 끼운다 → 돌고 있었거나
+//! (키체인에 인증서가 있으면) 그 인증서로 다시 서명하고 검증 → 돌고 있으면 내린다 → rename 으로 바꿔 끼운다 → 돌고 있었거나
 //! 처음 깔았으면 띄운다. 검증에 실패하면 깔린 앱을 건드리지 않는다.
 
 use std::path::{Path, PathBuf};
@@ -123,21 +123,10 @@ pub fn sync(from: &Path, force: bool) -> Result<Option<String>, String> {
         let identity = mac_app::sign_identity(env.as_deref(), &listing);
         let signed = match &identity {
             Some(id) => {
-                // 안쪽 실행 파일(rocky·rockyd)부터, 번들은 마지막에 — `--deep` 은 쓰지 않는다.
-                mac_app::sign_order(&stage, |p| p.is_file())
-                    .iter()
-                    .try_for_each(|target| {
-                        must(
-                            "codesign",
-                            &[
-                                "--force",
-                                "--sign",
-                                id,
-                                "--timestamp=none",
-                                &target.to_string_lossy(),
-                            ],
-                        )
-                    })
+                must(
+                    "codesign",
+                    &["--force", "--sign", id, "--timestamp=none", &stage_s],
+                )
                 .map_err(|e| {
                     format!(
                         "'{id}' 로 서명하지 못했다 — `security find-identity -p codesigning` 으로 이름을 확인하거나 \
