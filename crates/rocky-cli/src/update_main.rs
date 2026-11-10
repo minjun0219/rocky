@@ -3,8 +3,8 @@
 //! 부르는 배선이다.
 //!
 //! main 빌드 순서: 잠금 → `main-src` clone(처음만)·fetch → 원하는 커밋 → (마켓플레이스를 바꿔야 하면 확인) →
-//! reset → release 빌드 + 웹 UI → `main.new` 에 모아 `main` 과 rename 으로 교체 → `current` → `main` →
-//! 새 빌드로 데몬 재시작 → 플러그인 다시 깔기 → agy 번들 다시 깔기. 버전 문자열이 같아도(main 빌드끼리)
+//! reset → release 빌드 + 웹 UI → `main.new` 에 모아(플러그인 사본 `marketplace/` 포함) `main` 과 rename 으로 교체 →
+//! `current` → `main` → 새 빌드로 데몬 재시작 → `current/marketplace` 에서 플러그인 다시 깔기 → agy 번들 다시 깔기. 버전 문자열이 같아도(main 빌드끼리)
 //! 커밋이 다르면 빌드한다 — 훅의 버전 비교로는 교체되지 않으므로 데몬은 직접 재시작한다.
 
 use std::io::{IsTerminal, Write};
@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use rocky_core::main_build::{
-    self, BuildPlan, MarketplaceSource, PluginStep, ReleaseStep, CLONE_URL, MARKETPLACE, PLUGIN,
+    self, BuildPlan, MarketplaceSource, PluginStep, ReleaseStep, CLONE_URL, MARKETPLACE,
+    MARKETPLACE_DIR, PLUGIN,
 };
 
 use crate::client::CliContext;
@@ -26,6 +27,25 @@ struct Paths {
     out: PathBuf,
     nightly: PathBuf,
     current: PathBuf,
+}
+
+impl Paths {
+    /// 마켓플레이스 `rocky-marketplace` 가 가리킬 폴더 — `current/marketplace`. 링크를 풀지 않은 그대로 건다.
+    fn marketplace(&self) -> String {
+        self.current
+            .join(MARKETPLACE_DIR)
+            .to_string_lossy()
+            .to_string()
+    }
+
+    /// 옛 `main-src` 경로(정규화) — 2026-11-10 전 마켓플레이스가 가리키던 곳.
+    fn legacy_src(&self) -> String {
+        self.src
+            .canonicalize()
+            .unwrap_or_else(|_| self.src.clone())
+            .to_string_lossy()
+            .to_string()
+    }
 }
 
 impl Paths {
@@ -224,18 +244,58 @@ fn relink(link: &Path, target: &str) -> Result<(), String> {
         .map_err(|e| format!("{} → {target} 링크를 걸지 못했다: {e}", link.display()))
 }
 
+/// 폴더를 통째로 복사한다 — 심볼릭 링크는 링크 그대로(antigravity 번들의 스킬 링크).
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let dest = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            std::os::unix::fs::symlink(std::fs::read_link(entry.path())?, dest)?;
+        } else if kind.is_dir() {
             copy_dir(&entry.path(), &dest)?;
         } else {
             std::fs::copy(entry.path(), dest)?;
         }
     }
     Ok(())
+}
+
+/// 레포 체크아웃(`repo`)에서 플러그인 사본을 `dest/marketplace` 에 만든다 — tarball 의 `marketplace/` 와 같은 모양
+/// (`scripts/package-macos.sh`): `.claude-plugin/marketplace.json` + `plugin/` + 있으면 `antigravity/`.
+fn stage_marketplace(repo: &Path, dest: &Path) -> Result<(), String> {
+    let mkt = dest.join(MARKETPLACE_DIR);
+    let fail = |what: &str, e: std::io::Error| {
+        format!("플러그인 사본 {what} 실패({}): {e}", mkt.display())
+    };
+    let _ = std::fs::remove_dir_all(&mkt);
+    std::fs::create_dir_all(mkt.join(".claude-plugin")).map_err(|e| fail("폴더 만들기", e))?;
+    std::fs::copy(
+        repo.join(".claude-plugin/marketplace.json"),
+        mkt.join(".claude-plugin/marketplace.json"),
+    )
+    .map_err(|e| fail("marketplace.json 복사", e))?;
+    copy_dir(&repo.join("plugin"), &mkt.join("plugin")).map_err(|e| fail("plugin/ 복사", e))?;
+    if repo.join("antigravity").is_dir() {
+        copy_dir(&repo.join("antigravity"), &mkt.join("antigravity"))
+            .map_err(|e| fail("antigravity/ 복사", e))?;
+    }
+    Ok(())
+}
+
+/// 마켓플레이스를 `current/marketplace` 로 옮길 때 묻는 말 — 지금 어디를 가리키는지에 따라.
+fn switch_question(source: &MarketplaceSource, ours: &str) -> String {
+    let from = match source {
+        MarketplaceSource::Directory(p) => format!("옛 main 빌드 소스 폴더({p})"),
+        MarketplaceSource::Missing => "(등록 안 됨)".to_string(),
+        _ => "GitHub 릴리스".to_string(),
+    };
+    format!(
+        "플러그인 마켓플레이스 {MARKETPLACE} 를 {from}에서 이 기기의 버전 폴더 사본({ours})으로 바꾼다.\n  \
+         플러그인을 뺐다 다시 깔고, 그 플러그인의 저장된 옵션·데이터는 지워진다(rocky 의 보드·워크로그는 \
+         ~/.config/rocky 라 그대로). 진행할까?"
+    )
 }
 
 /// 빌드한 것을 `main.new` 에 모은 뒤 `main` 과 바꿔 끼운다. 지금 도는 이 rocky 가 옛 `main/rocky` 여도 괜찮다 —
@@ -251,6 +311,7 @@ fn install(p: &Paths, sha: &str) -> Result<(), String> {
             .map_err(|e| fail(&format!("{bin} 복사"), e))?;
     }
     copy_dir(&p.src.join("dist"), &stage.join("dist")).map_err(|e| fail("웹 UI dist 복사", e))?;
+    stage_marketplace(&p.src, &stage)?;
     std::fs::write(stage.join(".sha"), format!("{sha}\n")).map_err(|e| fail(".sha 쓰기", e))?;
     let _ = std::fs::remove_dir_all(&old);
     if p.out.exists() {
@@ -328,23 +389,11 @@ pub fn update_main(
     }
 
     // 플러그인을 어떻게 맞출지 빌드 전에 정한다 — 마켓플레이스를 바꿔야 하면 몇 분짜리 빌드 전에 묻는다.
-    let src = p
-        .src
-        .canonicalize()
-        .unwrap_or_else(|_| p.src.clone())
-        .to_string_lossy()
-        .to_string();
+    let ours = p.marketplace();
     let source = marketplace_source()?;
-    let step = main_build::plugin_step(&source, &src);
-    if step == PluginStep::Switch {
-        let question = format!(
-            "플러그인 마켓플레이스 {MARKETPLACE} 를 GitHub 릴리스에서 이 기기의 main 빌드 폴더({src})로 바꾼다.\n  \
-             플러그인을 뺐다 다시 깔고, 그 플러그인의 저장된 옵션·데이터는 지워진다(rocky 의 보드·워크로그는 \
-             ~/.config/rocky 라 그대로). 진행할까?"
-        );
-        if !confirm(&question, yes)? {
-            return Err("중단 — 아무것도 바꾸지 않았다".into());
-        }
+    let step = main_build::plugin_step(&source, &ours, &p.legacy_src());
+    if step == PluginStep::Switch && !confirm(&switch_question(&source, &ours), yes)? {
+        return Err("중단 — 아무것도 바꾸지 않았다".into());
     }
 
     let before = daemon_label(ctx);
@@ -378,6 +427,10 @@ pub fn update_main(
             short(&want)
         );
         let _ = std::fs::remove_file(p.out.join(".finished"));
+        // 플러그인 사본을 담기 전(2026-11-10 전)에 만든 빌드 — main-src 는 이미 그 커밋이다.
+        if !p.out.join(MARKETPLACE_DIR).is_dir() {
+            stage_marketplace(&p.src, &p.out)?;
+        }
     }
     relink(&p.current, "main")?;
 
@@ -398,7 +451,7 @@ pub fn update_main(
         warnings.push("데몬 재시작 실패 — `rocky daemon status` 로 확인".to_string());
     }
 
-    apply_plugin(&p.src, &step, &source, &src, &mut warnings, &mut notes);
+    apply_plugin(&p, &step, &source, &mut warnings, &mut notes);
 
     println!(
         "✓ main {} — 데몬 {before} → {}",
@@ -421,16 +474,16 @@ pub fn update_main(
     }
 }
 
-/// 바이너리를 바꾼 뒤 플러그인(훅·커맨드·스킬)과 Antigravity 번들을 `main-src` 의 지금 커밋으로 맞춘다 — main 빌드와
-/// nightly 가 같이 쓴다. 실패는 `warnings`, 의도대로 건너뛴 것은 `notes`.
+/// 바이너리를 바꾼 뒤 플러그인(훅·커맨드·스킬)과 Antigravity 번들을 `current/marketplace` 사본으로 맞춘다 — main 빌드와
+/// nightly 가 같이 쓴다. `current` 는 이미 새 버전 폴더를 가리킨다. 실패는 `warnings`, 의도대로 건너뛴 것은 `notes`.
 fn apply_plugin(
-    main_src: &Path,
+    p: &Paths,
     step: &PluginStep,
     source: &MarketplaceSource,
-    src: &str,
     warnings: &mut Vec<String>,
     notes: &mut Vec<String>,
 ) {
+    let ours = p.marketplace();
     match step {
         PluginStep::Reinstall => {
             let _ = run_claude(&["plugin", "uninstall", PLUGIN]);
@@ -444,7 +497,7 @@ fn apply_plugin(
             } else {
                 run_claude(&["plugin", "marketplace", "remove", MARKETPLACE])
             })
-            .and_then(|()| run_claude(&["plugin", "marketplace", "add", src]))
+            .and_then(|()| run_claude(&["plugin", "marketplace", "add", &ours]))
             .and_then(|()| run_claude(&["plugin", "install", PLUGIN]));
             if let Err(e) = switched {
                 warnings.push(format!("마켓플레이스 전환 실패 — {e}"));
@@ -453,9 +506,9 @@ fn apply_plugin(
         PluginStep::Leave(why) => notes.push(why.clone()),
     }
 
-    // Antigravity 번들도 복사본이라 다시 깐다 — 없으면 건너뛴다.
-    if has("agy") {
-        let bundle = main_src.join("antigravity");
+    // Antigravity 번들도 복사본이라 다시 깐다 — agy 나 번들이 없으면 건너뛴다.
+    let bundle = Path::new(&ours).join("antigravity");
+    if has("agy") && bundle.is_dir() {
         let ok = command(
             "agy",
             &["plugin", "install", &bundle.to_string_lossy()],
@@ -511,13 +564,7 @@ pub fn update_release(ctx: &CliContext, yes: bool) -> Result<(), String> {
     };
     // `--main` 과 같은 잠금 — 몇 분짜리 main 빌드와 동시에 돌면 서로 링크·마켓플레이스를 덮어 요청한 모드와 어긋난다.
     let _lock = Lock::take(&p.root)?;
-    let src = p
-        .src
-        .canonicalize()
-        .unwrap_or_else(|_| p.src.clone())
-        .to_string_lossy()
-        .to_string();
-    let step = main_build::release_step(&marketplace_source()?, &src);
+    let step = main_build::release_step(&marketplace_source()?, &p.marketplace(), &p.legacy_src());
     if let ReleaseStep::Leave(why) = &step {
         return Err(why.clone());
     }
@@ -705,7 +752,7 @@ fn install_nightly(p: &Paths, tag: &str, sha: &str) -> Result<(), String> {
 }
 
 /// `rocky update --nightly [TAG] [--force] [--yes]` — CI 가 낸 nightly 프리릴리스를 받아 이 기기를 nightly 모드로 바꾸고
-/// 올린다. 빌드는 없다: tarball 을 받고, 플러그인은 `main-src` 를 그 커밋으로 맞춰 다시 깐다(`--main` 과 같은 마켓플레이스).
+/// 올린다. 빌드는 없다: tarball 을 받고, 플러그인은 그 tarball 의 사본(`current/marketplace`)에서 다시 깐다.
 pub fn update_nightly(
     ctx: &CliContext,
     pin: Option<&str>,
@@ -743,43 +790,12 @@ pub fn update_nightly(
         return Ok(());
     }
 
-    if !p.src.join(".git").exists() {
-        println!("플러그인 소스를 처음 받는다 — {}", p.src.display());
-        run(
-            "git",
-            &["clone", "--quiet", CLONE_URL, &p.src.to_string_lossy()],
-            None,
-        )?;
-    }
-    run(
-        "git",
-        &[
-            "fetch",
-            "-q",
-            "origin",
-            &format!("refs/tags/{tag}:refs/tags/{tag}"),
-        ],
-        Some(&p.src),
-    )?;
-
     // 마켓플레이스를 바꿔야 하면 받기 전에 묻는다(`--main` 과 같다).
-    let src = p
-        .src
-        .canonicalize()
-        .unwrap_or_else(|_| p.src.clone())
-        .to_string_lossy()
-        .to_string();
+    let ours = p.marketplace();
     let source = marketplace_source()?;
-    let step = main_build::plugin_step(&source, &src);
-    if step == PluginStep::Switch {
-        let question = format!(
-            "플러그인 마켓플레이스 {MARKETPLACE} 를 GitHub 릴리스에서 이 기기의 플러그인 소스 폴더({src})로 바꾼다.\n  \
-             플러그인을 뺐다 다시 깔고, 그 플러그인의 저장된 옵션·데이터는 지워진다(rocky 의 보드·워크로그는 \
-             ~/.config/rocky 라 그대로). 진행할까?"
-        );
-        if !confirm(&question, yes)? {
-            return Err("중단 — 아무것도 바꾸지 않았다".into());
-        }
+    let step = main_build::plugin_step(&source, &ours, &p.legacy_src());
+    if step == PluginStep::Switch && !confirm(&switch_question(&source, &ours), yes)? {
+        return Err("중단 — 아무것도 바꾸지 않았다".into());
     }
 
     let before = daemon_label(ctx);
@@ -790,8 +806,6 @@ pub fn update_nightly(
         println!("{tag} 는 이미 받아 두었다 — 링크·데몬 재시작·플러그인만 마저 한다");
         let _ = std::fs::remove_file(p.nightly.join(".finished"));
     }
-    // 플러그인 파일이 바이너리와 같은 커밋이 되게 — main-src 를 그 nightly 커밋으로.
-    run("git", &["reset", "-q", "--hard", &want], Some(&p.src))?;
     relink(&p.current, main_build::NIGHTLY)?;
 
     // nightly 끼리 버전이 다르면 훅도 바꾸지만, 같은 nightly 를 다시 받았을 때(--force)를 위해 직접 재시작한다.
@@ -807,7 +821,14 @@ pub fn update_nightly(
     if !restarted {
         warnings.push("데몬 재시작 실패 — `rocky daemon status` 로 확인".to_string());
     }
-    apply_plugin(&p.src, &step, &source, &src, &mut warnings, &mut notes);
+    // 플러그인 사본은 #548(2026-11-10) 뒤의 nightly 부터 tarball 에 있다 — 그 전 태그를 고정해 받았으면 플러그인은 그대로 둔다.
+    if p.nightly.join(MARKETPLACE_DIR).is_dir() {
+        apply_plugin(&p, &step, &source, &mut warnings, &mut notes);
+    } else {
+        notes.push(format!(
+            "{tag} tarball 에 플러그인 사본(marketplace/)이 없다 — 플러그인은 손대지 않았다"
+        ));
+    }
 
     println!("✓ {tag} — 데몬 {before} → {}", daemon_label(ctx));
     // nightly 끼리는 앱 버전(package.json)이 같으니 새로 받았을 때는 버전을 보지 않고 바꾼다.

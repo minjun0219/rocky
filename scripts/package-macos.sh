@@ -28,6 +28,8 @@ rm -rf target/release/marketplace
 mkdir -p target/release/marketplace/.claude-plugin
 cp .claude-plugin/marketplace.json target/release/marketplace/.claude-plugin/
 cp -R plugin target/release/marketplace/plugin
+# Antigravity 번들 — 스킬은 ../../plugin/skills 링크라 marketplace/ 안에서 그대로 풀린다(`agy plugin install` 이 복사하며 푼다).
+cp -R antigravity target/release/marketplace/antigravity
 # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
 COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
   -C target/release rocky rockyd dist marketplace $app

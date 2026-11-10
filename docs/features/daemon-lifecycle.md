@@ -22,9 +22,12 @@
   `main/rocky`(그 기기에서 GitHub main 을 release 빌드한 것)를 실행하고, 링크를 버전으로 되돌리지 않는다. `ROCKY_BIN` 이 먼저고,
   `main/rocky` 가 없으면(교체 중·지워짐) 그 한 번은 릴리스 경로로 떨어지지만 링크는 그대로 둔다 — 모드는 링크로만 바뀐다.
   이 링크가 곧 모드다 — 릴리스 모드면 `current` → `v<version>`.
-- **`rocky update --main [SHA]`** 가 기기를 main 빌드 모드로 바꾸고 올린다. 자리는 `$XDG_DATA_HOME/rocky/` 의 `main-src/`(전용
-  clone — `rocky-marketplace` 가 가리키는 폴더 마켓플레이스)와 `main/`(`rocky`·`rockyd`·`dist/`·`.sha`). 처음이면 마켓플레이스를
-  GitHub 에서 그 폴더로 바꾸는데, 마켓플레이스를 빼면 그 플러그인의 저장된 옵션·데이터가 지워지므로 몇 분짜리 빌드 **전에** 확인을
+- **`rocky update --main [SHA]`** 가 기기를 main 빌드 모드로 바꾸고 올린다. 자리는 `$XDG_DATA_HOME/rocky/` 의 `main-src/`(빌드용
+  전용 clone)와 `main/`(`rocky`·`rockyd`·`dist/`·플러그인 사본 `marketplace/`·`.sha` — tarball 과 같은 모양). 플러그인은
+  `rocky-marketplace` 를 **`current/marketplace`** 폴더 마켓플레이스로 걸어 바이너리와 같은 커밋의 사본에서 깐다(2026-11-10 전에는
+  `main-src/` 를 걸었다 — 그 기기는 다음 업데이트에서 옮긴다). `claude plugin marketplace add` 는 준 경로를 링크를 풀지 않고 적으므로
+  `current` 가 `main`·`nightly` 를 오가도 마켓플레이스 경로는 같고, 매번 빼고 다시 깔아 사본을 캐시로 옮긴다. 처음이면(GitHub·`main-src`
+  에서) 마켓플레이스를 바꾸는데, 마켓플레이스를 빼면 그 플러그인의 저장된 옵션·데이터가 지워지므로 몇 분짜리 빌드 **전에** 확인을
   받는다(`--yes` 로 건너뛰고, 터미널이 아니면 멈춘다). 다른 폴더·원천을 가리키면(개발용 연결) 손대지 않는다. 버전 문자열이 같아도
   커밋이 다르면 빌드하고, 훅은 버전이 같아 교체하지 않으므로 새 빌드로 `daemon restart` 를 직접 부른다(재시작이 커밋까지 확인한다).
   빌드 뒤 단계(재시작·플러그인)가 실패하면 끝까지 갔다는 표식(`main/.finished`)이 안 남아, 다음 실행은 빌드 없이 그 단계만
@@ -34,8 +37,9 @@
 - **`rocky update --nightly [TAG]`** 가 기기를 nightly 모드(`current` → `nightly`)로 바꾸고 CI 의 nightly 프리릴리스
   (`.github/workflows/nightly.yml`, `v<버전>-nightly.<YYYYMMDD>`)를 받는다. 빌드는 없다: 태그는 `git ls-remote --tags` 로 찾고
   (`main_build::latest_nightly` — 버전이 아니라 날짜·순번으로 고른다), tarball 과 `SHA256SUMS` 를 curl 로 받아 shasum 으로 확인한 뒤
-  `nightly.new` 에 풀어 `nightly/` 와 rename 으로 바꾼다(`.tag`·`.sha`). 플러그인 파일은 `main-src/` 를 그 태그의 커밋으로 reset 해
-  `--main` 과 같은 폴더 마켓플레이스로 다시 깐다 — 훅·커맨드가 바이너리와 같은 커밋이 되게. 판정은 `main_build::plan` 을 태그로 쓴다
+  `nightly.new` 에 풀어 `nightly/` 와 rename 으로 바꾼다(`.tag`·`.sha`). 플러그인은 그 tarball 의 사본(`nightly/marketplace`)을
+  `--main` 과 같은 `current/marketplace` 로 다시 깐다 — 훅·커맨드가 바이너리와 같은 커밋이 되고, git clone 이 필요 없다. 사본이 없는 옛
+  태그(#548 전)를 고정해 받으면 플러그인은 손대지 않는다. Antigravity 번들도 사본(`marketplace/antigravity`)에서 깐다. 판정은 `main_build::plan` 을 태그로 쓴다
   (끝까지 가면 `nightly/.finished`, 아니면 다음 실행이 받기 없이 남은 단계만). 잠금은 `main-sync.lock` 을 같이 쓴다. 이 모드에서
   `rocky update` 는 최신 nightly 로, `--check` 는 받은 것과 최신을 나란히 보인다. `ROCKY_RELEASE_BASE` 가 있으면 거기서 받는다(부트스트랩과 같다).
   부트스트랩·launchd plist 는 `main` 과 같이 다룬다(`main_build::is_pinned_mode`) — 링크를 버전으로 되돌리지 않고 `nightly/rockyd` 를 굽는다.
@@ -44,7 +48,7 @@
   플러그인의 부트스트랩이 main 빌드를 놓고 릴리스를 받게. 받지 못하면 `current` 를 `main` 으로 되돌려 둔다(앞 단계에서 실패해도
   main 빌드는 계속 돈다). 받은 바이너리로 데몬을 재시작하고(버전이 main 빌드와 같으면 훅이 안 바꾸므로) 재시작이 성공했는지와 데몬이
   최신 릴리스 버전을 보고하는지를 같이 확인한다. `--main` 과 같은 잠금을 잡는다.
-  다른 폴더 마켓플레이스(개발용)는 건드리지 않는다. `main/`·`main-src/` 는 남긴다.
+  다른 폴더 마켓플레이스(개발용)는 건드리지 않는다(`current/marketplace` 와 옛 `main-src` 만 우리 것). `main/`·`main-src/` 는 남긴다.
 - **`rocky uninstall [--purge] [--dry-run] [--yes]`** 가 설치를 걷어낸다. 무엇을 지울지는 `rocky_core::uninstall::plan`(순수),
   실행은 `rocky_cli::uninstall_cmd`. 순서는 플러그인·마켓플레이스(`claude` 가 없으면 건너뛴다) → launchd(`uninstall_launchd` — bootout
   한 번과 plist 삭제, **bootstrap·plist 쓰기는 하지 않는다**) → 남은 데몬을 pid 로 SIGTERM(`client::stop_daemon`) → `~/.local/bin/rocky`

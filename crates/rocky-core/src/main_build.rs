@@ -2,8 +2,11 @@
 //! 있는지, 플러그인 마켓플레이스가 어디를 가리키는지를 정한다. 실행(git·cargo·bun·claude)은 CLI 가 한다.
 //!
 //! 자리(`$XDG_DATA_HOME/rocky/` 아래):
-//! - `main-src/` — main 을 따라가는 전용 clone. 마켓플레이스 `rocky-marketplace` 가 이 폴더를 가리킨다.
-//! - `main/` — release 빌드 `rocky`·`rockyd` + 웹 UI `dist/` + 빌드한 커밋 `.sha`.
+//! - `main-src/` — main 을 따라가는 전용 clone(main 빌드의 소스). 2026-11-10 전에는 마켓플레이스도 이 폴더를 가리켰다.
+//! - `main/` — release 빌드 `rocky`·`rockyd` + 웹 UI `dist/` + 플러그인 사본 `marketplace/` + 빌드한 커밋 `.sha`.
+//!   nightly 의 `nightly/` 도 tarball 을 푼 같은 모양이다.
+//! - 마켓플레이스 `rocky-marketplace` 는 main·nightly 모드에서 `current/marketplace` 를 가리킨다 — 버전 폴더가 배포
+//!   단위라 플러그인도 바이너리와 같은 커밋이다(설계 `2026-11-09-mac-app-bundle-design.md` A4).
 //! - `current` → `main` — 이 링크가 곧 모드다. 부트스트랩(`plugin/bin/rocky`)은 이걸 보면 릴리스를 받지 않고
 //!   `main/rocky` 를 실행한다. 릴리스 모드면 `current` → `v<version>`.
 
@@ -101,24 +104,29 @@ pub fn parse_marketplace(json: &str) -> Option<MarketplaceSource> {
     })
 }
 
-/// main 빌드 뒤 플러그인(훅·커맨드·스킬)을 어떻게 맞출지.
+/// 버전 폴더 안 플러그인 사본의 자리 — `current/` 아래 이 이름. `claude plugin marketplace add` 는 준 경로를 링크를
+/// 풀지 않고 그대로 적으므로(2026-11-10 실측) `current` 가 다른 폴더로 바뀌어도 마켓플레이스 경로는 같다.
+pub const MARKETPLACE_DIR: &str = "marketplace";
+
+/// main 빌드·nightly 뒤 플러그인(훅·커맨드·스킬)을 어떻게 맞출지.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginStep {
-    /// 이미 `main-src` 폴더 마켓플레이스다 — 빼고 다시 깐다. 폴더 마켓플레이스도 설치 때 캐시로 복사하고, 버전이
+    /// 이미 `current/marketplace` 폴더 마켓플레이스다 — 빼고 다시 깐다. 폴더 마켓플레이스도 설치 때 캐시로 복사하고, 버전이
     /// 같으면 `claude plugin update` 가 "이미 최신" 이라 새 커밋을 안 가져온다(2026-10-03 실측).
     Reinstall,
-    /// 릴리스(GitHub) 마켓플레이스거나 등록돼 있지 않다 — `main-src` 폴더 마켓플레이스로 바꾼다. 마켓플레이스를
-    /// 빼면 그 플러그인의 저장된 옵션·데이터도 지워지므로 사람이 확인한 뒤에만 한다.
+    /// 릴리스(GitHub) 마켓플레이스거나, 옛 `main-src` 폴더이거나, 등록돼 있지 않다 — `current/marketplace` 폴더
+    /// 마켓플레이스로 바꾼다. 마켓플레이스를 빼면 그 플러그인의 저장된 옵션·데이터도 지워지므로 사람이 확인한 뒤에만 한다.
     Switch,
     /// 다른 폴더·원천을 가리킨다(개발용 `--plugin-dir` 연결 등) — 손대지 않는다. 이유를 한 줄로.
     Leave(String),
 }
 
-/// `main_src` 는 호출자가 정규화한 `main-src` 경로.
-pub fn plugin_step(source: &MarketplaceSource, main_src: &str) -> PluginStep {
-    let same = |p: &str| p.trim_end_matches('/') == main_src.trim_end_matches('/');
+/// `ours` 는 `current/marketplace` 경로(마켓플레이스에 건 그대로), `main_src` 는 호출자가 정규화한 옛 `main-src` 경로.
+pub fn plugin_step(source: &MarketplaceSource, ours: &str, main_src: &str) -> PluginStep {
+    let same = |p: &str, q: &str| p.trim_end_matches('/') == q.trim_end_matches('/');
     match source {
-        MarketplaceSource::Directory(p) if same(p) => PluginStep::Reinstall,
+        MarketplaceSource::Directory(p) if same(p, ours) => PluginStep::Reinstall,
+        MarketplaceSource::Directory(p) if same(p, main_src) => PluginStep::Switch,
         MarketplaceSource::Directory(p) => PluginStep::Leave(format!(
             "{MARKETPLACE} 가 다른 폴더({p})를 가리킨다 — 손대지 않았다"
         )),
@@ -132,7 +140,7 @@ pub fn plugin_step(source: &MarketplaceSource, main_src: &str) -> PluginStep {
 /// `rocky update --release` 가 마켓플레이스를 어떻게 되돌릴지.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReleaseStep {
-    /// `main-src` 폴더 마켓플레이스다 — 빼고 GitHub 를 더한다(빼면 플러그인도 같이 빠진다).
+    /// 우리 폴더 마켓플레이스(`current/marketplace` 또는 옛 `main-src`)다 — 빼고 GitHub 를 더한다(빼면 플러그인도 같이 빠진다).
     FromFolder,
     /// 등록돼 있지 않다 — GitHub 를 더한다.
     Add,
@@ -143,10 +151,13 @@ pub enum ReleaseStep {
     Leave(String),
 }
 
-/// `main_src` 는 호출자가 정규화한 `main-src` 경로.
-pub fn release_step(source: &MarketplaceSource, main_src: &str) -> ReleaseStep {
-    match plugin_step(source, main_src) {
+/// `ours`·`main_src` 는 `plugin_step` 과 같다.
+pub fn release_step(source: &MarketplaceSource, ours: &str, main_src: &str) -> ReleaseStep {
+    match plugin_step(source, ours, main_src) {
         PluginStep::Reinstall => ReleaseStep::FromFolder,
+        PluginStep::Switch if matches!(source, MarketplaceSource::Directory(_)) => {
+            ReleaseStep::FromFolder
+        }
         PluginStep::Leave(why) => ReleaseStep::Leave(why),
         PluginStep::Switch if *source == MarketplaceSource::Missing => ReleaseStep::Add,
         PluginStep::Switch => ReleaseStep::Refresh,

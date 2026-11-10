@@ -165,6 +165,7 @@ jobs:
           mkdir -p target/release/marketplace/.claude-plugin
           cp .claude-plugin/marketplace.json target/release/marketplace/.claude-plugin/
           cp -R plugin target/release/marketplace/plugin; mkt=marketplace
+          if [ -d antigravity ]; then cp -R antigravity target/release/marketplace/antigravity; fi
           fi
           # 옛 태그(플러그인 폴더가 다른 모양일 수 있다)를 다시 빌드해도 깨지지 않게 있을 때만.
           COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
