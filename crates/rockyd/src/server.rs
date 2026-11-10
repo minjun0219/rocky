@@ -4103,7 +4103,7 @@ fn current_board_key(state: &Arc<ServerState>, key: &str) -> Option<String> {
 /// `marked_inbox` 가 남길 소스.
 #[derive(Debug, Clone, Copy)]
 enum InboxScope<'a> {
-    /// 전부 — `GET /api/inbox`(TUI 탭·`rocky inbox`).
+    /// 전부 — `GET /api/inbox`(웹 수집함·`rocky inbox`).
     All,
     /// 설정 파일의 소스 + 그 보드의 소스. `None` 이면 공통 소스만(요약이 보드를 모를 때).
     Board(Option<&'a str>),

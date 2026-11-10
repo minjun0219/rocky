@@ -16,7 +16,7 @@
 //! PR 만**, 세션 보드가 풀리면 그 보드 것만). 세션은 이 서버의 부모 프로세스(= Claude Code)의 pid 로 데몬
 //! `/api/sessions` 에서 찾는다 — MCP 서버 env 의 `CLAUDE_CODE_SESSION_ID` 는 서버를 띄울 때의 id 라, `/clear`·resume
 //! 으로 세션 id 가 바뀌어도 서버는 다시 뜨지 않고 옛 id 가 남는다(2.1.288 실측 — 떠 있던 세션 다섯 전부 달랐다). 시작
-//! 시점의 watermark 이후 것만 보내고 과거는 재생하지 않는다. SSE 는 TUI 와 같은 방식(한 줄씩,
+//! 시점의 watermark 이후 것만 보내고 과거는 재생하지 않는다. SSE 는 웹·맥 앱과 같은 방식(한 줄씩,
 //! `data:` 가 오면 `/api/changes` 를 차분 조회, 끊기면 1·2·4·8초 백오프).
 
 use std::collections::BTreeMap;

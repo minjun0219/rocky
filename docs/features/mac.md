@@ -10,12 +10,12 @@
   데몬·`rocky_core` 는 고치지 않는다 — 앱이 필요로 하는 응답이 없으면 그건 데몬 쪽 별도 변경이다.
 - **30일 동안 `mac` 클라이언트 사용이 0이면 걷는다**(`rocky usage --since 30d` 의 클라이언트 줄). ratatui TUI 가 90일 0회로 걷힌 전례와 같은 기준이다.
 - **언어 경계의 가장자리다.** Swift 는 `mac/` 안에만 있다. 판정 로직을 Swift 로 새로 만들지 않는다 — 데몬이 낸 값(`ready`·`doingState`)을
-  그대로 쓰고, 화면용 규칙은 웹·TUI 의 사본이다(`slices(for:)` = `web/lib.ts` 의 `slicesFor`, `boardGroups` = `tui/rows.ts` 의 보드 트리).
+  그대로 쓰고, 화면용 규칙은 웹의 사본이다(`slices(for:)` = `web/lib.ts` 의 `slicesFor`, `boardGroups` = 옛 `tui/rows.ts` 에서 옮겨 온 보드 트리 — TUI 는 2026-11-10 제거, 이제 이 Swift 가 정본).
   한쪽 규칙을 바꾸면 사본도 같이 고친다.
-- **쓰기는 보내고 SSE 를 기다린다.** 상태 변경(`POST /api/todos/:ref/status` 의 `{ action }`)·추가(`POST /api/todos`)는 웹·TUI 와 같은 요청이고
+- **쓰기는 보내고 SSE 를 기다린다.** 상태 변경(`POST /api/todos/:ref/status` 의 `{ action }`)·추가(`POST /api/todos`)는 웹과 같은 요청이고
   낙관적 갱신이 없다. SSE 프레임은 150ms 로 모아 건드린 묶음만 다시 받는다.
 - **SSE 는 바이트로 줄을 자른다.** `URLSession.AsyncBytes.lines` 는 빈 줄(프레임 끝)을 넘겨주지 않는다. 끊기면 1s→2s→…30s 로 다시 붙고,
-  붙을 때마다(첫 연결도) 전부 다시 받는다. 간격은 10초 넘게 붙어 있다 끊긴 것만 처음으로 되돌린다(TUI 와 같다). 요청의 무응답 제한은
+  붙을 때마다(첫 연결도) 전부 다시 받는다. 간격은 10초 넘게 붙어 있다 끊긴 것만 처음으로 되돌린다(옛 TUI 와 같은 규칙). 요청의 무응답 제한은
   하루로 둔다 — 데몬은 바뀐 것이 있을 때만 보내서 기본 60초면 조용한 동안 계속 끊긴다.
 - **PR 알림은 띄우지 않는다.** 머지 후보·충돌 배너는 데몬이 이미 띄운다(`rockyd::prwatch::osascript_notifier`). 앱은 메뉴에
   열린 PR 중 `ready` 이고 초안이 아닌 것을 목록으로만 보인다. 머지는 사람 몫이다.
@@ -122,11 +122,11 @@
 - **혼잣말 말풍선**(`Chatter`) — 세션 목록을 새로 받을 때 돌던 세션이 쉬거나 끝나면 "X 일을 마쳤어요", 새로 돌면 "X 일을 시작했어요", 일하는 동안 4분마다 "X — 지금 하는 일"(`agentLine`)을 6초 띄운다.
   처음 받은 목록은 보기만 한다(켤 때 쏟아지지 않게). 내 차례 말풍선이 우선이고, 누르면 닫히며, 입력이 120초 넘게 없으면(자리를 비움) 띄우지 않고 버린다. 묶음 규칙은 `agentPhase` 그대로다.
 - **보드를 바꾼 직후엔 트리 대신 "읽는 중"** — `sectionsBoard` 가 지금 보드와 다르면 가린다(섹션 없이 그리면 섹션에 든 할 일이 다 빠진다).
-  받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(TUI 와 같다).
+  받는 사이 보드를 또 바꿨으면 늦게 온 섹션을 버린다(옛 TUI 와 같은 규칙).
 - **실패는 출처로 지운다** — 읽기 실패는 다음 읽기 성공이, 동작 실패는 다음 동작이 지운다.
 - **설정은 `defaults` > 환경 변수 > 기본값.** 메뉴 막대 앱은 Finder·로그인 항목으로 떠서 셸 환경을 받지 않는다:
   `defaults write dev.minjun.rocky.mac daemonURL http://127.0.0.1:8636`, `defaults write dev.minjun.rocky.mac actor <이름>`. 환경 변수
-  (`ROCKY_TODO_PORT`, `ROCKY_TODO_ACTOR`)는 터미널에서 `swift run` 할 때용. 기본 actor 는 웹·TUI 와 같은 `logan`.
+  (`ROCKY_TODO_PORT`, `ROCKY_TODO_ACTOR`)는 터미널에서 `swift run` 할 때용. 기본 actor 는 웹과 같은 `logan`.
 - **서명은 오너의 인증서로.** `mac/scripts/bundle.sh` 는 `ROCKY_MAC_SIGN_IDENTITY`(키체인의 인증서 이름 — 자체 서명 인증서면 그 Common Name)로
   `codesign` 하고, 없으면 ad-hoc(`-`)으로 서명한다. 오너의 맥은 자체 서명 인증서 `rocky` 를 쓴다(2026-10-27):
   `ROCKY_MAC_SIGN_IDENTITY=rocky mac/scripts/bundle.sh`. 서명 안 된·ad-hoc 빌드는 해시가 빌드마다 바뀌어 회사 맥 EDR 이 의심할 수 있다 — 그 맥에는

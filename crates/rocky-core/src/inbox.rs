@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// 소스 하나의 기본 실행 시간 상한.
 pub const DEFAULT_INBOX_TIMEOUT_MS: u64 = 10_000;
 
-/// `GET /api/inbox` 의 소스별 캐시 수명(초). TUI 탭 진입은 캐시, `refresh=true` 는 우회.
+/// `GET /api/inbox` 의 소스별 캐시 수명(초). 화면 진입은 캐시, `refresh=true` 는 우회.
 pub const INBOX_CACHE_TTL_SECS: u64 = 60;
 
 /// 어댑터가 내는 항목 하나. `id`·`title` 필수, 나머지 옵션.
@@ -53,7 +53,7 @@ pub struct InboxSourceResult {
 }
 
 /// 수집함 항목에 "이미 올라감" 을 표시한다 — url 이 `promoted` 에 있으면. url 없는 항목은 판정할 수
-/// 없어 늘 미올림이다. 판정은 이 함수 한 곳이고 요약·TUI·CLI 가 같은 값을 본다.
+/// 없어 늘 미올림이다. 판정은 이 함수 한 곳이고 요약·웹·CLI 가 같은 값을 본다.
 pub fn mark_promoted(inbox: &mut InboxResponse, promoted: &std::collections::HashSet<String>) {
     for item in inbox.sources.iter_mut().flat_map(|s| s.items.iter_mut()) {
         item.promoted = item.url.as_deref().is_some_and(|u| promoted.contains(u));

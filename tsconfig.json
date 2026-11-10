@@ -26,8 +26,6 @@
     "plugin/hooks/board-panel/data.ts",
     "plugin/hooks/board-panel/data.test.ts",
     "web/**/*.ts",
-    "web/**/*.tsx",
-    "tui/**/*.ts",
-    "tui/**/*.tsx"
+    "web/**/*.tsx"
   ]
 }

@@ -18,7 +18,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UsageSource {
-    /// 데몬 REST — 웹·TUI·CLI 가 다 지나간다.
+    /// 데몬 REST — 웹·맥 앱·CLI 가 다 지나간다.
     Rest,
     /// MCP 도구 — 보드 5개(데몬) + worklog 4개(CLI stdio).
     Mcp,
@@ -51,7 +51,7 @@ pub struct UsageEvent {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<String>,
-    /// `web` · `tui` · `cli` · `mcp` — 누가 불렀나(사람 이름이 아니라 표면).
+    /// `web` · `mac` · `cli` · `mcp` 등 — 누가 불렀나(사람 이름이 아니라 표면).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
     pub ok: bool,
@@ -411,7 +411,6 @@ pub const KNOWN_SURFACES: &[(UsageSource, &str)] = &[
     (UsageSource::Cli, "rocky board"),
     (UsageSource::Cli, "rocky board review-fix"),
     (UsageSource::Cli, "rocky open"),
-    (UsageSource::Cli, "rocky tui"),
     (UsageSource::Cli, "rocky daemon"),
     (UsageSource::Cli, "rocky mcp"),
     (UsageSource::Cli, "rocky tailscale"),

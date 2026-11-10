@@ -123,7 +123,6 @@ fn run(argv: &[String]) -> Result<(), String> {
         "history" => commands::cmd_history(&ctx, &rest, &parsed, &board, &printer),
         "next" => commands::cmd_next(&ctx, &parsed, &board, &printer),
         "today" => commands::cmd_today(&ctx, &printer),
-        "tui" => rocky_cli::tui_cmd::cmd_tui(&ctx, &board, parsed.str_flag("actor")),
         "inbox" => commands::cmd_inbox(&ctx, &rest, &printer),
         // 릴리스 모드면 최신 릴리스로, main 빌드 모드(`current` → `main`)면 main 최신으로, nightly 모드(`current` →
         // `nightly`)면 최신 nightly 로 — 모드는 `--main` / `--nightly` / `--release` 로만 바뀐다. 습관대로 `rocky update` 를
