@@ -84,8 +84,8 @@ jobs:
       - name: Stamp version
         run: bun scripts/nightly.ts stamp "$VERSION"
 
-      - name: Build web UI + TUI
-        run: bun install --frozen-lockfile && bun run build:ui && bun run build:tui
+      - name: Build web UI
+        run: bun install --frozen-lockfile && bun run build:ui
 
       - name: Build CLI + daemon
         run: cargo build --release --locked -p rocky-cli -p rockyd

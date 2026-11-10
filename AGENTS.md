@@ -57,12 +57,11 @@
   찾는다; env의 `CLAUDE_CODE_SESSION_ID`는 `/clear` 뒤 낡는다).
 - **기기에서 도는 TypeScript 서버 코드는 없다.** `package.json` 에는 개발 도구(biome, changesets, `scripts/`·`plugin/scripts/`
   의 릴리스·부트스트랩·permalink 스크립트)와 `web/`의 **브라우저 번들 빌드**(React + zustand + Tailwind v4,
-  `bun run build:ui` → `dist/`)와 `tui/`의 **터미널 화면 번들**(Ink, `bun run build:tui` → `tui/dist/tui.js` — `rocky tui`
-  가 bun 으로 띄운다)과 `cloud/`의 **클라우드 중계소**(Cloudflare Durable Object에서 도는 싱크 중계, 싱크 설계의
-  3번 조각)만 있다. 기기에 상주하는 것은 전부 Rust이고, 두 화면은 데몬 REST/SSE 의 클라이언트다.
+  `bun run build:ui` → `dist/`)와 `cloud/`의 **클라우드 중계소**(Cloudflare Durable Object에서 도는 싱크 중계, 싱크 설계의
+  3번 조각)만 있다. 기기에 상주하는 것은 전부 Rust이고, 웹 화면은 데몬 REST/SSE 의 클라이언트다.
 - **맥 앱**(`mac/`, Swift · SwiftUI · SwiftPM) — 메뉴 막대에 돌고 있는 일과 머지 후보 PR, 할 일 창에서 착수·멈춤·완료·추가,
   떠 있는 로키 아바타와 메뉴의 에이전트 칸이 세션 상태(`/api/sessions`)를 알린다.
-  웹·TUI 와 같은 데몬 REST/SSE 클라이언트(`x-rocky-client: mac`)이고 데몬은 고치지 않는다(`docs/features/mac.md`).
+  웹과 같은 데몬 REST/SSE 클라이언트(`x-rocky-client: mac`)이고 데몬은 고치지 않는다(`docs/features/mac.md`).
 
 > **v0.23에서 제거**: `openapi_*`(7), `seo_validate`, `notion_*`(4), 독립 CLI `openapi-mcp`. 39개 레포 ·
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
@@ -93,8 +92,6 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 ├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
-├── tui/                        보드 터미널 화면(Ink 8 · zustand) — cmux 에서 웹 패널 대신. `bun run build:tui` → tui/dist/tui.js.
-│                                 web/ 의 types.ts·lib.ts(순수)만 가져다 쓴다. `bun run tui` 로 개발 실행
 ├── mac/                        맥 앱(SwiftUI 메뉴 막대 + 할 일 창) — SwiftPM 패키지. RockyKit(순수, `swift test`) + RockyMac(화면).
 │                                 `mac/scripts/bundle.sh` → mac/build/Rocky.app(gitignore), ROCKY_MAC_SIGN_IDENTITY 로 codesign. 규칙은 docs/features/mac.md
 ├── antigravity/                Antigravity(`agy`) 플러그인 번들 — 보드·워크로그(`--roots`) MCP + board·worklog 스킬(plugin/ 의 링크)
@@ -164,8 +161,8 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   `js-yaml`, `openapi-types`, `pino`, `ogpeek`)가 같이 빠졌다. git 히스토리에서 되살리고, `ntn` CLI 위임
   형태는 `docs/architecture.md`에 적혀 있다.
 - **ratatui TUI `rocky-tui`** — 2026-10-02 제거(90일 사용 0회, 오너 결정 "웹 UI에 몰빵"). git 히스토리에만 있다.
-  (지금의 `tui/` 는 2026-10-11 오너 요청으로 Ink 로 다시 만든 다른 것이다 — cmux 에서 웹 패널을 오가는 멈칫을 없애려고.
-  웹 UI 는 폰·원격용으로 그대로다. 30일 동안 `tui` 클라이언트 사용이 0이면 다시 걷는다.)
+  Ink 로 다시 만든 `tui/`(`rocky tui`, 2026-10-11)도 2026-11-10 오너 결정으로 제거했다(90일 `tui` 클라이언트 29회, 마지막 2026-10-12, `rocky tui` 0회).
+  git 히스토리에만 있다.
 - npm publish 자동화(GitHub Release ≠ npm publish).
 
 ## 자주 쓰는 명령
@@ -176,11 +173,9 @@ bun run check       # Biome 검증(쓰기 없음)
 bun run fix         # Biome 안전 수정 + 포맷
 bun run typecheck   # tsc --noEmit
 bun run test        # test:unit(scripts·plugin/scripts·plugin/hooks·bridges·cloud·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload)
-                    # + test:tui(tui/ — Ink 화면은 가짜 터미널로).
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
-bun run build:tui   # tui/ → tui/dist/tui.js(`rocky tui` 가 실행 파일 옆의 이것을 bun 으로). 개발은 `bun run tui -- --port N`
 bun run test:panel  # 보드 패널 mod — `claude plugin validate` + 엔진 테스트 키트(*.test.tsx). claude CLI 가 있어야 해서 CI 밖
 bun run e2e         # 웹 UI E2E(`playwright test` — playwright.config.ts, e2e/*.spec.ts) — globalSetup 이 빌드 후 임시 폴더의
                     # 격리 데몬 + 가짜 픽스처를 한 번 띄우고, 폰·cmux·데스크톱(Chromium)과 cmux-webkit(cmux 웹뷰 = Safari
@@ -227,7 +222,7 @@ typecheck or tests — pre-push and CI already cover it.*
 ## 코딩 규칙
 
 - **언어 경계(2026-10-02 오너 확인)**: 가운데는 Rust — 데몬·CLI·훅·MCP·저장소(`crates/`, edition 2021,
-  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), TUI(`tui/`, TS), 맥 앱(`mac/`, Swift), 클라우드 중계소(`cloud/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
+  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), 맥 앱(`mac/`, Swift), 클라우드 중계소(`cloud/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
   JSON 규약), 로그 분석(`logs.db`를 읽기만), 개발·릴리스 스크립트(Bun). 데몬을 다른 언어로 옮기지 않는다: core와 FFI
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
@@ -291,8 +286,7 @@ typecheck or tests — pre-push and CI already cover it.*
 | 토큰 색인 | 훅을 걸지 않는다(트랜스크립트만). 같은 `message.id` 는 한 번만 센다 | [tokens](./docs/features/tokens.md) |
 | 기본 브랜치 검증 | opt-in, 명령은 설정 파일에만. 보드 레포의 작업 트리·브랜치를 건드리지 않는다(detached 워크트리). 준비 실패는 커밋 탓으로 남기지 않는다. 배포(`deploy`)는 앞으로만, 같은 커밋은 한 번만 띄우고, 다른 main 빌드가 잠금을 쥐면 기다린다. update 는 데몬과 떨어진 프로세스 그룹으로 띄운다 | [verify](./docs/features/verify.md) |
 | rc 서버 | `rc` 블록이 없으면 프로브하지 않는다. 서버는 새 프로세스 그룹으로 띄우고 놓는다(`kill_on_drop` 금지), 내리기는 pid 로만, 프로브가 실패하면 손대지 않는다. 감시는 고정과 되살림 표식이 남은 대상만 되살리고 다른 주기 잡과 동시에 켜지 않는다. 설정 다시 읽기(`rocky rc targets` · `rocky rc reload` · 파일이 바뀌면 데몬이 알아서)는 대상 목록만 바꾸고 스위치(`enabled` · `supervise` · `nightly`)는 재시작 몫, 못 읽은 파일은 하던 목록을 지킨다 — *never act on a failed probe* | [rc-servers](./docs/features/rc-servers.md) |
-| TUI(`tui/`) | 웹은 `types.ts`·`lib.ts`(순수)만 가져다 쓴다 — 웹 store 는 브라우저에 묶여 있다. 쓰기는 REST 로 보내고 화면은 SSE 를 기다린다. 번들은 `react-devtools-core` 를 빈 모듈로, 실행은 늘 `bun --no-install` | [tui](./docs/features/tui.md) |
-| 맥 앱(`mac/`) | 데몬의 클라이언트 — 데몬·`rocky_core` 를 고치지 않고 판정을 Swift 로 새로 만들지 않는다(웹·TUI 규칙의 사본). 쓰기는 보내고 SSE 를 기다린다. PR 배너는 데몬 몫이라 앱은 띄우지 않는다. 세션은 SSE 가 없어 묻는다 — 아바타가 보일 때 15초, 아니면 60초(웹 에이전트 탭과 같다). 30일 동안 `mac` 클라이언트 사용이 0이면 걷는다 | [mac](./docs/features/mac.md) |
+| 맥 앱(`mac/`) | 데몬의 클라이언트 — 데몬·`rocky_core` 를 고치지 않고 판정을 Swift 로 새로 만들지 않는다(웹 규칙의 사본). 쓰기는 보내고 SSE 를 기다린다. PR 배너는 데몬 몫이라 앱은 띄우지 않는다. 세션은 SSE 가 없어 묻는다 — 아바타가 보일 때 15초, 아니면 60초(웹 에이전트 탭과 같다). 30일 동안 `mac` 클라이언트 사용이 0이면 걷는다 | [mac](./docs/features/mac.md) |
 | 보드 패널(mod) | 저절로 열지 않는다 — `/rocky-board` 로만 열고, 데몬은 패널이 열려 있는 동안만 묻는다(매 바퀴 `$.ui.panes()` 로 확인). 읽기만 한다. 할 일은 새 히스토리 행의 `boardKey` 가 이 보드일 때만 다시 읽고(`lastId` 는 전 보드의 것), 요약은 `cached=true`(그냥 부르면 수집함 어댑터를 실행하고 기다린다)로 폴더가 바뀔 때·60초마다만. 요청은 `x-rocky-client: claude-code-panel` — 사용 로그는 노출(`hook board-panel`)·사용(`… use`)을 세션마다 한 번씩만 | [board-panel](./docs/features/board-panel.md) |
 | statusline | 1초마다 도는 자리 — 사용 로그·데몬을 거치지 않는다. 하위 프로세스(git·`extraCommands`)는 마감을 넘기면 프로세스 그룹째 끊고 그 줄만 뺀다 | [statusline](./docs/features/statusline.md) |
 | 점검(`rocky doctor`) | 읽기만 한다. 꺼진 데몬을 띄우지 않고, 못 받은 항목은 ⚠ 가 아니라 건너뛴다. 판정은 `rocky_core::doctor` 순수 함수 | [doctor](./docs/features/doctor.md) |

@@ -3379,7 +3379,7 @@ impl TodoStore {
                     params![doc.text(), now, current.id],
                 )?;
                 // 히스토리는 60초로 묶지만 **화면은 그보다 자주** 따라와야 한다 — 같은 노트를
-                // 열어 둔 다른 브라우저·TUI 는 전역 이벤트로 refetch 하므로, 히스토리 줄이 없어도
+                // 열어 둔 다른 브라우저·맥 앱은 전역 이벤트로 refetch 하므로, 히스토리 줄이 없어도
                 // 노트당 `NOTE_EDIT_EVENT_THROTTLE` 마다 한 번은 흘린다(글자마다는 아니다).
                 let mut throttle = self.note_edit_events.lock().expect("note_edit_events");
                 let due = throttle

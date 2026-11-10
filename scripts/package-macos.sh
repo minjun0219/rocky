@@ -1,10 +1,10 @@
 #!/bin/sh
-# 빌드된 CLI·데몬·웹 UI·TUI·플러그인 사본·맥 앱 을 릴리스 tarball 하나로 묶는다 — `out/rocky-<TAG>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS`.
+# 빌드된 CLI·데몬·웹 UI·플러그인 사본·맥 앱 을 릴리스 tarball 하나로 묶는다 — `out/rocky-<TAG>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS`.
 # 플러그인 부트스트랩(plugin/bin/rocky)과 `rocky update --nightly` 가 이 레이아웃 그대로 푼다(필수는 rocky·rockyd 둘 —
-# dist/ 는 데몬이, tui.js 는 `rocky tui` 가 옆에서 찾는다). nightly.yml 이 쓴다. release.yml 의 assets job 은 같은 단계를
+# dist/ 는 데몬이 옆에서 찾는다). nightly.yml 이 쓴다. release.yml 의 assets job 은 같은 단계를
 # 안에 적어 둔다 — 그 job 의 수동 실행은 옛 태그를 체크아웃해서 이 파일이 없을 수 있다.
 #
-#   scripts/package-macos.sh <TAG>    target/release/{rocky,rockyd}, dist/, tui/dist/tui.js 가 있어야 한다(mac/build/Rocky.app 은 있으면)
+#   scripts/package-macos.sh <TAG>    target/release/{rocky,rockyd}, dist/ 가 있어야 한다(mac/build/Rocky.app 은 있으면)
 set -eu
 
 TAG="${1:-}"
@@ -18,8 +18,6 @@ fi
 mkdir -p out
 rm -rf target/release/dist
 cp -R dist target/release/dist
-tui=""
-if [ -f tui/dist/tui.js ]; then cp tui/dist/tui.js target/release/tui.js; tui=tui.js; fi
 # 맥 앱 — `mac/scripts/bundle.sh` 가 만든 것이 있고 서명 검증을 통과하면 넣는다(빌드가 중간에 깨진 앱은 뺀다)(`rocky update` 가 /Applications 로 옮긴다). ditto 는 서명을 그대로 옮긴다.
 app=""
 rm -rf target/release/Rocky.app
@@ -32,6 +30,6 @@ cp .claude-plugin/marketplace.json target/release/marketplace/.claude-plugin/
 cp -R plugin target/release/marketplace/plugin
 # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
 COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
-  -C target/release rocky rockyd dist marketplace $tui $app
+  -C target/release rocky rockyd dist marketplace $app
 (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
 ls -la out
