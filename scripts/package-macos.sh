@@ -1,5 +1,5 @@
 #!/bin/sh
-# 빌드된 CLI·데몬·웹 UI·TUI·맥 앱 을 릴리스 tarball 하나로 묶는다 — `out/rocky-<TAG>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS`.
+# 빌드된 CLI·데몬·웹 UI·TUI·플러그인 사본·맥 앱 을 릴리스 tarball 하나로 묶는다 — `out/rocky-<TAG>-aarch64-apple-darwin.tar.gz` + `SHA256SUMS`.
 # 플러그인 부트스트랩(plugin/bin/rocky)과 `rocky update --nightly` 가 이 레이아웃 그대로 푼다(필수는 rocky·rockyd 둘 —
 # dist/ 는 데몬이, tui.js 는 `rocky tui` 가 옆에서 찾는다). nightly.yml 이 쓴다. release.yml 의 assets job 은 같은 단계를
 # 안에 적어 둔다 — 그 job 의 수동 실행은 옛 태그를 체크아웃해서 이 파일이 없을 수 있다.
@@ -24,8 +24,14 @@ if [ -f tui/dist/tui.js ]; then cp tui/dist/tui.js target/release/tui.js; tui=tu
 app=""
 rm -rf target/release/Rocky.app
 if [ -d mac/build/Rocky.app ] && codesign --verify --strict mac/build/Rocky.app; then ditto mac/build/Rocky.app target/release/Rocky.app; app=Rocky.app; fi
+# 플러그인 사본 — 폴더 마켓플레이스 모양 그대로(marketplace.json 의 source 가 "./plugin"). 버전 폴더가 배포 단위라 플러그인도
+# 바이너리와 같은 커밋으로 함께 받는다(설계 2026-11-09-mac-app-bundle-design.md, A안).
+rm -rf target/release/marketplace
+mkdir -p target/release/marketplace/.claude-plugin
+cp .claude-plugin/marketplace.json target/release/marketplace/.claude-plugin/
+cp -R plugin target/release/marketplace/plugin
 # AppleDouble(`._*`) 항목이 tar 에 섞이지 않게 COPYFILE_DISABLE.
 COPYFILE_DISABLE=1 tar -czf "out/rocky-${TAG}-${TARGET}.tar.gz" \
-  -C target/release rocky rockyd dist $tui $app
+  -C target/release rocky rockyd dist marketplace $tui $app
 (cd out && shasum -a 256 -- *.tar.gz > SHA256SUMS && shasum -c SHA256SUMS)
 ls -la out
