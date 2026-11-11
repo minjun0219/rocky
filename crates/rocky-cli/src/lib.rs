@@ -5,7 +5,6 @@
 //!
 //! 순수 계층(파싱·포맷)을 lib 으로 열어 두는 이유는 테스트가 붙게 하기 위해서다.
 
-pub mod bounded;
 pub mod channel;
 pub mod client;
 pub mod commands;
@@ -14,16 +13,12 @@ pub mod context;
 pub mod doctor_cmd;
 pub mod flags;
 pub mod format;
-pub mod git_status;
 pub mod hooks;
 pub mod launchd;
 pub mod mac_app;
 pub mod rc_cmd;
 pub mod rc_targets_cmd;
-pub mod statusline_cache;
-pub mod statusline_doctor;
-pub mod statusline_guard;
-pub mod statusline_refresh;
+pub mod statusline_profile;
 pub mod system;
 pub mod tokens_cmd;
 pub mod uninstall_cmd;

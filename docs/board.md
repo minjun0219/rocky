@@ -987,8 +987,8 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 (`rocky statusline --cwd … --session …`)과 `extraCommands` 안에서 불린 `rocky statusline` 은 아무것도 그리지 않는다. statusline
 스크립트 안에서 `rocky statusline` 을 끼워 부르면 줄 전체가 한 번 더 나오니, statusLine 을 바로 `rocky statusline` 으로 건다.
 
-출력은 골든
-`crates/rocky-core/tests/fixtures/statusline-full/` 이 고정한다. 한도 설정은 `rocky.json`
+구현은 cc-usage 를
+라이브러리로 싣고 출력은 cc-usage 의 골든이 고정한다(`docs/features/statusline.md`). 한도 설정은 `rocky.json`
 최상위 `statusline` 블록. git 세그먼트는 `git status --porcelain=v2` 한 번(500ms, 넘으면 프로세스 그룹째 끊고 그
 세그먼트만 뺀다). 다른 도구의 줄은 `statusline.extraCommands[]`(argv 배열, `{{cwd}}`·`{{session_id}}` 치환, 기본 마감
 300ms, stdin 은 넘기지 않는다)로 그 아래에 설정 순서대로 붙는다. 한도가 소진되면(`api`·`auto` 는 늘) usage API 로 크레딧까지

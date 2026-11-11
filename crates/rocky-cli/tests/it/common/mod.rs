@@ -100,3 +100,15 @@ pub fn handoff_fixture() -> Handoff {
         completed_at: None,
     }
 }
+
+/// statusline 캐시 자리(`<root>/rocky/statusline/<config_dir 해시>`) — 자리 규칙은 cc-usage 에 있고 폴더 이름은 프로세스의
+/// 프로필을 본다. rocky 실행 파일이 쓰는 자리와 맞추려고 이 테스트 프로세스에도 rocky 이름을 건다.
+pub fn statusline_slot(root: &std::path::Path, config_dir: &std::path::Path) -> std::path::PathBuf {
+    rocky_cli::statusline_profile::install();
+    assert_eq!(
+        cc_usage::profile::get(),
+        &rocky_cli::statusline_profile::ROCKY,
+        "프로필이 rocky 보다 먼저 기본값으로 굳었다"
+    );
+    cc_usage::claude_account::cache_slot(root, config_dir)
+}

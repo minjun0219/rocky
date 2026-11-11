@@ -25,3 +25,5 @@ tempfile.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 schemars.workspace = true
+# `rocky statusline` 과 하위 명령(guard · allow · probe · doctor · refresh)의 구현.
+cc-usage.workspace = true

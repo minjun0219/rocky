@@ -48,3 +48,8 @@ yrs = "0.28"
 # 이미 의존 그래프에 있는 크레이트다(rmcp·ureq 가 끌어온다) — 노트 문서 라우트가 update 바이너리를
 # JSON 에 실을 때만 쓴다.
 base64 = "0.22"
+# statusline(`rocky statusline` · guard · allow · probe · doctor)의 판정·렌더·캐시 — cc-usage 를 라이브러리로 싣는다
+# (2026-11-11 오너 결정, 복사본 두 벌을 하나로). 의존성은 serde · serde_json · chrono · ureq · libc · ring 뿐이라
+# 이미 의존 그래프에 있다. `cli` feature(cc-usage 실행 파일 쪽)는 끈다. 이름(ROCKY_STATUSLINE_* · rocky/statusline 캐시)은
+# rocky-cli 가 `cc_usage::profile::set` 으로 건다. rev 를 올리면 statusline 출력이 바뀔 수 있다 — 골든은 cc-usage 에 있다.
+cc-usage = { git = "https://github.com/minjun0219/cc-usage", rev = "e33b81b04db8d711a3a07a7fd2e86bc127e249fb", default-features = false }

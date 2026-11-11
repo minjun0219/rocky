@@ -4,15 +4,10 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-/// `--full` 이 띄우는 detached 갱신이 테스트에서 **실제 토큰·실제 API 에 닿지 않게** 막는 두 겹 — 없는 keychain 항목
-/// (macOS keychain 은 HOME 과 무관해 임시 HOME 으로는 못 막는다)과 아무도 안 듣는 usage API 주소.
-const TEST_KEYCHAIN: &str = "rocky-test-absent";
+/// `--full` 이 띄우는 detached 갱신이 테스트에서 **실제 API 에 닿지 않게** 하는 아무도 안 듣는 usage API 주소. 실제
+/// 토큰에 닿지 않게 하는 다른 한 겹은 설정마다 적는 없는 keychain 항목(`"keychainService":"rocky-test-absent"`)이다 —
+/// macOS keychain 은 HOME 과 무관해 임시 HOME 으로는 못 막는다.
 const DEAD_USAGE_URL: &str = "http://127.0.0.1:1/usage";
-
-/// 골든에서 마감을 적지 않은 extra 명령의 마감 — 제품 기본값(300ms)은 spawn 잠금을 기다린 시간까지 세서, CI 러너가 바쁘면
-/// 제때 끝날 명령도 잘릴 수 있다. 골든은 출력 바이트를 대조하는 자리이고, 마감에 걸리는 동작은 `extra-slow` 가 적어 둔 짧은
-/// 마감이 따로 고정한다.
-const GOLDEN_EXTRA_TIMEOUT_MS: u64 = 5_000;
 
 /// 테스트가 띄우는 바이너리를 사용자 환경에서 떼어 낸다 — 사용 로그(`~/.config/rocky/usage`)와 홈을 임시
 /// 디렉터리로. 안 그러면 테스트 실행이 실제 `rocky usage` 숫자에 섞인다(한때 `board pr-authors` 오류 177건).
@@ -135,180 +130,6 @@ fn test_runs_log_usage_into_the_temp_dir_not_the_users() {
     assert!(
         logged > 0,
         "사용 로그가 임시 디렉터리에 없다 — 격리가 안 먹었다"
-    );
-}
-
-/// `statusline --full` 을 프로세스째 돌려 골든(`rocky-core/tests/fixtures/statusline-full`)과 바이트 단위로 비교한다 —
-/// 설정 블록 읽기·환경 변수(폭·색·시간대)·stdin 읽기·git 과 `extraCommands` 실행까지 실제 경로를 탄다.
-/// `ROCKY_UPDATE_GOLDEN=1` 이면 비교 대신 지금 출력으로 `expected.txt` 를 다시 쓴다 — 케이스 모양은 `statusline_golden_test`.
-#[test]
-fn full_replays_goldens() {
-    let update = std::env::var_os("ROCKY_UPDATE_GOLDEN").is_some();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../rocky-core/tests/fixtures/statusline-full");
-    let mut dirs: Vec<_> = std::fs::read_dir(&root)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect();
-    dirs.sort();
-    let mut ran = 0;
-    let mut failures = Vec::new();
-    for case_dir in &dirs {
-        let case: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(case_dir.join("case.json")).unwrap())
-                .unwrap();
-        ran += 1;
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
-        std::fs::create_dir_all(&home).unwrap();
-        // 케이스의 `usage`·`state` 를 그 계정의 캐시 폴더에 그대로 심는다.
-        // 계정 파일이 있으면 그 계정의 캐시 폴더, 없으면 `_`.
-        let account = case["account"].as_str();
-        if let Some(email) = account {
-            std::fs::write(
-                home.join(".claude.json"),
-                serde_json::json!({"oauthAccount": {"emailAddress": email}}).to_string(),
-            )
-            .unwrap();
-        }
-        let bucket = rocky_core::claude_account::cache_bucket(
-            &rocky_core::claude_account::cache_slot(&home.join(".cache"), &home.join(".claude")),
-            account,
-        );
-        let seed = || {
-            for (key, file) in [("usage", "usage.json"), ("state", "state.json")] {
-                if !case[key].is_null() {
-                    std::fs::create_dir_all(&bucket).unwrap();
-                    std::fs::write(bucket.join(file), case[key].to_string()).unwrap();
-                }
-            }
-        };
-        seed();
-        // 케이스의 셸 줄·git 환경으로 repo 를 만든다(작성자·날짜 고정이라 커밋 해시까지 늘 같다).
-        let repo = case["repo"].as_array().unwrap();
-        if !repo.is_empty() {
-            let project = home.join("project");
-            std::fs::create_dir_all(&project).unwrap();
-            for line in repo {
-                let mut step = Command::new("sh");
-                step.args(["-c", line.as_str().unwrap()])
-                    .current_dir(&project)
-                    .env_clear()
-                    .env("PATH", std::env::var("PATH").unwrap_or_default())
-                    .env("HOME", &home);
-                for (k, v) in case["gitEnv"].as_object().unwrap() {
-                    step.env(k, v.as_str().unwrap());
-                }
-                let out = step.output().unwrap();
-                assert!(
-                    out.status.success(),
-                    "{line}: {}",
-                    String::from_utf8_lossy(&out.stderr)
-                );
-            }
-        }
-        let config = dir.path().join("rocky.json");
-        // 케이스의 설정 키(snake_case — 처음 골든을 뜬 cc-usage 의 모양)를 rocky.json 의 키(camelCase)로 옮긴다.
-        let extra_commands: Vec<serde_json::Value> = case["config"]["extra_commands"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|c| {
-                let timeout = c["timeout_ms"].as_u64().unwrap_or(GOLDEN_EXTRA_TIMEOUT_MS);
-                serde_json::json!({ "command": c["command"], "timeoutMs": timeout })
-            })
-            .collect();
-        let statusline = serde_json::json!({
-            "keychainService": TEST_KEYCHAIN,
-            // 골든은 크레딧 페이드 없이 뜬 것이다 — 페이드는 `limits_test` 가 따로 본다.
-            "creditFade": false,
-            "source": case["config"]["source"],
-            "alertPercent": case["config"]["alert_percent"],
-            "extraCommands": extra_commands,
-            "badges": case["config"]["badges"],
-        });
-        std::fs::write(
-            &config,
-            serde_json::json!({
-                "todo": {"port": 1, "dir": "/nonexistent", "expose": "off"},
-                "statusline": statusline,
-            })
-            .to_string(),
-        )
-        .unwrap();
-        // 바이트로 비교한다 — extra 출력은 UTF-8 이 아닐 수 있다(extra-bytes). 새 케이스는 아직 expected.txt 가 없다 —
-        // 다시 뜰 때(update)는 빈 값으로 두고 아래에서 쓴다.
-        let want = match std::fs::read(case_dir.join("expected.txt")) {
-            Err(e) if update && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            read => read.unwrap(),
-        };
-        // 마감·파이프 유예에 기대는 케이스(extra·git)는 CI 러너가 바쁘면 한 번 빗나갈 수 있다(2026-10-12 `extra-failures`
-        // 의 `echo survivor` 가 빠짐, 이 맥에서는 부하로도 재현 안 됨) — 다르면 캐시를 다시 심고 한 번만 더 돌린다. 진짜
-        // 회귀는 두 번 다 다르다.
-        for attempt in 1..=2 {
-            if attempt > 1 {
-                seed();
-            }
-            // 환경을 비우고 케이스가 정한 것만 준다 — 사용자 터미널의 TERM·COLUMNS 가 섞이면 바이트가 달라진다.
-            let mut cmd = Command::new(env!("CARGO_BIN_EXE_rocky"));
-            cmd.env_clear()
-                .env("PATH", std::env::var("PATH").unwrap_or_default())
-                .env("HOME", &home)
-                .env("ROCKY_USAGE_DIR", dir.path().join("usage"))
-                .env("ROCKY_CONFIG", &config)
-                .env("ROCKY_STATUSLINE_USAGE_URL", DEAD_USAGE_URL)
-                .env("ROCKY_STATUSLINE_NOW", case["now"].as_str().unwrap())
-                .env("TZ", case["tz"].as_str().unwrap());
-            for (k, v) in case["env"].as_object().unwrap() {
-                cmd.env(k, v.as_str().unwrap());
-            }
-            if let Some(source) = case["sourceEnv"].as_str() {
-                cmd.env("ROCKY_STATUSLINE_SOURCE", source);
-            }
-            let args = case["args"].as_array().unwrap();
-            let mut child = cmd
-                .args(["statusline", "--full"])
-                .args(args.iter().map(|a| a.as_str().unwrap()))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let stdin = case["stdin"]
-                .as_str()
-                .unwrap()
-                .replace("{{HOME}}", home.to_str().unwrap());
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(stdin.as_bytes())
-                .unwrap();
-            let out = child.wait_with_output().unwrap();
-            if update && out.status.success() {
-                std::fs::write(case_dir.join("expected.txt"), &out.stdout).unwrap();
-                break;
-            }
-            if out.stdout == want && out.status.success() {
-                break;
-            }
-            if attempt == 2 {
-                failures.push(format!(
-                    "{}\n  want {:?}\n  got  {:?}\n  err  {}",
-                    case_dir.file_name().unwrap().to_string_lossy(),
-                    String::from_utf8_lossy(&want),
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                ));
-            }
-        }
-    }
-    assert!(ran >= 30, "크레딧 없는 케이스가 {ran}건뿐이다");
-    assert!(
-        failures.is_empty(),
-        "{}건 다름:\n{}",
-        failures.len(),
-        failures.join("\n")
     );
 }
 
@@ -447,7 +268,7 @@ fn seed_usage(bucket: &std::path::Path, used: f64) {
 }
 
 fn slot(home: &std::path::Path, config_dir: &std::path::Path) -> std::path::PathBuf {
-    rocky_core::claude_account::cache_slot(&home.join(".cache"), config_dir)
+    crate::common::statusline_slot(&home.join(".cache"), config_dir)
 }
 
 #[test]
@@ -456,11 +277,11 @@ fn full_keeps_caches_apart_per_config_dir() {
     let home = dir.path();
     let work = home.join("work-claude");
     seed_usage(
-        &rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None),
+        &cc_usage::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None),
         42.0,
     );
     seed_usage(
-        &rocky_core::claude_account::cache_bucket(&slot(home, &work), None),
+        &cc_usage::claude_account::cache_bucket(&slot(home, &work), None),
         10.0,
     );
     let stdin = r#"{"model":{"display_name":"M"}}"#;
@@ -494,11 +315,11 @@ fn full_follows_an_account_switch_inside_one_config_dir() {
     };
     let slot = slot(home, &config_dir);
     seed_usage(
-        &rocky_core::claude_account::cache_bucket(&slot, Some("a@example.com")),
+        &cc_usage::claude_account::cache_bucket(&slot, Some("a@example.com")),
         42.0,
     );
     seed_usage(
-        &rocky_core::claude_account::cache_bucket(&slot, Some("b@example.com")),
+        &cc_usage::claude_account::cache_bucket(&slot, Some("b@example.com")),
         10.0,
     );
     let stdin = r#"{"model":{"display_name":"M"}}"#;
@@ -543,7 +364,7 @@ fn full_records_stdin_limits_for_the_six_hour_fallback() {
         full_once(home, &later, config, r#"{"model":{"display_name":"M"}}"#),
         "M · 5h 70%\n"
     );
-    let bucket = rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
+    let bucket = cc_usage::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
     let state: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(bucket.join("state.json")).unwrap()).unwrap();
     assert_eq!(state["five_hour"]["percent"], 30.0);
@@ -569,7 +390,7 @@ fn full_records_when_an_alert_rose_and_blinks_from_there() {
     // 처음 — 켜진 프레임(배지)이고 시각을 적는다. NO_COLOR 라 배지·굵은 빨강 모두 " 0% ".
     let first = full_once(home, &[("ROCKY_STATUSLINE_NOW", NOW)], config, hit);
     assert!(first.starts_with("M · 5h  0% \n"), "{first:?}");
-    let bucket = rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
+    let bucket = cc_usage::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
     let state: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(bucket.join("state.json")).unwrap()).unwrap();
     assert_eq!(state["alert_key"], "2@5h");
@@ -588,7 +409,7 @@ fn full_fades_the_credit_amount_in_when_credits_start_burning() {
     )
     .unwrap();
     // 방금(15분 안에) 크레딧이 늘었다 — 쓰는 중.
-    let bucket = rocky_core::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
+    let bucket = cc_usage::claude_account::cache_bucket(&slot(home, &home.join(".claude")), None);
     std::fs::create_dir_all(&bucket).unwrap();
     std::fs::write(
         bucket.join("usage.json"),
@@ -655,7 +476,7 @@ fn seed_claude_session(home: &std::path::Path) {
         r#"{"oauthAccount":{"emailAddress":"a@example.com"}}"#,
     )
     .unwrap();
-    let bucket = rocky_core::claude_account::cache_bucket(
+    let bucket = cc_usage::claude_account::cache_bucket(
         &slot(home, &home.join(".claude")),
         Some("a@example.com"),
     );
@@ -797,7 +618,7 @@ fn full_passes_its_source_to_the_refresh_it_spawns() {
         .unwrap();
     child.stdin.take().unwrap().write_all(b"{}").unwrap();
     child.wait().unwrap();
-    let usage = rocky_core::claude_account::cache_bucket(
+    let usage = cc_usage::claude_account::cache_bucket(
         &slot(home, &home.join(".claude")),
         Some("a@example.com"),
     )

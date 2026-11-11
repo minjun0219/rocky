@@ -1,8 +1,8 @@
+use cc_usage::statusline::width::display_width;
 use rocky_cli::rc_cmd::{
     activity_summary, human_uptime, nightly_agy_line, nightly_line, render_nightly, render_result,
     render_status, rocky_line, start_all_targets, stop_target, StopTarget,
 };
-use rocky_core::statusline::width::display_width;
 use serde_json::json;
 
 /// 칸 사이 공백을 하나로 접은 줄들 — 열 폭과 상관없이 내용만 본다.

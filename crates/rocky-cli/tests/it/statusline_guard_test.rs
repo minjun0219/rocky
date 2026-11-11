@@ -71,8 +71,8 @@ fn seed(home: &Path, config_dir: &Path, used: f64, hint: Option<bool>) {
         serde_json::json!({"oauthAccount": account}).to_string(),
     )
     .unwrap();
-    let bucket = rocky_core::claude_account::cache_bucket(
-        &rocky_core::claude_account::cache_slot(&home.join(".cache"), config_dir),
+    let bucket = cc_usage::claude_account::cache_bucket(
+        &crate::common::statusline_slot(&home.join(".cache"), config_dir),
         Some("a@example.com"),
     );
     std::fs::create_dir_all(&bucket).unwrap();

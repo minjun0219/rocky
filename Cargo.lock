@@ -165,6 +165,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-usage"
+version = "0.2.0"
+source = "git+https://github.com/minjun0219/cc-usage?rev=e33b81b04db8d711a3a07a7fd2e86bc127e249fb#e33b81b04db8d711a3a07a7fd2e86bc127e249fb"
+dependencies = [
+ "chrono",
+ "libc",
+ "ring",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1225,6 +1238,7 @@ dependencies = [
 name = "rocky-cli"
 version = "0.59.1"
 dependencies = [
+ "cc-usage",
  "chrono",
  "libc",
  "ring",
@@ -1243,6 +1257,7 @@ name = "rocky-core"
 version = "0.59.1"
 dependencies = [
  "base64 0.22.1",
+ "cc-usage",
  "chrono",
  "rand 0.9.5",
  "ring",
