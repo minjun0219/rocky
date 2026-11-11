@@ -17,11 +17,11 @@
 데몬 + CLI(`crates/`)와 그 위의 얇은 Claude Code 플러그인. 옛 `rocky-todo` 레포를 흡수했다(2026-09-22, 두 히스토리를 모두 보존).
 *EN: One owner, one machine, many agent sessions — hand work out, bring results back to merge, watch and steer from anywhere, record it all.*
 
-> **방향(2026-11-11 오너 결정).** 보드(할 일 · 노트 · 섹션 · 댓글)와 로키 에이전트 계획을 rocky에서 뺀다. 할 일 · 노트는 오너의 개인 맥락
-> 저장소로 옮겨 가고 로키도 그쪽에서 산다. rocky는 세션 관제(띄우기 · 지켜보기 · PR · 검증 · 기록)로 줄어든다. 아직 걷어내기 전이라 아래 표는
-> 오늘의 기준선이다. 보드에 기능을 더하지 않고, 보드에 닿는 변경은 [`docs/design/specs/2026-11-11-board-removal-design.md`](./docs/design/specs/2026-11-11-board-removal-design.md)의
+> **방향(2026-11-11 오너 결정).** 보드(할 일 · 노트 · 섹션 · 댓글), rc 서버, 로키 에이전트 계획을 rocky에서 뺀다. 할 일 · 노트는 오너의 개인 맥락
+> 저장소로 옮겨 가고 로키도 그쪽에서 산다. rocky는 세션 지켜보기 · PR · 검증 · 기록으로 줄어든다. 아직 걷어내기 전이라 아래 표는
+> 오늘의 기준선이다. 보드와 rc 에 기능을 더하지 않고, 둘에 닿는 변경은 [`docs/design/specs/2026-11-11-board-and-rc-removal-design.md`](./docs/design/specs/2026-11-11-board-and-rc-removal-design.md)의
 > 빼는 것 · PR 순서를 먼저 본다(2026-10-29의 오케스트레이터 설계는 접었다).
-> *EN: Direction (2026-11-11): the board and the Rocky-agent plan leave rocky; it shrinks to session control. Do not grow the board.*
+> *EN: Direction (2026-11-11): the board, rc servers and the Rocky-agent plan leave rocky; it shrinks to watching and recording. Do not grow them.*
 
 | 하는 일 | 기능 | 개발 문서(`docs/features/`) |
 | --- | --- | --- |
