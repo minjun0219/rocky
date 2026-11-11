@@ -97,11 +97,8 @@ impl Home {
     }
 
     fn bucket(&self, email: Option<&str>) -> PathBuf {
-        rocky_core::claude_account::cache_bucket(
-            &rocky_core::claude_account::cache_slot(
-                &self.path.join(".cache"),
-                &self.path.join(".claude"),
-            ),
+        cc_usage::claude_account::cache_bucket(
+            &crate::common::statusline_slot(&self.path.join(".cache"), &self.path.join(".claude")),
             email,
         )
     }
@@ -268,7 +265,7 @@ fn refresh_reads_the_credentials_file_and_refuses_an_expired_token() {
         .to_string();
     // 원인이 앞, 어느 파일인지가 뒤.
     assert!(
-        error.starts_with(rocky_core::claude_account::TOKEN_EXPIRED),
+        error.starts_with(cc_usage::claude_account::TOKEN_EXPIRED),
         "{error}"
     );
     assert!(
@@ -395,14 +392,14 @@ fn keychain_setting_applies_only_to_its_own_config_dir() {
     )
     .unwrap();
     home.refresh(&api.url, &[("CLAUDE_CONFIG_DIR", work.to_str().unwrap())]);
-    let slot = rocky_core::claude_account::cache_slot(&home.path.join(".cache"), &work);
-    let usage = usage_json(&rocky_core::claude_account::cache_bucket(
+    let slot = crate::common::statusline_slot(&home.path.join(".cache"), &work);
+    let usage = usage_json(&cc_usage::claude_account::cache_bucket(
         &slot,
         Some("w@example.com"),
     ));
     let error = usage["last_error"].as_str().unwrap();
     // 설정의 keychain 항목(rocky-test-absent)은 기본 폴더 것이라 work 세션에서는 묻지도 않는다 — 그 폴더의 이름을 묻는다.
-    let derived = rocky_core::claude_account::keychain_service(
+    let derived = cc_usage::claude_account::keychain_service(
         None,
         &home.path.join(".claude"),
         &work,
@@ -567,7 +564,7 @@ fn doctor_shows_the_session_dirs_keychain_and_expired_tokens() {
     let env = [("CLAUDE_CONFIG_DIR", work.to_str().unwrap())];
     let (_, out, _) = home.run("http://127.0.0.1:1/usage", &env, &["statusline", "doctor"]);
     // 그 폴더의 keychain 이름(Claude Code 규칙)을 보인다 — 기본 이름을 읽으면 기본 계정의 토큰을 집는다.
-    let derived = rocky_core::claude_account::keychain_service(
+    let derived = cc_usage::claude_account::keychain_service(
         None,
         &home.path.join(".claude"),
         &work,
@@ -601,10 +598,8 @@ fn doctor_shows_the_bucket_guard_actually_reads() {
         Some(EMAIL),
         serde_json::json!({"source": "api", "guard": true}),
     );
-    let slot = rocky_core::claude_account::cache_slot(
-        &home.path.join(".cache"),
-        &home.path.join(".claude"),
-    );
+    let slot =
+        crate::common::statusline_slot(&home.path.join(".cache"), &home.path.join(".claude"));
     std::fs::create_dir_all(&slot).unwrap();
     std::fs::write(
         slot.join("account.json"),

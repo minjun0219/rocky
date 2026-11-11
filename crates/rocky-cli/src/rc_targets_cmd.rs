@@ -13,9 +13,9 @@
 
 use std::path::Path;
 
+use cc_usage::statusline::width::display_width;
 use rocky_core::config::user_config_path;
 use rocky_core::rc_targets::{self, Change, Edit, Reload, TargetList};
-use rocky_core::statusline::width::display_width;
 use serde_json::{json, Value};
 
 use crate::client::{request_value, CliContext};

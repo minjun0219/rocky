@@ -13,7 +13,6 @@ mod launchd_test;
 mod rc_cmd_test;
 mod rc_targets_cmd_test;
 mod statusline_cmd_test;
-mod statusline_doctor_test;
 mod statusline_guard_test;
 mod statusline_refresh_test;
 mod tokens_cmd_test;

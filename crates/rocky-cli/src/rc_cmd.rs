@@ -398,7 +398,7 @@ fn stray_row(s: &Value) -> Row {
 }
 
 fn pad(s: &str, width: usize) -> String {
-    let w = rocky_core::statusline::width::display_width(s);
+    let w = cc_usage::statusline::width::display_width(s);
     format!("{s}{}", " ".repeat(width.saturating_sub(w)))
 }
 
@@ -409,7 +409,7 @@ impl Widths {
     const HEAD: [&'static str; 4] = ["이름", "고정", "떠 있음", "세션"];
 
     fn of(rows: &[&Row]) -> Self {
-        let w = rocky_core::statusline::width::display_width;
+        let w = cc_usage::statusline::width::display_width;
         let mut out = Self::HEAD.map(w);
         for r in rows {
             let cells = [

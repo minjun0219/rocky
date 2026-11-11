@@ -18,6 +18,8 @@ ring.workspace = true
 base64.workspace = true
 # Yjs 호환 CRDT — 노트 본문(2026-09-28 결정, docs/design/specs/2026-09-28-note-crdt-design.md).
 yrs.workspace = true
+# `rocky.json` 의 `statusline` 블록 모양(`StatuslineConfig`) — 판정·렌더는 cc-usage 에 있다.
+cc-usage.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

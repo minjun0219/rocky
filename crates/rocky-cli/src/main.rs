@@ -13,6 +13,8 @@ fn main() {
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
+    // statusline 구현(cc-usage)이 쓰는 이름 — 다른 무엇보다 먼저 건다.
+    rocky_cli::statusline_profile::install();
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if let Err(error) = run(&argv) {
         eprintln!("{error}");
@@ -55,14 +57,13 @@ fn run(argv: &[String]) -> Result<(), String> {
     // statusline 은 1초마다 × 세션 수만큼 도는 자리다 — 사용 로그·데몬을 거치지 않고, CLI 맥락(설정 읽기)을 만들기 전에 끝낸다.
     // statusline 이 detached 로 띄우는 갱신 — 사람이 부를 일은 없다(도움말에도 없다).
     if command == "statusline" && rest.first().map(String::as_str) == Some("refresh") {
-        let mut cfg =
-            rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
-        // 부모 statusline 이 정한 source 를 환경 변수로 받는다(`statusline_refresh::spawn_detached`).
-        let env = std::env::var(rocky_core::limits::SOURCE_ENV).ok();
+        let mut cfg = commands::statusline_config();
+        // 부모 statusline 이 정한 source 를 환경 변수로 받는다(`cc_usage::statusline_refresh::spawn_detached`).
+        let env = std::env::var(cc_usage::profile::get().source_env).ok();
         cfg.limits.source =
-            rocky_core::limits::override_source(cfg.limits.source, env.as_deref(), None)
+            cc_usage::limits::override_source(cfg.limits.source, env.as_deref(), None)
                 .unwrap_or(cfg.limits.source);
-        rocky_cli::statusline_refresh::run(&cfg, commands::statusline_now());
+        cc_usage::statusline_refresh::run(&cfg, commands::statusline_now());
         return Ok(());
     }
     // guard·allow 같은 statusline 의 하위 명령은 사람이 부르거나 prompt 당 한 번 도는 것이라 보통 경로(사용 로그)를 탄다.
@@ -201,14 +202,13 @@ fn run(argv: &[String]) -> Result<(), String> {
         "verify" => rocky_cli::verify_cmd::cmd_verify(&ctx, &rest, &parsed, &printer),
         "rc" => rocky_cli::rc_cmd::cmd_rc(&ctx, &rest, &parsed, &printer),
         "statusline" => {
-            let cfg =
-                rocky_core::config::load_statusline_block(&rocky_core::config::user_config_path());
+            let cfg = commands::statusline_config();
             let now = commands::statusline_now();
             match rest.first().map(String::as_str) {
                 // 막으면 exit 2 — Claude Code 가 prompt 를 버리고 stderr 를 보인다. 막는 것도 정상 동작이라 성공으로 남긴다.
                 Some("guard") => {
-                    if let Some(reason) = rocky_cli::statusline_guard::check(&cfg, now) {
-                        eprintln!("{}", rocky_cli::statusline_guard::block_message(&reason));
+                    if let Some(reason) = cc_usage::statusline_guard::check(&cfg, now) {
+                        eprintln!("{}", cc_usage::statusline_guard::block_message(&reason));
                         rocky_cli::usage_cmd::record(
                             rocky_core::usage::UsageSource::Cli,
                             &usage_name,
@@ -220,15 +220,15 @@ fn run(argv: &[String]) -> Result<(), String> {
                     }
                     Ok(())
                 }
-                Some("probe") => rocky_cli::statusline_doctor::probe(&cfg, now)
+                Some("probe") => cc_usage::statusline_doctor::probe(&cfg, now)
                     .map(|body| println!("{body}")),
-                Some("doctor") => rocky_cli::statusline_doctor::doctor(
+                Some("doctor") => cc_usage::statusline_doctor::doctor(
                     &cfg,
                     &rocky_core::config::user_config_path(),
                     parsed.str_flag("session"),
                     now,
                 ),
-                _ => rocky_cli::statusline_guard::allow(rest.get(1).map(String::as_str), now)
+                _ => cc_usage::statusline_guard::allow(rest.get(1).map(String::as_str), now)
                     .map(|message| println!("{message}")),
             }
         }

@@ -398,7 +398,7 @@ fn tokens_block_reads_recommend_rules_and_resolves_transcripts_dir() {
 
 #[test]
 fn statusline_block_reads_source_and_alert_percent() {
-    use rocky_core::limits::Source;
+    use cc_usage::limits::Source;
     let (_dir, path) =
         write_config(r#"{ "statusline": { "source": "none", "alertPercent": 80 } }"#);
     let c = load_statusline_block(&path).limits;
@@ -425,7 +425,7 @@ fn statusline_block_reads_source_and_alert_percent() {
 
 #[test]
 fn statusline_block_reads_extra_commands_and_skips_malformed_ones() {
-    use rocky_core::statusline::extra::ExtraCommand;
+    use cc_usage::statusline::extra::ExtraCommand;
     let (_dir, path) = write_config(
         r#"{ "statusline": { "extraCommands": [
             { "command": ["harness-lm", "line", "-s", "{{session_id}}"] },
