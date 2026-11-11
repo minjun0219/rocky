@@ -167,7 +167,7 @@ dependencies = [
 [[package]]
 name = "cc-usage"
 version = "0.2.0"
-source = "git+https://github.com/minjun0219/cc-usage?rev=e33b81b04db8d711a3a07a7fd2e86bc127e249fb#e33b81b04db8d711a3a07a7fd2e86bc127e249fb"
+source = "git+https://github.com/minjun0219/cc-usage?rev=2a85b1aa50b491a1baa63c91129c282557763150#2a85b1aa50b491a1baa63c91129c282557763150"
 dependencies = [
  "chrono",
  "libc",
