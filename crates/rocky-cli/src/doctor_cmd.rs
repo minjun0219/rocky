@@ -2,10 +2,9 @@
 //! 한 번에 본다. 판정은 `rocky_core::setup`·`rocky_core::doctor`, 여기는 재료 수집뿐이다. 읽기만 한다 — 데몬이 꺼져
 //! 있어도 띄우지 않고(실행 상태는 "닿지 못함" 으로 남긴다) 고치는 명령은 안내로만 낸다.
 
-use rocky_core::config::user_config_path;
-use rocky_core::config::TodoConfig;
+use rocky_core::config::{load_repos_block, user_config_path, TodoConfig};
 use rocky_core::doctor::{render, runtime_checks, RuntimeInput};
-use rocky_core::repos::{boards_missing_from_config, load_repos_block};
+use rocky_core::repos::boards_missing_from_config;
 use rocky_core::setup::build_report;
 use rocky_core::types::Board;
 use serde_json::{json, Value};

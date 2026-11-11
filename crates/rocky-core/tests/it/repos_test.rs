@@ -1,8 +1,8 @@
 //! 레포 목록(`rocky_core::repos`) — `rocky.json` 의 `repos` 블록과 보드를 합친다.
 
+use rocky_core::config::load_repos_block;
 use rocky_core::repos::{
-    boards_missing_from_config, effective, from_board, load_repos_block, parse_repos_block,
-    RepoEntry,
+    boards_missing_from_config, effective, from_board, parse_repos_block, RepoEntry,
 };
 use rocky_core::types::Board;
 

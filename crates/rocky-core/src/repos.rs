@@ -4,8 +4,6 @@
 //! 정본을 `rocky.json` 의 `repos` 블록으로 옮긴다. 보드가 남아 있는 동안에는 두 곳을 합친다 — 같은 key 면 설정이 이기고,
 //! 설정에 없는 보드는 그대로 실린다. 보드가 빠지면 `effective` 의 보드 몫과 `board_id` 가 같이 빠진다.
 
-use std::path::Path;
-
 use crate::types::Board;
 
 /// 레포 하나. key 는 보드 key 와 같은 이름 공간이다 — 그래서 `verify.targets[].board` 가 고치지 않고 이어진다.
@@ -24,24 +22,8 @@ pub struct RepoEntry {
     pub board_id: Option<String>,
 }
 
-/// `rocky.json` 의 `repos` 블록(`{ "<key>": { repo, path, prAuthors, reviewFix } }`)을 읽는다. 파일 없음 · 파싱 실패 ·
-/// 블록 없음은 빈 목록(fail-open). 모양이 틀린 칸은 버리고 나머지는 살린다 — key 가 비면 그 항목만 버린다.
-/// 데몬은 전역 하나라 사용자 설정에서만 읽는다(`rc` 블록과 같다).
-pub fn load_repos_block(config_path: &Path) -> Vec<RepoEntry> {
-    let Ok(raw) = std::fs::read_to_string(config_path) else {
-        return Vec::new();
-    };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return Vec::new();
-    };
-    parsed
-        .get("repos")
-        .and_then(|v| v.as_object())
-        .map(parse_repos_block)
-        .unwrap_or_default()
-}
-
-/// 블록 객체를 key 순서대로 읽는다.
+/// `repos` 블록 객체(`{ "<key>": { repo, path, prAuthors, reviewFix } }`)를 key 순서대로 읽는다. 모양이 틀린 칸은 버리고
+/// 나머지는 살린다 — key 가 비면 그 항목만 버린다. 파일에서 읽는 입구는 `config::load_repos_block`.
 pub fn parse_repos_block(block: &serde_json::Map<String, serde_json::Value>) -> Vec<RepoEntry> {
     let mut out: Vec<RepoEntry> = block
         .iter()

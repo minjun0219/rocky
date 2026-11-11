@@ -402,6 +402,22 @@ pub fn load_pr_block(config_path: &Path) -> PrWatchConfig {
     }
 }
 
+/// `rocky.json` 의 `repos` 블록 — PR 감시와 검증이 보는 레포 목록(`crate::repos`). 파일 없음 · 파싱 실패 · 블록 없음은
+/// 빈 목록(fail-open). 데몬은 전역 하나라 사용자 설정에서만 읽는다(`rc` 블록과 같다).
+pub fn load_repos_block(config_path: &Path) -> Vec<crate::repos::RepoEntry> {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    parsed
+        .get("repos")
+        .and_then(|v| v.as_object())
+        .map(crate::repos::parse_repos_block)
+        .unwrap_or_default()
+}
+
 /// `rocky.json` 의 `verify` 블록 — 기본 브랜치 검증(`crate::verify`). 대상이 없으면 꺼진 것이다(opt-in).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VerifyConfig {
