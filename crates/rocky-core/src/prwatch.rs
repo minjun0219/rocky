@@ -719,15 +719,10 @@ fn has_new_review(was: &PrSnapshot, cur: &PrSnapshot) -> bool {
         || overflow(cur) > overflow(was)
 }
 
-/// 이 레포의 리뷰를 세션에 처리시킬지 — 그 레포를 둔 보드 중 하나라도 `review_fix` 가 켜졌으면.
-/// 레포 이름은 대소문자를 가리지 않는다(GitHub 과 같다).
-pub fn review_fix_enabled(boards: &[crate::types::Board], repo: &str) -> bool {
-    boards.iter().any(|b| {
-        b.review_fix
-            && b.repo
-                .as_deref()
-                .is_some_and(|r| r.eq_ignore_ascii_case(repo))
-    })
+/// 이 레포의 리뷰를 세션에 처리시킬지 — 그 레포를 둔 항목(`crate::repos::effective`) 중 하나라도 `review_fix` 가
+/// 켜졌으면. 레포 이름은 대소문자를 가리지 않는다(GitHub 과 같다).
+pub fn review_fix_enabled(repos: &[crate::repos::RepoEntry], repo: &str) -> bool {
+    crate::repos::for_repo(repos, repo).any(|r| r.review_fix)
 }
 
 /// macOS 알림의 (제목, 본문).
@@ -782,37 +777,33 @@ pub fn author_matches(filter: &[String], author: Option<&str>, viewer: Option<&s
     })
 }
 
-/// 이 전이를 알릴지. `board_id` 가 있으면 그 보드의 필터만(세션 훅 주입·받은편지함 — 보드 속성), 없으면 그
-/// 레포를 둔 보드 중 하나라도 통과시키면 알린다(배너·브릿지 — 보드와 무관한 경로). 레포 이름은 대소문자를
-/// 가리지 않는다.
+/// 이 전이를 알릴지. `board_id` 가 있으면 그 보드에 묶인 항목의 필터만(세션 훅 주입·받은편지함 — 보드 속성), 없으면 그
+/// 레포를 둔 항목 중 하나라도 통과시키면 알린다(배너·브릿지 — 보드와 무관한 경로). 항목은 `crate::repos::effective` 가
+/// 설정(`repos`)과 보드를 합친 것이다. 레포 이름은 대소문자를 가리지 않는다.
 pub fn author_allowed(
-    boards: &[crate::types::Board],
+    repos: &[crate::repos::RepoEntry],
     repo: &str,
     board_id: Option<&str>,
     author: Option<&str>,
     viewer: Option<&str>,
 ) -> bool {
     if let Some(id) = board_id {
-        return boards
+        return repos
             .iter()
-            .find(|b| b.id == id)
-            .is_none_or(|b| author_matches(&b.pr_authors, author, viewer));
+            .find(|r| r.board_id.as_deref() == Some(id))
+            .is_none_or(|r| author_matches(&r.pr_authors, author, viewer));
     }
     let mut any = false;
-    for b in boards.iter().filter(|b| {
-        b.repo
-            .as_deref()
-            .is_some_and(|r| r.eq_ignore_ascii_case(repo))
-    }) {
+    for r in crate::repos::for_repo(repos, repo) {
         any = true;
-        if author_matches(&b.pr_authors, author, viewer) {
+        if author_matches(&r.pr_authors, author, viewer) {
             return true;
         }
     }
     !any
 }
 
-/// 보드 `prAuthors` 값 하나가 쓸 수 있는 모양인가 — `@me` 또는 GitHub login(영숫자·`-`, 39자까지).
+/// `prAuthors` 값 하나가 쓸 수 있는 모양인가(`repos` 블록 · 보드 공통) — `@me` 또는 GitHub login(영숫자·`-`, 39자까지).
 pub fn is_pr_author(value: &str) -> bool {
     let v = value.trim_start_matches('@');
     value == "@me"

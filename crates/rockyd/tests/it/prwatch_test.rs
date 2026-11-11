@@ -826,6 +826,64 @@ async fn review_events_reach_the_session_only_when_review_fix_is_on() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `rocky.json` 의 `repos` 블록만으로도 reviewFix 가 켜진다 — 보드에 그 레포가 없어도, 보드의 값이 꺼져 있어도
+/// 같은 key 의 설정 항목이 이긴다.
+#[tokio::test]
+async fn review_fix_from_the_repos_block_wins_over_the_board() {
+    use rockyd::prwatch::session_notifier;
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+
+    let f = rockyd_fx_with_repos(vec![rocky_core::repos::RepoEntry {
+        key: "rocky".into(),
+        repo: Some("o/r".into()),
+        review_fix: true,
+        ..Default::default()
+    }]);
+    // 같은 key 의 보드는 다른 레포 · reviewFix 꺼짐 — 설정이 이긴다.
+    f.store.ensure_board("rocky", None, "tester").unwrap();
+    f.store
+        .set_board_repo("rocky", "o/stale", "tester")
+        .unwrap();
+    let dir = std::path::PathBuf::from(format!("/tmp/cc-socks-rockyrb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("501.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let (status, _) = post(
+        &f.state,
+        "/api/sessions/inbox",
+        json!({ "sessionId": "s", "socket": sock.to_str().unwrap(), "cwd": "/w/rocky" }),
+    )
+    .await;
+    assert_eq!(status, 204);
+    sub(&f, "o/r", 9, Some("s"));
+    let review = rocky_core::prwatch::PrEvent {
+        kind: PrEventKind::Review,
+        repo: "O/R".into(),
+        number: 9,
+        title: "PR 9".into(),
+        url: "https://github.com/o/r/pull/9".into(),
+        quiet: false,
+        author: None,
+    };
+    session_notifier(f.state.clone())(&review);
+    let received = tokio::task::spawn_blocking(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut text = String::new();
+        conn.read_to_string(&mut text).unwrap();
+        text
+    })
+    .await
+    .unwrap();
+    assert!(received.contains("/rocky:review-fix 9"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn rockyd_fx_with_repos(repos: Vec<rocky_core::repos::RepoEntry>) -> Fx {
+    crate::common::fx_with(|o| o.repos = repos)
+}
+
 /// 세션 전달 현황은 끝난 세션의 등록을 빼고 몇 개 뺐는지만 싣는다 — 등록 자체는 남는다(TTL 로만 걷는다).
 #[tokio::test]
 async fn deliveries_hide_registrations_of_ended_sessions() {

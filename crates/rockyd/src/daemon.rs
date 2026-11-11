@@ -335,6 +335,7 @@ pub async fn run_daemon(
         agy_control: Some(agy_control),
         rc_control: rc_control.clone(),
         rc_settings: Some(rc_settings),
+        repos: rocky_core::config::load_repos_block(&rocky_core::config::user_config_path()),
         // Cloudflare Access 로 들어온 사람의 원격 제어 — `access` 블록이 있을 때만 공개키를 받는다(첫 요청 때).
         access: access.map(|config| {
             Arc::new(crate::access::AccessGate::new(

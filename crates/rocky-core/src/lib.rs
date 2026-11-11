@@ -27,6 +27,7 @@ pub mod prwatch;
 pub mod rc;
 pub mod rc_targets;
 pub mod refs;
+pub mod repos;
 pub mod sessions;
 pub mod setup;
 pub mod store;

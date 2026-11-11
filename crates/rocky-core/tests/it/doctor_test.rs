@@ -207,3 +207,30 @@ fn render_puts_the_fix_under_a_failed_check_and_says_when_the_daemon_is_unreacha
     );
     assert!(render(&setup, None).contains("데몬에 닿지 못해"));
 }
+
+/// 레포 목록 — 보드에만 있는 레포가 남으면 ⚠ 와 옮기는 안내, 다 옮겼으면 ✓. 보드 목록을 못 받았으면 항목이 없다.
+#[test]
+fn repos_left_on_boards_are_flagged_with_a_fix() {
+    let checks = runtime_checks(
+        &RuntimeInput {
+            health: healthy(),
+            repos_to_move: Some(vec!["acorn".into(), "tally".into()]),
+            ..Default::default()
+        },
+        now(),
+    );
+    let repos = find(&checks, "repos");
+    assert!(!repos.ok);
+    assert!(repos.detail.contains("acorn, tally"), "{}", repos.detail);
+    assert!(repos.fix.as_deref().unwrap().contains("repos"));
+
+    let checks = runtime_checks(
+        &RuntimeInput {
+            health: healthy(),
+            repos_to_move: Some(Vec::new()),
+            ..Default::default()
+        },
+        now(),
+    );
+    assert!(find(&checks, "repos").ok);
+}

@@ -89,11 +89,9 @@ pub fn bridge_notifier(runner: Runner, bridge: rocky_core::config::CommandBridge
 /// "보내지 않기" 면 보내지 않는다(다른 세션으로 넘기지 않는다) — 못 보낸 것은 전달 기록에 남는다.
 pub fn session_notifier(state: Arc<ServerState>) -> Notifier {
     Arc::new(move |event| {
-        let boards = state.store.list_boards(false).unwrap_or_default();
-        // 리뷰 도착은 그 레포를 둔 보드 중 하나라도 reviewFix 를 켰을 때만 세션에 처리를 시킨다
-        // (`rocky board review-fix on` — 그 레포의 세션이 자기 보드를 켠다).
+        // 리뷰 도착은 그 레포를 둔 항목(`repos` 블록 · 보드) 중 하나라도 reviewFix 를 켰을 때만 세션에 처리를 시킨다.
         let text = if event.kind == PrEventKind::Review {
-            if !rocky_core::prwatch::review_fix_enabled(&boards, &event.repo) {
+            if !rocky_core::prwatch::review_fix_enabled(&state.repos(), &event.repo) {
                 return;
             }
             rocky_core::peer_inbox::review_session_message(event)
@@ -348,22 +346,21 @@ async fn tick_repo(
         .pointer("/viewer/login")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
-    let boards = state.store.list_boards(false).unwrap_or_default();
-    // `@me` 를 풀 계정이 응답에 없으면 그 보드는 아무것도 알리지 못한다 — 조용히 끊기지 않게 남긴다.
+    let repos = state.repos();
+    // `@me` 를 풀 계정이 응답에 없으면 그 레포는 아무것도 알리지 못한다 — 조용히 끊기지 않게 남긴다.
     if viewer.is_none()
-        && boards
-            .iter()
-            .any(|b| b.repo.as_deref() == Some(repo) && b.pr_authors.iter().any(|a| a == "@me"))
+        && rocky_core::repos::for_repo(&repos, repo)
+            .any(|r| r.pr_authors.iter().any(|a| a == "@me"))
     {
         eprintln!(
-            "rocky: PR 감시 {repo} — 응답에 viewer 가 없어 @me 판정 불가(그 보드는 알림이 가지 않는다)"
+            "rocky: PR 감시 {repo} — 응답에 viewer 가 없어 @me 판정 불가(그 레포는 알림이 가지 않는다)"
         );
     }
     state.set_gh_viewer(viewer.clone());
     // board_id 가 있으면 그 보드의 필터(세션 훅 주입), 없으면 레포 단위(배너·브릿지).
     let allow = |e: &rocky_core::prwatch::PrEvent, board_id: Option<&str>| {
         rocky_core::prwatch::author_allowed(
-            &boards,
+            &repos,
             &e.repo,
             board_id,
             e.author.as_deref(),

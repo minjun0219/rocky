@@ -16,6 +16,8 @@
 - **PR 감시의 "첫 바퀴 전" 은 멈춤이 아니다.** 데몬이 막 뜨면 `prWatch` 는 기본값(`available: false`, `lastTick`·`reason` 없음)이다. tick 은
   실패해도 늘 `lastTick` 과 `reason` 을 함께 남기므로, 둘 다 없으면 첫 tick 전으로 보고 ✓(정보)로 낸다 — 재기동 직후 doctor 가 `gh auth
   status` 를 안내하던 오탐(2026-10-06 실측: 기동 뒤 1분 반쯤 첫 tick).
+- **레포 목록(`repos`) 항목은 옮겨 가는 동안만 있다.** `GET /api/boards` 와 사용자 `rocky.json` 의 `repos` 를 맞대어
+  레포나 path 가 붙었는데 `repos` 에 없는 보드를 ⚠(선택)로 낸다(`repos::boards_missing_from_config`). 보드를 걷어내면 이 항목도 빠진다.
 - **statusline 연결은 `rocky statusline`(·플래그)을 부를 때만 친다**(`setup::statusline_wired`) — 걷은 `/api/statusline` 을 부르는 옛
   조각은 아무것도 그리지 않으니 연결로 치지 않고, `settings.json` 에 넣을 조각(`setup::STATUSLINE_SETTING`)을 안내한다.
   `rocky statusline guard`·`doctor` 같은 하위 명령은 그리지 않아 치지 않는다.

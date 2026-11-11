@@ -22,6 +22,9 @@ pub struct RuntimeInput {
     pub verify: Option<Value>,
     pub deliveries: Option<Value>,
     pub rc: Option<Value>,
+    /// `rocky.json` 의 `repos` 에 아직 옮기지 않은 보드 key(`rocky_core::repos::boards_missing_from_config`). 보드 목록을 못
+    /// 받았으면 `None` 이고 그 항목은 건너뛴다.
+    pub repos_to_move: Option<Vec<String>>,
 }
 
 fn check(id: &str, kind: CheckKind, ok: bool, detail: String, fix: Option<&str>) -> Check {
@@ -44,9 +47,10 @@ fn age_secs(at: &str, now: DateTime<Utc>) -> Option<i64> {
         .map(|t| (now - t.with_timezone(&Utc)).num_seconds())
 }
 
-/// 실행 상태 점검 — 항목 순서는 데몬 → PR 감시 → 기본 브랜치 검증 → 세션 전달 → rc.
+/// 실행 상태 점검 — 항목 순서는 데몬 → PR 감시 → 레포 목록 → 기본 브랜치 검증 → 세션 전달 → rc.
 pub fn runtime_checks(input: &RuntimeInput, now: DateTime<Utc>) -> Vec<Check> {
     let mut out = vec![db_check(&input.health), pr_watch_check(&input.health, now)];
+    out.extend(input.repos_to_move.as_deref().map(repos_check));
     out.extend(input.verify.as_ref().map(verify_check));
     out.extend(input.deliveries.as_ref().map(|d| deliveries_check(d, now)));
     out.extend(input.rc.as_ref().map(rc_check));
@@ -131,6 +135,31 @@ fn pr_watch_check(health: &Value, now: DateTime<Utc>) -> Check {
             None,
         ),
     }
+}
+
+/// 보드가 겸하던 레포 목록을 `rocky.json` 의 `repos` 로 옮겼나. 보드를 걷어내기 전까지는 보드 값으로도 돌아가므로
+/// 선택 항목이다 — 걷어낸 뒤에는 옮기지 않은 레포의 PR 감시 필터 · reviewFix · 검증이 끊긴다.
+fn repos_check(to_move: &[String]) -> Check {
+    if to_move.is_empty() {
+        return check(
+            "repos",
+            CheckKind::Optional,
+            true,
+            "레포 목록이 rocky.json 의 repos 에 있다".into(),
+            None,
+        );
+    }
+    check(
+        "repos",
+        CheckKind::Optional,
+        false,
+        format!(
+            "보드에만 있는 레포 {}개: {} — 보드를 걷어내면 PR 감시 필터 · reviewFix · 검증이 끊긴다",
+            to_move.len(),
+            to_move.join(", ")
+        ),
+        Some("rocky board show <key> 로 repo · path 를 보고 ~/.config/rocky/rocky.json 의 repos 에 옮긴다"),
+    )
 }
 
 fn verify_check(verify: &Value) -> Check {
