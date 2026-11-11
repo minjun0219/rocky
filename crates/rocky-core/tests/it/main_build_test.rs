@@ -82,29 +82,40 @@ fn reads_where_the_marketplace_points() {
 #[test]
 fn plugin_step_reinstalls_only_our_folder_and_switches_from_release() {
     use rocky_core::main_build::{plugin_step, PluginStep};
+    let ours = "/d/rocky/current/marketplace";
     let src = "/d/rocky/main-src";
     assert_eq!(
         plugin_step(
-            &MarketplaceSource::Directory("/d/rocky/main-src/".into()),
+            &MarketplaceSource::Directory("/d/rocky/current/marketplace/".into()),
+            ours,
             src
         ),
         PluginStep::Reinstall
     );
+    // 2026-11-10 전의 main 빌드 모드는 main-src 를 걸었다 — 버전 폴더 사본으로 옮긴다(옵션이 지워지니 확인)
     assert_eq!(
-        plugin_step(&MarketplaceSource::Github("minjun0219/rocky".into()), src),
+        plugin_step(&MarketplaceSource::Directory(src.into()), ours, src),
         PluginStep::Switch
     );
     assert_eq!(
-        plugin_step(&MarketplaceSource::Missing, src),
+        plugin_step(
+            &MarketplaceSource::Github("minjun0219/rocky".into()),
+            ours,
+            src
+        ),
+        PluginStep::Switch
+    );
+    assert_eq!(
+        plugin_step(&MarketplaceSource::Missing, ours, src),
         PluginStep::Switch
     );
     // 개발용으로 작업 트리를 가리키는 폴더 마켓플레이스는 건드리지 않는다
     assert!(matches!(
-        plugin_step(&MarketplaceSource::Directory("/w/rocky".into()), src),
+        plugin_step(&MarketplaceSource::Directory("/w/rocky".into()), ours, src),
         PluginStep::Leave(_)
     ));
     assert!(matches!(
-        plugin_step(&MarketplaceSource::Other("git".into()), src),
+        plugin_step(&MarketplaceSource::Other("git".into()), ours, src),
         PluginStep::Leave(_)
     ));
 }
@@ -112,23 +123,32 @@ fn plugin_step_reinstalls_only_our_folder_and_switches_from_release() {
 #[test]
 fn release_step_undoes_only_our_folder_and_refreshes_github() {
     use rocky_core::main_build::{release_step, ReleaseStep};
+    let ours = "/d/rocky/current/marketplace";
     let src = "/d/rocky/main-src";
     assert_eq!(
-        release_step(&MarketplaceSource::Directory(src.into()), src),
+        release_step(&MarketplaceSource::Directory(ours.into()), ours, src),
         ReleaseStep::FromFolder
     );
     assert_eq!(
-        release_step(&MarketplaceSource::Missing, src),
+        release_step(&MarketplaceSource::Directory(src.into()), ours, src),
+        ReleaseStep::FromFolder
+    );
+    assert_eq!(
+        release_step(&MarketplaceSource::Missing, ours, src),
         ReleaseStep::Add
     );
     // 지난 전환이 실패해 GitHub 그대로면 옛 클론을 깔지 않게 갱신부터
     assert_eq!(
-        release_step(&MarketplaceSource::Github("minjun0219/rocky".into()), src),
+        release_step(
+            &MarketplaceSource::Github("minjun0219/rocky".into()),
+            ours,
+            src
+        ),
         ReleaseStep::Refresh
     );
     // 개발용으로 작업 트리를 가리키는 폴더는 `--release` 도 건드리지 않는다
     assert!(matches!(
-        release_step(&MarketplaceSource::Directory("/w/rocky".into()), src),
+        release_step(&MarketplaceSource::Directory("/w/rocky".into()), ours, src),
         ReleaseStep::Leave(_)
     ));
 }

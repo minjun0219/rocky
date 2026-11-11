@@ -37,8 +37,11 @@
 
 1. **tarball 에 플러그인 사본**(#548) — `package-macos.sh`·`release.yml` 이 `marketplace/` 를 같이 묶는다. 기기 동작은 아직 그대로.
 2. **TUI 제거** — `tui/`, `rocky tui`, `build:tui`, tarball 의 `tui.js`, 문서.
-3. **폴더 마켓플레이스를 `current/marketplace` 로** — 릴리스·nightly 모드의 `rocky update` 와 부트스트랩이 새 버전 폴더를 받은 뒤 마켓플레이스를 거기에 걸고 플러그인을
-   다시 깐다. nightly 의 `main-src/` reset 은 필요 없어진다.
+3. **폴더 마켓플레이스를 `current/marketplace` 로(main·nightly)** — `--main`·`--nightly` 가 새 버전 폴더를 건 뒤 마켓플레이스를
+   거기에 걸고 플러그인을 다시 깐다. main 빌드도 `main/marketplace` 사본을 만들고, nightly 의 `main-src/` clone·reset 은 없어진다.
+   Antigravity 번들도 사본(`marketplace/antigravity`)에서. 옛 `main-src` 마켓플레이스는 다음 업데이트에서 한 번 확인받고 옮긴다.
+3c. **릴리스 모드도**(뒤로) — 릴리스 모드는 GitHub 마켓플레이스가 입구이고 부트스트랩이 플러그인 버전으로 tarball 을 고른다. 폴더로
+   옮기려면 `rocky update` 가 최신 릴리스 tarball 을 플러그인 없이 직접 받아야 한다(nightly 의 `install_nightly` 와 같은 길).
 3b. **맥 앱을 CLI 로** — `rocky update` 의 앱 깔기·다시 띄우기를 빼고 `rocky app [--quit]` 을 더한다. 앱의 첫 실행 로그인 항목 등록(`LoginItem.swift`)을 끈다.
 4. **nightly 자동 받기**(nightly 설계 8번) — Mac Studio 의 `--main` 자동 배포를 옮긴다.
 
