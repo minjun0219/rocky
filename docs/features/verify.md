@@ -6,6 +6,8 @@
 ## 규칙
 
 - **opt-in.** `rocky.json` 의 `verify.targets[]`(보드 · 브랜치 · 단계 argv)가 있을 때만. 명령은 설정 파일에만 — 화면·REST 가 바꾸지 않는다.
+- **대상의 `board` 는 레포 key 다.** `repo` · `path` 는 `repos` 블록에서 먼저 찾고, 없으면 보드(옛 key 별칭까지)에서 찾는다
+  (`ServerState::repo_entry`, `rocky_core::repos`). 보드를 걷어내면 `repos` 만 남는다.
 - **감지**는 `git ls-remote`(GitHub API 예산을 쓰지 않는다). 새 커밋이면 `<todo dir>/verify/<board>/<branch>/tree`(보드 레포의
   **detached** 워크트리 — 사람·세션의 작업 트리·브랜치를 건드리지 않는다)에서 단계를 차례로 돈다. 디렉터리 이름은 읽기 쉬운 부분 +
   원래 이름의 SHA-256 앞 8자(`release/a` 와 `release_a` 가 겹치지 않게).

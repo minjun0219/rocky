@@ -590,22 +590,30 @@ pub async fn verify_target_with(
         });
     };
     let last = read_record(&dir, "last.json");
-    // 보드는 별칭까지 푼다(보드 key 를 바꿔도 설정이 끊기지 않게).
-    let (repo, repo_name) = match state.store.get_board(&target.board) {
-        Ok(Some(board)) => match board.path {
-            Some(p) => (PathBuf::from(p), board.repo),
+    // 레포는 `repos` 블록이 먼저, 없으면 보드(별칭까지 푼다 — 보드 key 를 바꿔도 설정이 끊기지 않게).
+    let (repo, repo_name) = match state.repo_entry(&target.board) {
+        Ok(Some(entry)) => match entry.path {
+            Some(p) => (PathBuf::from(p), entry.repo),
             None => {
                 return report(
                     last,
                     Some(format!(
-                        "보드 {} 에 path 가 없다 — rocky board path 로 레포를 잇는다",
-                        target.board
+                        "레포 {} 에 path 가 없다 — rocky.json 의 repos.{}.path 로 잇는다",
+                        target.board, target.board
                     )),
                 )
             }
         },
-        Ok(None) => return report(last, Some(format!("보드가 없다: {}", target.board))),
-        Err(e) => return report(last, Some(format!("보드 {}: {e}", target.board))),
+        Ok(None) => {
+            return report(
+                last,
+                Some(format!(
+                    "레포가 없다: {} — rocky.json 의 repos 에 더한다",
+                    target.board
+                )),
+            )
+        }
+        Err(e) => return report(last, Some(format!("레포 {}: {e}", target.board))),
     };
     let repo_s = repo.to_string_lossy().to_string();
     let refspec = format!("refs/heads/{}", target.branch);
@@ -943,7 +951,7 @@ async fn deploy_target(
     deploying: bool,
 ) -> bool {
     let dir = target_dir(root, target);
-    let board = state.store.get_board(&target.board).ok().flatten();
+    let board = state.repo_entry(&target.board).ok().flatten();
     let passed: Option<VerifyRecord> = read_record(&dir, "passed.json").or_else(|| {
         read_record::<VerifyRecord>(&dir, "finished.json")
             .filter(|r| r.state == VerifyState::Passed)

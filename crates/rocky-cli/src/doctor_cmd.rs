@@ -2,9 +2,12 @@
 //! 한 번에 본다. 판정은 `rocky_core::setup`·`rocky_core::doctor`, 여기는 재료 수집뿐이다. 읽기만 한다 — 데몬이 꺼져
 //! 있어도 띄우지 않고(실행 상태는 "닿지 못함" 으로 남긴다) 고치는 명령은 안내로만 낸다.
 
+use rocky_core::config::user_config_path;
 use rocky_core::config::TodoConfig;
 use rocky_core::doctor::{render, runtime_checks, RuntimeInput};
+use rocky_core::repos::{boards_missing_from_config, load_repos_block};
 use rocky_core::setup::build_report;
+use rocky_core::types::Board;
 use serde_json::{json, Value};
 
 use crate::client::{request_value, CliContext};
@@ -26,6 +29,15 @@ pub fn cmd_doctor(ctx: &CliContext, todo: &TodoConfig, printer: &Printer) -> Res
                     // 로컬 전용 라우트 — 거절(403)이면 본문이 `{ "error" }` 라 건너뛴다.
                     deliveries: get("/api/deliveries").filter(|v| v.get("error").is_none()),
                     rc: get("/api/rc/servers").filter(|v| v.get("error").is_none()),
+                    repos_to_move: get("/api/boards")
+                        .and_then(|v| serde_json::from_value::<Vec<Board>>(v).ok())
+                        .map(|boards| {
+                            let config = load_repos_block(&user_config_path());
+                            boards_missing_from_config(&config, &boards)
+                                .into_iter()
+                                .map(|b| b.key.clone())
+                                .collect()
+                        }),
                 },
                 chrono::Utc::now(),
             )

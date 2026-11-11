@@ -468,18 +468,20 @@ fn a_reopened_pr_with_unhandled_threads_is_a_review() {
 fn review_fix_follows_the_board_that_holds_the_repo() {
     use rocky_core::prwatch::review_fix_enabled;
     use rocky_core::types::Board;
-    let board = |repo: Option<&str>, on: bool| Board {
-        id: "b".into(),
-        key: "k".into(),
-        title: "k".into(),
-        description: None,
-        repo: repo.map(str::to_string),
-        path: None,
-        previous_keys: None,
-        review_fix: on,
-        created_at: "2026-09-29T00:00:00Z".into(),
-        archived_at: None,
-        pr_authors: Vec::new(),
+    let board = |repo: Option<&str>, on: bool| {
+        rocky_core::repos::from_board(&Board {
+            id: "b".into(),
+            key: "k".into(),
+            title: "k".into(),
+            description: None,
+            repo: repo.map(str::to_string),
+            path: None,
+            previous_keys: None,
+            review_fix: on,
+            created_at: "2026-09-29T00:00:00Z".into(),
+            archived_at: None,
+            pr_authors: Vec::new(),
+        })
     };
     assert!(review_fix_enabled(
         &[board(Some("Minjun0219/Mdwire"), true)],

@@ -75,9 +75,19 @@ rocky tokens here                  # 이 디렉터리의 최근 세션 — 턴�
 
 추천은 규칙 네 가지다(최근 15턴, 5턴 미만이면 판단하지 않음). ① 턴 평균 출력이 3,000토큰 이하인데 effort가 xhigh/max면 medium을 권한다. ② 창 안에서 effort를 올린 뒤 턴이 길어졌으면 이미 조정한 것으로 보고 추천하지 않는다. ③ Opus인데 도구 호출이 0이고 출력이 짧으면 Sonnet medium을 권한다. ④ 맥락(요청당 캐시 읽기)이 20만 토큰 이상인데 턴 평균 출력이 1만 토큰 이하면 — 긴 맥락을 요청마다 다시 읽으며 조금씩 쓰는 중이다 — 기계적인 후속(리뷰 반영·머지 뒤 정리)은 새 세션이나 가벼운 서브에이전트로 넘기라고 권한다. 긴 세션의 비용은 대부분 출력이 아니라 이 캐시 읽기다. 모델 전환은 다음 작업 경계(커밋 직후)나 새 세션에서 하라고 권한다 — 모델을 바꾸면 쌓인 캐시를 못 쓰고 새로 쌓는다(effort 변경은 캐시를 지킨다). 수치와 규칙 on/off는 `rocky.json`의 `tokens.recommend`로 바꾼다.
 
+### 레포 목록(`repos`)
+
+PR 감시의 작성자 필터 · reviewFix 와 기본 브랜치 검증이 보는 레포를 사용자 `rocky.json` 의 `repos` 블록에 적는다. 보드가 겸하던 역할을 옮겨 온 것이다 — 보드를 걷어내는 중이라([설계](./docs/design/specs/2026-11-11-board-and-rc-removal-design.md)) 보드가 남아 있는 동안은 같은 key 면 이 블록이 이기고, 여기 없는 보드는 보드 값(`rocky board repo` · `path` · `pr-authors` · `review-fix`)으로 돈다. key 는 보드 key 와 같은 이름이라 `verify.targets[].board` 를 고치지 않아도 된다. 데몬은 기동할 때 읽는다(바꾸면 `rocky daemon restart`). 아직 옮기지 않은 보드는 `rocky doctor` 가 알린다.
+
+```json
+"repos": {
+  "rocky": { "repo": "minjun0219/rocky", "path": "~/dev/workspaces/rocky", "prAuthors": ["@me"], "reviewFix": true }
+}
+```
+
 ### 기본 브랜치 검증
 
-여러 워크트리에서 PR을 연달아 머지하면 "머지된 `main`이 여전히 초록인가"를 누군가 다시 봐야 한다. 데몬이 그 일을 한다 — `rocky.json`의 `verify.targets[]`에 보드와 단계를 적으면, 원격 브랜치를 `git ls-remote`로 보다가(GitHub API 예산을 쓰지 않는다) 새 커밋이 들어오면 전용 워크트리(`<todo dir>/verify/<board>/<branch>/tree`, detached — 사람·세션의 작업 트리와 브랜치를 건드리지 않는다)에서 단계를 차례로 돈다. 한 번에 하나만 돌고, 도는 사이 커밋이 몰리면 최신 하나만 본다. 실패와 복구(실패 → 통과)만 macOS 배너로 알린다.
+여러 워크트리에서 PR을 연달아 머지하면 "머지된 `main`이 여전히 초록인가"를 누군가 다시 봐야 한다. 데몬이 그 일을 한다 — `rocky.json`의 `verify.targets[]`에 레포 key(`repos` 블록, 없으면 보드)와 단계를 적으면, 원격 브랜치를 `git ls-remote`로 보다가(GitHub API 예산을 쓰지 않는다) 새 커밋이 들어오면 전용 워크트리(`<todo dir>/verify/<board>/<branch>/tree`, detached — 사람·세션의 작업 트리와 브랜치를 건드리지 않는다)에서 단계를 차례로 돈다. 한 번에 하나만 돌고, 도는 사이 커밋이 몰리면 최신 하나만 본다. 실패와 복구(실패 → 통과)만 macOS 배너로 알린다.
 
 ```json
 "verify": { "targets": [ { "board": "rocky", "steps": [

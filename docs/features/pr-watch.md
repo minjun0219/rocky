@@ -27,9 +27,11 @@
   중에서, 안 풀리면 전 보드에서 고른다. 훅은 세션이 받은편지함으로 **이미 받아들인 것**을 뺀다 — 데몬의 전달 `ok`(소켓에 씀)가
   아니라 트랜스크립트의 peer 기록으로 판정한다(권한 우회 모드 세션은 승인 창에 보류하고 거절하면 안 들어간다; `pr_entries_for_session`
   ·`peer_messages`·`drop_absorbed`). 구독·보드 조회가 실패하면 훅은 커서를 붙들고 채널은 다시 붙는다.
-- `pr-review` 는 보드의 `reviewFix` 가 켜졌을 때만 세션에 간다. `pr-merged`·`pr-ci-failed`(같은 head 에서 한 번, 재실행이 또 실패하면
+- **레포별 설정(`reviewFix` · `prAuthors`)은 `rocky.json` 의 `repos` 블록과 보드를 합친 목록에서 읽는다**(`rocky_core::repos::effective` —
+  같은 key 면 설정이 통째로 이기고, 설정에 없는 보드는 보드 값). 보드를 걷어내면 `repos` 만 남는다. 레포 이름은 대소문자를 가리지 않는다.
+- `pr-review` 는 그 레포의 `reviewFix` 가 켜졌을 때만 세션에 간다. `pr-merged`·`pr-ci-failed`(같은 head 에서 한 번, 재실행이 또 실패하면
   또)는 배너·브릿지 없이 세션에만 간다.
-- 보드 `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게).
+- `prAuthors`(`@me`·login)에 걸린 전이는 `quiet` 로 기록만 되고 세션·배너·브릿지·훅 주입을 건너뛴다(보기는 넓게, 깨우기는 좁게).
 - **받은편지함 등록은 `session_inboxes` 에도 남겨** 데몬이 다시 떠도 되살린다. 되살린 등록은 훅이 다시 등록하기 전까지 그 세션이
   살아 있고 소켓 이름의 pid 가 그 세션의 것일 때만 쓴다(`restored_registration_live`, 캐시 없는 세션 목록; 못 읽으면 보내지 않는다 —
   소켓 경로는 다른 세션이 다시 쓸 수 있다).

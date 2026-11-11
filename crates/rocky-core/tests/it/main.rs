@@ -23,6 +23,7 @@ mod prwatch_test;
 mod rc_targets_test;
 mod rc_test;
 mod refs_test;
+mod repos_test;
 mod sessions_test;
 mod setup_test;
 mod store_test;

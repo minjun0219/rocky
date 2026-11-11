@@ -103,6 +103,8 @@ pub struct ServerOptions {
     pub rc_settings: Option<crate::rc::RcSettings>,
     /// Cloudflare Access 토큰 확인(`rocky.json` 의 `access` 블록). 없으면 Access 로 온 요청은 원격 제어를 못 한다.
     pub access: Option<Arc<crate::access::AccessGate>>,
+    /// 레포 목록(`rocky.json` 의 `repos` 블록) — PR 감시 · 검증이 보드와 합쳐 읽는다(`ServerState::repos`).
+    pub repos: Vec<rocky_core::repos::RepoEntry>,
 }
 
 impl ServerOptions {
@@ -128,6 +130,7 @@ impl ServerOptions {
             rc_control: None,
             rc_settings: None,
             access: None,
+            repos: Vec::new(),
         }
     }
 }
@@ -168,6 +171,7 @@ pub struct ServerState {
     rc_control: Option<Arc<crate::rc::RcController>>,
     rc_settings: Option<crate::rc::RcSettings>,
     access: Option<Arc<crate::access::AccessGate>>,
+    repos_config: Vec<rocky_core::repos::RepoEntry>,
     /// 토큰 추천 SSE(`GET /api/tokens/events`) — 색인 스레드가 추천이 바뀐 세션을 민다. 전역 `events` 와 나눈 이유:
     /// 그 채널의 구독자(웹·rocky 채널)는 `data:` 마다 보드를 다시 읽는다.
     pub token_events: broadcast::Sender<String>,
@@ -210,6 +214,30 @@ pub struct ServerState {
 }
 
 impl ServerState {
+    /// 지금 쓰는 레포 목록 — 설정(`repos`)과 보관되지 않은 보드를 합친다(`rocky_core::repos::effective`). 보드를 못 읽으면
+    /// 설정만.
+    pub fn repos(&self) -> Vec<rocky_core::repos::RepoEntry> {
+        let boards = self.store.list_boards(false).unwrap_or_default();
+        rocky_core::repos::effective(&self.repos_config, &boards)
+    }
+
+    /// key 로 레포 하나 — 설정이 먼저, 없으면 보드(옛 key 별칭까지 푼다). 검증 대상(`verify.targets[].board`)이 쓴다.
+    pub fn repo_entry(&self, key: &str) -> StoreResult<Option<rocky_core::repos::RepoEntry>> {
+        if let Some(entry) = self.repos_config.iter().find(|r| r.key == key) {
+            return Ok(Some(entry.clone()));
+        }
+        let Some(board) = self.store.get_board(key)? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            self.repos_config
+                .iter()
+                .find(|r| r.key == board.key)
+                .cloned()
+                .unwrap_or_else(|| rocky_core::repos::from_board(&board)),
+        ))
+    }
+
     /// MCP 도구가 이슈 생성에 쓰는 러너 — REST 와 같은 주입을 공유한다.
     pub fn mcp_gh_runner(&self) -> Runner {
         self.gh_runner.clone()
@@ -620,6 +648,7 @@ pub fn build_server(options: ServerOptions) -> Arc<ServerState> {
         rc_control: options.rc_control,
         rc_settings: options.rc_settings,
         access: options.access,
+        repos_config: options.repos,
         rc: options.rc.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { rocky_core::rc::RcStatus::unconfigured() }))
         }),
@@ -2877,12 +2906,12 @@ async fn dispatch(
                 StatusCode::BAD_REQUEST,
             ));
         }
-        // 아무 레포나 물어 GitHub 예산을 쓰지 못하게 — 보드에 붙은 레포이거나 구독한 레포만.
+        // 아무 레포나 물어 GitHub 예산을 쓰지 못하게 — 레포 목록(`repos` 블록 · 보드)에 있거나 구독한 레포만.
         let lower = repo.to_lowercase();
-        let known = store
-            .list_boards(false)?
+        let known = state
+            .repos()
             .into_iter()
-            .filter_map(|b| b.repo)
+            .filter_map(|r| r.repo)
             .chain(store.pr_subscriptions()?.into_iter().map(|s| s.repo))
             .any(|r| r.to_lowercase() == lower);
         if !known {
@@ -2965,12 +2994,9 @@ async fn dispatch(
         }
         let mut prs = store.list_prs(repo.as_deref(), flag("open"))?;
         if repo.is_none() {
-            // 전역 목록은 지금 보드에 설정된 레포만 — 떼어 낸 레포의 옛 스냅숏이 새 tick 전에 보이지 않게.
-            let watched: std::collections::HashSet<String> = store
-                .list_boards(false)?
-                .into_iter()
-                .filter_map(|b| b.repo)
-                .collect();
+            // 전역 목록은 지금 레포 목록(`repos` 블록 · 보드)에 있는 레포만 — 떼어 낸 레포의 옛 스냅숏이 새 tick 전에 보이지 않게.
+            let watched: std::collections::HashSet<String> =
+                state.repos().into_iter().filter_map(|r| r.repo).collect();
             prs.retain(|p| watched.contains(&p.repo));
         }
         return Ok(ok_json(&prs));
