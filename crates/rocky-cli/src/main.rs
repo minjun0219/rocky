@@ -195,6 +195,13 @@ fn run(argv: &[String]) -> Result<(), String> {
         "open" => commands::cmd_open(&ctx, expose_lan, expose_ts),
         "daemon" => commands::cmd_daemon(&ctx, &rest, expose_lan, expose_ts),
         "uninstall" => rocky_cli::uninstall_cmd::cmd_uninstall(&ctx, &parsed, expose_ts),
+        // 맥 앱은 선택 — `rocky update` 는 깔지도 띄우지도 않고, 필요할 때 여기서 띄우고 내린다(A안, 2026-11-10).
+        "app" if parsed.bool_flag("quit") => rocky_cli::mac_app::quit().map(|l| println!("{l}")),
+        "app" => rocky_cli::mac_app::open(&rocky_core::config::data_home().join("rocky/current"))
+            .map(|l| {
+                println!("{l}");
+                rocky_cli::mac_app::report_stale();
+            }),
         "config" => rocky_cli::config_cmd::cmd_config(&ctx, &rest, &todo_config, &printer),
         "doctor" => rocky_cli::doctor_cmd::cmd_doctor(&ctx, &todo_config, &printer),
         "usage" => rocky_cli::usage_cmd::cmd_usage(&parsed, &printer),

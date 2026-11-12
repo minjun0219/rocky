@@ -1,7 +1,6 @@
-//! 맥 앱(`Rocky.app`)을 릴리스·nightly tarball 에서 기기에 까는 순수 판정 — 어디에 깔지, 바꿀지, 무엇으로 서명할지.
-//! 복사·서명·다시 띄우기는 `rocky_cli::mac_app` 이 한다(규칙은 `docs/features/mac.md`).
-
-use std::path::{Path, PathBuf};
+//! 맥 앱(`Rocky.app`)을 `rocky app` 으로 띄울 때의 순수 판정 — 무엇으로 서명할지, 다시 서명할지. 앱은 버전 폴더
+//! (`current/Rocky.app`)에 그대로 있고 `/Applications` 로 옮기지 않는다(A안, 2026-11-10). 서명·띄우기·내리기는
+//! `rocky_cli::mac_app` 이 한다(규칙은 `docs/features/mac.md`).
 
 /// tarball 안과 설치 폴더 안의 앱 이름.
 pub const APP: &str = "Rocky.app";
@@ -26,31 +25,6 @@ fn plist_string(xml: &str, key: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
-/// 깔 자리 — 이미 깔린 곳이 있으면 그곳(`/Applications` 먼저), 없으면 쓸 수 있는 `/Applications`, 그것도 아니면 `~/Applications`.
-pub fn choose_dest(
-    home: &Path,
-    system_has: bool,
-    user_has: bool,
-    system_writable: bool,
-) -> PathBuf {
-    let system = Path::new("/Applications").join(APP);
-    let user = home.join("Applications").join(APP);
-    if system_has {
-        system
-    } else if user_has {
-        user
-    } else if system_writable {
-        system
-    } else {
-        user
-    }
-}
-
-/// 바꿀까 — 없거나 버전이 다르면. `force` 는 nightly 처럼 버전 문자열이 같아도 빌드가 다른 경우.
-pub fn needs_install(installed: Option<&str>, bundled: &str, force: bool) -> bool {
-    force || installed != Some(bundled)
-}
-
 /// 다시 서명할 인증서 — `ROCKY_MAC_SIGN_IDENTITY` 가 있으면 그것(`-` 면 CI 의 ad-hoc 서명 그대로), 없으면
 /// `security find-identity -p codesigning` 출력에 [`DEFAULT_IDENTITY`] 가 있을 때만 그것. `None` 이면 다시 서명하지 않는다.
 pub fn sign_identity(env: Option<&str>, keychain_listing: &str) -> Option<String> {
@@ -63,7 +37,8 @@ pub fn sign_identity(env: Option<&str>, keychain_listing: &str) -> Option<String
     }
 }
 
-/// 깐 뒤 띄울까 — 돌고 있었으면 다시, 처음 깔았으면 새로. 깔려 있는데 꺼져 있으면 사람이 끈 것이라 두고 본다.
-pub fn should_launch(was_running: bool, was_installed: bool) -> bool {
-    was_running || !was_installed
+/// 다시 서명할까 — 쓸 인증서가 있고, 그 버전 폴더의 앱을 마지막으로 서명한 인증서(`signed`, 표식 파일)와 다를 때만.
+/// 같은 폴더의 앱은 한 번만 서명한다 — 해시가 바뀔 때마다 EDR·Gatekeeper 가 새 파일로 본다.
+pub fn needs_resign(identity: Option<&str>, signed: Option<&str>) -> bool {
+    identity.is_some_and(|id| signed.map(str::trim) != Some(id))
 }

@@ -62,6 +62,7 @@ pub const HELP: &str = r#"rocky — 공유 todo/스크래치패드 보드 (데�
   rocky board ls|show|add|rename|title|desc|repo|path|review-fix|pr-authors   보드 메타 (이름·slug·설명·GitHub·리뷰 반영·알릴 PR 작성자)
   rocky open                              접속 주소 출력 (로컬/내부망/테일넷 — 링크 클릭으로 열기)
   rocky daemon run|start|stop|restart|status|install|uninstall   restart 는 버전과 상관없이 지금 설치본으로 교체, status 는 launchd 로드 여부와 고치는 명령까지
+  rocky app [--quit]                      맥 앱(메뉴 막대·아바타)을 띄운다 / 내린다 — 지금 버전 폴더의 Rocky.app. 업데이트는 앱을 깔거나 띄우지 않는다
   rocky uninstall [--purge] [--dry-run] [--yes]   플러그인·launchd·데몬·바이너리를 걷어낸다(데이터는 --purge 일 때만)
   rocky version | --version               설치된 CLI 버전
   rocky update [--check]                  플러그인·데몬을 최신으로 — 릴리스 모드면 최신 릴리스, main 빌드 모드면 main, nightly 모드면 최신 nightly

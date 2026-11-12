@@ -99,9 +99,9 @@
   (2026-11-06 실측). 그 화면은 `(AirPlay)` 라는 이름으로 잡힌다. 11-06 에는 `screencapture` 가 실패했지만 11-09 에는 정지 화면도 `-V` 녹화도 돼서
   실제 앱이 걷는 것을 녹화로 확인했다 — 그사이 무엇이 달라졌는지는 가리지 못했다. 화면이 잠들거나 가려질 때 실제로 멈추는지는 화면 있는 맥에서 아직 재지 못했다. 다시 보이면 멈췄던 동안을 한 걸음으로 치지 않는다. 창 목록은 `CGWindowListCopyWindowInfo` 로 0.5초마다 위치만 읽는다(처음 한 번만 기다리고, 그 뒤엔 메인 스레드 밖에서 —
   창이 많으면 수십 ms 걸려 걸음이 멈칫했다) — 창 이름을 읽지 않으니 화면 기록 권한을 묻지 않는다. 패널은 로키 칸(말풍선이 떠 있는 동안은 패널 전체) 위에 마우스가 있을 때만 클릭을 받고, 나머지는 아래 창으로 흘려보낸다(`ignoresMouseEvents`).
-- **로그인할 때 뜬다**(오너 요청 2026-11-06 — 데몬은 launchd 로 로그인 때 뜨는데 앱은 사람이 열어야 했다). 앱이 macOS 로그인 항목
-  (`SMAppService.mainApp`, `LoginItem.swift`)에 스스로 오른다 — .app 으로 처음 뜰 때 한 번만 저절로 올리고(`defaults` 의 `loginItemOffered`),
-  그 뒤에 메뉴의 "로그인할 때 열기"나 시스템 설정 > 일반 > 로그인 항목에서 끈 것은 되살리지 않는다. 데몬·훅·`rocky daemon install` 은 앱을 띄우지 않는다 —
+- **로그인할 때 뜨기는 사람이 켠다**(2026-11-06 처음엔 첫 실행에 저절로 올렸다 → 2026-11-12 오너 결정 "메뉴 막대와 아바타는 선택, CLI 로 필요할 때만").
+  메뉴의 "로그인할 때 열기"가 macOS 로그인 항목(`SMAppService.mainApp`, `LoginItem.swift`)을 켜고 끈다 — 앱이 스스로 올리지 않는다. 이미 켜 둔 기기는
+  그대로 두고(사람이 켠 것을 끄지 않는다), 시스템 설정 > 일반 > 로그인 항목에서 끈 것도 따라간다. 데몬·훅·`rocky daemon install` 은 앱을 띄우지 않는다 —
   앱은 데몬의 클라이언트라 둘 중 누가 먼저 떠도 SSE 가 다시 붙는다. `swift run` 의 실행 파일은 올릴 수 없어 토글을 숨긴다.
 - **따라다니기**(`defaults` 의 `follow`, 기본 켜짐, 돌아다니기가 켜져 있을 때만) — 사람이 보는 곳 옆으로 간다(오너 요청 2026-11-06 — 창 · 포인터 · 활동을 따라다니게).
   눈길(`GazeTracker`)은 포인터가 0.6초 멈춘 자리, 키 입력이 3초 안이고 포인터보다 나중이면 앞 앱의 맨 앞 창 윗변(포인터가 그 창 위면 포인터 x, 아니면 창 가운데)이다.
@@ -131,16 +131,15 @@
   `codesign` 하고, 없으면 ad-hoc(`-`)으로 서명한다. 오너의 맥은 자체 서명 인증서 `rocky` 를 쓴다(2026-10-27):
   `ROCKY_MAC_SIGN_IDENTITY=rocky mac/scripts/bundle.sh`. 서명 안 된·ad-hoc 빌드는 해시가 빌드마다 바뀌어 회사 맥 EDR 이 의심할 수 있다 — 그 맥에는
   인증서로 서명한 번들만 올린다. 앱 버전은 `package.json` 을 따른다(따로 들지 않는다 — 버전 넷을 맞추는 규칙에 다섯째를 더하지 않는다).
-- **배포는 릴리스 tarball 로**(오너 요청 2026-11-04 — 릴리스로 올려도 앱이 없었다). `release.yml`·`nightly.yml` 이 `bundle.sh`(ad-hoc 서명 — CI 에는
-  인증서가 없다)로 만든 `Rocky.app` 을 tarball 에 넣고, `rocky update`(릴리스 · `--release` · `--nightly`)가 바이너리를 받은 뒤 그 폴더의 앱을 깐다
-  (`rocky_cli::mac_app`, 판정은 `rocky_core::mac_app`). 자리는 이미 깔린 곳(`/Applications` 먼저, 다음 `~/Applications`), 없으면 쓸 수 있는
-  `/Applications`, 아니면 `~/Applications`. 버전(`CFBundleVersion`)이 같으면 두고, nightly 는 앱 버전이 `package.json` 그대로라 새로 받았을 때만 버전을 보지 않고 바꾼다.
-  키체인에 인증서가 있으면 **그 기기에서 다시 서명**한다 — `ROCKY_MAC_SIGN_IDENTITY` 가 있으면 그것(`-` 면 CI 의 ad-hoc 그대로), 없으면
-  `security find-identity -p codesigning` 에 `"rocky"` 가 있을 때만 `rocky`. 같은 폴더의 `.Rocky.app.new` 에 복사 → 격리 속성 지우기 → 서명 → `codesign --verify --strict`
-  를 다 통과한 뒤에야 rename 으로 바꿔 끼우고, 하나라도 실패하면 깔린 앱을 그대로 둔다. 돌고 있던 앱은 SIGTERM(`pkill -f`)으로 내렸다가 다시 띄우고
-  (AppleScript `quit` 은 자동화 권한 창을 띄워 쓰지 않는다), 처음 깐 앱은 띄우고, 깔려 있는데 꺼져 있던 앱은 사람이 끈 것이라 띄우지 않는다.
-  맥 앱 실패는 경고(`⚠`)로만 남기고 바이너리·데몬 업데이트를 되돌리지 않는다. CI 에서 앱 빌드가 깨지면(`continue-on-error`) 앱 없이 낸다 — 바이너리 릴리스를 막지 않는다.
-  앱이 없는 tarball(이 변경 전 릴리스)이면 아무것도 하지 않는다. 플러그인 자동 업데이트(SessionStart 부트스트랩)는 앱을 깔지 않는다 — 훅에서 앱을 내리고 띄우지 않는다.
+- **배포는 버전 폴더에 담기만, 띄우기는 `rocky app`**(2026-11-04 tarball 에 넣음 → 2026-11-12 A안으로 바꿈, 설계 `2026-11-09-mac-app-bundle-design.md` A5).
+  `release.yml`·`nightly.yml` 이 `bundle.sh`(ad-hoc 서명 — CI 에는 인증서가 없다)로 만든 `Rocky.app` 을 tarball 에 넣고, 앱은 받은 버전 폴더
+  (`current/Rocky.app`)에 그대로 있다. **`rocky update` 는 앱을 `/Applications` 로 옮기지도, 내리거나 띄우지도 않는다.** `rocky app` 이 그 앱을 띄우고
+  (`rocky_cli::mac_app::open`, 이미 돌고 있으면 앞으로만), `rocky app --quit` 이 SIGTERM(`pkill -f`)으로 내린다(AppleScript `quit` 은 자동화 권한 창을
+  띄워 쓰지 않는다). 키체인에 인증서가 있으면 **띄우기 전에 그 기기에서 한 번 다시 서명**한다 — `ROCKY_MAC_SIGN_IDENTITY` 가 있으면 그것(`-` 면 CI 의
+  ad-hoc 그대로), 없으면 `security find-identity -p codesigning` 에 `"rocky"` 가 있을 때만 `rocky`(`rocky_core::mac_app::sign_identity`). 격리 속성 지우기 →
+  서명 → 표식 `.Rocky.app.signed`(그 버전 폴더에서 이미 그 인증서로 서명했으면 다시 하지 않는다, `needs_resign`) → `codesign --verify --strict` 를 통과해야
+  띄운다. CI 에서 앱 빌드가 깨지면(`continue-on-error`) 앱 없이 낸다 — 그 버전에서 `rocky app` 은 앱이 없다고 말한다. 예전 `rocky update` 가 깔아 둔
+  `/Applications`·`~/Applications` 의 앱은 지우지 않고, `rocky update`·`rocky app` 끝에 "더 이상 갱신하지 않는다"고 한 줄 알린다(`stale_note`).
 
 ## 코드
 
@@ -164,7 +163,7 @@
 | 화면 | `mac/Sources/RockyMac/`(`RockyMacApp` · `MenuContent` · `BoardWindow`) |
 | 아바타 조각 그림 | `mac/Sources/RockyMac/Resources/rocky/` |
 | 번들·서명 | `mac/scripts/bundle.sh`, `mac/Info.plist` |
-| 기기에 깔기(`rocky update`) | `crates/rocky-cli/src/mac_app.rs`, 판정 `crates/rocky-core/src/mac_app.rs`(테스트 `crates/rocky-core/tests/it/mac_app_test.rs`) |
+| 띄우기·내리기(`rocky app`) | `crates/rocky-cli/src/mac_app.rs`, 판정 `crates/rocky-core/src/mac_app.rs`(테스트 `crates/rocky-core/tests/it/mac_app_test.rs`) |
 
 테스트: `mac/Tests/RockyKitTests`(`swift test --package-path mac`) — RockyKit 만 본다. CI 잡 `mac app (swift build + test)` 가 macOS 러너에서
 테스트와 `bundle.sh`(ad-hoc 서명)를 돈다.
@@ -179,4 +178,4 @@
 - **AppKit 은 창 위치를 정수 pt 로 맞춘다** — `setFrameOrigin(100.75, …)` 뒤 `frame.origin` 은 100 이다(1배 화면 실측). 아바타는 끌어 옮겼는지를
   "지난번에 놓은 자리와 지금 자리가 다른가"로 보므로, 놓은 자리는 반드시 `panel.frame.origin` 에서 다시 읽는다. 계산한 소수점 자리를 기억하면
   매 걸음을 끌기로 읽어 그 자리에 떨어뜨리고 로키가 한 발도 못 나간다(#519 부터 2026-11-09 까지 그랬다).
-- `rocky update --main` 은 맥 앱을 빌드하지 않는다 — main 빌드 기기는 `mac/scripts/bundle.sh` 로 따로 만든다(릴리스·nightly 만 tarball 에서 깐다).
+- `rocky update --main` 은 맥 앱을 빌드하지 않는다 — main 빌드 기기는 `mac/scripts/bundle.sh` 로 따로 만든다(`current/Rocky.app` 이 없어 `rocky app` 은 띄우지 못한다).

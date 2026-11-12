@@ -1,5 +1,5 @@
-// 로그인할 때 앱을 띄운다 — 데몬은 launchd 로 로그인 때 뜨는데 앱은 사람이 열어야 했다(오너 요청 2026-11-06).
-// macOS 의 로그인 항목(`SMAppService.mainApp`)에 앱을 올린다. 데몬은 앱을 띄우지 않는다 — 앱은 데몬의 클라이언트일 뿐이고,
+// 로그인할 때 앱을 띄울지 — 메뉴의 "로그인할 때 열기"가 macOS 로그인 항목(`SMAppService.mainApp`)에 앱을 올리고 내린다
+// (2026-11-06 첫 실행에 저절로 올렸다 → 2026-11-12 사람이 켤 때만). 데몬은 앱을 띄우지 않는다 — 앱은 데몬의 클라이언트일 뿐이고,
 // 앱이 먼저 뜨면 데몬이 올라올 때까지 SSE 를 다시 붙는다. 규칙은 docs/features/mac.md.
 import Foundation
 import Observation
@@ -17,12 +17,8 @@ final class LoginItem {
     let available = Bundle.main.bundleURL.pathExtension == "app"
 
     init() {
-        guard available else { return }
-        // 처음 한 번만 저절로 올린다 — 그 뒤에 사람이 끈 것(메뉴 · 시스템 설정)은 되살리지 않는다.
-        if UserDefaults.standard.object(forKey: "loginItemOffered") == nil {
-            UserDefaults.standard.set(true, forKey: "loginItemOffered")
-            set(true)
-        }
+        // 저절로 올리지 않는다 — 앱은 `rocky app` 으로 필요할 때 띄우는 선택 부품이다(2026-11-12). 켜는 것은 메뉴의
+        // "로그인할 때 열기"로 사람이 한다. 예전에 올라간 것은 그대로 둔다(사람이 켠 것과 구별하지 못한다).
         reload()
     }
 

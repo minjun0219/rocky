@@ -1,8 +1,4 @@
-use std::path::Path;
-
-use rocky_core::mac_app::{
-    choose_dest, needs_install, plist_version, should_launch, sign_identity,
-};
+use rocky_core::mac_app::{needs_resign, plist_version, sign_identity};
 
 const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
@@ -36,25 +32,6 @@ fn plist_version_none_when_missing_or_empty() {
 }
 
 #[test]
-fn choose_dest_prefers_existing_then_writable_system() {
-    let home = Path::new("/Users/me");
-    let system = Path::new("/Applications/Rocky.app");
-    let user = Path::new("/Users/me/Applications/Rocky.app");
-    assert_eq!(choose_dest(home, true, true, false), system);
-    assert_eq!(choose_dest(home, false, true, true), user);
-    assert_eq!(choose_dest(home, false, false, true), system);
-    assert_eq!(choose_dest(home, false, false, false), user);
-}
-
-#[test]
-fn needs_install_when_missing_different_or_forced() {
-    assert!(needs_install(None, "0.60.0", false));
-    assert!(needs_install(Some("0.59.0"), "0.60.0", false));
-    assert!(!needs_install(Some("0.60.0"), "0.60.0", false));
-    assert!(needs_install(Some("0.60.0"), "0.60.0", true));
-}
-
-#[test]
 fn sign_identity_env_wins_and_dash_keeps_adhoc() {
     let listing = r#"  1) 0123ABCD "rocky" (CSSMERR_TP_NOT_TRUSTED)"#;
     assert_eq!(
@@ -75,8 +52,10 @@ fn sign_identity_uses_rocky_only_when_keychain_has_it() {
 }
 
 #[test]
-fn should_launch_when_running_or_first_install() {
-    assert!(should_launch(true, true));
-    assert!(should_launch(false, false));
-    assert!(!should_launch(false, true));
+fn needs_resign_only_for_a_new_identity() {
+    assert!(needs_resign(Some("rocky"), None));
+    assert!(needs_resign(Some("rocky"), Some("other\n")));
+    assert!(!needs_resign(Some("rocky"), Some("rocky\n")));
+    // 인증서가 없으면 CI 의 ad-hoc 서명 그대로
+    assert!(!needs_resign(None, None));
 }
