@@ -23,8 +23,6 @@
     "e2e/**/*.ts",
     "playwright.config.ts",
     "plugin/scripts/**/*.ts",
-    "plugin/hooks/board-panel/data.ts",
-    "plugin/hooks/board-panel/data.test.ts",
     "web/**/*.ts",
     "web/**/*.tsx"
   ]

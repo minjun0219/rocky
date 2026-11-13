@@ -163,9 +163,8 @@ Claude Code 에서는 `UserPromptSubmit` 훅이, Antigravity 에서는 `PreInvoc
 ## statusline 에 보드를 얹어 달라고 하면
 
 얹는 길은 없다 — 데몬이 그리던 보드 줄(`GET /api/statusline`·`todo.statusline` 템플릿)은 걷었다(2026-10-15). statusline 은
-`rocky statusline` 이 경로·git·모델·ctx·한도 줄을 그린다(`docs/board.md` "statusline"). 세션 옆에서 보드를 보려면
-`/rocky-board`(Claude Code 패널), 폰·브라우저는 웹 UI 를 안내한다. 사용자의 statusline 스크립트에 옛
-`curl …/api/statusline` 조각이 남아 있으면 이제 아무것도 그리지 않으니 빼도 된다고 알린다.
+`rocky statusline` 이 경로·git·모델·ctx·한도 줄을 그린다(`docs/board.md` "statusline"). 보드는 웹 UI 로 안내한다.
+사용자의 statusline 스크립트에 옛 `curl …/api/statusline` 조각이 남아 있으면 이제 아무것도 그리지 않으니 빼도 된다고 알린다.
 
 ## 가드레일
 

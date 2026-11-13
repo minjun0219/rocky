@@ -1,13 +1,12 @@
-// 메뉴 막대를 누르면 뜨는 창 — 연결 상태, 에이전트 세션, 돌고 있는 일(전 보드), 머지 후보 PR, 창 열기.
+// 메뉴 막대를 누르면 뜨는 창 — 연결 상태, 에이전트 세션, 머지 후보 PR, 웹 UI 열기.
 import AppKit
 import RockyKit
 import SwiftUI
 
 struct MenuContent: View {
-    let store: BoardStore
+    let store: DaemonStore
     @Bindable var agents: AgentStore
     let loginItem: LoginItem
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -50,18 +49,6 @@ struct MenuContent: View {
             AgentList(agents: agents)
 
             Divider()
-            Text("돌고 있는 일").font(.subheadline.bold())
-            if !store.ready {
-                Placeholder("읽는 중이에요…")
-            } else if store.doing.isEmpty {
-                Placeholder("돌고 있는 일이 없어요")
-            } else {
-                ForEach(store.doing) { todo in
-                    DoingRow(todo: todo, store: store)
-                }
-            }
-
-            Divider()
             Text("머지 후보 PR").font(.subheadline.bold())
             if store.readyPullRequests.isEmpty {
                 Placeholder(store.ready ? "머지 후보가 없어요" : "읽는 중이에요…")
@@ -96,11 +83,6 @@ struct MenuContent: View {
                 }
             }
             HStack {
-                Button("할 일 창 열기") {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: BoardWindow.id)
-                }
-                .keyboardShortcut("o")
                 Button("웹 UI") {
                     if let url = store.webURL { openURL(url) }
                 }
@@ -118,32 +100,8 @@ struct MenuContent: View {
     }
 }
 
-/// 돌고 있는 일 한 줄 — 참조·제목·누가, 그리고 멈춤·완료.
-private struct DoingRow: View {
-    let todo: Todo
-    let store: BoardStore
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(todo.title).lineLimit(2)
-                Text([todo.ref, todo.doingBy].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 4)
-            Button { store.act(todo, .stop) } label: { Image(systemName: "pause.circle") }
-                .buttonStyle(.borderless)
-                .help("멈춤")
-            Button { store.act(todo, .done) } label: { Image(systemName: "checkmark.circle") }
-                .buttonStyle(.borderless)
-                .help("완료")
-        }
-    }
-}
-
 struct ConnectionBadge: View {
-    let store: BoardStore
+    let store: DaemonStore
 
     var body: some View {
         if store.connected {
