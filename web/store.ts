@@ -1,65 +1,19 @@
 import { create } from 'zustand';
-import type { CollectItem, HandoffView, PrSnapshot } from './types';
-import type { NoteView, TodoView } from './types';
-import type { BoardView, RcStatus, SessionRow } from './types';
-import type { Board, Comment, HistoryEntry, Section, SpawnResult, StatusAction } from './types';
-import { isAgentActor } from './actors';
-import type { SyncSnapshot } from './sync/client';
-import { newClientId, overlay, type SyncOp, type Tables } from './sync/replica';
-import {
-  boardsOf,
-  DETAIL_HISTORY_LIMIT,
-  noteDetail,
-  noteViews,
-  openHandoffs,
-  type SessionsView,
-  sectionsOf,
-  todoDetail,
-  todoHandoffs,
-  todoViews,
-} from './sync/views';
-import {
-  advanceSeen,
-  type CollectSeen,
-  collectSeenOf,
-  markSeen,
-  readCollectSeen,
-  readSeen,
-  rcVisible,
-  readThemePref,
-  resolveTheme,
-  THEME_KEY,
-  type ThemePref,
-  type Slice,
-  writeCollectSeen,
-} from './lib';
+import type { AppView, PrSnapshot, RcStatus, SessionRow } from './types';
+import { rcVisible, readThemePref, resolveTheme, THEME_KEY, type ThemePref } from './lib';
 import { logUsage, setUsageActor } from './usage';
-import {
-  type BoardSelection,
-  buildPath,
-  findTodoIdByNumber,
-  isAddressableBoardKey,
-  parseRoute,
-  resolveBoardKey,
-  type Route,
-  routeForTodo,
-  todoRefFor,
-} from './route';
+import { parseView, pathFor } from './route';
 
 /**
  * 웹 UI 상태 — zustand 단일 스토어.
  *
- * 서버(데몬)가 정본이다. 보드 싱크(`./sync`)가 붙어 있으면 보드 묶음(보드·할 일·섹션·노트·핸드오프·상세)을 사본에서
- * 그리고, 쓰기는 `tx` 로 보내 답을 기다리는 동안 사본 위에 겹쳐 그린다(낙관적 반영 — 거절되면 걷힌다). 싱크가 없거나
- * 아직 사본을 못 받았으면 예전처럼 mutation → 서버 확정 → SSE(or 응답) → refetch 로 수렴한다.
- * actor 는 localStorage 에 저장되고 모든 mutation 의 `x-rocky-actor` 헤더(소켓은 `?actor=`)로 나간다.
+ * 서버(데몬)가 정본이다. 웹이 데몬에서 읽는 것은 PR 감시 스냅숏, 세션 목록(에이전트 탭), rc 현황과 `/api/health` 의
+ * 힌트뿐이다 — 보드 · 노트 화면과 보드 싱크는 2026-11-13 걷어냈다(`docs/design/specs/2026-11-11-board-and-rc-removal-design.md`).
+ * actor 는 localStorage 에 저장되고 모든 요청의 `x-rocky-actor` 헤더로 나간다.
  */
 
 const ACTOR_KEY = 'rocky-actor';
-/** 할 일 / 노트 보기 — 새로고침·cmux 의 페이지 재로드 뒤에도 보던 쪽으로 돌아온다. */
-/** 노트 보기를 마지막으로 떠난(또는 연) 시각 — 그 뒤의 편집이 "노트 •" 표시가 된다. */
-const NOTES_SEEN_KEY = 'rocky:notes-seen';
-/** 숨긴 GitHub 항목(PR·수집함) 키 — 이 브라우저에만. `githubHideKey` 가 만든다. */
+/** 숨긴 GitHub 항목(PR) 키 — 이 브라우저에만. `githubHideKey` 가 만든다. */
 const GITHUB_HIDDEN_KEY = 'rocky:github-hidden';
 /** GitHub 탭을 보이나 — 끄면 탭도 GitHub 줄도 안 보인다. 기본 켬. */
 const GITHUB_TAB_KEY = 'rocky:github-tab';
@@ -77,10 +31,6 @@ function readHidden(): string[] {
   }
 }
 
-/** 노트 보기를 떠난 뒤 이만큼은 저장 중이던 내 편집이 돌아오는 refetch 를 "본 것" 으로 친다. */
-const NOTES_SETTLE_MS = 5_000;
-let notesSettleUntil = 0;
-
 /** 저장소가 막혀도(비공개 창·차단) 화면은 떠야 한다 — 읽기 실패는 저장값 없음으로. */
 function readStored(key: string): string | null {
   try {
@@ -88,31 +38,6 @@ function readStored(key: string): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * 주소가 가리키는 탭 — 노트 상세면 노트, `?view=` 가 있으면 그 탭, 없으면 피드(첫 화면). 보던 탭을 주소에 실어
- * 새로고침·앱 전환(폰 Safari 가 페이지를 다시 부른다)·뒤로가기·탭 복제가 모두 같은 탭으로 돌아온다(2026-10-03 오너:
- * "path 로 해야지"). GitHub 탭을 꺼 뒀으면 피드.
- */
-function viewOf(route: Route): BoardView {
-  if (route.note !== undefined) {
-    return 'notes';
-  }
-  const view = route.view ?? 'feed';
-  if (view === 'github' && readStored(GITHUB_TAB_KEY) === 'off') {
-    return 'feed';
-  }
-  if (view === 'agents' && readStored(AGENTS_TAB_KEY) === 'off') {
-    return 'feed';
-  }
-  return view === 'rc' && readStored(RC_TAB_KEY) === 'off' ? 'feed' : view;
-}
-
-/** 지금 보는 탭을 실은 주소 — store 가 주소를 쓸 때는 늘 이것으로(탭이 주소에서 빠지지 않게). */
-function pathFor(route: Route): string {
-  const view = useUiStore.getState().view;
-  return buildPath(view === 'feed' ? route : { ...route, view });
 }
 
 function writeStored(key: string, value: string): void {
@@ -123,39 +48,24 @@ function writeStored(key: string, value: string): void {
   }
 }
 
-// BoardSelection 은 './route' 가 소유한다 — store 가 route 를 import 하므로 반대 방향은
-// 순환이 된다. 기존 import 경로(`from './store'`)를 쓰는 컴포넌트를 위해 재수출한다.
-export type { BoardSelection };
-
-interface DetailState {
-  kind: 'todo' | 'note';
-  todo?: TodoView;
-  note?: NoteView;
-  history: HistoryEntry[];
-  comments: Comment[];
-  /** 사본으로 그릴 때 이 할 일의 핸드오프 전부 — 드로어의 "세션" 이 REST 대신 이것을 읽는다. */
-  handoffs?: HandoffView[];
+/**
+ * 주소가 가리키는 탭 — `?view=` 가 있으면 그 탭, 없으면 피드(첫 화면). 보던 탭을 주소에 실어 새로고침·앱 전환(폰 Safari 가
+ * 페이지를 다시 부른다)·뒤로가기·탭 복제가 모두 같은 탭으로 돌아온다(2026-10-03 오너: "path 로 해야지"). 꺼 둔 탭이면 피드.
+ */
+function viewOf(search: string): AppView {
+  const view = parseView(search);
+  if (view === 'github' && readStored(GITHUB_TAB_KEY) === 'off') {
+    return 'feed';
+  }
+  if (view === 'agents' && readStored(AGENTS_TAB_KEY) === 'off') {
+    return 'feed';
+  }
+  return view === 'rc' && readStored(RC_TAB_KEY) === 'off' ? 'feed' : view;
 }
 
 interface UiState {
-  boards: Board[];
-  todos: TodoView[];
-  /** 전 보드의 미보관 todo — "지금" 표는 보고 있는 보드와 무관하게 전체를 본다. */
-  nowTodos: TodoView[];
-  /** 전 보드의 열린 핸드오프 — 위 `handoffs` 는 보고 있는 보드로 좁혀져 있어 표에는 못 쓴다. */
-  nowHandoffs: HandoffView[];
-  /** 데몬 PR 감시의 열린 PR(전 보드). */
+  /** 데몬 PR 감시의 열린 PR. */
   prs: PrSnapshot[];
-  /** 수집함 미올림 수 — 데몬이 캐시로 모르면 null. */
-  collect: number | null;
-  /** 미올림 수집함 항목(최대 3개) — 피드의 수집함 행을 펼치면 보인다. */
-  collectItems: CollectItem[];
-  /** 미올림 수집함 전체의 지문 — 옛 데몬은 없다(null). */
-  collectToken: string | null;
-  sections: Section[];
-  notes: NoteView[];
-  selected: BoardSelection;
-  showArchived: boolean;
   /** 숨긴 GitHub 항목 키(`githubHideKey`). 이 브라우저에만 남는다. */
   githubHidden: string[];
   /** GitHub 탭을 보이나. 끄면 GitHub 줄은 어디에도 안 보인다. */
@@ -171,32 +81,9 @@ interface UiState {
    * `<html data-theme>` 에서 직접 읽는다. 사본을 두면 DOM 과 어긋날 두 번째 진실만 생긴다.
    */
   themePref: ThemePref;
-  /**
-   * 할 일 / 노트 — 좁은 패널에서 노트를 목록 아래 두면 스크롤 1,000px 너머라 눈이 가지 않는다.
-   * 둘을 전환해 노트가 화면 전체를 쓴다(`web/DESIGN.md` "Notes").
-   */
-  view: BoardView;
-  /** 노트 화면에서 상세로 연 노트 id — null 이면 목록. */
-  openNoteId: string | null;
-  /** 노트 보기를 마지막으로 연/떠난 시각(ISO). 그 뒤의 노트 편집이 전환 버튼의 표시가 된다. */
-  notesSeenAt: string;
+  view: AppView;
   connected: boolean;
-  detail: DetailState | null;
-  /** todo id → 마지막으로 확인한 댓글 시각. localStorage 의 화면용 사본. */
-  seenComments: Record<string, string>;
-  /** 피드에서 펼쳐 본 수집함 묶음 — localStorage 의 화면용 사본(`readCollectSeen`). */
-  collectSeen: CollectSeen | null;
-  /** 지금 수집함 묶음을 본 것으로 적는다 — 새 것이 올 때까지 피드의 내 차례에서 빠진다. */
-  markCollectSeen: () => void;
-  /**
-   * 이 화면의 출처에서 GitHub 이슈를 만들 수 있는지 — `/api/health` 가 알려준다.
-   * 노출된 데몬(LAN/tailscale)을 거쳐 열린 화면에서는 false 다. 어디까지나 **힌트**로,
-   * 실제 거부는 서버의 이슈 라우트가 403 으로 한다 — 여기서는 누를 수 없는 버튼을 그리지
-   * 않으려고 본다. 아직 안 물어봤거나 health 조회가 실패하면 true 로 두어(낙관) 기존
-   * 로컬 사용 흐름이 조용히 사라지지 않게 한다.
-   */
-  issueCreateAllowed: boolean;
-  /** `/api/health` 가 알려주는 힌트 — 이 출처에서 세션을 띄울 수 있는가. */
+  /** `/api/health` 가 알려주는 힌트 — 이 출처에서 세션을 조종(멈추기·메시지)할 수 있는가. 강제는 서버 몫이다. */
   spawnAllowed: boolean;
   /**
    * `/api/health` 의 `rcControlAllowed` — 이 화면에서 원격 제어 탭의 서버 띄우기·재시작·닫기를 할 수 있는가. 로컬이거나
@@ -218,38 +105,11 @@ interface UiState {
    * 버전이 같으니 커밋도 본다.
    */
   daemonVersionChanged: boolean;
-  /** 현재 보드의 아직 안 끝난 핸드오프(대기 중 + 배달됐지만 미완료) — refetch 가 함께 갱신한다. */
-  handoffs: HandoffView[];
-  /** 보내기 패널을 열 때만 채운다. */
-  sessions: {
-    available: boolean;
-    reason?: string;
-    list: SessionRow[];
-  };
   /** 에이전트 탭을 보이나(이 브라우저의 선택). */
   showAgents: boolean;
-  /** 에이전트 탭의 세션 목록(전 보드) — 아직 못 읽었으면 null. 보내기 패널의 `sessions` 와 따로 둔다. */
+  /** 에이전트 탭의 세션 목록 — 아직 못 읽었으면 null. */
   agents: { available: boolean; reason?: string; list: SessionRow[] } | null;
-  /**
-   * 보드 묶음(보드·할 일·섹션·노트·핸드오프·상세)을 보드 싱크의 사본에서 그리는 중인가. 싱크가 없거나 아직 사본을
-   * 받지 못했으면 false — 그때는 REST 로 다시 읽는다.
-   */
-  syncing: boolean;
-  /** 보드 싱크를 붙인다. 사본을 받으면(`applySync`) 그때부터 사본으로 그린다. */
-  attachSync: (sync: BoardSync) => void;
-  /** 보드 싱크가 알린 사본과 답을 기다리는 op 로 다시 그린다. */
-  applySync: (snapshot: SyncSnapshot) => void;
-  /** 사본이 데몬을 따라잡지 못한 채 기다려 줄 시간이 지났다 — 싱크는 붙여 둔 채 REST 로 그린다(다시 붙으면 돌아온다). */
-  leaveReplica: () => void;
-  /** 보드 싱크를 뗀다 — actor 를 바꾸거나 화면을 내릴 때. REST 로 다시 읽는다. */
-  detachSync: () => void;
-  /** 화면이 다시 보일 때 — 끊긴 보드 싱크를 기다리지 않고 다시 붙인다. */
-  wakeSync: () => void;
-  /** 사본으로 보드 묶음과 열린 상세를 다시 만든다. 사본으로 그리는 중이 아니면 아무것도 하지 않는다. */
-  deriveBoard: () => void;
 
-  setSelected: (selection: BoardSelection) => void;
-  setShowArchived: (show: boolean) => void;
   hideGithub: (key: string) => void;
   unhideAllGithub: () => void;
   setShowGithub: (show: boolean) => void;
@@ -270,70 +130,18 @@ interface UiState {
   setActor: (actor: string) => void;
   /** 테마 선호를 저장하고 `<html data-theme>` 까지 갱신한다. */
   setThemePref: (pref: ThemePref) => void;
-  setView: (view: BoardView) => void;
+  setView: (view: AppView) => void;
   setConnected: (connected: boolean) => void;
-
-  /** 데몬에서 다시 받는다 — `slices` 를 주면 그 묶음만(SSE 이벤트가 건드린 것), 없으면 전부. */
-  refetch: (slices?: ReadonlySet<Slice>) => Promise<void>;
-  /**
-   * @param options.push false 면 히스토리 항목을 만들지 않는다. `refetch` 가 열린 상세를
-   *   갱신할 때와 `applyRoute` 가 URL 을 따라갈 때 반드시 false 여야 한다 — 아니면
-   *   SSE 이벤트 하나마다 히스토리가 한 칸씩 쌓인다.
-   * @param options.refresh true 면 **이미 그 항목이 열려 있을 때만** 반영한다. `refetch`
-   *   전용 — 그쪽은 "열린 상세 갱신"이라 응답이 늦게 도착했는데 그새 드로어가 닫혔거나
-   *   다른 항목으로 바뀌었다면 되살리지 말아야 한다.
-   */
-  openTodoDetail: (id: string, options?: { push?: boolean; refresh?: boolean }) => Promise<void>;
-  openNoteDetail: (id: string, options?: { refresh?: boolean }) => Promise<void>;
-  closeDetail: () => void;
-
-  /** URL 이 지정한 화면으로 상태를 맞춘다 — 부팅과 popstate 가 쓴다. */
-  applyRoute: (route: Route) => Promise<void>;
-
-  /**
-   * 보드 생성 후 그 보드로 전환한다.
-   * @throws 서버가 거절한 이유를 그대로 던진다 — key 에 공백/`#` 이 있으면 참조로 쓸 수
-   *   없어 400 이 온다. 호출자가 사용자에게 보여줘야 한다 (조용히 삼키면 안 된다).
-   */
-  createBoard: (key: string) => Promise<void>;
-  addTodo: (input: { board: string; title: string; section?: string }) => Promise<void>;
-  /** 같은 보드 안 순서 이동 — before 앞으로, null 이면 맨 끝. */
-  moveTodo: (id: string, before: string | null) => Promise<void>;
-  /** 다른 보드로 이동 — 번호는 대상 보드에서 새로 발급된다. */
-  moveTodoToBoard: (id: string, board: string) => Promise<void>;
-  patchTodo: (id: string, patch: Record<string, unknown>) => Promise<void>;
-  setTodoStatus: (id: string, action: StatusAction) => Promise<void>;
-  /** 여러 할 일을 차례로 보관하고 한 번만 다시 읽는다 — 완료 묶음의 "모두 보관". */
-  archiveTodos: (ids: string[]) => Promise<void>;
-  addNote: (input: { board?: string; title: string }) => Promise<void>;
-  saveNote: (id: string, patch: { title?: string; content?: string }) => Promise<void>;
-  archiveNote: (id: string) => Promise<void>;
-  /** 고정/해제 — 고정한 노트는 노트 화면 맨 위에 카드로 펼쳐 둔다. */
-  pinNote: (id: string, pinned: boolean) => Promise<void>;
-  /** 노트 상세(전체 높이 편집기)를 연다 — 주소가 `/{board}/notes/{n}` 로 바뀌고 뒤로 가면 목록. */
-  openNote: (id: string) => void;
-  closeNote: () => void;
-  addComment: (todoId: string, body: string) => Promise<void>;
-  editComment: (id: string, body: string) => Promise<void>;
-  archiveComment: (id: string) => Promise<void>;
-  unarchiveComment: (id: string) => Promise<void>;
-  /**
-   * todo 를 GitHub 이슈로 만든다. `repo` 를 주면 서버가 그 값으로 시도하고, `gh` 가
-   * 성공했을 때만 todo 의 보드에 영구 저장한다 — 실패한 슬러그가 보드에 눌어붙지
-   * 않는다(finding C: 예전에는 `gh` 호출 전에 먼저 저장해, 오타 슬러그가 성공 여부와
-   * 무관하게 남아 입력창이 다시 열리지 않는 막다른 길이었다).
-   * @throws 서버가 거절한 이유를 그대로 던진다 — repo 를 모르거나(400), 이미 이슈가
-   *   있거나(409), gh 가 실패한 경우다. 호출자가 사용자에게 보여줘야 한다.
-   */
-  createIssue: (todoId: string, repo?: string) => Promise<void>;
+  /** 주소가 가리키는 탭으로 맞춘다 — 뒤로가기(popstate)가 쓴다. 옛 보드 · 할 일 주소는 맨 주소로 고친다. */
+  applyLocation: () => void;
+  /** PR 감시 스냅숏을 다시 받는다 — 부팅, SSE 의 PR 전이, 1분 주기. */
+  refetch: () => Promise<void>;
   /**
    * `/api/health` 로 이 출처의 능력과 데몬 버전을 확인한다 — 부팅 때와 SSE 가 다시 붙을
    * 때만 부른다(데몬 재시작은 SSE 재연결로 드러난다). 실패는 삼킨다: 힌트를 못 얻어도 화면은
    * 그대로 동작해야 하고, 강제는 서버가 한다.
    */
   loadCapabilities: () => Promise<void>;
-
-  fetchSessions: () => Promise<void>;
   /** 에이전트 탭 — 그 세션의 받은편지함에 한 줄(로컬 화면만). 못 보내면 데몬이 준 이유로 던진다. */
   sendSessionMessage: (sessionId: string, text: string) => Promise<void>;
   /**
@@ -341,42 +149,6 @@ interface UiState {
    * 세션 목록 캐시를 비웠다). 못 멈추면 데몬이 준 이유로 던진다.
    */
   stopSession: (sessionId: string) => Promise<void>;
-  /** @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다. */
-  /** 세션의 받은편지함에 바로 꽂아 깨웠으면 true — 아니면 그 세션이 다음 턴에 큐에서 집는다. */
-  sendHandoff: (todoId: string, input: { sessionId?: string; note?: string }) => Promise<boolean>;
-  cancelHandoff: (handoffId: string) => Promise<void>;
-  /**
-   * 그 todo 전용 워크트리에 백그라운드 세션을 띄운다. 이미 도는 세션이 있으면 서버가
-   * spawn 대신 큐잉하고 `reused: true` 로 알린다.
-   *
-   * `path` 를 주면 서버가 **이번 spawn 에 한해** 그 값으로 시도하고, spawn(또는 재사용
-   * 판정)이 성공했을 때만 보드에 영구 저장한다 — `createIssue` 의 `repo` 와 같은 모양
-   * 이다(finding: 예전에는 호출 전에 `setBoardPath` 를 먼저 불러, 오타난 경로가 spawn
-   * 성공 여부와 무관하게 보드에 눌어붙어 다른 todo·다른 탭까지 같은 실패를 물려받았다).
-   * @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다.
-   */
-  spawnSession: (todoId: string, input: { note?: string; path?: string }) => Promise<SpawnResult>;
-  /** 보드의 메인 레포 경로를 설정한다. @throws 서버 거절 사유 그대로. */
-  setBoardPath: (boardKey: string, path: string) => Promise<void>;
-  /**
-   * 보드 메타(key·title·description·repo·path)를 한 번에 고친다 — 서버가 한
-   * 트랜잭션으로 적용하므로 일부만 반영되는 상태가 없다.
-   *
-   * key 가 바뀌면 선택도 새 key 로 옮긴다 — 지금 보고 있는 주소(`/gotgan`)가 가리키는
-   * 이름이 사라지기 때문이다. 옛 key 는 서버가 별칭으로 계속 받으므로 이미 복사해 둔
-   * 링크가 죽지는 않는다.
-   * @throws 서버가 거절한 이유를 그대로 던진다 — 호출자가 화면에 보여줘야 한다.
-   */
-  updateBoard: (
-    boardKey: string,
-    patch: {
-      key?: string;
-      title?: string;
-      description?: string | null;
-      repo?: string | null;
-      prAuthors?: string[] | null;
-    },
-  ) => Promise<void>;
 }
 
 export async function api<T>(path: string, actor: string, init?: RequestInit): Promise<T> {
@@ -395,264 +167,31 @@ export async function api<T>(path: string, actor: string, init?: RequestInit): P
   return (await res.json()) as T;
 }
 
-/**
- * 주소가 이미 `path` 면 아무것도 하지 않고, 아니면 히스토리 항목을 **더하지 않고** 갈아끼운다.
- *
- * 항상 부르는 대신 비교를 먼저 하는 이유: `replaceState` 는 히스토리 길이를 늘리지 않지만
- * 현재 항목의 state 를 덮어쓴다. 상세 드로어 마커(`rockyTodoDetail`)가 그 state 에 있어서,
- * 불필요한 호출이 마커를 지우면 `closeDetail` 이 뒤로가기 대신 잘못된 분기를 고른다.
- */
 function currentPath(): string {
   return `${window.location.pathname}${window.location.search}`;
 }
 
-function replacePath(path: string, state: unknown = null): void {
+/** 주소가 이미 `path` 면 아무것도 하지 않고, 아니면 히스토리 항목을 **더하지 않고** 갈아끼운다. */
+function replacePath(path: string): void {
   if (currentPath() !== path) {
-    window.history.replaceState(state, '', path);
+    window.history.replaceState(null, '', path);
   }
 }
 
-/**
- * 주소가 실제로 바뀔 때만 히스토리 항목을 만든다.
- *
- * `buildPath` 가 `/` 로 접는 보드(예약어 `api`/`mcp`, 점 세그먼트)에서는 이미 `/` 에 있는
- * 채로 push 하면 **되읽을 수 없는 항목**이 쌓인다 — 뒤로가기가 그 항목으로 돌아가면
- * popstate 가 `/` 를 전체 보기로 읽어 보드 선택이 엉뚱하게 풀린다.
- *
- * @returns 항목을 만들었으면 true.
- */
-function pushPath(path: string, state: unknown = null): boolean {
-  if (currentPath() === path) {
-    return false;
+/** 주소가 실제로 바뀔 때만 히스토리 항목을 만든다 — 같은 탭을 다시 눌러 같은 항목이 쌓이지 않게. */
+function pushPath(path: string): void {
+  if (currentPath() !== path) {
+    window.history.pushState(null, '', path);
   }
-  window.history.pushState(state, '', path);
-  return true;
 }
 
-/** 보드 싱크 클라이언트에서 스토어가 쓰는 것 — `SyncClient`, 테스트는 가짜. */
-export interface BoardSync {
-  send(op: SyncOp): Promise<void>;
-  /** 화면이 다시 보일 때 — 끊겼으면 다시 붙고, 붙어 있으면 살아 있는지 묻는다. */
-  wake(): void;
-}
-
-/**
- * 사본이 데몬을 따라가지 못하는 동안(부팅 직후의 저장 사본, 끊긴 소켓)에도 사본으로 그리는 시간. 그 안에 다시 붙지
- * 못하면 REST 로 돈다 — 낡은 사본을 오래 보여 주지 않게. 다시 붙으면 사본으로 돌아온다.
- */
-export const SYNC_GRACE_MS = 5_000;
-
-let boardSync: BoardSync | null = null;
-/** 마지막으로 받은 사본과 답을 기다리는 op. 사본이 비어 있으면(아직 못 받음) REST 로 그린다. */
-let syncSnapshot: SyncSnapshot | null = null;
-/** 이 시각까지는 사본이 데몬을 따라가지 못해도(`live` 가 아니어도) 사본으로 그린다. */
-let graceUntil = 0;
-let graceTimer: ReturnType<typeof setTimeout> | undefined;
-/** 상세 드로어가 REST 로 채운 오래된 히스토리 — 할 일·노트 id 마다. 사본은 최근 2,000줄만 든다. */
-const backfilled = new Map<string, HistoryEntry[]>();
-let backfillVersion = 0;
-/**
- * 답을 기다리는 만들기 — REST 로만 하는 동작(보내기·새 세션·이슈·다른 보드로 옮기기)과 노트 열기가 데몬이 아직
- * 모르는 id 로 나가지 않게 이것을 기다린다.
- */
-const pendingCreates = new Map<string, Promise<void>>();
-/** 세션 판정에 걸리는 행(열린 핸드오프·doing)의 지문 — 바뀌면 세션 목록을 다시 받는다. */
-let sessionSignature: string | undefined;
-let agentsRefresh: ReturnType<typeof setTimeout> | undefined;
-let agentsConfirm: ReturnType<typeof setTimeout> | undefined;
-/**
- * 데몬의 세션 목록 캐시(`swr_sessions`)가 새것으로 보는 시간보다 조금 길게. 캐시는 오래된 값을 바로 주고 뒤에서 새로
- * 받으므로, 판정에 걸리는 행이 바뀐 직후에 물은 목록은 그 변화를 모를 수 있다.
- */
-const SESSIONS_FRESH_MS = 3_500;
-/** 세션 목록을 믿는 사본 순번 — 이보다 나중에 바뀐 doing·핸드오프 행은 판정하지 않는다(`SessionsView.seq`). */
-let sessionsTrustedSeq: number | undefined;
-/** 판정에 걸리는 행이 마지막으로 바뀐 시각 — 그 뒤 `SESSIONS_FRESH_MS` 가 지나 물은 목록부터 믿는다. */
-let sessionsChangedAt: number | undefined;
-let lastDerivedHead: number | undefined;
-
-/** 판정에 걸리는 행이 바뀌었다 — 지금 한 번, 데몬 캐시가 새로 찬 뒤에 한 번 더 세션 목록을 받는다. */
-function refreshSessionsSoon(): void {
-  clearTimeout(agentsRefresh);
-  clearTimeout(agentsConfirm);
-  agentsRefresh = setTimeout(() => void useUiStore.getState().loadAgents(), 200);
-  agentsConfirm = setTimeout(() => void useUiStore.getState().loadAgents(), SESSIONS_FRESH_MS);
-}
-
-/** 겹쳐 그린 사본 — 아직 받은 적이 없으면 null. */
-function syncedTables(): Tables | null {
-  if (!syncSnapshot || syncSnapshot.replica.epoch === null) {
-    return null;
+/** 탭을 끄거나 rc 가 꺼진 기기여서 그 탭을 보던 화면을 피드로 돌린다 — 주소도 함께. */
+function leaveView(view: AppView): Partial<UiState> {
+  if (useUiStore.getState().view !== view) {
+    return {};
   }
-  const { tables } = syncSnapshot.replica;
-  return memoized('overlay', [tables, syncSnapshot.pending], () =>
-    overlay(tables, syncSnapshot?.pending ?? []),
-  );
-}
-
-/** 사본으로 그려도 되나 — 데몬을 따라가고 있거나(`live`), 아직 기다려 줄 시간 안이다. */
-function replicaPaintable(): boolean {
-  if (!syncSnapshot || syncSnapshot.replica.epoch === null) {
-    return false;
-  }
-  return syncSnapshot.live || Date.now() < graceUntil;
-}
-
-/** 기다려 줄 시간을 건다 — 그 안에 `live` 가 되지 않으면 REST 로 돈다. */
-function startGrace(): void {
-  graceUntil = Date.now() + SYNC_GRACE_MS;
-  clearTimeout(graceTimer);
-  graceTimer = setTimeout(() => {
-    graceTimer = undefined;
-    if (!syncSnapshot?.live) {
-      useUiStore.getState().leaveReplica();
-    }
-  }, SYNC_GRACE_MS);
-}
-
-function stopGrace(): void {
-  clearTimeout(graceTimer);
-  graceTimer = undefined;
-  graceUntil = 0;
-}
-
-/** 같은 입력이면 지난번 값을 돌려준다 — 바뀌지 않은 묶음은 같은 배열이라 그 화면이 다시 그려지지 않는다. */
-const memo = new Map<string, { deps: readonly unknown[]; value: unknown }>();
-function memoized<T>(key: string, deps: readonly unknown[], compute: () => T): T {
-  const hit = memo.get(key);
-  if (hit && hit.deps.length === deps.length && hit.deps.every((d, i) => Object.is(d, deps[i]))) {
-    return hit.value as T;
-  }
-  const value = compute();
-  memo.set(key, { deps, value });
-  return value;
-}
-
-function sessionsOf(
-  agents: UiState['agents'],
-  trustedSeq: number | undefined,
-): SessionsView | null {
-  if (!agents) {
-    return null;
-  }
-  return {
-    available: agents.available,
-    sessions: agents.list,
-    ...(trustedSeq !== undefined ? { seq: trustedSeq } : {}),
-  };
-}
-
-/** 세션 판정에 걸리는 행의 지문 — 열린 핸드오프의 상태와 착수, doing 의 세션. */
-function sessionSignatureOf(tables: Tables): string {
-  const parts: string[] = [];
-  for (const h of tables.handoffs.values()) {
-    if (h.status === 'pending' || (h.status === 'delivered' && h.completedAt === undefined)) {
-      parts.push(`h:${h.id}:${h.status}:${h.acceptedAt ?? ''}`);
-    }
-  }
-  for (const t of tables.todos.values()) {
-    if (t.status === 'doing') {
-      parts.push(`t:${t.id}:${t.doingSessionId ?? ''}:${t.doingBy ?? ''}`);
-    }
-  }
-  return parts.sort().join('|');
-}
-
-/** 그 만들기가 확정될 때까지. 만들기가 아니거나 이미 확정됐으면 바로 — 만들기가 실패해도 풀린다(뒤 요청이 실패를 말한다). */
-function createSettled(id: string): Promise<void> {
-  return pendingCreates.get(id) ?? Promise.resolve();
-}
-
-/** 사본의 히스토리에 REST 로 채운 오래된 줄을 더한다(같은 줄은 하나로). */
-function withBackfill(id: string, local: HistoryEntry[]): HistoryEntry[] {
-  const extra = backfilled.get(id);
-  if (!extra?.length) {
-    return local;
-  }
-  const byId = new Map<number, HistoryEntry>();
-  for (const entry of [...extra, ...local]) {
-    byId.set(entry.id, entry);
-  }
-  return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, DETAIL_HISTORY_LIMIT);
-}
-
-/** 열린 상세를 사본으로 다시 만든다. 사본에 없는 항목이면 그대로 둔다. */
-function detailFromTables(
-  tables: Tables,
-  detail: DetailState | null,
-  includeArchived: boolean,
-  sessions: SessionsView | null,
-): DetailState | null {
-  if (detail?.kind === 'todo' && detail.todo) {
-    const local = todoDetail(tables, detail.todo.id, { includeArchived, sessions });
-    return local
-      ? {
-          kind: 'todo',
-          ...local,
-          history: withBackfill(detail.todo.id, local.history),
-          handoffs: todoHandoffs(tables, detail.todo.id, sessions),
-        }
-      : detail;
-  }
-  if (detail?.kind === 'note' && detail.note) {
-    const local = noteDetail(tables, detail.note.id);
-    return local
-      ? {
-          kind: 'note',
-          ...local,
-          comments: [],
-          history: withBackfill(detail.note.id, local.history),
-        }
-      : detail;
-  }
-  return detail;
-}
-
-/** 할 일 고치기에서 `tx` 로 보낼 수 있는 칸 — 나머지가 섞이면 REST 로 보낸다. */
-const TODO_PATCH_KEYS: ReadonlySet<string> = new Set([
-  'title',
-  'description',
-  'priority',
-  'due',
-  'labels',
-  'links',
-  'section',
-  'parentId',
-]);
-
-/**
- * 쓰기를 `tx` 로 보낼 싱크 — 사본이 데몬을 따라가고 있고(`live`) 사람 actor 일 때만. 아니면 REST 다(저장 사본만 그린
- * 채 아직 붙지 못했거나 끊긴 동안, 그리고 데몬이 거절하는 에이전트 actor).
- */
-function syncWriter(state: UiState): BoardSync | null {
-  return state.syncing && syncSnapshot?.live === true && !isAgentActor(state.actor)
-    ? boardSync
-    : null;
-}
-
-/** `tx` 로 보낼 수 있으면 보내고 답을 기다린 뒤 true. 못 보내면 false — 부른 쪽이 REST 로 보낸다. */
-async function sendViaSync(state: UiState, op: SyncOp): Promise<boolean> {
-  const sync = syncWriter(state);
-  if (!sync) {
-    return false;
-  }
-  const sent = sync.send(op);
-  if (op.op === 'todo.create' || op.op === 'note.create' || op.op === 'comment.create') {
-    const { id } = op;
-    const done = () => {
-      pendingCreates.delete(id);
-    };
-    pendingCreates.set(id, sent.then(done, done));
-  }
-  await sent;
-  return true;
-}
-
-type SummaryBody = { collect?: number; collectItems?: CollectItem[]; collectToken?: string };
-
-/** 수집함 미올림 수 — cached 라 어댑터를 새로 돌리지 않는다. 실패는 "모름". */
-function fetchSummary(actor: string): Promise<SummaryBody> {
-  return api<SummaryBody>('/api/summary?cached=true', actor).catch((): SummaryBody => ({}));
+  replacePath(pathFor('feed'));
+  return { view: 'feed' };
 }
 
 /** PR 감시 스냅숏 — 없거나 실패하면 빈 목록("모름" 이 아니라 "없음" 으로 보여도 무해). */
@@ -660,250 +199,29 @@ function fetchPrs(actor: string): Promise<PrSnapshot[]> {
   return api<PrSnapshot[]>('/api/prs?open=true', actor).catch((): PrSnapshot[] => []);
 }
 
-function summaryState(summary: SummaryBody) {
-  return {
-    collect: typeof summary.collect === 'number' ? summary.collect : null,
-    collectItems: summary.collectItems ?? [],
-    collectToken: summary.collectToken ?? null,
-  };
-}
-
-/** 노트를 보는 중이거나 막 떠난 참이면, 방금 받은 노트까지 "본 것" — 내 편집이 새 소식이 되지 않게. */
-function advanceNotesSeen(notes: NoteView[]): void {
-  const state = useUiStore.getState();
-  if (state.view === 'notes' || Date.now() < notesSettleUntil) {
-    const seen = advanceSeen(state.notesSeenAt, notes);
-    if (seen !== state.notesSeenAt) {
-      useUiStore.setState({ notesSeenAt: seen });
-      writeStored(NOTES_SEEN_KEY, seen);
-    }
-  }
-}
-
-/** 노트 상세를 연다 — 주소가 `/{board}/notes/{n}` 로 바뀌고 뒤로 가면 목록. 데몬이 아직 번호를 주지 않았으면 주소는 둔다. */
-function openNoteView(note: NoteView): void {
-  logUsage('web:note-open');
-  useUiStore.setState({ openNoteId: note.id, view: 'notes' });
-  if (note.number <= 0) {
-    return;
-  }
-  pushPath(pathFor({ board: useUiStore.getState().selected, note: note.ref }), {
-    rockyNote: true,
-  });
-}
-
-/** 사본에 없을 수 있는 오래된 히스토리를 REST 로 한 번 채운다. 실패는 삼킨다 — 사본의 최근 줄은 이미 보인다. */
-async function backfillHistory(id: string, path: string): Promise<void> {
-  try {
-    const body = await api<{ history: HistoryEntry[] }>(path, useUiStore.getState().actor);
-    backfilled.set(id, body.history);
-    backfillVersion += 1;
-    useUiStore.getState().deriveBoard();
-  } catch {
-    // 다음에 열 때 다시 묻는다.
-  }
-}
-
 export const useUiStore = create<UiState>((set, get) => ({
-  boards: [],
-  todos: [],
-  nowTodos: [],
-  nowHandoffs: [],
   prs: [],
-  collect: null,
-  collectItems: [],
-  collectToken: null,
-  sections: [],
-  notes: [],
-  // 첫 fetch 부터 올바른 보드를 조회하도록 URL 을 먼저 읽는다. 없는 보드였다면
-  // 부팅 직후의 applyRoute 가 전체 보기로 되돌린다.
-  selected: parseRoute(window.location.pathname, window.location.search).board,
-  showArchived: false,
   githubHidden: readHidden(),
   showGithub: readStored(GITHUB_TAB_KEY) !== 'off',
   showRc: readStored(RC_TAB_KEY) !== 'off',
   rc: null,
-  actor: localStorage.getItem(ACTOR_KEY) ?? 'logan',
-  themePref: readThemePref(
-    (() => {
-      try {
-        return localStorage.getItem(THEME_KEY);
-      } catch {
-        return null; // 저장소 차단은 저장값 없음(auto)으로 다룬다 — index.html 인라인 스크립트와 같은 규칙
-      }
-    })(),
-  ),
-  // 첫 화면은 피드다(2026-10-02 오너) — 맨 주소면 피드, 탭을 실은 주소(`?view=todos`)면 그 탭.
-  view: viewOf(parseRoute(window.location.pathname, window.location.search)),
-  notesSeenAt: readStored(NOTES_SEEN_KEY) ?? new Date(0).toISOString(),
-  openNoteId: null,
+  actor: readStored(ACTOR_KEY) ?? 'logan',
+  themePref: readThemePref(readStored(THEME_KEY)),
+  // 첫 화면은 피드다(2026-10-02 오너) — 맨 주소면 피드, 탭을 실은 주소(`?view=worklog`)면 그 탭.
+  view: viewOf(window.location.search),
   connected: false,
-  detail: null,
-  seenComments: readSeen(localStorage),
-  collectSeen: readCollectSeen(localStorage),
-  issueCreateAllowed: true,
   spawnAllowed: true,
   rcControlAllowed: true,
   accessUser: null,
   daemonVersion: null,
   daemonCommit: null,
   daemonVersionChanged: false,
-  handoffs: [],
-  sessions: { available: true, list: [] },
   showAgents: readStored(AGENTS_TAB_KEY) !== 'off',
   agents: null,
-  syncing: false,
 
-  attachSync: (sync) => {
-    boardSync = sync;
-    // 저장 사본으로 먼저 그리되, 이 안에 데몬을 따라잡지 못하면 REST 로 돈다.
-    startGrace();
-  },
-  applySync: (snapshot) => {
-    const wasLive = syncSnapshot?.live === true;
-    syncSnapshot = snapshot;
-    if (snapshot.live) {
-      stopGrace();
-    } else if (wasLive) {
-      startGrace(); // 끊겼다 — 다시 붙는 동안은 사본으로 그린다
-    }
-    get().deriveBoard();
-  },
-  leaveReplica: () => {
-    stopGrace();
-    if (!get().syncing) {
-      return;
-    }
-    delete document.documentElement.dataset.sync;
-    set({ syncing: false });
-    void get()
-      .refetch()
-      .catch(() => {});
-  },
-  detachSync: () => {
-    boardSync = null;
-    syncSnapshot = null;
-    stopGrace();
-    backfilled.clear();
-    pendingCreates.clear();
-    memo.clear();
-    sessionSignature = undefined;
-    sessionsTrustedSeq = undefined;
-    sessionsChangedAt = undefined;
-    lastDerivedHead = undefined;
-    clearTimeout(agentsRefresh);
-    clearTimeout(agentsConfirm);
-    delete document.documentElement.dataset.sync;
-    if (get().syncing) {
-      set({ syncing: false });
-      void get()
-        .refetch()
-        .catch(() => {});
-    }
-  },
-  wakeSync: () => boardSync?.wake(),
-  deriveBoard: () => {
-    const tables = syncedTables();
-    if (!tables || !syncSnapshot || !replicaPaintable()) {
-      return;
-    }
-    const confirmed = syncSnapshot.replica.tables;
-    const head = syncSnapshot.replica.seq;
-    // 판정에 걸리는 행이 바뀌었으면 세션 목록을 새로 받고, 그 목록이 올 때까지 바뀐 행은 판정하지 않는다.
-    const signature = memoized('sessionSignature', [confirmed.handoffs, confirmed.todos], () =>
-      sessionSignatureOf(confirmed),
-    );
-    if (sessionSignature !== undefined && signature !== sessionSignature) {
-      sessionsTrustedSeq ??= lastDerivedHead ?? head;
-      sessionsChangedAt = Date.now();
-      refreshSessionsSoon();
-    }
-    sessionSignature = signature;
-    lastDerivedHead = head;
-
-    const { selected, showArchived, agents, detail } = get();
-    const sessions = memoized('sessions', [agents, sessionsTrustedSeq], () =>
-      sessionsOf(agents, sessionsTrustedSeq),
-    );
-    const todos = memoized(
-      'todos',
-      [tables.todos, tables.comments, tables.boards, selected, showArchived, sessions],
-      () => todoViews(tables, { board: selected, includeArchived: showArchived, sessions }),
-    );
-    const handoffs = memoized(
-      'handoffs',
-      [tables.handoffs, tables.todos, tables.boards, selected, sessions],
-      () => openHandoffs(tables, { board: selected, sessions }),
-    );
-    const nextDetail = memoized(
-      'detail',
-      [detail, tables, showArchived, sessions, backfillVersion],
-      () => detailFromTables(tables, detail, showArchived, sessions),
-    );
-    // 이 탭이 사본으로 그린다는 표시 — 개발 도구·E2E 가 본다.
-    document.documentElement.dataset.sync = 'replica';
-    set({
-      syncing: true,
-      boards: memoized('boards', [tables.boards], () => boardsOf(tables)),
-      todos,
-      nowTodos:
-        selected === 'all' && !showArchived
-          ? todos
-          : memoized('nowTodos', [tables.todos, tables.comments, tables.boards, sessions], () =>
-              todoViews(tables, { board: 'all', includeArchived: false, sessions }),
-            ),
-      sections: memoized('sections', [tables.sections, tables.boards, selected], () =>
-        sectionsOf(tables, selected),
-      ),
-      notes: memoized('notes', [tables.notes, tables.boards, selected, showArchived], () =>
-        noteViews(tables, { board: selected, includeArchived: showArchived }),
-      ),
-      handoffs,
-      nowHandoffs:
-        selected === 'all'
-          ? handoffs
-          : memoized('nowHandoffs', [tables.handoffs, tables.todos, tables.boards, sessions], () =>
-              openHandoffs(tables, { board: 'all', sessions }),
-            ),
-      detail: nextDetail,
-    });
-    // 열어 둔 상세에 새 댓글이 오면 본 것으로 — `openTodoDetail` 과 같은 규칙.
-    const lastCommentAt = nextDetail?.kind === 'todo' ? nextDetail.todo?.lastCommentAt : undefined;
-    if (nextDetail?.todo && lastCommentAt && lastCommentAt !== detail?.todo?.lastCommentAt) {
-      markSeen(localStorage, nextDetail.todo.id, lastCommentAt);
-      set({ seenComments: readSeen(localStorage) });
-    }
-    // "본 것" 은 확정된 노트(서버 시계)로만 올린다 — 겹친 노트의 시각은 브라우저 시계다.
-    advanceNotesSeen(
-      memoized('confirmedNotes', [confirmed.notes, confirmed.boards, selected, showArchived], () =>
-        noteViews(confirmed, { board: selected, includeArchived: showArchived }),
-      ),
-    );
-  },
-
-  setSelected: (selected) => {
-    logUsage('web:board-tab');
-    // 같은 보드를 다시 고른 클릭도 refetch 는 그대로 수행한다(새로고침 용도로 쓰인다) —
-    // 다만 선택이 실제로 바뀌지 않았으면 pushState 는 건너뛴다. 아니면 전체/같은 보드를
-    // 다섯 번 눌렀을 때 동일한 히스토리 항목이 다섯 개 쌓여 뒤로가기를 다섯 번 눌러야
-    // 벗어나게 된다.
-    if (selected !== get().selected) {
-      // 보드를 바꾸면 열린 상세도 닫는다 — 주소는 새 보드를 가리키는데 드로어가 이전
-      // 보드의 todo 를 계속 띄우면, 같은 주소를 새로고침한 화면과 달라진다.
-      set({ selected, detail: null, openNoteId: null });
-      pushPath(pathFor({ board: selected }));
-    }
-    if (get().syncing) {
-      // 사본으로 그리는 중이다 — 보드를 바꿔도 요청을 보내지 않는다. 같은 보드를 다시 누르면(새로고침) 끊긴 싱크만 깨운다.
-      get().deriveBoard();
-      get().wakeSync();
-      return;
-    }
-    void get().refetch();
-  },
   hideGithub: (key) => {
     const next = [...new Set([...get().githubHidden, key])];
-    // 끝없이 쌓이지 않게 최근 200개만 — 오래된 PR·이슈는 이미 닫혔다.
+    // 끝없이 쌓이지 않게 최근 200개만 — 오래된 PR 은 이미 닫혔다.
     const trimmed = next.slice(-200);
     writeStored(GITHUB_HIDDEN_KEY, JSON.stringify(trimmed));
     set({ githubHidden: trimmed });
@@ -914,57 +232,25 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   setShowGithub: (showGithub) => {
     writeStored(GITHUB_TAB_KEY, showGithub ? 'on' : 'off');
-    set(
-      showGithub
-        ? { showGithub }
-        : { showGithub, view: get().view === 'github' ? 'feed' : get().view },
-    );
-    if (!showGithub) {
-      const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
-      replacePath(pathFor(here));
-    }
+    set({ showGithub, ...(showGithub ? {} : leaveView('github')) });
   },
   setShowRc: (showRc) => {
     writeStored(RC_TAB_KEY, showRc ? 'on' : 'off');
-    set(showRc ? { showRc } : { showRc, view: get().view === 'rc' ? 'feed' : get().view });
-    if (!showRc) {
-      const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
-      replacePath(pathFor(here));
-    }
+    set({ showRc, ...(showRc ? {} : leaveView('rc')) });
   },
   setShowAgents: (showAgents) => {
     writeStored(AGENTS_TAB_KEY, showAgents ? 'on' : 'off');
-    set(
-      showAgents
-        ? { showAgents }
-        : { showAgents, view: get().view === 'agents' ? 'feed' : get().view },
-    );
-    if (!showAgents) {
-      const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
-      replacePath(pathFor(here));
-    }
+    set({ showAgents, ...(showAgents ? {} : leaveView('agents')) });
   },
   loadAgents: async () => {
-    const startedAt = Date.now();
-    const head = syncSnapshot?.replica.seq;
     try {
       const result = await api<{ available: boolean; reason?: string; sessions: SessionRow[] }>(
         '/api/sessions',
         get().actor,
       );
-      // 판정에 걸리는 행이 바뀐 뒤 데몬 캐시가 새로 찰 만큼 지나서 물은 목록이면, 물을 때의 순번까지 믿는다.
-      if (
-        head !== undefined &&
-        (sessionsChangedAt === undefined || startedAt >= sessionsChangedAt + SESSIONS_FRESH_MS)
-      ) {
-        sessionsTrustedSeq = head;
-        sessionsChangedAt = undefined;
-      }
       set({
         agents: { available: result.available, reason: result.reason, list: result.sessions },
       });
-      // 사본으로 그리는 중이면 doing·핸드오프 판정을 새 세션 목록으로 다시 한다.
-      get().deriveBoard();
     } catch {
       // 데몬이 잠깐 안 닿으면 직전 값을 둔다 — 끊김은 머리줄이 따로 말한다.
     }
@@ -972,17 +258,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   loadRc: async () => {
     try {
       const rc = await api<RcStatus>('/api/rc/servers', get().actor);
-      if (!rcVisible(rc) && get().view === 'rc') {
-        // 주소도 피드로 — `?view=rc` 가 남으면 새로고침·뒤로가기마다 rc 를 골랐다 튕긴다.
-        set({ rc, view: 'feed' });
-        const { view: _was, ...here } = parseRoute(
-          window.location.pathname,
-          window.location.search,
-        );
-        replacePath(pathFor(here));
-        return;
-      }
-      set({ rc });
+      // 꺼진 기기에서 원격 제어 탭을 보던 중이면 주소도 피드로 — `?view=rc` 가 남으면 새로고침·뒤로가기마다 튕긴다.
+      set({ rc, ...(rcVisible(rc) ? {} : leaveView('rc')) });
     } catch {
       // 데몬이 잠깐 안 닿으면 직전 값을 둔다 — 화면이 깜박이지 않게.
     }
@@ -1037,18 +314,9 @@ export const useUiStore = create<UiState>((set, get) => ({
       await get().loadRc();
     }
   },
-  setShowArchived: (showArchived) => {
-    logUsage('web:archived-toggle');
-    set({ showArchived });
-    if (get().syncing) {
-      get().deriveBoard(); // 보관한 행도 사본에 있다 — 요청을 보내지 않는다
-      return;
-    }
-    void get().refetch();
-  },
   setActor: (actor) => {
     setUsageActor(actor);
-    localStorage.setItem(ACTOR_KEY, actor);
+    writeStored(ACTOR_KEY, actor);
     set({ actor });
   },
   setThemePref: (pref) => {
@@ -1059,656 +327,32 @@ export const useUiStore = create<UiState>((set, get) => ({
     const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
     document.documentElement.dataset.theme = resolveTheme(pref, prefersLight);
     set({ themePref: pref });
-    try {
-      localStorage.setItem(THEME_KEY, pref);
-    } catch {
-      // 저장 실패는 다음 방문에 auto 로 돌아간다는 뜻일 뿐 — 이번 세션은 정상 동작한다.
-    }
+    writeStored(THEME_KEY, pref);
   },
   setView: (view) => {
-    if (get().openNoteId !== null) {
-      // 노트 상세를 연 채 탭을 눌렀다 — 상세부터 닫는다(우리가 쌓은 항목이면 뒤로). "노트" 탭을
-      // 다시 누른 것이면 목록으로 돌아가는 것으로 끝이다.
-      get().closeNote();
-    }
     if (view === get().view) {
       return;
     }
     logUsage('web:view', { view });
-    // 노트 보기에 들어갈 때도, 떠날 때도 "여기까지 봤다" 로 친다 — 보는 동안의 편집은 새 소식이 아니다.
-    // 기준은 브라우저 시계가 아니라 **서버가 찍은 노트 시각**이다(원격 브라우저의 시계 어긋남). 떠나는
-    // 순간엔 아직 저장 중인 편집(제목 PATCH·편집기의 배치 flush)이 남아 있을 수 있어, 잠시 동안의
-    // refetch 도 "본 것" 으로 올린다(`refetch` 의 `notesSettleUntil`).
-    notesSettleUntil = view !== 'notes' ? Date.now() + NOTES_SETTLE_MS : 0;
-    set({ view, notesSeenAt: advanceSeen(get().notesSeenAt, get().notes) });
-    writeStored(NOTES_SEEN_KEY, get().notesSeenAt);
-    // 탭은 주소에 산다 — 히스토리 항목으로 쌓아 뒤로가기가 앞 탭으로 돌아가게. 보드·열린 상세는 그대로 둔다.
-    const { view: _was, ...here } = parseRoute(window.location.pathname, window.location.search);
-    pushPath(pathFor(here));
+    set({ view });
+    // 탭은 주소에 산다 — 히스토리 항목으로 쌓아 뒤로가기가 앞 탭으로 돌아가게.
+    pushPath(pathFor(view));
   },
   setConnected: (connected) => set({ connected }),
-
-  refetch: async (slices) => {
-    const { selected, showArchived, actor, detail } = get();
-    const want = (slice: Slice) => !slices || slices.has(slice);
-    if (get().syncing) {
-      // 보드 묶음은 사본이 들고 있다 — PR·수집함 요약만 다시 읽고, 경과 시간 표시가 움직이게 다시 그린다.
-      const [summary, prs] = await Promise.all([
-        want('summary') ? fetchSummary(actor) : undefined,
-        want('prs') ? fetchPrs(actor) : undefined,
-      ]);
-      set({ ...(prs ? { prs } : {}), ...(summary ? summaryState(summary) : {}) });
-      get().deriveBoard();
-      return;
+  applyLocation: () => {
+    const view = viewOf(window.location.search);
+    if (view !== get().view) {
+      set({ view });
     }
-    const params = new URLSearchParams();
-    if (selected !== 'all') {
-      params.set('board', selected);
-    }
-    if (showArchived) {
-      params.set('includeArchived', 'true');
-    }
-    const qs = params.size > 0 ? `?${params.toString()}` : '';
-    // 전체 보기면 보드의 할 일·핸드오프와 "지금" 의 재료(전 보드)가 같은 쿼리다 — 한 번만 받는다. 할 일 응답은 진행
-    // 중인 것이 있으면 데몬이 세션 목록까지 조회해서(수백 ms) 두 번 부르면 그만큼 두 번 기다린다.
-    const sameTodos = qs === '';
-    const sameHandoffs = selected === 'all';
-    const handoffsUrl = `/api/handoffs?open=true${
-      selected === 'all' ? '' : `&board=${encodeURIComponent(selected)}`
-    }`;
-    const skip = Promise.resolve(undefined);
-
-    const [boards, todos, notes, sections, handoffs, nowTodos, nowHandoffs, summary, prs] =
-      await Promise.all([
-        want('boards') ? api<Board[]>('/api/boards', actor) : skip,
-        want('todos') ? api<TodoView[]>(`/api/todos${qs}`, actor) : skip,
-        want('notes') ? api<NoteView[]>(`/api/notes${qs}`, actor) : skip,
-        !want('sections')
-          ? skip
-          : selected === 'all'
-            ? Promise.resolve([] as Section[])
-            : api<Section[]>(`/api/sections?board=${encodeURIComponent(selected)}`, actor),
-        // `open=true` — 대기 중인 것에 더해 **배달됐는데 아직 안 끝난** 것까지 받는다.
-        // 후자가 없으면 "집어가 놓고 아무것도 안 한다"가 화면에 나타날 길이 없다.
-        want('handoffs') ? api<HandoffView[]>(handoffsUrl, actor) : skip,
-        // "지금"·피드의 재료 — 보고 있는 보드와 무관하게 전 보드.
-        want('todos') && !sameTodos ? api<TodoView[]>('/api/todos', actor) : skip,
-        want('handoffs') && !sameHandoffs
-          ? api<HandoffView[]>('/api/handoffs?open=true', actor)
-          : skip,
-        want('summary') ? fetchSummary(actor) : skip,
-        want('prs') ? fetchPrs(actor) : skip,
-      ]);
-    if (get().syncing) {
-      // 기다리는 사이 사본이 왔다 — 보드 묶음은 사본이 더 새것이다. PR·수집함 요약만 쓴다.
-      set({ ...(prs ? { prs } : {}), ...(summary ? summaryState(summary) : {}) });
-      return;
-    }
-    set({
-      ...(boards ? { boards } : {}),
-      ...(todos ? { todos, nowTodos: nowTodos ?? todos } : {}),
-      ...(notes ? { notes } : {}),
-      ...(sections ? { sections } : {}),
-      ...(handoffs ? { handoffs, nowHandoffs: nowHandoffs ?? handoffs } : {}),
-      ...(prs ? { prs } : {}),
-      ...(summary ? summaryState(summary) : {}),
-    });
-    if (!notes) {
-      // 노트를 안 받았으면 "본 것" 을 올릴 것도, 상세를 다시 받을 것도 노트 쪽엔 없다.
-      if (todos && detail?.kind === 'todo' && detail.todo) {
-        void get().openTodoDetail(detail.todo.id, { push: false, refresh: true });
-      }
-      return;
-    }
-    advanceNotesSeen(notes);
-
-    // 열린 상세가 있으면 함께 갱신 (SSE 로 들어온 변경 반영). await 하지 않으므로
-    // `refresh: true` 로 "그 항목이 아직 열려 있을 때만" 반영하게 한다 — 그 사이 라우팅이
-    // 드로어를 닫았다면(뒤로가기 등) 늦게 도착한 이 응답이 되살려선 안 된다.
-    if (todos && detail?.kind === 'todo' && detail.todo) {
-      void get().openTodoDetail(detail.todo.id, { push: false, refresh: true });
-    } else if (detail?.kind === 'note' && detail.note) {
-      void get().openNoteDetail(detail.note.id, { refresh: true });
-    }
+    // 옛 보드 · 할 일 · 노트 주소(`/rocky/12`)나 꺼 둔 탭의 주소는 지금 탭의 주소로 고친다.
+    replacePath(pathFor(view));
   },
-
-  openTodoDetail: async (id, options) => {
-    const { actor, showArchived } = get();
-    // 전역 "보관 항목 보기" 토글을 댓글에도 그대로 연결한다 — 별도 스위치를 만들지
-    // 않고 이미 있는 컨트롤 하나로 todo/note/comment 아카이브 뷰를 통일한다.
-    const tables = syncedTables();
-    const local = tables
-      ? todoDetail(tables, id, {
-          includeArchived: showArchived,
-          sessions: sessionsOf(get().agents, sessionsTrustedSeq),
-        })
-      : undefined;
-    let body: {
-      todo: TodoView;
-      history: HistoryEntry[];
-      comments: Comment[];
-      handoffs?: HandoffView[];
-    };
-    if (local && tables) {
-      // 사본으로 바로 그린다. 사본(최근 2,000줄)보다 오래된 히스토리는 연 순간에 한 번만 REST 로 채운다.
-      body = {
-        ...local,
-        history: withBackfill(id, local.history),
-        handoffs: todoHandoffs(tables, id, sessionsOf(get().agents, sessionsTrustedSeq)),
-      };
-      if (!options?.refresh) {
-        void backfillHistory(id, `/api/todos/${id}`);
-      }
-    } else {
-      const qs = showArchived ? '?includeArchived=true' : '';
-      body = await api<{ todo: TodoView; history: HistoryEntry[]; comments: Comment[] }>(
-        `/api/todos/${id}${qs}`,
-        actor,
-      );
-      // 나중에 사본으로 넘어가도 이 히스토리는 남긴다 — 사본은 최근 2,000줄만 든다.
-      backfilled.set(id, body.history);
-      backfillVersion += 1;
-    }
-    if (options?.refresh && get().detail?.todo?.id !== id) {
-      // 갱신하려던 상세가 await 도중 닫혔거나 다른 항목으로 바뀌었다 — 늦게 온 응답을 버린다.
-      return;
-    }
-    set({
-      detail: {
-        kind: 'todo',
-        todo: body.todo,
-        history: body.history,
-        comments: body.comments,
-        ...(body.handoffs ? { handoffs: body.handoffs } : {}),
-      },
-    });
-    // 드로어를 연 시점에 이 todo 의 댓글은 모두 확인한 것으로 본다. localStorage(세션 간
-    // 유지)와 상태 사본(리렌더 트리거)을 함께 갱신한다. push 여부와 무관하게 수행한다 —
-    // URL 로 연 경우(applyRoute)도, SSE refetch 로 갱신된 경우도 사용자는 그 댓글을 보고 있다.
-    if (body.todo.lastCommentAt) {
-      markSeen(localStorage, body.todo.id, body.todo.lastCommentAt);
-      set({ seenComments: readSeen(localStorage) });
-    }
-    if (options?.push === false) {
-      return;
-    }
-    // boards 는 await 이후 다시 읽는다 — await 도중 SSE 로 새 보드가 들어와 배열이 바뀔 수
-    // 있고, 낡은 배열을 쓰면 todoRefFor 가 boardId 를 못 찾아 상세 없는 주소가 된다.
-    const selected = get().selected;
-    const ref = todoRefFor(body.todo, get().boards);
-    const selectedAddressable = selected === 'all' || isAddressableBoardKey(selected);
-    if (
-      ref === undefined ||
-      ref.number <= 0 ||
-      !isAddressableBoardKey(ref.board) ||
-      !selectedAddressable
-    ) {
-      // 이 상세를 가리킬 주소가 없다(보드를 못 찾았거나 `buildPath` 가 `/` 로 접는 키, 데몬이 아직 번호를 주지 않은 할 일).
-      // 그래도 마커만 쌓으면 closeDetail 이 back() 을 골라, popstate 가 `/` 를 전체 보기로
-      // 읽어 **닫기가 보드 전환을 일으킨다**. 항목을 만들지 않으면 closeDetail 의
-      // replaceState 분기가 지금 보드를 그대로 들고 드로어만 닫는다.
-      return;
-    }
-    // 보고 있는 보드는 그대로다 — 전체 보기(또는 "지금" 표에서 다른 보드의 항목)에서 연
-    // 상세는 `/?todo=rocky-12` 처럼 선택과 todo 를 따로 싣는다. 예전엔 여기서 selected 를
-    // todo 의 보드로 옮겼고, 그게 "상세를 열면 뒤 화면이 그 보드로 바뀐다" 로 보였다.
-    // 상세를 연 것이 히스토리 항목을 만든다 — closeDetail 이 이 표식을 보고 back() 할지
-    // 정한다(퍼머링크로 바로 진입한 경우엔 back() 이 앱 밖으로 나가버린다).
-    pushPath(pathFor({ board: selected, todo: ref }), { rockyTodoDetail: true });
+  refetch: async () => {
+    set({ prs: await fetchPrs(get().actor) });
   },
-
-  openNoteDetail: async (id, options) => {
-    const { actor } = get();
-    const tables = syncedTables();
-    const local = tables ? noteDetail(tables, id) : undefined;
-    const body = local
-      ? { ...local, history: withBackfill(id, local.history) }
-      : await api<{ note: NoteView; history: HistoryEntry[] }>(`/api/notes/${id}`, actor);
-    if (!local) {
-      backfilled.set(id, body.history);
-      backfillVersion += 1;
-    }
-    if (local && !options?.refresh) {
-      void backfillHistory(id, `/api/notes/${id}`);
-    }
-    if (options?.refresh && get().detail?.note?.id !== id) {
-      // openTodoDetail 과 같은 규칙 — 늦게 도착한 갱신이 닫힌 드로어를 되살리지 않는다.
-      return;
-    }
-    set({ detail: { kind: 'note', note: body.note, history: body.history, comments: [] } });
-  },
-
-  closeDetail: () => {
-    if (get().detail?.kind === 'note') {
-      // 노트 히스토리 드로어는 주소를 만들지 않고 열린다 — 닫을 때도 주소를 건드리지 않는다(노트
-      // 상세 `/{board}/notes/{n}` 위에서 열렸으면 그 주소와 뒤로가기 항목을 그대로 둔다).
-      set({ detail: null });
-      return;
-    }
-    const state = window.history.state as { rockyTodoDetail?: boolean } | null;
-    if (state?.rockyTodoDetail) {
-      // 우리가 만든 항목이니 뒤로가기로 되돌린다. popstate 의 applyRoute 도 어차피 닫지만,
-      // 닫힘은 여기서 먼저 확정한다 — 사용자가 누른 것은 "닫기"이지 "뒤로"가 아니라서,
-      // popstate 가 늦거나(back() 은 비동기다) 어떤 이유로 처리되지 않아도 드로어가 열린 채
-      // 주소만 바뀌는 상태로 남으면 안 된다. 되돌아갈 항목은 늘 상세가 없는 보드 경로다
-      // (드로어가 열려 있는 동안에는 백드롭이 목록 클릭을 막아 상세→상세 전환이 없다).
-      set({ detail: null });
-      window.history.back();
-      return;
-    }
-    // 퍼머링크로 바로 들어온 경우: 되돌릴 항목이 없다. back() 하면 앱 밖으로 나간다.
-    set({ detail: null });
-    window.history.replaceState(null, '', pathFor({ board: get().selected }));
-  },
-
-  createBoard: async (key) => {
-    const { actor } = get();
-    const board = await api<Board>('/api/boards', actor, {
-      method: 'POST',
-      body: JSON.stringify({ key }),
-    });
-    // selected 를 먼저 바꾼 뒤 조회한다 — 순서가 반대면 refetch 가 이전 보드 기준으로
-    // 돌아, 새 보드 화면에 직전 보드의 항목·섹션이 그대로 남는다.
-    set({ selected: board.key, detail: null, openNoteId: null });
-    pushPath(pathFor({ board: board.key }));
-    await get().refetch();
-  },
-
-  applyRoute: async (route) => {
-    // 옛 key 도 그 보드로 읽는다 — 이름을 바꾸기 전에 복사해 둔 링크(`/gotgan/12`)가 죽으면
-    // "옛 참조는 계속 풀린다"는 약속을 웹 UI 만 안 지키는 셈이 된다. REST·MCP·CLI 는
-    // 서버가 별칭을 풀어주지만 이 판정은 클라이언트에 있어 여기서 따로 봐야 한다.
-    // 푼 뒤에는 **새 key** 로 정규화한다(별칭은 입력 전용).
-    // 탭부터 — 아래의 주소 정규화(pathFor)가 지금 탭을 싣는다. 뒤로가기로 맨 주소에 오면 피드다.
-    if (viewOf(route) !== get().view) {
-      set({ view: viewOf(route) });
-    }
-    const matched = route.board === 'all' ? undefined : resolveBoardKey(get().boards, route.board);
-    const known = route.board === 'all' || matched !== undefined;
-    const board: BoardSelection = matched ?? 'all';
-    if (!known) {
-      // 낡은 링크에 에러 화면을 띄우지 않는다. 히스토리에 죽은 항목을 남기지 않으려
-      // push 가 아니라 replace 를 쓴다. 아래 정규화가 어차피 같은 일을 하지만, 그 전의
-      // refetch 가 실패해도 죽은 주소는 남지 않도록 여기서 먼저 걷어낸다.
-      replacePath(pathFor({ board: 'all' }));
-    }
-    if (board !== get().selected) {
-      set({ selected: board });
-      if (get().syncing) {
-        get().deriveBoard(); // 사본으로 그리는 중이다 — 요청을 보내지 않는다
-      } else {
-        await get().refetch();
-      }
-    }
-    if (route.note !== undefined) {
-      // 노트 상세 퍼머링크 — 목록은 이미 읽었으니 ref(또는 id)로 찾는다. 없거나 보관된 노트면
-      // 노트 목록만 열어 준다. 옛 key 로 온 `/old/notes/3` 은 새 key 의 ref 로 고쳐 찾는다.
-      const oldPrefix = `${route.board}-`;
-      const wanted =
-        route.board !== board && route.note.startsWith(oldPrefix)
-          ? `${board}-${route.note.slice(oldPrefix.length)}`
-          : route.note;
-      const note = get().notes.find((n) => n.ref === wanted || n.id === wanted);
-      set({ detail: null, view: 'notes', openNoteId: note?.id ?? null });
-      replacePath(
-        pathFor(note ? { board, note: note.ref } : { board }),
-        note ? window.history.state : null,
-      );
-      return;
-    }
-    set({ openNoteId: null });
-    if (route.todo === undefined) {
-      set({ detail: null });
-      // `/demo/abc` 처럼 해석되지 않은 꼬리가 주소에 남지 않게 정규화한다.
-      // push 가 아니라 replace 인 이유: 히스토리에 죽은 항목을 남기지 않는다.
-      replacePath(pathFor({ board }));
-      return;
-    }
-    // 상세의 보드도 별칭을 푼다. 목록은 선택한 보드 것만 있으므로(전체 보기가 아니면),
-    // 다른 보드의 todo 는 "지금" 표의 재료(전 보드)에서 찾는다.
-    const todoBoard = resolveBoardKey(get().boards, route.todo.board);
-    const id =
-      todoBoard === undefined
-        ? undefined
-        : (findTodoIdByNumber(get().todos, get().boards, todoBoard, route.todo.number) ??
-          findTodoIdByNumber(get().nowTodos, get().boards, todoBoard, route.todo.number));
-    if (id === undefined || todoBoard === undefined) {
-      // 없거나 보관된 번호 — 보드만 열어 준다.
-      set({ detail: null });
-      replacePath(pathFor({ board }));
-      return;
-    }
-    await get().openTodoDetail(id, { push: false });
-    // 번호가 해석된 경로도 똑같이 정규화한다 — `/demo/12/extra` 의 꼬리 세그먼트를
-    // parseRoute 는 무시하지만 주소에는 남아, 같은 화면이 여러 주소를 갖게 되고 복사해
-    // 건넨 링크에 죽은 꼬리가 따라간다. 여기서는 현재 항목의 state(상세 마커)를 보존해야
-    // 한다 — 지우면 closeDetail 이 back() 대신 replace 분기를 골라 뒤로가기가 어긋난다.
-    replacePath(
-      pathFor({ board, todo: { board: todoBoard, number: route.todo.number } }),
-      window.history.state,
-    );
-  },
-
-  addTodo: async (input) => {
-    logUsage('web:quick-add');
-    if (
-      await sendViaSync(get(), {
-        op: 'todo.create',
-        id: newClientId(),
-        board: input.board,
-        title: input.title,
-        ...(input.section ? { section: input.section } : {}),
-      })
-    ) {
-      return;
-    }
-    const { actor } = get();
-    await api('/api/todos', actor, { method: 'POST', body: JSON.stringify(input) });
-    await get().refetch();
-  },
-
-  moveTodoToBoard: async (id, board) => {
-    await createSettled(id); // 막 만든 할 일이면 데몬이 알 때까지 — 아니면 모르는 id 로 나간다
-    const { actor } = get();
-    const moved = await api<{ boardId: string; number: number }>(`/api/todos/${id}/board`, actor, {
-      method: 'POST',
-      body: JSON.stringify({ board }),
-    });
-    // 옛 주소(`/old/12`)는 비워진 번호라 새로고침·공유에서 깨진다. 드로어는 refetch 가
-    // 같은 id 로 되살리므로 주소가 todo 를 따라간다(`/old?todo=new-3`) — 보고 있는 보드는
-    // 그대로다. 히스토리 항목은 늘리지 않고 갈아끼운다(뒤로가기가 깨진 옛 주소로 돌아가지
-    // 않게, state 는 보존해 드로어 마커를 유지).
-    const route = routeForTodo(moved, get().boards, get().selected);
-    if (route.todo !== undefined && isAddressableBoardKey(route.todo.board)) {
-      replacePath(pathFor(route), window.history.state);
-    }
-    await get().refetch();
-  },
-
-  moveTodo: async (id, before) => {
-    if (await sendViaSync(get(), { op: 'todo.move', id, before })) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/todos/${id}/move`, actor, {
-      method: 'POST',
-      body: JSON.stringify({ before }),
-    });
-    await get().refetch();
-  },
-
-  patchTodo: async (id, patch) => {
-    if (
-      Object.keys(patch).every((key) => TODO_PATCH_KEYS.has(key)) &&
-      (await sendViaSync(get(), { op: 'todo.update', id, ...patch } as SyncOp))
-    ) {
-      return;
-    }
-    await createSettled(id); // 막 만든 할 일이면 데몬이 알 때까지
-    const { actor } = get();
-    await api(`/api/todos/${id}`, actor, { method: 'PATCH', body: JSON.stringify(patch) });
-    await get().refetch();
-  },
-
-  markCollectSeen: () => {
-    const { collect, collectItems, collectToken } = get();
-    const seen = collectSeenOf(collect ?? 0, collectItems, collectToken);
-    try {
-      writeCollectSeen(localStorage, seen);
-    } catch {
-      // 저장 못 해도 이 화면에서는 빠진다.
-    }
-    set({ collectSeen: seen });
-  },
-
-  setTodoStatus: async (id, action) => {
-    if (await sendViaSync(get(), { op: 'todo.status', id, action })) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/todos/${id}/status`, actor, {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    });
-    await get().refetch();
-  },
-
-  archiveTodos: async (ids) => {
-    logUsage('web:archive-done', { count: ids.length });
-    const sync = syncWriter(get());
-    if (sync) {
-      // 차례로 — 중간에 거절되면 거기서 멈춘다(REST 판과 같다).
-      for (const id of ids) {
-        await sync.send({ op: 'todo.status', id, action: 'archive' });
-      }
-      return;
-    }
-    const { actor } = get();
-    try {
-      // 차례로 보낸다 — 데몬 저장소는 연결 하나라 한꺼번에 쏴도 빨라지지 않고, 중간에 실패하면
-      // 거기서 멈춰 나머지를 건드리지 않는다. 실패해도 그때까지 보관된 것은 다시 읽어 보인다.
-      for (const id of ids) {
-        await api(`/api/todos/${id}/status`, actor, {
-          method: 'POST',
-          body: JSON.stringify({ action: 'archive' }),
-        });
-      }
-    } finally {
-      await get().refetch();
-    }
-  },
-
-  addNote: async (input) => {
-    const id = newClientId();
-    if (
-      await sendViaSync(get(), {
-        op: 'note.create',
-        id,
-        title: input.title,
-        ...(input.board ? { board: input.board } : {}),
-      })
-    ) {
-      // `ack` 앞에 결과 행이 왔다 — 번호가 붙은 노트로 연다.
-      get().openNote(id);
-      return;
-    }
-    const { actor } = get();
-    const created = await api<NoteView>('/api/notes', actor, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-    await get().refetch();
-    // 목록 한 줄로 두면 "새 메모" 를 다시 찾아 눌러야 한다 — 만든 노트를 바로 연다. 사본으로 그리는 중이면 행이 아직
-    // 밀려오지 않았을 수 있어 응답의 노트로 연다.
-    openNoteView(get().notes.find((n) => n.id === created.id) ?? created);
-  },
-
-  saveNote: async (id, patch) => {
-    if (
-      patch.content === undefined &&
-      patch.title !== undefined &&
-      (await sendViaSync(get(), { op: 'note.update', id, title: patch.title }))
-    ) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/notes/${id}`, actor, { method: 'PATCH', body: JSON.stringify(patch) });
-    await get().refetch();
-  },
-
-  archiveNote: async (id) => {
-    const sync = syncWriter(get());
-    if (sync) {
-      set({ detail: null });
-      if (get().openNoteId === id) {
-        get().closeNote();
-      }
-      await sync.send({ op: 'note.archive', id });
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/notes/${id}/archive`, actor, { method: 'POST' });
-    set({ detail: null });
-    if (get().openNoteId === id) {
-      get().closeNote();
-    }
-    await get().refetch();
-  },
-
-  pinNote: async (id, pinned) => {
-    const { actor } = get();
-    logUsage('web:note-pin', { action: pinned ? 'pin' : 'unpin' });
-    if (await sendViaSync(get(), { op: pinned ? 'note.pin' : 'note.unpin', id })) {
-      return;
-    }
-    await api(`/api/notes/${id}/${pinned ? 'pin' : 'unpin'}`, actor, { method: 'POST' });
-    await get().refetch();
-  },
-
-  openNote: (id) => {
-    if (pendingCreates.has(id)) {
-      // 데몬이 아직 모르는 노트 — 확정되면 번호가 붙은 주소로 연다(편집기는 데몬에 있는 노트만 연다).
-      void createSettled(id).then(() => get().openNote(id));
-      return;
-    }
-    const note = get().notes.find((n) => n.id === id);
-    if (note) {
-      openNoteView(note);
-    }
-  },
-
-  closeNote: () => {
-    const state = window.history.state as { rockyNote?: boolean } | null;
-    set({ openNoteId: null });
-    if (state?.rockyNote) {
-      // 우리가 쌓은 항목이니 뒤로 — closeDetail 과 같은 규칙(닫힘은 먼저 확정한다).
-      window.history.back();
-      return;
-    }
-    // 퍼머링크로 바로 들어왔다 — back() 하면 앱 밖으로 나간다.
-    replacePath(pathFor({ board: get().selected }));
-  },
-
-  addComment: async (todoId, body) => {
-    if (await sendViaSync(get(), { op: 'comment.create', id: newClientId(), todoId, body })) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/todos/${todoId}/comments`, actor, {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    });
-    await get().refetch();
-  },
-
-  editComment: async (id, body) => {
-    if (await sendViaSync(get(), { op: 'comment.update', id, body })) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/comments/${id}`, actor, { method: 'PATCH', body: JSON.stringify({ body }) });
-    await get().refetch();
-  },
-
-  archiveComment: async (id) => {
-    if (await sendViaSync(get(), { op: 'comment.archive', id })) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/comments/${id}/archive`, actor, { method: 'POST' });
-    await get().refetch();
-  },
-
-  unarchiveComment: async (id) => {
-    if (await sendViaSync(get(), { op: 'comment.unarchive', id })) {
-      return;
-    }
-    const { actor } = get();
-    await api(`/api/comments/${id}/unarchive`, actor, { method: 'POST' });
-    await get().refetch();
-  },
-
-  createIssue: async (todoId, repo) => {
-    await createSettled(todoId);
-    const { actor } = get();
-    await api(`/api/todos/${todoId}/issue`, actor, {
-      method: 'POST',
-      ...(repo !== undefined ? { body: JSON.stringify({ repo }) } : {}),
-    });
-    await get().refetch();
-  },
-
-  /**
-   * 실패를 **던지지 않고** `available:false + reason` 으로 흡수한다 — 화면이 실패를
-   * 표현하는 경로를 하나로 묶기 위해서다(패널의 `sessions.available` 분기).
-   * 조회 전에 목록을 비우는 것도 같은 이유: 그러지 않으면 서버가 죽었는데 직전 성공의
-   * 세션 목록이 그대로 남아, 이제는 존재하지 않을 수도 있는 대상을 고르게 된다.
-   */
-  fetchSessions: async () => {
-    const { actor, selected } = get();
-    // `selected` 는 'all' 이거나 board key 문자열이다 (객체가 아니다).
-    const board = selected === 'all' ? '' : selected;
-    set({ sessions: { available: true, list: [] } });
-    try {
-      const result = await api<{
-        available: boolean;
-        reason?: string;
-        sessions: SessionRow[];
-      }>(`/api/sessions?board=${encodeURIComponent(board)}`, actor);
-      set({
-        sessions: { available: result.available, reason: result.reason, list: result.sessions },
-      });
-    } catch (error) {
-      set({
-        sessions: {
-          available: false,
-          reason: error instanceof Error ? error.message : String(error),
-          list: [],
-        },
-      });
-    }
-  },
-
-  sendSessionMessage: async (sessionId, text) => {
-    logUsage('web:session-message');
-    const { actor } = get();
-    await api('/api/sessions/message', actor, {
-      method: 'POST',
-      body: JSON.stringify({ sessionId, text }),
-    });
-  },
-
-  stopSession: async (sessionId) => {
-    logUsage('web:session-stop');
-    await api('/api/sessions/stop', get().actor, {
-      method: 'POST',
-      body: JSON.stringify({ sessionId }),
-    });
-    const { agents } = get();
-    set({
-      agents: agents && {
-        ...agents,
-        list: agents.list.filter((s) => s.sessionId !== sessionId),
-      },
-    });
-    void get().loadAgents();
-  },
-
-  sendHandoff: async (todoId, input) => {
-    await createSettled(todoId);
-    const { actor } = get();
-    const res = await api<{ woke?: boolean }>(`/api/todos/${todoId}/handoff`, actor, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-    await get().refetch();
-    return res?.woke === true;
-  },
-
   loadCapabilities: async () => {
     try {
       const health = await api<{
-        issueCreateAllowed?: boolean;
         spawnAllowed?: boolean;
         rcControlAllowed?: boolean;
         accessUser?: string | null;
@@ -1721,7 +365,6 @@ export const useUiStore = create<UiState>((set, get) => ({
       const commit = health.commit ?? null;
       // 필드가 없는 구버전 데몬이면 낙관적으로 둔다 — 그 데몬에는 애초에 이 가드가 없다.
       set({
-        issueCreateAllowed: health.issueCreateAllowed ?? true,
         spawnAllowed: health.spawnAllowed ?? true,
         rcControlAllowed: health.rcControlAllowed ?? health.spawnAllowed ?? true,
         accessUser: health.accessUser ?? null,
@@ -1738,67 +381,26 @@ export const useUiStore = create<UiState>((set, get) => ({
       // 힌트를 못 얻는 것으로 화면이 망가지면 안 된다. 강제는 서버 몫이다.
     }
   },
-
-  cancelHandoff: async (handoffId) => {
-    const { actor } = get();
-    await api(`/api/handoffs/${handoffId}/cancel`, actor, { method: 'POST' });
-    await get().refetch();
-  },
-
-  spawnSession: async (todoId, input) => {
-    await createSettled(todoId);
-    const { actor } = get();
-    const result = await api<SpawnResult>(`/api/todos/${todoId}/spawn`, actor, {
+  sendSessionMessage: async (sessionId, text) => {
+    logUsage('web:session-message');
+    await api('/api/sessions/message', get().actor, {
       method: 'POST',
-      body: JSON.stringify({
-        ...(input.note ? { note: input.note } : {}),
-        ...(input.path !== undefined ? { path: input.path } : {}),
-      }),
+      body: JSON.stringify({ sessionId, text }),
     });
-    await get().refetch();
-    return result;
   },
-
-  setBoardPath: async (boardKey, path) => {
-    const { actor } = get();
-    await api(`/api/boards/${encodeURIComponent(boardKey)}`, actor, {
-      method: 'PATCH',
-      body: JSON.stringify({ path }),
+  stopSession: async (sessionId) => {
+    logUsage('web:session-stop');
+    await api('/api/sessions/stop', get().actor, {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
     });
-    await get().refetch();
-  },
-
-  updateBoard: async (boardKey, patch) => {
-    const sync = syncWriter(get());
-    const keys = Object.entries(patch)
-      .filter(([, value]) => value !== undefined)
-      .map(([key]) => key);
-    if (sync && keys.length > 0 && keys.every((key) => key === 'title' || key === 'description')) {
-      // 제목·설명만 — key·레포·PR 작성자는 로컬 REST 로만 바꾼다.
-      await sync.send({
-        op: 'board.update',
-        key: boardKey,
-        ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.description !== undefined ? { description: patch.description } : {}),
-      });
-      return;
-    }
-    const { actor } = get();
-    const board = await api<Board>(`/api/boards/${encodeURIComponent(boardKey)}`, actor, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
+    const { agents } = get();
+    set({
+      agents: agents && {
+        ...agents,
+        list: agents.list.filter((s) => s.sessionId !== sessionId),
+      },
     });
-    // 선택을 먼저 옮기고 조회한다 — 순서가 반대면 refetch 가 옛 key 로 돌아, 화면은 새
-    // 이름인데 목록은 (별칭으로 풀리긴 해도) 옛 주소 기준으로 남는다. `createBoard` 와 같은 순서.
-    if (get().selected === boardKey && board.key !== boardKey) {
-      set({ selected: board.key });
-      // 열린 상세가 있으면 그 번호를 유지한다 — 보드 이름만 바뀌었을 뿐 보고 있는 항목은
-      // 그대로다. 히스토리 항목을 새로 만들지 않으려 replace 이고, 상세 마커(state)도 보존한다.
-      const { todo } = parseRoute(window.location.pathname, window.location.search);
-      const renamed =
-        todo !== undefined && todo.board === boardKey ? { ...todo, board: board.key } : todo;
-      replacePath(pathFor({ board: board.key, todo: renamed }), window.history.state);
-    }
-    await get().refetch();
+    void get().loadAgents();
   },
 }));

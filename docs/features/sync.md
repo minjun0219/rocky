@@ -51,122 +51,17 @@
   앞의 op 는 남는다(`reject` 의 `at` 이 그 자리, 결과는 `rows` 로 돌아온다). 그래서 클라이언트는 op 하나짜리 트랜잭션을 기본으로
   쓴다. `sync` 한 연결이면 결과 `rows` 를 `ack` 보다 먼저 보낸다.
 
-## 웹 사본(2번 조각)
+## 걷어낸 것 — 웹 사본(2번 조각)과 클라우드 중계소(3번 조각)
 
-- **웹은 보드 묶음을 사본에서 그린다**(`web/sync/`). 사본으로 그리는 동안(`syncing`, `<html data-sync="replica">`) 화면의
-  보드·할 일·섹션·노트·핸드오프와 상세 드로어(연결된 세션 기록까지)는 REST 로 다시 읽지 않는다. 보드를 바꾸거나 보관 보기를
-  켜도 요청이 없다. `refetch` 는 PR·수집함 요약만 읽는다. 세션·rc·작업로그·`/api/health` 는 지금처럼 REST 다.
-- **사본이 데몬을 따라가는지(`live`)로 모드를 정한다.** 저장 사본만 그린 부팅 직후나 끊긴 동안에도 `SYNC_GRACE_MS`(5초)까지는
-  사본으로 그리고, 그 안에 따라잡지 못하면 REST 로 돈다(`leaveReplica`). 소켓은 계속 다시 붙어 보고 따라잡으면 사본으로 돌아온다.
-  두 경로를 같이 둔다.
-- **반쯤 죽은 소켓은 `ping` 으로 가린다**(`client.ts`). 30초 동안 프레임이 없거나 화면이 다시 보이면 묻고, 5초 안에 답이 없으면
-  닫고 다시 붙는다. 소켓이 닫히면 그 소켓에 물은 기다림(`deadlineTimer`)도 걷는다 — 남으면 다음 연결이 `ping` 을 보내지 못해
-  죽은 소켓을 `live` 로 믿는다.
-- **쓰기는 `live` 일 때만 `tx`**, 그 밖(따라잡기 전, 끊긴 동안, 에이전트 actor)과 어휘 밖은 REST. `tx` 는 답을 기다리는 동안
-  사본 위에 겹쳐 그린다(`overlay`). 막 만든 할 일에 REST 로만 하는 동작(보내기·새 세션·이슈·옮기기)과 막 만든 노트 열기는 그
-  만들기가 확정될 때까지 기다린다(`pendingCreates`).
-- **데몬이 얹던 값은 웹이 같은 규칙으로 계산한다**(`web/sync/views.ts` — `refs::ref_of`, `doing::resolve_doing_state`,
-  `handoff_phase`·`is_unstarted`, `sessions::match_board` 를 옮긴 것). Rust 규칙을 바꾸면 여기도 고친다. 세션 판정은 에이전트
-  탭의 세션 목록으로 한다. 판정에 걸리는 행이 바뀌면 목록을 바로·3.5초 뒤에 다시 받고, 그 사이 바뀐 행(`seq` 가 믿는 순번보다
-  큼)은 판정하지 않는다 — 데몬의 목록 캐시는 오래된 값을 먼저 준다.
-- **사본은 IndexedDB 에 남는다**(`web/sync/persist.ts`). 실패는 삼키고 메모리로 돈다. 저장이 한 번 실패하면 다음 저장은 사본
-  전체를 쓰고, 통째로 쓸지는 앞 저장이 끝난 뒤에 정한다 — 실패를 알기 전에 줄 선 델타가 실패한 프레임의 행을 건너뛰고 머리만
-  올리지 않게. 저장소 모양을 바꾸면 `DB_VERSION` 을 올린다(옛 사본을 버리고 통째로 다시 받는다). Access 로그아웃은 싱크를
-  멈추고 걸린 저장을 기다린 뒤 사본을 지우고 나간다.
-- **저장 사본으로 그렸으면 주소는 따라잡은 뒤에 푼다**(`boot.ts` 의 `caughtUp`). 낡은 사본에 없는 새 항목의 링크를 지우지 않게.
-- 바뀌지 않은 묶음은 같은 배열로 둔다(`memoized`) — 노트 본문 편집처럼 잦은 변경에도 바뀌지 않은 화면은 다시 그리지 않는다.
+2026-11-13 웹의 보드 · 노트 화면을 걷어내며(`docs/design/specs/2026-11-11-board-and-rc-removal-design.md`의 PR 3) 둘을 뺐다. 웹
+`WS /api/ws` 는 90일에 12회, 마지막 2026-10-16 이었고, 데몬 쪽 중계소 연결기는 만들지 않아 중계소는 쓰인 적이 없다.
 
-## 클라우드 중계소(3번 조각)
-
-설계는 스펙의 3번 조각. 지금 있는 것은 중계소 코어(`cloud/relay/`)와 그 위의 Worker·DO 껍데기(`cloud/*.ts`)이고, 데몬
-연결기는 아직 없다.
-
-- **중계소는 행을 해석하지 않는다.** 데몬이 보낸 행을 JSON 그대로 `mirror`에 두고 `seq`만 꺼내 쓴다. 보드 규칙과 거르기
-  (올리지 않는 보드, 기계 필드)는 데몬 쪽 일이다. 중계소가 행 모양을 알아야 하는 일이 생기면 설계부터 다시 본다.
-- **폰에게 주는 `epoch`는 `<데몬 epoch>.<세대>`다.** 데몬에게 통째 사본을 받을 때마다 세대를 올린다. 삭제 프레임이 없어서,
-  거르기로 사본에서 빠진 행은 폰이 통째로 다시 받아야 사라진다. 통째 판정은 `needs_full`과 같은 규칙이다.
-- **변경함은 답을 받아야 다음을 보낸다.** 도착 순서가 충돌 규칙이고(결정 5), 끊겼을 때 답을 모르는 쓰기가 하나뿐이어야
-  한다. 답을 기다리는 쓰기는 `sent_to`로 가리고, 다른 데몬 연결이 붙으면 같은 id로 다시 보낸다. 두 번 적용을 막는 것은
-  데몬의 몫이다(`relay_ops`, 스펙의 PR ⑤).
-- **같은 만들기는 합친다.** 웹은 끊겼다 붙으면 만들기를 같은 id로 다시 보낸다. 변경함에 같은 만들기가 있으면 새 칸을 만들지
-  않고 답을 받을 폰 연결만 바꾼다. 만들기가 아닌 쓰기는 같아도 따로 쌓는다.
-- **에이전트 actor, 모르는 op, 빈 `ops`, 꽉 찬 변경함(`OUTBOX_LIMIT`)은 변경함에 넣지 않고 바로 `reject`한다.** op 이름은
-  웹의 `SyncOp`에서 타입으로 묶여 있어 어휘가 늘면 `relay.ts`의 `OP_NAMES`가 컴파일되지 않는다.
-- **상태는 SQLite와 소켓 첨부에만 둔다.** DO가 잠들었다 깨면 `Relay` 객체는 새로 만들어진다. 객체 필드에 상태를 두지 않는다.
-- 웹에 보이는 문구(`MESSAGES`)는 웹과 같은 말투로 쓴다. 닫힘 사유(`CLOSE_*`)는 데몬 연결기가 읽는 영어다.
-- **Worker 는 길이 역할을 정하고 Access 토큰이 주인을 확인한다**(`gate.ts`·`access.ts`, 규칙은 [security](./security.md)). 문을
-  지난 소켓만 DO 하나(`relay`)로 넘기고, 역할과 actor 는 내부 주소에 실어 보낸다(`host.ts`의 `hostUrl`). 폰 소켓은 같은 출처의
-  페이지가 연 것만 받으므로 폰 화면(4번 조각)은 중계소와 같은 주소에서 낸다.
-- **판정과 배선은 Bun 으로 테스트한다.** `worker.ts`에는 Workers 런타임에만 있는 것(`cloudflare:workers`, `WebSocketPair`, 자동
-  응답)만 두고, DO 의 소켓 배선은 `host.ts`가 `ctx`의 모양만 받아 한다. 런타임 타입 패키지는 DOM 타입과 부딪혀 들이지 않았다 —
-  쓰는 모양만 `workers.d.ts`·`worker.ts`에 적는다.
-- **ping 은 DO 를 깨우지 않는다.** 웹이 보내는 `{"t":"ping"}` 글자 그대로에는 런타임이 `{"t":"pong"}`으로 답한다
-  (`setWebSocketAutoResponse`). 모양이 다른 ping(`id`를 단 것)만 DO 가 깨어 `Relay`가 답한다. 웹이 보내는 글자는 테스트가 묶는다.
-- **공개키 받기는 받으러 간 요청의 `waitUntil`에 맡긴다.** 동시에 온 요청은 받기 하나를 같이 기다리는데, Workers 는 손님이
-  끊긴 요청의 일을 거둔다. 거둬진 받기는 끝나지 않아 기다리던 요청도, 받기를 다시 시작하지 못하는 다음 요청도 멈춘다.
-- **설정은 Worker secret 넷뿐이다**(`ACCESS_TEAM`·`ACCESS_AUD`·`ACCESS_EMAILS`·`DAEMON_CLIENT_ID`). 공개 레포라 `wrangler.jsonc`에
-  개인 값과 주소를 적지 않는다. 주소는 Custom Domain으로 한 번 단다(아래 "배포와 실측" 4). 설정 파일에 `routes`가 없으면
-  뒤의 배포는 그 주소를 건드리지 않는다. workers.dev·미리보기 주소는 Access를 거치지 않으므로 끈다.
-
-### 배포와 실측
-
-자동 배포는 없다. 오너가 자기 Cloudflare 계정에 손으로 올린다. 아래 `wrangler`는 `bunx wrangler@4.146.0`이다. 의존성에
-넣으면 `bun install`마다 workerd 바이너리가 따라와서 넣지 않았다. `wrangler login`으로 받는 권한에는 Access가 없어서 1과 2는
-대시보드에서 한다.
-
-1. **서비스 토큰**: Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token. Client Secret은
-   이때 한 번만 보인다. `security add-generic-password -s rocky-sync -a rocky -w`로 키체인에 넣는다(맨 끝의 `-w`가 비밀을 묻는다).
-2. **Access 앱**: Access controls → Applications에서 Self-hosted 앱을 만들고 중계소 주소(예: `relay.example.com`) 전체를 덮는다.
-   폰용 Allow(허용 이메일)와 데몬용 Service Auth(1의 서비스 토큰) 정책을 앱 하나에 둘 다 단다. 그 주소를 덮는 앱이 이미
-   있으면 Service Auth 정책만 더한다.
-3. **배포**: `cloud/`에서 `wrangler login`, `wrangler deploy`, 이어서 secret 넷을 `wrangler secret put <이름>`으로 넣는다.
-   하나라도 비면 소켓마다 500이다.
-   - `ACCESS_TEAM`: `<team>.cloudflareaccess.com`의 `<team>`만.
-   - `ACCESS_AUD`: 2의 Access 앱에 있는 Application Audience (AUD) Tag. 데몬 설정(`rocky.json`의 `access.aud`)에서 옮겨 오지
-     않는다. 지금 그 주소 앞에 선 앱의 값과 다를 수 있다. 2026-10-19 실측의 첫 시도가 그렇게 옮겨 온 값으로 403(`aud`가
-     다르다)을 받았다.
-   - `ACCESS_EMAILS`: 폰으로 들어올 사람의 이메일. 여럿이면 쉼표로 잇는다.
-   - `DAEMON_CLIENT_ID`: 1의 Client ID.
-4. **주소 달기**: Workers & Pages → `rocky-relay` → Settings → Domains & Routes → Add → Custom Domain으로 2의 주소를 단다.
-   `wrangler deploy --domain <주소>`를 한 번 실행해도 된다. 어느 쪽이든 뒤의 `wrangler deploy`는 그 주소를 떼지 않는다.
-   - 대시보드는 CNAME 레코드가 있는 호스트(터널이 쓰는 주소)에 달지 않는다. 터미널이 아닌 곳(에이전트, CI)에서 실행한
-     `wrangler deploy --domain`은 겹치는 DNS 레코드와 다른 Worker의 도메인을 묻지 않고 덮어쓴다. 실행하기 직전에 권한
-     네임서버에 직접 물어(`dig @<권한 네임서버> <주소>`) NXDOMAIN인지 본다. DNSSEC을 켠 Cloudflare 존에서는
-     공개 리졸버(1.1.1.1, 8.8.8.8)가 없는 이름에도 NOERROR를 줄 수 있다.
-   - 터널이 쓰던 주소를 중계소에 주면 그 주소에서 웹 UI가 열리지 않는다. 폰 화면은 4번 조각이 그 주소에서 낸다.
-   - 주소를 단 뒤 토큰 없이 열면 Access 로그인으로 가는 302를 받는다. 그 `Location`의 `kid`가 앞에 선 앱의 AUD이니 3의
-     `ACCESS_AUD`와 같은지 본다. Worker의 426 JSON이 오면 Access 앱이 그 주소를 덮지 않는 것이다.
-   - 방금 "레코드 없음"을 받은 기기는 그 답을 한동안 캐시한다. 그동안은 권한 네임서버가 준 IP로 붙는다
-     (`curl --resolve <주소>:443:<IP>`).
-5. **실측**: 데몬처럼 서비스 토큰 헤더를 달아 두 번 보낸다. 비밀은 표준 입력으로 넘겨 명령줄과 히스토리에 남기지 않는다.
-   비밀을 키체인이 아닌 곳(예: 1Password)에 두었으면 각 명령의 첫 줄만 그 도구의 읽기 명령으로 바꾼다.
-
-```sh
-# 대조: 업그레이드가 아닌 GET. Access를 지나면 Worker가 426으로 거절한다
-security find-generic-password -s rocky-sync -w \
-  | sed 's/^/CF-Access-Client-Secret: /' \
-  | curl -s -w '\n%{http_code}\n' -H @- -H 'CF-Access-Client-Id: <Client ID>' https://relay.example.com/relay
-
-# 실측: 데몬처럼 웹소켓 업그레이드
-security find-generic-password -s rocky-sync -w \
-  | sed 's/^/CF-Access-Client-Secret: /' \
-  | curl -i -N -s --http1.1 --max-time 5 -H @- \
-      -H 'CF-Access-Client-Id: <Client ID>' \
-      -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-      https://relay.example.com/relay
-```
-
-| 답 | 뜻 |
-| --- | --- |
-| 대조가 `{"error":"웹소켓 업그레이드(GET, Upgrade: websocket)만 받는다"}`와 `426` | 토큰과 Service Auth 정책이 맞다. 실측으로 넘어간다 |
-| 대조가 302·401·403 | Access가 막았다. 토큰이나 정책이 틀렸으니 1·2를 다시 본다. strict service token authentication이 켜진 조직은 302 대신 401·403을 준다(2026-10-05 이후에 만든 조직은 늘 켜져 있다) |
-| 실측이 `101 Switching Protocols` 뒤에 `{"t":"sync","id":"sync"}`(앞에 프레임 헤더 두 바이트) | 지난다. 데몬 연결기(④)는 서비스 토큰으로 붙는다 |
-| 실측이 JSON `{"error": …}` | Access는 지났고 Worker가 거절했다. 이유가 본문에 있다(`wrangler tail`에도 `rocky relay:` 줄로 남는다). `aud`가 다르다면 3의 `ACCESS_AUD`를 본다 |
-| 실측이 그 밖(로그인으로 가는 302, JSON이 아닌 401·403) | 대조는 지났는데 Access가 업그레이드만 막았다. 스펙의 대안(`/relay`만 Bypass, Worker가 HMAC 검증)으로 간다 |
-
-결과는 스펙 3번 조각의 "인증"에 있다(2026-10-19, 지난다). 연결이 5초 뒤 끊기는 것(curl의 28)은 `--max-time` 때문이다.
-curl도 데몬 자리에 붙으므로, 데몬 연결기가 붙어 있을 때 다시 재면 그 연결이 밀려난다(4000).
+- **웹은 더 이상 사본을 들지 않는다.** `web/sync/`(사본 · op 겹치기 · IndexedDB · 소켓 클라이언트)와 `web/store-sync.test.tsx`,
+  `e2e/sync.spec.ts` 가 빠졌다. 브라우저에 남아 있던 옛 사본(IndexedDB)은 새 화면이 읽지도 지우지도 않는다 — 브라우저의 사이트
+  데이터 지우기로 없어진다.
+- **`cloud/`(중계소 코어 · Worker · DO)가 빠졌다.** 코드를 지워도 이미 배포한 Worker 는 그대로 돈다. Cloudflare 대시보드에서
+  Worker 와 그 Custom Domain, Access 앱 · 서비스 토큰을 오너가 손으로 지운다. 배포 절차와 실측은 git 히스토리에 있다.
+- **데몬 쪽(위 규칙)은 아직 그대로다** — 보드 표면과 함께 PR 4 에서 걷는다. 그때까지 `/api/ws` 의 `sync` · `tx` 는 클라이언트 없이 남는다.
 
 ## 코드
 
@@ -179,14 +74,5 @@ curl도 데몬 자리에 붙으므로, 데몬 연결기가 붙어 있을 때 다
 | 변경 신호 · 소켓 프레임 | `crates/rockyd/src/server.rs`의 `sync_rows`, `crates/rockyd/src/ws.rs` |
 | 트랜잭션 어휘 · 클라이언트 id(순수) | `crates/rocky-core/src/sync.rs`의 `SyncOp` · `is_client_id` |
 | op 적용 · id 를 받는 만들기 | `crates/rocky-core/src/store.rs`의 `apply_sync_op` · `create_todo_with_id` · `create_note_with_id` · `add_comment_with_id` |
-| 웹 사본 · op 겹치기(순수) | `web/sync/replica.ts` |
-| 웹이 계산하는 값 · 화면용 목록(순수) | `web/sync/views.ts` |
-| 소켓 클라이언트 · IndexedDB 저장 · 부팅 | `web/sync/client.ts` · `persist.ts` · `boot.ts` |
-| 스토어 연결(`syncing`, `tx` 쓰기) | `web/store.ts` |
-| 중계소 사본 · 변경함 · 프레임 처리(순수) | `cloud/relay/mirror.ts` · `outbox.ts` · `relay.ts`, 저장소 모양은 `storage.ts` |
-| 중계소 Worker 의 문 · Access 토큰 · DO 소켓 배선 | `cloud/gate.ts` · `access.ts` · `host.ts`, 런타임 입구 `worker.ts`, 배포 설정 `wrangler.jsonc` |
 
-테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절), `web/sync/*.test.ts`,
-`web/store-sync.test.tsx`, `e2e/sync.spec.ts`(IndexedDB 는 실제 브라우저에서만), `cloud/relay/*.test.ts`(DO의
-SQLite는 `bun:sqlite`로 흉내 낸다), `cloud/*.test.ts`(Access 토큰은 테스트마다 만든 RSA 키로 서명하고, DO 의 소켓과 `ctx`는
-가짜다). workerd 위에서는 돌리지 않는다 — 런타임에서 확인할 것은 위의 실측이다.
+테스트: `crates/rocky-core/tests/it/sync_test.rs`, `crates/rockyd/tests/it/ws_test.rs`(보드 싱크 절).
