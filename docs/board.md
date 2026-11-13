@@ -939,8 +939,7 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
   **내용은 싣지 않는다** — 제목·본문·id 없이 `GET /api/todos/:ref`처럼 모양만.
 - **어디에**: `~/.config/rocky/usage/YYYY-MM.jsonl`(월별 append-only). 데몬은 전용 스레드로,
   CLI·훅·worklog MCP는 자기가 직접 쓴다(데몬을 안 거치므로). 1초마다 도는 statusline과
-  SSE·health는 기록하지 않는다. 몇 초마다 묻는 보드 패널(`x-rocky-client: claude-code-panel` 의 GET)도
-  라우트로 세지 않고, 세션마다 한 번씩 `hook board-panel`(보드를 보였다)·`hook board-panel use`(`/rocky-board`·포커스)로 남긴다.
+  SSE·health는 기록하지 않는다. 보드 패널(`hook board-panel`)은 2026-11-11 에 뺐다.
 - **읽기**: `rocky usage [--since 30d] [--json]` — 많이 쓴 표면(에러 수·p50/p95), **알려진
   표면 중 한 번도 안 쓰인 것**, 날짜·시각 분포, 클라이언트 비율. 데몬 없이 파일만 읽는다.
 - **끄기**: `rocky.json` `usage.enabled: false` 또는 env `ROCKY_USAGE=0`. 위치는 `usage.dir` /
@@ -983,7 +982,7 @@ rocky의 표면이 실제로 얼마나 쓰이는지를 **상시** 남긴다. v0.
 **`rocky statusline`** 이 Claude Code statusline 전체를 그린다 — 경로·git 줄, 모델·effort·ctx·5h/7d 줄, 한도가 소진되면
 크레딧 줄. CLI 가 직접 그리고 데몬에 묻지 않으므로 데몬이 없어도 줄은 그대로다. 사용 로그를 남기지 않는다 — 1초마다 ×
 세션 수만큼 도는 자리다. 예전 설정의 `--full` 은 그대로 받는다. 데몬이 그리던 보드 줄(`GET /api/statusline`·`todo.statusline`
-템플릿·`statusline.board`)은 걷었다 — 보드는 세션 옆 패널(`/rocky-board`)이나 웹 UI 에서 본다. 보드 줄을 끼우던 옛 꼴
+템플릿·`statusline.board`)은 걷었다 — 보드는 웹 UI 에서 본다. 보드 줄을 끼우던 옛 꼴
 (`rocky statusline --cwd … --session …`)과 `extraCommands` 안에서 불린 `rocky statusline` 은 아무것도 그리지 않는다. statusline
 스크립트 안에서 `rocky statusline` 을 끼워 부르면 줄 전체가 한 번 더 나오니, statusLine 을 바로 `rocky statusline` 으로 건다.
 

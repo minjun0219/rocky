@@ -15,14 +15,15 @@ final class EventsTests: XCTestCase {
         XCTAssertNil(parser.feed(line: ""))
     }
 
-    func testSlicesFollowWebRules() {
-        XCTAssertEqual(slices(for: [#"{"entity":"todo","entityId":"t","action":"update"}"#]), [.todos])
-        XCTAssertEqual(slices(for: [#"{"entity":"section","entityId":"s","action":"create"}"#]), [.sections, .todos])
-        XCTAssertEqual(slices(for: [#"{"entity":"board","entityId":"b","action":"pr-ready"}"#]), [.prs])
-        XCTAssertEqual(slices(for: [#"{"entity":"note","entityId":"n","action":"update"}"#]), [])
-        // 보드 자체가 바뀌었거나 모르는 모양이면 전부.
-        XCTAssertEqual(slices(for: [#"{"entity":"board","entityId":"b","action":"update"}"#]), Set(Slice.allCases))
-        XCTAssertEqual(slices(for: ["not json"]), Set(Slice.allCases))
+    func testOnlyPullRequestFramesReload() {
+        XCTAssertFalse(touchesPrs([#"{"entity":"todo","entityId":"t","action":"update"}"#]))
+        XCTAssertFalse(touchesPrs([#"{"entity":"section","entityId":"s","action":"create"}"#]))
+        XCTAssertFalse(touchesPrs([#"{"entity":"note","entityId":"n","action":"update"}"#]))
+        XCTAssertFalse(touchesPrs([]))
+        XCTAssertTrue(touchesPrs([#"{"entity":"board","entityId":"b","action":"pr-ready"}"#]))
+        // 하나라도 PR 을 건드렸거나 모르는 모양이면 다시 받는다.
+        XCTAssertTrue(touchesPrs([#"{"entity":"todo","entityId":"t","action":"update"}"#, #"{"entity":"board","entityId":"b","action":"pr-merged"}"#]))
+        XCTAssertTrue(touchesPrs(["not json"]))
     }
 
     func testBackoff() {
@@ -36,52 +37,17 @@ final class EventsTests: XCTestCase {
     }
 }
 
-final class BoardTreeTests: XCTestCase {
-    func testGroupsBySectionAndNestsChildren() {
-        let sections = [Section(id: "s1", boardId: "b1", title: "검증")]
-        let todos = [
-            Todo(id: "a", number: 1, boardId: "b1", title: "느슨한 것"),
-            Todo(id: "b", number: 2, boardId: "b1", title: "부모", sectionId: "s1"),
-            Todo(id: "c", number: 3, boardId: "b1", title: "자식", sectionId: "s1", parentId: "b"),
-            Todo(id: "d", number: 4, boardId: "b2", title: "다른 보드"),
-        ]
-        let groups = boardGroups(todos: todos, boardId: "b1", sections: sections)
-        XCTAssertEqual(groups.map(\.title), ["일반", "검증"])
-        XCTAssertEqual(groups[1].rows.map(\.todo.id), ["b", "c"])
-        XCTAssertEqual(groups[1].rows.map(\.depth), [0, 1])
-    }
-
-    func testHidesDoneBranchesButKeepsDoneParentOfOpenChild() {
-        let todos = [
-            Todo(id: "a", number: 1, boardId: "b1", title: "끝난 것", status: .done),
-            Todo(id: "b", number: 2, boardId: "b1", title: "끝난 부모", status: .done),
-            Todo(id: "c", number: 3, boardId: "b1", title: "열린 자식", parentId: "b"),
-        ]
-        let groups = boardGroups(todos: todos, boardId: "b1", sections: [])
-        XCTAssertEqual(groups.flatMap(\.rows).map(\.todo.id), ["b", "c"])
-        XCTAssertTrue(boardGroups(todos: [todos[0]], boardId: "b1", sections: []).isEmpty)
-    }
-
-    func testMenuLists() {
-        let todos = [
-            Todo(id: "a", number: 1, boardId: "b1", title: "도는 것", status: .doing),
-            Todo(id: "b", number: 2, boardId: "b2", title: "할 것"),
-        ]
-        XCTAssertEqual(doingTodos(todos).map(\.id), ["a"])
+final class PullRequestsTests: XCTestCase {
+    func testReadyPrsDropDraftsAndNotReady() {
         var draft = PrSnapshot(repo: "o/r", number: 3, title: "초안", url: "u", ready: true)
         draft.isDraft = true
         let prs = [
             PrSnapshot(repo: "o/r", number: 1, title: "후보", url: "u", ready: true),
             PrSnapshot(repo: "o/r", number: 2, title: "아직", url: "u", ready: false),
+            PrSnapshot(repo: "o/r", number: 4, title: "머지됨", url: "u", state: "MERGED", ready: true),
             draft,
         ]
         XCTAssertEqual(readyPrs(prs).map(\.number), [1])
-    }
-
-    func testStatusActions() {
-        XCTAssertEqual(StatusAction.available(for: .todo), [.start, .done])
-        XCTAssertEqual(StatusAction.available(for: .doing), [.stop, .done])
-        XCTAssertEqual(StatusAction.available(for: .done), [.reopen])
     }
 }
 
@@ -103,35 +69,27 @@ final class DaemonClientTests: XCTestCase {
         }
     }
 
-    func testHeadersAndBody() async throws {
+    func testHeaders() async throws {
         let recorder = Recorder()
-        recorder.body = Data(#"{"id":"t1","number":7,"boardId":"b1","title":"x","status":"doing","priority":"p4","labels":[],"links":[],"position":0,"createdAt":"","updatedAt":"","ref":"rocky-7","commentCount":0,"doingState":"live"}"#.utf8)
-        let todo = try await client(recorder).setStatus("t1", .start)
-        XCTAssertEqual(todo.ref, "rocky-7")
-        XCTAssertEqual(todo.doingState, "live")
+        recorder.body = Data(#"[{"repo":"o/r","number":7,"title":"x","url":"u","state":"OPEN","isDraft":false,"ci":"pass","ready":true}]"#.utf8)
+        let prs = try await client(recorder).openPrs()
+        XCTAssertEqual(prs.map(\.id), ["o/r#7"])
         let request = try XCTUnwrap(recorder.requests.first)
-        XCTAssertEqual(request.url?.absoluteString, "http://127.0.0.1:8636/api/todos/t1/status")
-        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.absoluteString, "http://127.0.0.1:8636/api/prs?open=true")
+        XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-rocky-client"), "mac")
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-rocky-actor"), "logan")
-        XCTAssertEqual(request.httpBody.map { String(decoding: $0, as: UTF8.self) }, #"{"action":"start"}"#)
-    }
-
-    func testEncodesBoardKey() async throws {
-        let recorder = Recorder()
-        _ = try await client(recorder).sections(board: "a b&c")
-        XCTAssertEqual(recorder.requests.first?.url?.absoluteString, "http://127.0.0.1:8636/api/sections?board=a%20b%26c")
     }
 
     func testErrorCarriesRouteStatusAndMessage() async {
         let recorder = Recorder()
-        recorder.status = 400
-        recorder.body = Data(#"{"error":"title is required"}"#.utf8)
+        recorder.status = 403
+        recorder.body = Data(#"{"error":"local only"}"#.utf8)
         do {
-            try await client(recorder).add(board: "rocky", title: "")
+            _ = try await client(recorder).sessions()
             XCTFail("실패해야 한다")
         } catch {
-            XCTAssertEqual(error.localizedDescription, "POST /api/todos → 400 title is required")
+            XCTAssertEqual(error.localizedDescription, "GET /api/sessions → 403 local only")
         }
     }
 }

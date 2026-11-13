@@ -77,20 +77,7 @@ public struct DaemonClient: Sendable {
         }
     }
 
-    public func boards() async throws -> [Board] {
-        try await call("GET", "/api/boards")
-    }
-
-    /// 전 보드의 할 일(보관 제외) — 메뉴의 "돌고 있는 일" 재료이자, 보고 있는 보드의 목록은 여기서 거른다(요청 하나로).
-    public func todos() async throws -> [Todo] {
-        try await call("GET", "/api/todos")
-    }
-
-    public func sections(board: String) async throws -> [Section] {
-        try await call("GET", "/api/sections?board=\(Self.encode(board))")
-    }
-
-    /// 열린 PR 스냅숏 — 데몬이 감시하는 레포(보드에 설정된 것)만.
+    /// 열린 PR 스냅숏 — 데몬이 감시하는 레포(`rocky.json` 의 `repos`)만.
     public func openPrs() async throws -> [PrSnapshot] {
         try await call("GET", "/api/prs?open=true")
     }
@@ -98,21 +85,5 @@ public struct DaemonClient: Sendable {
     /// 이 기기의 에이전트 세션 — 데몬이 `claude agents --json` 을 몇 초 캐시해 두고 준다.
     public func sessions() async throws -> SessionsResult {
         try await call("GET", "/api/sessions")
-    }
-
-    @discardableResult
-    public func setStatus(_ id: String, _ action: StatusAction) async throws -> Todo {
-        try await call("POST", "/api/todos/\(Self.encode(id))/status", body: ["action": action.rawValue])
-    }
-
-    @discardableResult
-    public func add(board: String, title: String) async throws -> Todo {
-        try await call("POST", "/api/todos", body: ["board": board, "title": title])
-    }
-
-    static func encode(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=?/#+")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
