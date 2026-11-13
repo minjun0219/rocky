@@ -57,8 +57,8 @@
 `WS /api/ws` 는 90일에 12회, 마지막 2026-10-16 이었고, 데몬 쪽 중계소 연결기는 만들지 않아 중계소는 쓰인 적이 없다.
 
 - **웹은 더 이상 사본을 들지 않는다.** `web/sync/`(사본 · op 겹치기 · IndexedDB · 소켓 클라이언트)와 `web/store-sync.test.tsx`,
-  `e2e/sync.spec.ts` 가 빠졌다. 브라우저에 남아 있던 옛 사본(IndexedDB)은 새 화면이 읽지도 지우지도 않는다 — 브라우저의 사이트
-  데이터 지우기로 없어진다.
+  `e2e/sync.spec.ts` 가 빠졌다. 브라우저에 남아 있던 옛 사본(IndexedDB `rocky-sync`)은 화면이 뜰 때 지운다
+  (`dropBoardReplica`, `web/main.tsx`) — 폰에 보드 내용이 남지 않게.
 - **`cloud/`(중계소 코어 · Worker · DO)가 빠졌다.** 코드를 지워도 이미 배포한 Worker 는 그대로 돈다. Cloudflare 대시보드에서
   Worker 와 그 Custom Domain, Access 앱 · 서비스 토큰을 오너가 손으로 지운다. 배포 절차와 실측은 git 히스토리에 있다.
 - **데몬 쪽(위 규칙)은 아직 그대로다** — 보드 표면과 함께 PR 4 에서 걷는다. 그때까지 `/api/ws` 의 `sync` · `tx` 는 클라이언트 없이 남는다.
