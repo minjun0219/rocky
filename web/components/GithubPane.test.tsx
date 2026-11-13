@@ -7,15 +7,13 @@ import { ViewSwitch } from './ViewSwitch';
 
 afterEach(cleanup);
 
-// 수집함(`/api/inbox`)·세션 전달(`/api/deliveries`)이 부른다 — 여기선 경로별 빈 응답으로.
+// 세션 전달(`/api/deliveries`)이 부른다 — 여기선 빈 응답으로.
 const realFetch = globalThis.fetch;
 beforeEach(() => {
   globalThis.fetch = (async (input: string) => {
     const body = String(input).startsWith('/api/deliveries')
       ? { sessions: [], subscriptions: [], recent: [] }
-      : String(input).startsWith('/api/inbox/subscriptions')
-        ? []
-        : { sources: [] };
+      : {};
     return new Response(JSON.stringify(body), { status: 200 });
   }) as unknown as typeof fetch;
 });
@@ -42,40 +40,26 @@ describe('GithubPane — PR 현황', () => {
     ...over,
   });
 
-  test('보고 있는 보드 레포의 열린 PR 전부 — 아이콘으로 상태, 누르면 GitHub', () => {
+  test('구독한 PR 전부를 레포별로 — 아이콘으로 상태, 누르면 GitHub', () => {
     renderWithStore(<GithubPane />, {
-      nowTodos: [],
-      nowHandoffs: [],
-      collect: null,
       githubHidden: [],
-      selected: 'rocky',
-      boards: [
-        {
-          id: 'b1',
-          key: 'rocky',
-          title: 'rocky',
-          repo: 'o/rocky',
-          createdAt: '2026-09-01T00:00:00Z',
-          updatedAt: '2026-09-01T00:00:00Z',
-        } as never,
-      ],
       prs: [
         pr({ number: 7, title: '대기 중인 PR', unhandled: 1 }),
         pr({ number: 8, title: '머지 가능 PR', ready: true, ci: 'pass' }),
         pr({ number: 9, title: '다른 레포', repo: 'o/tally' }),
       ] as never,
     });
-    expect(screen.getByRole('heading', { name: /PR\s*2/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /PR\s*3/ })).toBeTruthy();
     const link = screen.getByRole('link', { name: /대기 중인 PR/ });
     expect(link.getAttribute('href')).toBe('https://github.com/o/rocky/pull/1');
     expect(link.textContent).toContain('#7');
     expect(link.textContent).toContain('CI 실행 중 · 스레드 1');
     expect(link.querySelector('[aria-label="대기"] svg')).toBeTruthy();
-    expect(screen.queryByText('다른 레포')).toBeNull();
+    expect(screen.getByRole('region', { name: 'o/tally' }).textContent).toContain('다른 레포');
   });
 });
 
-// Codex 지적 회귀 — PR 행만 있는 보드에서도 시각이 멈추지 않는다(1분 틱이 돈다).
+// Codex 지적 회귀 — PR 행만 있을 때도 시각이 멈추지 않는다(1분 틱이 돈다).
 describe('GithubPane — PR 만 있을 때도 시각이 흐른다', () => {
   test('1분 뒤 "방금" 이 "1분" 으로', async () => {
     const realNow = Date.now;
@@ -89,12 +73,7 @@ describe('GithubPane — PR 만 있을 때도 시각이 흐른다', () => {
     }) as typeof setInterval;
     try {
       renderWithStore(<GithubPane />, {
-        nowTodos: [],
-        nowHandoffs: [],
-        collect: null,
         githubHidden: [],
-        selected: 'all',
-        boards: [],
         prs: [
           {
             repo: 'o/rocky',
@@ -129,14 +108,6 @@ describe('GithubPane — PR 만 있을 때도 시각이 흐른다', () => {
 });
 
 describe('GithubPane — 숨기기', () => {
-  const board = {
-    id: 'b1',
-    key: 'rocky',
-    title: 'rocky',
-    repo: 'o/rocky',
-    createdAt: '2026-09-01T00:00:00Z',
-    updatedAt: '2026-09-01T00:00:00Z',
-  } as never;
   const pr = (over: Record<string, unknown>) => ({
     repo: 'o/rocky',
     number: 1,
@@ -157,8 +128,6 @@ describe('GithubPane — 숨기기', () => {
 
   test('× 로 숨기고, 숨긴 N건 · 다시 보이기 로 되돌린다', async () => {
     renderWithStore(<GithubPane />, {
-      selected: 'rocky',
-      boards: [board],
       githubHidden: [],
       prs: [pr({ number: 7, title: '숨길 PR' })] as never,
     });
@@ -171,8 +140,6 @@ describe('GithubPane — 숨기기', () => {
 
   test('숨긴 PR 도 상태가 바뀌면 다시 보인다', () => {
     renderWithStore(<GithubPane />, {
-      selected: 'rocky',
-      boards: [board],
       // "대기" 였을 때 숨겼다 — 지금은 머지 가능.
       githubHidden: ['pr:o/rocky#7:waiting'],
       prs: [pr({ number: 7, title: '다시 뜰 PR', ready: true })] as never,
@@ -181,24 +148,26 @@ describe('GithubPane — 숨기기', () => {
   });
 
   test('GitHub 탭을 끄면 탭도 없다', () => {
-    const state = { selected: 'rocky', boards: [board], notes: [], showGithub: false };
+    const state = { showGithub: false };
     renderWithStore(<ViewSwitch />, state);
     expect(screen.queryByRole('button', { name: /GitHub/ })).toBeNull();
   });
 });
 
 describe('GithubPane — 레포별 · 그 밖의 열린 PR', () => {
-  const board = (key: string, repo: string) =>
-    ({
-      id: key,
-      key,
-      title: key,
-      repo,
-      createdAt: '2026-09-01T00:00:00Z',
-      updatedAt: '2026-09-01T00:00:00Z',
-    }) as never;
-
-  test('전체 보기는 레포마다 묶고, 펼칠 때만 그 레포의 열린 PR 을 묻고, 지켜보기는 구독을 보낸다', async () => {
+  const subscribed = {
+    state: 'OPEN',
+    isDraft: false,
+    base: 'main',
+    head: 'abc',
+    mergeState: 'BLOCKED',
+    ci: 'pending',
+    unhandled: 0,
+    decision: 0,
+    ready: false,
+    updatedAt: '2026-09-28T10:00:00Z',
+  };
+  test('레포마다 묶고, 펼칠 때만 그 레포의 열린 PR 을 묻고, 지켜보기는 구독을 보낸다', async () => {
     const calls: { url: string; method: string; body?: string }[] = [];
     globalThis.fetch = (async (input: string, init?: RequestInit) => {
       const url = String(input);
@@ -232,17 +201,28 @@ describe('GithubPane — 레포별 · 그 밖의 열린 PR', () => {
       }
       const body = url.startsWith('/api/deliveries')
         ? { sessions: [], subscriptions: [], recent: [] }
-        : { sources: [] };
+        : {};
       return new Response(JSON.stringify(body), { status: 200 });
     }) as unknown as typeof fetch;
     renderWithStore(<GithubPane />, {
-      nowTodos: [],
-      nowHandoffs: [],
-      collect: null,
       githubHidden: [],
-      selected: 'all',
-      boards: [board('a', 'o/a'), board('b', 'o/b')],
-      prs: [],
+      // 구독한 PR 이 있는 레포만 묶음이 된다 — 레포 목록은 보드가 아니라 구독한 PR 에서 온다.
+      prs: [
+        {
+          ...subscribed,
+          repo: 'o/a',
+          number: 8,
+          title: '이미 구독',
+          url: 'https://github.com/o/a/pull/8',
+        },
+        {
+          ...subscribed,
+          repo: 'o/b',
+          number: 3,
+          title: '비 PR',
+          url: 'https://github.com/o/b/pull/3',
+        },
+      ] as never,
     });
     expect(screen.getByRole('region', { name: 'o/a' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'o/b' })).toBeTruthy();
@@ -254,7 +234,8 @@ describe('GithubPane — 레포별 · 그 밖의 열린 PR', () => {
     const section = screen.getByRole('region', { name: 'o/a' });
     await userEvent.click(section.querySelector('button[aria-expanded]') as HTMLButtonElement);
     expect(await screen.findByText('남의 PR')).toBeTruthy();
-    expect(screen.queryByText('이미 구독')).toBeNull();
+    // 이미 구독한 PR 은 위 상태판에만 — 그 밖의 열린 PR 목록에는 다시 싣지 않는다.
+    expect(screen.getAllByText('이미 구독')).toHaveLength(1);
     expect(calls.filter((c) => c.url === '/api/prs/open?repo=o%2Fa')).toHaveLength(1);
 
     await userEvent.click(screen.getByRole('button', { name: '지켜보기' }));

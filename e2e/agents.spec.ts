@@ -34,14 +34,6 @@ test('에이전트 탭이 세션을 내 차례·실행 중·쉬는 중으로 묶
   await audit(page, '에이전트 탭');
 });
 
-test('보드를 고르면 그 보드의 세션만 — 워크트리 세션은 레포 보드로 접힌다', async ({ page }) => {
-  await page.goto('/demo?view=agents');
-  const pane = agentsPane(page);
-  await expect(pane.locator('li')).toHaveCount(3);
-  await expect(pane.locator('li', { hasText: AGENTS.worktree.name })).toBeVisible();
-  await expect(pane.locator('li', { hasText: AGENTS.working.name })).toHaveCount(0);
-});
-
 test('피드의 "답 기다림" 행을 누르면 에이전트 탭으로 간다', async ({ page }) => {
   await page.goto('/');
   const waiting = waitingRow(page, AGENTS.blocked.needs);

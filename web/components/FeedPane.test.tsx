@@ -2,20 +2,12 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useUiStore } from '../store';
-import { renderWithStore, todoFixture } from '../test-support';
+import { renderWithStore } from '../test-support';
 import { FeedPane } from './FeedPane';
 import { ViewSwitch } from './ViewSwitch';
 
 afterEach(cleanup);
 
-const board = {
-  id: 'b1',
-  key: 'rocky',
-  title: 'rocky',
-  repo: 'o/rocky',
-  createdAt: '2026-09-01T00:00:00Z',
-  updatedAt: '2026-09-01T00:00:00Z',
-} as never;
 const recent = () => new Date(Date.now() - 60_000).toISOString();
 const pr = (over: Record<string, unknown>) => ({
   repo: 'o/rocky',
@@ -37,9 +29,6 @@ const pr = (over: Record<string, unknown>) => ({
 
 describe('FeedPane — 오너가 손댈 것', () => {
   const state = {
-    selected: 'rocky',
-    boards: [board],
-    notes: [],
     githubHidden: ['alert:merge:o/rocky#9'],
     prs: [
       pr({ number: 8, title: '여덟', ready: true }),
@@ -65,30 +54,34 @@ describe('FeedPane — 오너가 손댈 것', () => {
   });
 });
 
-// 예전 할 일 화면 "지금" 표의 내 차례가 피드로 왔다 — 세션이 사라진 진행 중 할 일이 그 예.
 describe('FeedPane — 내 차례', () => {
-  test('세션이 사라진 진행 중 할 일이 피드에 뜨고 탭 숫자에 더해진다', () => {
-    const stuck = todoFixture({
-      id: 'stuck',
-      title: '들고 있다 사라진 일',
-      status: 'doing',
-      doingState: 'gone',
-      doingBy: 'claude-code',
-      doingSince: new Date(Date.now() - 3_600_000).toISOString(),
-    });
-    const state = { selected: 'all', boards: [board], notes: [], prs: [], nowTodos: [stuck] };
+  test('답을 기다리는 에이전트가 피드에 뜨고 탭 숫자에 더해진다', () => {
+    const waiting = {
+      pid: undefined,
+      cwd: '/w/rocky',
+      kind: 'background',
+      id: '0da6a98a',
+      sessionId: '0da6a98a-full',
+      name: 'acorn-25',
+      status: 'idle',
+      state: 'blocked',
+      startedAt: Date.now() - 3_600_000,
+      matched: false,
+      job: { needs: '어느 쪽으로 갈지 정해 주세요' },
+    };
+    const state = { prs: [], showAgents: true, agents: { available: true, list: [waiting] } };
     renderWithStore(<FeedPane />, state);
-    expect(screen.getByText('들고 있다 사라진 일')).toBeTruthy();
-    expect(screen.getByRole('region', { name: '내 차례' }).textContent).toContain('세션 없음');
+    expect(screen.getByText('어느 쪽으로 갈지 정해 주세요')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '내 차례' }).textContent).toContain('답 기다림');
     cleanup();
     renderWithStore(<ViewSwitch />, state);
     expect(screen.getByRole('button', { name: /피드\s*1/ })).toBeTruthy();
   });
 
   test('피드가 맨 앞 탭이다', () => {
-    renderWithStore(<ViewSwitch />, { boards: [board], notes: [], prs: [] });
+    renderWithStore(<ViewSwitch />, { prs: [] });
     const tabs = screen.getAllByRole('button').map((b) => b.textContent);
     expect(tabs[0]).toContain('피드');
-    expect(tabs[1]).toContain('할 일');
+    expect(tabs[1]).toContain('작업로그');
   });
 });

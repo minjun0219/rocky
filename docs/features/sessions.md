@@ -22,15 +22,12 @@
 
 ## 웹 — 에이전트 탭
 
-화면 모양(자리·문구·폭)의 정본은 [`web/DESIGN.md`](../../web/DESIGN.md) "Layout" 8. 여기는 판정 규칙만.
+화면 모양(자리·문구·폭)의 정본은 [`web/DESIGN.md`](../../web/DESIGN.md) "Layout" 6. 여기는 판정 규칙만.
+웹 보드 화면을 걷어낸 뒤(2026-11-13) 에이전트 탭은 보드를 모른다 — 보드별 필터와 든 할 일 연결이 빠졌다.
 
 - **묶음은 상태로 정한다**(`agentPhase`): background `blocked` → 내 차례, `busy`·background `working` → 실행 중,
   나머지(`idle`·`done`) → 쉬는 중. interactive 의 `idle` 은 사람이 칠 차례지만 cmux 가 이미 알리므로 내 차례가 아니다.
-- **세션의 보드는 데몬의 `board_key_for_cwd` 와 같은 순서로 고른다**(`boardOfSession`): cwd 가 `path` 아래인 보드 중 가장
-  긴 경로, 없으면 key(옛 key 포함)가 cwd 의 경로 세그먼트인 보드 중 가장 긴 key. 처음 맞는 것을 고르면 보드 생성 순서에
-  따라 바깥 보드나 이름이 같은 상위 폴더로 간다. 보드가 없으면 레포 폴더 이름(워크트리는 레포로 접는다).
-- **보드를 고르면 그 보드의 세션만** 보인다 — 다른 보드의 세션은 "전체" 에서.
-- **든 할 일은 `doingSessionId` 로 잇는다** — 전체 `sessionId` 와 짧은 `id` 둘 다(핸드오프로 띄운 세션은 짧은 id 로 귀속된다).
+- **늘 전체 세션을 보인다.** 둘째 줄의 자리는 레포 폴더 이름(`repoLabel`, 워크트리는 레포로 접는다).
 - **셋째 줄은 Claude 가 남긴 요약 한 줄**: 내 차례면 `needs`(없으면 `detail`), 아니면 `detail`. 출력·로그는 두지 않는다.
 - **메시지는 받은편지함으로만 보낸다**(`POST /api/sessions/message`) — 큐에 넣는 대안은 없다. 받은편지함을 등록하지 않은
   세션이면 409 와 이유(`받을 세션 등록 없음` 등)를 그대로 보인다. 세션을 움직이는 일이라 **로컬 요청만**(아니면 403, 화면은
@@ -52,16 +49,13 @@
   (`isSafeShortId` — 영숫자 64자 이하, 데몬 `is_safe_short_id` 와 같은 규칙). 형식이 다르면 attach·멈추기 둘 다 그리지 않는다.
 - **쓰던 메시지는 세션 id 로 탭에 둔다** — 행이 다른 묶음으로 옮겨 가면(실행 중 → 쉬는 중) 다시 마운트돼 입력칸이 사라진다.
 - **세션 목록 폴링은 앱 한 곳**(`useAgentsPolling`, `main.tsx`) — 탭을 보는 동안 15초, 아니면 60초(피드 숫자는 어느 탭에서나
-  보인다). ⋯ 메뉴에서 탭을 끄면 폴링도 멈추고 `?view=agents` 도 피드로 돌아간다. 예외 — 보드를 사본으로 그리는 중에 doing 이나
-  열린 핸드오프가 있으면 그 판정(`doingState`·`stale`)에 쓰려고 탭을 꺼도 60초마다 받는다(피드의 에이전트 행은 여전히 탭을 켰을
-  때만, `docs/features/sync.md` "웹 사본").
+  보인다). ⋯ 메뉴에서 탭을 끄면 폴링도 멈추고 `?view=agents` 도 피드로 돌아간다. 예외는 없다(보드 판정에 쓰려고 꺼도 받던 예외는
+  웹 보드와 함께 걷었다).
 
 ## 웹 — 피드 "내 차례"
 
-- **사람 답을 기다리는 background 세션(`blocked`)이 행이 된다** — 멈춘 진행과 같은 순위(`MINE_RANK.stuck`). 제목은 `needs`(없으면
-  `detail`), 누르면 에이전트 탭.
-- **진행 중 할 일을 든 세션이면 빼고 그 진행 행(멈춤)만 남긴다** — 같은 일을 두 줄로 세지 않는다. 대신 기다리는 것 문구는 그
-  경우 에이전트 탭에만 보인다.
+- **사람 답을 기다리는 background 세션(`blocked`)만 행이 된다**(`nowRows`) — 오래 기다린 것부터, 5행 넘으면 "N 더". 제목은
+  `needs`(없으면 `detail`), 누르면 에이전트 탭.
 - **에이전트 탭을 끄면 이 행도 없다**(GitHub 탭과 같은 규칙 — 끄면 그 표면은 어디에도 안 보인다).
 - **기간으로 자르지 않는다** — 몇 달 잠든 세션도 뜬다. 숨기기(×)는 없고, 치우는 길은 그 세션에 답하거나, 살아 있으면 에이전트 탭의 멈추기, 아니면 `claude rm`.
 
@@ -72,7 +66,7 @@
 | 파싱·보드 매칭·핸드오프 후보·작업 요약 | `crates/rocky-core/src/sessions.rs` |
 | `claude agents --json` 실행·캐시 | `crates/rockyd/src/sessions_exec.rs` |
 | `GET /api/sessions`(`job` 붙이기)·핸드오프 자동 매칭 | `crates/rockyd/src/server.rs`(`read_job_summary`, 핸드오프 라우트) |
-| 에이전트 탭의 판정(상태·보드·묶음) | `web/agents.ts` |
+| 에이전트 탭의 판정(상태·묶음) | `web/agents.ts` |
 | 에이전트 탭 화면·폴링 | `web/components/AgentsPane.tsx`(`useAgentsPolling`), 탭 전환 `web/components/ViewSwitch.tsx` |
 | 세션에 메시지 | `POST /api/sessions/message` `crates/rockyd/src/server.rs`(`wake_session` — 핸드오프와 같은 길), 본문 `crates/rocky-core/src/peer_inbox.rs`(`web_session_message`), 화면 `AgentsPane.tsx`(`MessageToggle`) |
 | 세션 멈추기 · attach 복사 | 판정 `crates/rocky-core/src/sessions.rs`(`stop_target`), 실행 `crates/rockyd/src/sessions_exec.rs`(`stop_session`), 라우트 `POST /api/sessions/stop` `server.rs`, 캐시 비우기 `sessions_exec.rs`(`swr_sessions_with_invalidate`), 화면 `AgentsPane.tsx`(`useStopAction` · `AttachCopy`) |

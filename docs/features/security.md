@@ -38,18 +38,9 @@
   actor 의 트랜잭션은 거절한다 — 에이전트의 `start` 앞에서 도는 세션 조회(`drop_gone_handoffs` → `claude agents`)도 소켓으로는
   닿지 않는다. 그래서 소켓이 어디서 열렸든 프로세스 실행에 닿지 않는다. op 를 더할 때는 이 목록부터 본다
   (`docs/features/sync.md`).
-- **보드 사본은 화면을 연 브라우저에 남는다**(`web/sync/persist.ts` 의 IndexedDB). Access·tailscale 로 연 폰 브라우저도 같다 —
-  클라우드 동기화(3번 조각)와 관계없이 원격으로 연 브라우저에는 보드가 남는다. 앱 안에서 지우는 길은 Access 로그아웃 메뉴 하나다
-  (`clearBoardReplica` — 싱크를 멈추고 걸린 저장이 끝난 뒤에 지운다). 로컬·tailscale 로 연 화면과, Access 세션이 끝나 로그인
-  화면으로 넘어간 화면에서는 사본이 그대로 남는다.
-- **클라우드 중계소 Worker 도 Access 토큰을 직접 검증한다**(`cloud/access.ts`). 규칙은 `rocky_core::access`와 같다 — RS256, 팀
-  공개키(1시간 캐시, 모르는 `kid`는 1분에 한 번까지 다시 받는다), `iss`·`aud`·`exp`(±60초)·`nbf`. 길이 역할을 정한다
-  (`cloud/gate.ts`): `/api/ws`는 허용 이메일의 사람만, `/relay`는 설정한 Client ID 의 서비스 토큰만 — 서비스 토큰으로 받은 JWT
-  에는 `email`이 없고 `common_name`이 Client ID 다. 다른 길에 온 토큰은 소켓을 열지 않는다. 폰 소켓은 원격 제어 변경과 같은
-  이유로 같은 출처만 받는다(`isSameOrigin` = `is_same_origin_request`) — 웹소켓에는 CORS 가 없고, Access 쿠키는 같은 사이트의
-  다른 서브도메인 페이지가 연 소켓에도 실린다. workers.dev·미리보기 주소는 Access 를 거치지 않으므로 끈다(`cloud/wrangler.jsonc`).
-  한쪽 규칙을 바꾸면 다른 쪽도 고친다. *EN: The relay Worker verifies the Access JWT itself with `rocky_core::access` rules; the
-  path picks the role — a person on `/api/ws`, the configured service token on `/relay`.*
+- **브라우저에 남았던 보드 사본은 화면이 뜰 때 지운다**(`web/main.tsx` 의 `dropBoardReplica` — IndexedDB `rocky-sync`). 보드
+  싱크(2026-11-13 걷어냄)가 Access·tailscale 로 연 폰 브라우저에도 보드를 남겼다. 그 브라우저로 화면을 한 번 더 열면 없어진다.
+  클라우드 중계소 Worker(`cloud/`)도 같은 날 코드에서 뺐다 — 배포해 둔 Worker 는 오너가 Cloudflare 에서 지운다.
 
 ## 코드
 
@@ -60,9 +51,8 @@
 | 공개키 캐시 · 라우트 판정(`access_remote_control`) | `crates/rockyd/src/access.rs`, `crates/rockyd/src/server.rs` |
 | 적용 지점(라우팅 전 가드, 라우트별 로컬 검사) | `crates/rockyd/src/server.rs`, 웹소켓 `crates/rockyd/src/ws.rs` |
 | tailscale serve | `crates/rockyd/src/tailscale.rs`, 수동 명령 `crates/rocky-cli/src/system.rs` |
-| 브라우저의 보드 사본 · 로그아웃 때 지우기 | `web/sync/persist.ts`, `web/sync/boot.ts`(`clearBoardReplica`), `web/components/TopBar.tsx` |
-| 클라우드 중계소 Worker 의 토큰 검증 · 길별 입장 · 같은 출처 | `cloud/access.ts`, `cloud/gate.ts` |
+| 브라우저에 남았던 보드 사본 지우기 | `web/main.tsx`(`dropBoardReplica`) |
 
 테스트: `crates/rocky-core/tests/it/local_request_test.rs`, `access_test.rs`(테스트 전용 키 `fixtures/access-test-rsa.pk8`),
 `crates/rockyd/tests/it/server_access_test.rs`, `crates/rockyd/tests/it/tailscale_test.rs`, 라우트별 로컬 검사는
-`crates/rockyd/tests/it/server_*_test.rs`, 중계소 Worker 는 `cloud/access.test.ts`·`cloud/gate.test.ts`.
+`crates/rockyd/tests/it/server_*_test.rs`.
