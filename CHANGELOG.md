@@ -1,5 +1,27 @@
 # @minjun0219/rocky
 
+## 0.60.0
+
+### Minor Changes
+
+- [#551](https://github.com/minjun0219/rocky/pull/551) [`581dfee`](https://github.com/minjun0219/rocky/commit/581dfee3e2223bf75311d2136211c2b88a3375b6) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky update --main`·`--nightly` 가 플러그인을 버전 폴더 사본(`current/marketplace`)에서 깐다. 플러그인(훅·커맨드·스킬)이 데몬과 늘 같은 커밋이고, nightly 는 더 이상 레포를 clone 하지 않는다. 옛 `main-src` 마켓플레이스를 쓰던 기기는 다음 업데이트에서 한 번 확인받고 옮긴다(플러그인 옵션이 지워진다).
+
+- [#556](https://github.com/minjun0219/rocky/pull/556) [`d04bf50`](https://github.com/minjun0219/rocky/commit/d04bf507f5860b7301b498d4ea126a8ecd02ab79) Thanks [@minjun0219](https://github.com/minjun0219)! - 맥 앱은 선택 — `rocky update` 가 더 이상 `Rocky.app` 을 `/Applications` 에 깔거나 다시 띄우지 않는다. 필요할 때 `rocky app` 으로 지금 버전 폴더의 앱을 띄우고(`rocky` 인증서가 있으면 한 번 다시 서명) `rocky app --quit` 으로 내린다. 앱도 첫 실행에 로그인 항목에 저절로 오르지 않는다 — 메뉴의 "로그인할 때 열기"로 켠다. 예전에 깔아 둔 앱은 지우지 않고 업데이트 끝에 알린다.
+
+- [#555](https://github.com/minjun0219/rocky/pull/555) [`3b825fd`](https://github.com/minjun0219/rocky/commit/3b825fdb1f4452f543406f89a209ba2062eaf4b9) Thanks [@minjun0219](https://github.com/minjun0219)! - 보드 걷어내기 3단계(일부): 세션 옆 보드 패널(`/rocky-board`, function hooks 모듈)과 맥 앱의 할 일 창 · 메뉴의 "돌고 있는 일"을 뺐다. 맥 앱은 메뉴 막대(에이전트 · 머지 후보 PR)와 아바타만 남는다.
+
+- [#550](https://github.com/minjun0219/rocky/pull/550) [`ab65b3f`](https://github.com/minjun0219/rocky/commit/ab65b3fb82e3e081d1c7e07553dac0c0c4c562aa) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky tui`(Ink TUI)를 걷어냈다. 90일 동안 `rocky tui` 실행이 0회였다. 보드는 웹 UI·맥 앱·세션 옆 보드 패널로 본다.
+
+- [#557](https://github.com/minjun0219/rocky/pull/557) [`2048472`](https://github.com/minjun0219/rocky/commit/204847227b4c352f48f0b38d87e05e36db73d28d) Thanks [@minjun0219](https://github.com/minjun0219)! - 웹 UI 에서 할 일 · 노트 탭, 항목 상세 서랍, 보드 스위처 · 수집함, 노트 편집기, 보드 싱크(브라우저 사본 · `/api/ws` 클라이언트)와 클라우드 중계소(`cloud/`)를 걷어냈습니다. 웹은 피드 · 작업로그 · GitHub · 에이전트 · 원격 제어 탭만 남고, 옛 보드 주소는 피드로 열립니다. 브라우저에 남은 보드 사본(IndexedDB `rocky-sync`)은 화면이 뜰 때 지웁니다. 데몬의 보드 REST · MCP 는 그대로입니다.
+
+- [#554](https://github.com/minjun0219/rocky/pull/554) [`a9843c0`](https://github.com/minjun0219/rocky/commit/a9843c0a6a7cc9707a302fc2dd4aa3e616405b35) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky.json` 에 `repos` 블록을 더한다. PR 감시의 작성자 필터 · reviewFix 와 기본 브랜치 검증이 보드 대신(보드가 남아 있는 동안은 보드와 합쳐) 이 목록을 읽고, `rocky doctor` 가 아직 옮기지 않은 보드를 알린다.
+
+- [#552](https://github.com/minjun0219/rocky/pull/552) [`98434a6`](https://github.com/minjun0219/rocky/commit/98434a67d40fbeaffacb7f37b82b36aec0037f61) Thanks [@minjun0219](https://github.com/minjun0219)! - `rocky statusline` 의 구현을 cc-usage 라이브러리로 바꿨다(복사본 두 벌을 하나로). 설정(`rocky.json` 의 `statusline`)·환경 변수(`ROCKY_STATUSLINE_*`)·캐시 자리는 그대로다. git 표시가 cc-usage 를 따라 바뀐다: 파일 수 대신 브랜치 이름 바로 뒤의 기호(unstaged `*` · staged `+` · 충돌 `!`)를 쓰고, 원격 브랜치가 지워졌으면 `gone` 을 단다.
+
+### Patch Changes
+
+- [#548](https://github.com/minjun0219/rocky/pull/548) [`fc48c01`](https://github.com/minjun0219/rocky/commit/fc48c01842bc612e240d77ee2465bea18f56b961) Thanks [@minjun0219](https://github.com/minjun0219)! - 릴리스·nightly tarball 에 플러그인 사본(`marketplace/`)을 같이 묶는다 — 버전 폴더 하나에 바이너리·웹 UI·플러그인·맥 앱이 같은 커밋으로 든다.
+
 ## 0.59.1
 
 ### Patch Changes
