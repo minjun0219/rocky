@@ -159,12 +159,11 @@ describe('RcPane', () => {
 
 describe('원격 제어 탭', () => {
   test('rc 가 켜졌거나 agy 가 있는 기기에서만, 메뉴에서 끄지 않았을 때만 보인다', () => {
-    renderWithStore(<ViewSwitch />, { view: 'feed', notes: [], rc: status(), showRc: true });
+    renderWithStore(<ViewSwitch />, { view: 'feed', rc: status(), showRc: true });
     expect(screen.getByRole('button', { name: '원격 제어' })).toBeTruthy();
     cleanup();
     renderWithStore(<ViewSwitch />, {
       view: 'feed',
-      notes: [],
       rc: status({ configured: false, antigravity: null }),
       showRc: true,
     });
@@ -173,13 +172,12 @@ describe('원격 제어 탭', () => {
     // rc 블록이 없어도 agy 가 있으면 탭이 있다 — Antigravity 를 켜고 끄는 자리다.
     renderWithStore(<ViewSwitch />, {
       view: 'feed',
-      notes: [],
       rc: status({ configured: false, servers: [], strays: [] }),
       showRc: true,
     });
     expect(screen.getByRole('button', { name: '원격 제어' })).toBeTruthy();
     cleanup();
-    renderWithStore(<ViewSwitch />, { view: 'feed', notes: [], rc: status(), showRc: false });
+    renderWithStore(<ViewSwitch />, { view: 'feed', rc: status(), showRc: false });
     expect(screen.queryByRole('button', { name: '원격 제어' })).toBeNull();
   });
 });

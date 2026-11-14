@@ -8,24 +8,24 @@ afterEach(cleanup);
 
 describe('TopBar', () => {
   test('연결돼 있으면 연결 표시가 없다 — 끊겼을 때만 말한다', () => {
-    renderWithStore(<TopBar />, { connected: true, boards: [] });
+    renderWithStore(<TopBar />, { connected: true });
     expect(screen.queryByText('연결 끊김')).toBeNull();
     cleanup();
-    renderWithStore(<TopBar />, { connected: false, boards: [] });
+    renderWithStore(<TopBar />, { connected: false });
     expect(screen.getByRole('status').textContent).toContain('연결 끊김');
   });
 
-  test('드물게 쓰는 설정은 ⋯ 메뉴 안 — 테마·보관된 항목·편집자 이름', async () => {
+  test('드물게 쓰는 설정은 ⋯ 메뉴 안 — 테마·탭·편집자 이름', async () => {
     const setThemePref = mock(() => {});
-    const setShowArchived = mock(() => {});
+    const setShowGithub = mock(() => {});
     const setActor = mock(() => {});
     renderWithStore(<TopBar />, {
       connected: true,
-      boards: [],
       themePref: 'auto',
       actor: 'logan',
+      showGithub: true,
       setThemePref,
-      setShowArchived,
+      setShowGithub,
       setActor,
     });
     // 머리줄에는 설명 없는 컨트롤이 늘어서지 않는다.
@@ -33,8 +33,9 @@ describe('TopBar', () => {
     await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
     await userEvent.click(screen.getByRole('menuitemradio', { name: '다크' }));
     expect(setThemePref).toHaveBeenCalledWith('dark');
-    await userEvent.click(screen.getByRole('checkbox', { name: '보관된 항목도 보기' }));
-    expect(setShowArchived).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('checkbox', { name: '보관된 항목도 보기' })).toBeNull();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'GitHub 탭 보기' }));
+    expect(setShowGithub).toHaveBeenCalledWith(false);
     const name = screen.getByRole('textbox', { name: '편집자 이름' });
     await userEvent.clear(name);
     await userEvent.type(name, 'minjun{Enter}');
@@ -42,11 +43,11 @@ describe('TopBar', () => {
   });
 
   test('Cloudflare Access 로 들어온 화면에만 로그아웃이 있다', async () => {
-    renderWithStore(<TopBar />, { connected: true, boards: [], accessUser: null });
+    renderWithStore(<TopBar />, { connected: true, accessUser: null });
     await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
     expect(screen.queryByRole('menuitem', { name: '로그아웃' })).toBeNull();
     cleanup();
-    renderWithStore(<TopBar />, { connected: true, boards: [], accessUser: 'me@example.com' });
+    renderWithStore(<TopBar />, { connected: true, accessUser: 'me@example.com' });
     await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
     const logout = screen.getByRole('menuitem', { name: '로그아웃' });
     expect(logout.getAttribute('href')).toBe('/cdn-cgi/access/logout');
@@ -64,7 +65,7 @@ describe('TopBar ⋯ 메뉴 — 바깥 클릭으로 닫아도 이름을 잃지 �
         <TopBar />
         <p>바깥</p>
       </div>,
-      { connected: true, boards: [], actor: 'logan', setActor },
+      { connected: true, actor: 'logan', setActor },
     );
     await userEvent.click(screen.getByRole('button', { name: '메뉴' }));
     const name = screen.getByRole('textbox', { name: '편집자 이름' });

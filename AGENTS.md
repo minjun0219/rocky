@@ -27,9 +27,9 @@
 | --- | --- | --- |
 | **맡긴다** | 보드(할 일 · 노트 · 섹션), 핸드오프와 doing 귀속, 새 세션 띄우기, 수집함(외부 앱은 읽기만), `/rocky:next` | board-model · handoff · spawn · inbox |
 | **받아 온다** | PR 감시, rocky 채널, 세션 받은편지함 전달, `/rocky:review-request` · `/rocky:review-fix`, 기본 브랜치 검증 | pr-watch · verify |
-| **지켜보고 조종한다** | 웹 UI(피드 · 보드 · 에이전트 · 원격 제어 탭), 맥 앱(메뉴 막대 · 에이전트 아바타), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · mac (화면은 `web/DESIGN.md`) |
+| **지켜보고 조종한다** | 웹 UI(피드 · 작업로그 · GitHub · 에이전트 · 원격 제어 탭), 맥 앱(메뉴 막대 · 에이전트 아바타), rc 서버(감시 · 야간 · 대상 목록), Cloudflare Access 원격 제어, statusline, 세션 목록, `rocky doctor` | rc-servers · security · statusline · sessions · doctor · mac (화면은 `web/DESIGN.md`) |
 | **기록한다** | 워크로그(`worklog_*` · Stop 훅 · `/rocky:recall`), 로그 색인, 토큰 색인, 사용 로그(`rocky usage`) | log-index · tokens |
-| 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · 제거 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 · 클라우드 중계소) | daemon-lifecycle · sync |
+| 바탕 | 데몬 수명(설치 · 기동 · 업데이트 · 제거 · launchd), 설정(`rocky.json`), 호스트(Codex · opencode · Antigravity), 싱크(행 순번 · 바뀐 행 — 데몬 쪽만 남았다) | daemon-lifecycle · sync |
 
 **새 기능은 이 네 줄 중 하나에 붙는다.** 요청받지 않은 기능이 어디에도 붙지 않으면 범위 밖이다. 오너가 요청한 기능이
 어디에도 붙지 않으면 만들기 전에 이 표에 줄을 더할지(목표를 넓힐지) 오너에게 묻는다.
@@ -56,8 +56,7 @@
   찾는다; env의 `CLAUDE_CODE_SESSION_ID`는 `/clear` 뒤 낡는다).
 - **기기에서 도는 TypeScript 서버 코드는 없다.** `package.json` 에는 개발 도구(biome, changesets, `scripts/`·`plugin/scripts/`
   의 릴리스·부트스트랩·permalink 스크립트)와 `web/`의 **브라우저 번들 빌드**(React + zustand + Tailwind v4,
-  `bun run build:ui` → `dist/`)와 `cloud/`의 **클라우드 중계소**(Cloudflare Durable Object에서 도는 싱크 중계, 싱크 설계의
-  3번 조각)만 있다. 기기에 상주하는 것은 전부 Rust이고, 웹 화면은 데몬 REST/SSE 의 클라이언트다.
+  `bun run build:ui` → `dist/`)만 있다. 기기에 상주하는 것은 전부 Rust이고, 웹 화면은 데몬 REST/SSE 의 클라이언트다.
 - **맥 앱**(`mac/`, Swift · SwiftUI · SwiftPM) — 메뉴 막대에 머지 후보 PR,
   떠 있는 로키 아바타와 메뉴의 에이전트 칸이 세션 상태(`/api/sessions`)를 알린다.
   웹과 같은 데몬 REST/SSE 클라이언트(`x-rocky-client: mac`)이고 데몬은 고치지 않는다(`docs/features/mac.md`).
@@ -88,7 +87,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │   ├── commands/ skills/ agents/   슬래시 커맨드, 번들 스킬, 서브에이전트(reviewer · quick-fix(Sonnet) · merge-cleanup(Haiku))
 │   └── scripts/                permalink.ts(/rocky:review-request) · pr-threads.ts(/rocky:review-fix) — 설치 후에도 있으려면 플러그인 안에 있어야 한다
 ├── Cargo.toml · Cargo.lock     Rust 워크스페이스 — crates/rocky-core · rockyd · rocky-cli
-├── web/                        ★ 보드 웹 UI(React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
+├── web/                        ★ 웹 UI(피드 · 작업로그 · GitHub · 에이전트 · 원격 제어, React 19 · zustand · Tailwind v4) — `bun run build:ui` → dist/(gitignore).
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
 ├── mac/                        맥 앱(SwiftUI 메뉴 막대 + 아바타) — SwiftPM 패키지. RockyKit(순수, `swift test`) + RockyMac(화면).
@@ -98,9 +97,6 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │                                 `agy plugin install` 이 복사한다(링크는 풀림). 근거는 docs/antigravity.md
 ├── bridges/                    수집함 어댑터와 알림 브릿지 — `todo.inbox[]` / `pr.notifiers[]` 에 등록하는 명령
 │                                 (stdout JSON 규약, docs/board.md). 외부 서비스 코드는 여기에만; file/ 이 참조 구현.
-├── cloud/                      클라우드 중계소(싱크 3번 조각). relay/는 Durable Object 안에서 도는 순수 코어(사본·변경함·전파),
-│                                 그 위의 worker.ts·gate.ts·access.ts·host.ts 가 Worker·DO 껍데기(Access 토큰 검증, 배포 설정은
-│                                 wrangler.jsonc — 배포는 손으로). web/sync/replica.ts 의 타입을 같이 쓴다. 규칙은 docs/features/sync.md
 ├── crates/                     ★ 데몬·CLI(worklog MCP + 훅 포함)·코어(docs/rewrite/ 참고)
 ├── rocky.schema.json           `rocky.json` JSON Schema — crates/rocky-core/src/config.rs 와 함께 움직인다
 ├── biome.json                  린트·포맷(.sisyphus, .claude 제외)
@@ -140,6 +136,10 @@ rocky/                          단일 패키지 — @minjun0219/rocky
   `plugin/types`, `bun run test:panel`)도 2026-11-11 보드 걷어내기로 뺐다(90일 `hook board-panel` 19회 · `… use` 8회, 마지막 2026-10-14).
 - 맥 앱의 **할 일 창**과 메뉴의 "돌고 있는 일"(착수·멈춤·완료·추가) — 2026-11-11 보드 걷어내기로 뺐다(`mac` 클라이언트의
   `GET /api/todos` 15회). 맥 앱은 메뉴 막대(에이전트 · 머지 후보 PR)와 아바타만 남는다.
+- 웹의 **할 일 · 노트 탭**, 항목 상세 서랍, 보드 스위처 · 보드 머리 · 수집함, 노트 편집기(CodeMirror · Yjs), 보드 싱크(`web/sync/`)와
+  **클라우드 중계소**(`cloud/`) — 2026-11-13 보드 걷어내기로 뺐다(2026-08-12 이후 웹 `GET /api/todos` 2,482회 · `GET /api/notes` 1,355회 ·
+  `WS /api/ws` 12회, 모두 마지막 2026-10-16. 웹 수집함 14회, 마지막 2026-10-10). 웹은 피드(PR 알림 · 답을 기다리는 에이전트) ·
+  작업로그 · GitHub · 에이전트 · 원격 제어 탭만 남는다. 배포해 둔 중계소 Worker 는 오너가 Cloudflare 에서 지운다.
 - `/rocky:codex`와 `/rocky:issue` — v0.19에서 제거. Codex 위임은 공식 `openai/codex-plugin-cc`가 맡는다.
 - rocky-todo의 **Tauri 앱**(`app/`, 그 루트 `DESIGN.md`) — 레포를 흡수할 때 rocky-todo 히스토리에 남겼다.
   (`web/DESIGN.md`는 웹 UI의 다른 현행 문서다.) (**웹 UI**는 2026-09-28 오너 요청으로 `web/`에 되살렸다 —
@@ -172,7 +172,7 @@ bun install         # 의존성 설치
 bun run check       # Biome 검증(쓰기 없음)
 bun run fix         # Biome 안전 수정 + 포맷
 bun run typecheck   # tsc --noEmit
-bun run test        # test:unit(scripts·plugin/scripts·bridges·cloud·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload)
+bun run test        # test:unit(scripts·plugin/scripts·bridges·web *.test.ts) + test:dom(web *.test.tsx, happy-dom preload)
                     # 맨 `bun test` 는 preload 가 빠져 DOM 테스트가 실패한다 — 늘 `bun run test`
                     # EN: always `bun run test`; bare `bun test` skips the happy-dom preload and DOM tests fail
 bun run build:ui    # web/ → dist/(데몬이 서빙)
@@ -221,7 +221,7 @@ typecheck or tests — pre-push and CI already cover it.*
 ## 코딩 규칙
 
 - **언어 경계(2026-10-02 오너 확인)**: 가운데는 Rust — 데몬·CLI·훅·MCP·저장소(`crates/`, edition 2021,
-  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), 맥 앱(`mac/`, Swift), 클라우드 중계소(`cloud/`, TS), 브릿지·수집함 어댑터(`bridges/`, stdout
+  `rust-toolchain.toml`의 stable). 가장자리는 언어 자유 — 웹 UI(`web/`, TS), 맥 앱(`mac/`, Swift), 브릿지·수집함 어댑터(`bridges/`, stdout
   JSON 규약), 로그 분석(`logs.db`를 읽기만), 개발·릴리스 스크립트(Bun). 데몬을 다른 언어로 옮기지 않는다: core와 FFI
   경계가 수백 개 생기고, 런타임·의존성 동봉(플러그인 캐시 부분 설치 사고)과 데몬 교체·버전 맞추기가 두 벌이 된다.
   느리면 언어보다 측정이 먼저(`rocky usage`). *EN: Rust core (`crates/`) stays; new work in another language goes to the
@@ -274,9 +274,9 @@ typecheck or tests — pre-push and CI already cover it.*
 | 기능 | 어기면 안 되는 것 | 문서 |
 | --- | --- | --- |
 | 데몬 수명(설치·기동·업데이트·교체·launchd) | 버전은 정확한 문자열로 비교해 교체하고, 옛 데몬을 못 내리면 재기동하지 않는다 — *an old board beats no board*. 새 데몬은 포트를 먼저 잡고 옛 데몬이 끝난 뒤 DB 를 연다. 프로세스는 pid 로만. launchd 재시작은 plist 가 그대로면 쓰지 않고 `kickstart -k` 한다 — EDR 이 재시작을 악성코드로 분류했고, 재시작마다 plist 를 쓰고 bootstrap 하던 흐름이 원인으로 보인다. 커밋 해시(`/api/health` 의 `commit`)는 표시·`daemon restart` 확인용이지 훅의 교체 판단에 넣지 않는다 — main 빌드끼리 버전이 같아 번갈아 교체된다 | [daemon-lifecycle](./docs/features/daemon-lifecycle.md) |
-| 보안 경계 | GitHub 쓰기·프로세스 실행·세션 조종은 로컬 요청 전용(루프백 + 프록시 헤더 없음, fail-closed) — 예외는 원격 제어 탭 하나, 데몬이 Access JWT 를 검증했을 때만. cross-site 변경은 라우팅 전에 403, 읽기는 막지 않는다. 클라우드 중계소 Worker 도 Access JWT 를 직접 검증하고 길이 역할을 정한다(`/api/ws` 사람, `/relay` 서비스 토큰) — 규칙은 `rocky_core::access` 와 함께 움직인다 | [security](./docs/features/security.md) |
+| 보안 경계 | GitHub 쓰기·프로세스 실행·세션 조종은 로컬 요청 전용(루프백 + 프록시 헤더 없음, fail-closed) — 예외는 원격 제어 탭 하나, 데몬이 Access JWT 를 검증했을 때만. cross-site 변경은 라우팅 전에 403, 읽기는 막지 않는다 | [security](./docs/features/security.md) |
 | 보드 모델(메타·ref·노트 CRDT) | 옛 key 는 입력 전용 별칭. 번호는 재사용하지 않는다. 노트는 데몬이 CRDT 피어 — content·state·히스토리는 한 트랜잭션. 삭제 없음 | [board-model](./docs/features/board-model.md) |
-| 싱크(행 순번) | 순번은 트리거가 매긴다 — 쓰기 코드에서 `seq` 를 직접 쓰지 않는다. 대상 테이블을 늘리면 새 마이그레이션으로 열·트리거를 더한다(19 는 고치지 않는다). `epoch` 는 DB 를 열 때마다 새로. 소켓을 깨우는 건 `update_hook` 이지 변경 이벤트가 아니다. 트랜잭션 어휘(`SyncOp`)에 실행으로 이어지는 쓰기를 넣지 않는다. 웹이 계산하는 값(`web/sync/views.ts`)은 Rust 규칙의 사본이다 — 한쪽만 고치지 않는다. 중계소(`cloud/relay`)는 행을 해석하지 않고, 변경함은 답을 받아야 다음을 보낸다 | [sync](./docs/features/sync.md) |
+| 싱크(행 순번) | 순번은 트리거가 매긴다 — 쓰기 코드에서 `seq` 를 직접 쓰지 않는다. 대상 테이블을 늘리면 새 마이그레이션으로 열·트리거를 더한다(19 는 고치지 않는다). `epoch` 는 DB 를 열 때마다 새로. 소켓을 깨우는 건 `update_hook` 이지 변경 이벤트가 아니다. 트랜잭션 어휘(`SyncOp`)에 실행으로 이어지는 쓰기를 넣지 않는다. 웹 사본과 중계소는 2026-11-13 걷어냈다 | [sync](./docs/features/sync.md) |
 | 핸드오프·doing 귀속 | 사람이 든 doing 은 자동으로 놓지 않는다. 쉬는 세션은 `poke` 로 깨우고 그 문구를 늘리지 않는다 | [handoff](./docs/features/handoff.md) |
 | PR 감시 | 구독한 PR 만 보고 그 세션에만 보낸다(받은편지함·훅·채널 공통). GitHub 은 읽기만. 주기를 바꾸기 전에 `rateLimit { cost }` 를 잰다 — *the budget is shared with every session's `gh`* | [pr-watch](./docs/features/pr-watch.md) |
 | 수집함 | 외부 앱은 읽기만, 동기화 안 함, 어댑터 코드는 `bridges/<name>/` 에만. "이미 올라감"은 데몬 한 곳에서 판정 | [inbox](./docs/features/inbox.md) |

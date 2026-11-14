@@ -25,17 +25,11 @@ const PHASE_ICON: Record<AgentPhase, { Icon: LucideIcon; className: string; labe
 };
 
 /**
- * 세션 목록 폴링 — 앱 한 곳(`main.tsx`)에서 돈다. 탭을 끄면 돌지 않는다(피드의 에이전트 행도 같이 사라진다). 다만 보드를
- * 사본으로 그리는 중에 doing 이나 열린 핸드오프가 있으면 그 판정(`doingState`·`stale`)에 쓰려고 1분마다 받는다 — 예전에는
- * 데몬이 할 일·핸드오프 응답을 만들 때 같은 목록을 조회했다. `claude agents --json` 은 데몬이 돌리는 CLI 라 탭 밖에서는
- * 1분에 한 번이면 된다.
+ * 세션 목록 폴링 — 앱 한 곳(`main.tsx`)에서 돈다. 탭을 끄면 돌지 않는다(피드의 에이전트 행도 같이 사라진다).
+ * `claude agents --json` 은 데몬이 돌리는 CLI 라 탭 밖에서는 1분에 한 번이면 된다.
  */
 export function useAgentsPolling() {
-  const enabled = useUiStore(
-    (s) =>
-      s.showAgents ||
-      (s.syncing && (s.nowHandoffs.length > 0 || s.nowTodos.some((t) => t.status === 'doing'))),
-  );
+  const enabled = useUiStore((s) => s.showAgents);
   const watching = useUiStore((s) => s.showAgents && s.view === 'agents');
   const loadAgents = useUiStore((s) => s.loadAgents);
   useEffect(() => {
@@ -49,17 +43,12 @@ export function useAgentsPolling() {
 }
 
 /**
- * 에이전트 — `claude agents` 가 보는 세션(interactive · background)을 내 차례 → 실행 중 → 쉬는 중으로. 보드를 고르면
- * 그 보드의 세션만. 출력·로그는 두지 않고 Claude 가 남긴 요약 한 줄만(`web/DESIGN.md` "Not in the Panel").
+ * 에이전트 — `claude agents` 가 보는 세션(interactive · background)을 내 차례 → 실행 중 → 쉬는 중으로.
+ * 출력·로그는 두지 않고 Claude 가 남긴 요약 한 줄만(`web/DESIGN.md` "Not in the Panel").
  */
 export function AgentsPane() {
   const agents = useUiStore((s) => s.agents);
-  const boards = useUiStore((s) => s.boards);
-  const selected = useUiStore((s) => s.selected);
-  const doing = useUiStore((s) => s.nowTodos);
-  const sections = agents?.available
-    ? agentSections({ sessions: agents.list, boards, selected, doing })
-    : [];
+  const sections = agents?.available ? agentSections(agents.list) : [];
   const now = useNow([], sections.length);
   // 쓰던 메시지는 세션 id 로 여기 둔다 — 행이 다른 묶음으로 옮겨 가면(실행 중 → 쉬는 중) 다시 마운트돼 입력칸이 사라지므로.
   const [drafts, setDrafts] = useState<Record<string, string | undefined>>({});
@@ -72,9 +61,7 @@ export function AgentsPane() {
           세션 목록을 읽지 못했어요{agents.reason ? ` — ${agents.reason}` : ''}
         </p>
       ) : sections.length === 0 ? (
-        <p className="mt-3 text-meta text-muted">
-          {selected === 'all' ? '떠 있는 에이전트가 없어요' : '이 보드에서 도는 에이전트가 없어요'}
-        </p>
+        <p className="mt-3 text-meta text-muted">떠 있는 에이전트가 없어요</p>
       ) : (
         sections.map((section) => (
           <section key={section.group} aria-label={section.title}>
@@ -111,8 +98,8 @@ export function AgentsPane() {
 }
 
 /**
- * 한 행 — 첫 줄: 아이콘 + 세션 이름, 둘째 줄: 어디서 · 백그라운드 · 시각 · 든 할 일, 셋째 줄: 기다리는 것(내 차례)
- * 또는 지금 하는 일. 할 일을 든 세션이면 행을 눌러 그 할 일을 연다.
+ * 한 행 — 첫 줄: 아이콘 + 세션 이름, 둘째 줄: 어디서 · 백그라운드 · 시각, 셋째 줄: 기다리는 것(내 차례)
+ * 또는 지금 하는 일.
  */
 function AgentItem(props: {
   row: AgentRow;
@@ -122,8 +109,7 @@ function AgentItem(props: {
   onDraft: (text: string | undefined) => void;
 }) {
   const { row, now } = props;
-  const openTodoDetail = useUiStore((s) => s.openTodoDetail);
-  const { session, todo } = row;
+  const { session } = row;
   const background = session.kind === 'background';
   const asleep = background && session.pid === undefined;
   // 세션을 움직이는 일이라 로컬 화면에서만(세션 띄우기와 같은 경계 — 서버도 거절한다). 끝난 세션과 pid 없이 잠든
@@ -149,7 +135,6 @@ function AgentItem(props: {
     background ? '백그라운드' : null,
     formatAge(agentSince(row), now, { since: row.phase !== 'blocked' }),
     row.phase === 'done' ? '끝남' : null,
-    todo?.ref,
   ].filter(Boolean);
   const body = (
     <>
@@ -169,20 +154,7 @@ function AgentItem(props: {
   return (
     <li className="border-t border-line/70 first:border-t-0" title={session.cwd}>
       <div className="flex items-start">
-        {todo ? (
-          <button
-            type="button"
-            className={`${className} transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2`}
-            onClick={() => {
-              logUsage('web:agent-row');
-              void openTodoDetail(todo.id);
-            }}
-          >
-            {body}
-          </button>
-        ) : (
-          <div className={className}>{body}</div>
-        )}
+        <div className={className}>{body}</div>
         {canMessage ? (
           <MessageToggle sessionId={session.sessionId} draft={props.draft} onDraft={props.onDraft}>
             {extras}

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { boardFixture, renderWithStore, todoFixture } from '../test-support';
+import { renderWithStore } from '../test-support';
 import type { SessionRow } from '../types';
 import { useUiStore } from '../store';
 import { AgentsPane } from './AgentsPane';
@@ -56,24 +56,15 @@ afterEach(() => {
 });
 
 describe('AgentsPane', () => {
-  test('내 차례 행은 기다리는 것을 싣고, 든 할 일이 있으면 눌러 연다', async () => {
-    const openTodoDetail = mock(async () => {});
-    const todo = todoFixture({ status: 'doing', doingSessionId: '0da6a98a', ref: 'rocky-25' });
+  test('내 차례 행은 기다리는 것을 싣는다', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [blocked, busy] },
       loadAgents,
-      boards: [boardFixture({ key: 'rocky' })],
-      selected: 'all',
-      nowTodos: [todo],
-      openTodoDetail,
     });
     const mine = screen.getByRole('region', { name: '내 차례' });
     expect(mine.textContent).toContain('룰셋을 끌지 정해 주세요');
     expect(mine.textContent).toContain('백그라운드');
-    expect(mine.textContent).toContain('rocky-25');
     expect(screen.getByRole('region', { name: '실행 중' }).textContent).toContain('hail-mary');
-    await userEvent.click(screen.getByRole('button', { name: /rocky-25/ }));
-    expect(openTodoDetail).toHaveBeenCalledWith(todo.id);
   });
 
   test('살아 있는 세션에 메시지를 보낸다 — ⌘Enter 로, 보내면 입력칸을 닫는다', async () => {
@@ -81,9 +72,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [busy] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
       sendSessionMessage,
     });
@@ -107,9 +95,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [busy] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
       sendSessionMessage,
     });
@@ -126,9 +111,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [busy] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
     });
     await userEvent.click(screen.getByRole('button', { name: '메시지' }));
@@ -155,9 +137,6 @@ describe('AgentsPane', () => {
       renderWithStore(<AgentsPane />, {
         agents: { available: true, list: [blocked] },
         loadAgents,
-        boards: [],
-        selected: 'all',
-        nowTodos: [],
         spawnAllowed: true,
       });
       expect(screen.queryByRole('button', { name: '메시지' })).toBeNull();
@@ -197,9 +176,6 @@ describe('AgentsPane', () => {
     }) as unknown as typeof fetch;
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [working] },
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
     });
     const row = screen.getByRole('region', { name: '실행 중' });
@@ -224,9 +200,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [{ ...working, id: 'aa;rm -rf ~' }] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
     });
     expect(screen.getByRole('button', { name: '메시지' })).toBeTruthy();
@@ -241,9 +214,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [working] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
       stopSession,
     });
@@ -263,9 +233,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [busy, done, working] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: false,
     });
     expect(screen.queryByRole('button', { name: '메시지' })).toBeNull();
@@ -275,9 +242,6 @@ describe('AgentsPane', () => {
     renderWithStore(<AgentsPane />, {
       agents: { available: true, list: [done] },
       loadAgents,
-      boards: [],
-      selected: 'all',
-      nowTodos: [],
       spawnAllowed: true,
     });
     expect(screen.queryByRole('button', { name: '메시지' })).toBeNull();
@@ -291,14 +255,12 @@ describe('AgentsPane', () => {
     expect(screen.getByText(/세션 목록을 읽지 못했어요 — claude CLI 없음/)).toBeTruthy();
   });
 
-  test('보드를 고르면 그 보드에서 도는 것만, 없으면 한 줄', () => {
+  test('세션이 없으면 한 줄', () => {
     renderWithStore(<AgentsPane />, {
-      agents: { available: true, list: [busy] },
+      agents: { available: true, list: [] },
       loadAgents,
-      boards: [boardFixture({ key: 'rocky' })],
-      selected: 'rocky',
     });
-    expect(screen.getByText('이 보드에서 도는 에이전트가 없어요')).toBeTruthy();
+    expect(screen.getByText('떠 있는 에이전트가 없어요')).toBeTruthy();
   });
 });
 

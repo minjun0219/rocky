@@ -4,26 +4,23 @@ import { formatAge, mdToPlain, parseTurn, shortTools } from '../lib';
 import { api, useUiStore } from '../store';
 import type { WorklogEntry } from '../types';
 import { StatsPanel } from './StatsPanel';
-import { logUsage } from '../usage';
 
 /** 한 번에 받는 줄 수 — "더 보기" 가 이만큼씩 더 받는다. */
 const PAGE = 50;
 const KINDS = ['turn', 'decision', 'blocker', 'answer'] as const;
 
 /**
- * 작업로그 — 고른 보드(그 `path` 의 레포)의 작업 기록을 최신순으로, "전체" 면 전 레포. 데몬의 로그 색인
+ * 작업로그 — 전 레포의 작업 기록을 최신순으로. 데몬의 로그 색인
  * (`GET /api/logs/worklog`, 1분마다 JSONL 에서 옮긴다)을 읽는다. 턴 기록은 요청을 제목처럼, 결과를 둘째 줄로.
  * 실시간 이벤트가 없어(색인은 주기 작업) 열 때와 새로고침 때 다시 받는다.
  */
 export function WorklogPane() {
   const actor = useUiStore((s) => s.actor);
-  const selected = useUiStore((s) => s.selected);
-  const openTodoDetail = useUiStore((s) => s.openTodoDetail);
   const [kind, setKind] = useState('');
   const [query, setQuery] = useState('');
   const [text, setText] = useState('');
   const [entries, setEntries] = useState<WorklogEntry[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'unlinked' | 'error'>('loading');
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [more, setMore] = useState(false);
   const [reload, setReload] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -36,9 +33,6 @@ export function WorklogPane() {
 
   const url = (before?: string) => {
     const params = new URLSearchParams({ limit: String(PAGE) });
-    if (selected !== 'all') {
-      params.set('board', selected);
-    }
     if (kind) {
       params.set('kind', kind);
     }
@@ -55,20 +49,20 @@ export function WorklogPane() {
   useEffect(() => {
     let live = true;
     setState('loading');
-    api<{ entries: WorklogEntry[]; unlinked?: boolean }>(url(), actor)
+    api<{ entries: WorklogEntry[] }>(url(), actor)
       .then((body) => {
         if (!live) {
           return;
         }
         setEntries(body.entries ?? []);
         setMore((body.entries ?? []).length === PAGE);
-        setState(body.unlinked ? 'unlinked' : 'ready');
+        setState('ready');
       })
       .catch(() => live && setState('error'));
     return () => {
       live = false;
     };
-  }, [selected, kind, query, actor, reload]);
+  }, [kind, query, actor, reload]);
 
   const loadMore = async () => {
     const last = entries.at(-1);
@@ -118,12 +112,7 @@ export function WorklogPane() {
           <RefreshCw size={15} aria-hidden />
         </button>
       </div>
-      {state === 'unlinked' ? (
-        <p className="m-0 text-meta text-faint">
-          이 보드에 폴더(path)가 없어 어느 레포의 기록인지 알 수 없어요. 보드 설정에서 path를
-          지정하면 보여요.
-        </p>
-      ) : state === 'error' ? (
+      {state === 'error' ? (
         <p className="m-0 text-meta text-faint">
           작업로그를 읽지 못했어요. 데몬을 확인하고 새로고침하세요.
         </p>
@@ -137,7 +126,7 @@ export function WorklogPane() {
             const second = turn.req ? mdToPlain(turn.did) : '';
             const meta = [
               entry.kind,
-              selected === 'all' ? entry.projectKey.replace(/-[0-9a-f]{8}$/, '') : '',
+              entry.projectKey.replace(/-[0-9a-f]{8}$/, ''),
               shortTools(turn.tools),
               formatAge(entry.timestamp, now),
             ].filter(Boolean);
@@ -168,18 +157,8 @@ export function WorklogPane() {
                 ) : null}
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-chip text-faint">
                   <span className="truncate">{meta.join(' · ')}</span>
-                  {entry.todoRef ? (
-                    <button
-                      type="button"
-                      className="chip"
-                      onClick={() => {
-                        logUsage('web:worklog-todo', {});
-                        void openTodoDetail(entry.todoRef as string);
-                      }}
-                    >
-                      {entry.todoRef}
-                    </button>
-                  ) : null}
+                  {/* 옛 기록이 든 할 일 참조 — 보드를 걷어내 열 곳은 없고 글자로만 남긴다. */}
+                  {entry.todoRef ? <span className="chip">{entry.todoRef}</span> : null}
                 </div>
               </li>
             );

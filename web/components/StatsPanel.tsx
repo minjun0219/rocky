@@ -13,7 +13,6 @@ const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
  */
 export function StatsPanel() {
   const actor = useUiStore((s) => s.actor);
-  const openTodoDetail = useUiStore((s) => s.openTodoDetail);
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<LogStats | null>(null);
   const [failed, setFailed] = useState(false);
@@ -75,14 +74,9 @@ export function StatsPanel() {
                 {stats.worklog.byTodo.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {stats.worklog.byTodo.slice(0, 5).map(([ref, n]) => (
-                      <button
-                        key={ref}
-                        type="button"
-                        className="chip"
-                        onClick={() => void openTodoDetail(ref)}
-                      >
+                      <span key={ref} className="chip">
                         {ref} · {n}
-                      </button>
+                      </span>
                     ))}
                   </div>
                 ) : null}

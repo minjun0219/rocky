@@ -1,10 +1,8 @@
 /**
- * UI 순수 헬퍼 — actor 톤(두 대기 컨셉), 시간 표기, 초경량 markdown 렌더 토큰화.
+ * UI 순수 헬퍼 — 시간 표기, 클립보드, 테마, 피드의 내 차례 · PR 알림, 작업로그 표기.
  */
-import { isAgentActor } from './actors';
 import { agentPhase } from './agents';
-import type { CollectItem, HandoffView, PrSnapshot, RcStatus, SessionRow, TodoView } from './types';
-import type { Comment, HistoryEntry, SurfaceStat, WorklogEntry } from './types';
+import type { PrSnapshot, RcStatus, SessionRow, SurfaceStat } from './types';
 
 /**
  * 원격 제어 표면(탭·메뉴 스위치)을 보이나 — rc 블록이 켜졌거나 이 기기에 agy 가 있으면. agy 줄은 rc 블록과
@@ -12,94 +10,6 @@ import type { Comment, HistoryEntry, SurfaceStat, WorklogEntry } from './types';
  */
 export function rcVisible(rc: RcStatus | null | undefined): boolean {
   return rc?.configured === true || rc?.antigravity != null;
-}
-
-/**
- * actor → 시각 톤. 에이전트는 warm(앰버), 사람은 cool(아이스 블루).
- * "누가 했나"를 온도로 인코딩하는 것이 이 UI 의 시그니처다.
- */
-export function actorTone(actor: string): 'warm' | 'cool' {
-  return isAgentActor(actor) ? 'warm' : 'cool';
-}
-
-/** doing 경과가 이 시간(ms)을 넘으면 stale 로 표시한다. */
-export const STALE_MS = 30 * 60 * 1000;
-
-export function isStale(doingSince: string | undefined, now = Date.now()): boolean {
-  if (!doingSince) {
-    return false;
-  }
-  return now - Date.parse(doingSince) > STALE_MS;
-}
-
-/** doing 뱃지에 붙일 수식어 — 없으면 null (평범한 "처리중"). */
-export interface DoingWarning {
-  /** 뱃지에 붙는 짧은 꼬리표. */
-  label: string;
-  /** 툴팁 — 왜 이렇게 보이는지. */
-  title: string;
-  /** 심각도. `dead` 는 아무도 안 들고 있다는 뜻이라 더 강하게 표시한다. */
-  tone: 'dead' | 'idle' | 'slow';
-}
-
-/**
- * doing 하나를 어떻게 경고할지 정한다.
- *
- * 서버가 세션을 실제로 대조한 판정(`doingState`)이 있으면 그걸 우선한다 — 30분 경과
- * 규칙보다 언제나 정확하기 때문이다. 판정이 없거나(`unknown`, 구버전 데몬) 세션은
- * 멀쩡한데(`live`) 오래 걸리는 경우에만 기존 시간 규칙으로 물러난다.
- *
- * `idle` 을 따로 두는 이유: 세션은 살아 있는데 턴이 끝났고 `done` 이 안 온 상태다.
- * 죽은 것(`gone`)과 사람이 취할 행동이 다르다 — 이건 그 세션에 말을 걸면 이어진다.
- */
-export function doingWarning(todo: TodoView, now = Date.now()): DoingWarning | null {
-  if (todo.doingState === 'gone') {
-    return { label: '세션 없음', title: '이 항목을 맡았던 세션이 사라졌어요', tone: 'dead' };
-  }
-  if (todo.doingState === 'idle') {
-    return {
-      label: '멈춤',
-      title: '세션은 살아 있지만 턴을 끝내고도 완료로 표시하지 않았어요',
-      tone: 'idle',
-    };
-  }
-  if (todo.doingState === 'live') {
-    return null;
-  }
-  return isStale(todo.doingSince, now)
-    ? { label: '오래됨', title: '30분 이상 갱신 없음', tone: 'slow' }
-    : null;
-}
-
-/** "방금" / "N분" / "N시간" / "N일" — doing 뱃지와 히스토리 타임스탬프용. */
-export function formatElapsed(iso: string, now = Date.now()): string {
-  const ms = Math.max(0, now - Date.parse(iso));
-  const min = Math.floor(ms / 60_000);
-  if (min < 1) {
-    return '방금';
-  }
-  if (min < 60) {
-    return `${min}분`;
-  }
-  const hours = Math.floor(min / 60);
-  if (hours < 24) {
-    return `${hours}시간`;
-  }
-  return `${Math.floor(hours / 24)}일`;
-}
-
-/** 마감일 표기 — "8/1" 형태. 지난 날짜 여부는 isOverdue 로 별도 판단. */
-export function formatDue(due: string): string {
-  const [, month, day] = due.split('-');
-  if (!month || !day) {
-    return due;
-  }
-  return `${Number(month)}/${Number(day)}`;
-}
-
-export function isOverdue(due: string, now = new Date()): boolean {
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  return due < today;
 }
 
 /** copyRef 가 실제로 건드리는 clipboard 표면 — 테스트에서 fake 로 대체 가능. */
@@ -190,24 +100,7 @@ export async function copyRef(
   }
 }
 
-/** 보드 스킬의 슬래시 커맨드 이름 — 플러그인 `rocky` 의 `skills/board`. */
-const BOARD_SKILL_COMMAND = '/rocky:board';
-
-/**
- * 참조를 클립보드에 넣을 슬래시 커맨드로 감싼다 — `rocky-12` → `/rocky:board rocky-12`.
- *
- * 참조만 복사하면 세션에 붙여넣었을 때 에이전트가 "이 문자열로 뭘 하라는 건지" 를 모른다.
- * 커맨드까지 함께 복사하면 붙여넣기 한 번이 곧 "이 항목을 맡아라" 가 된다. 화면에 보이는
- * 글자는 참조 그대로 두고 클립보드 값만 넓히는 것이 요점이다 — 버튼에 커맨드 전문을
- * 그리면 행이 읽히지 않는다.
- */
-export function boardCommand(ref: string): string {
-  return `${BOARD_SKILL_COMMAND} ${ref}`;
-}
-
-/** copyRefWithFeedback 이 복사 성공 후 몇 ms 뒤에 copied 플래그를 지우는지 — 기존
- * TodoItem/NotesRail/DetailDrawer(todo·note) 네 호출부가 각각 하드코딩했던 1200ms 를
- * 여기 하나로 고정한다. */
+/** copyRefWithFeedback 이 복사 성공 후 몇 ms 뒤에 copied 플래그를 지우는지. */
 export const COPY_FEEDBACK_MS = 1200;
 
 /** clipboard 접근 실패 시 안내하는 prompt 문구 — 기존 네 호출부가 복붙하던 문자열. */
@@ -237,7 +130,6 @@ function defaultCopyRefWithFeedbackEnv(): CopyRefWithFeedbackEnv {
 /**
  * 참조 문자열을 복사하고 성공/실패에 따라 UI 피드백을 건다.
  *
- * `TodoItem`/`NotesRail`/`DetailDrawer`(todo·note 경로 둘 다) 네 곳이 복붙해 쓰던
  * 시퀀스 — `copyRef` 호출 → 성공하면 `copied` 플래그를 세우고 {@link COPY_FEEDBACK_MS}
  * 뒤 타이머로 해제 → 실패하면 `window.prompt` 로 수동 복사 안내 — 를 한 곳에 모은다.
  * 표면마다 타이머 길이·안내 문구가 따로 놀 여지를 없앤다.
@@ -247,10 +139,7 @@ function defaultCopyRefWithFeedbackEnv(): CopyRefWithFeedbackEnv {
  * 테스트할 수 있다(신규 React 테스트 의존성 불필요). `env` 는 `copyRef` 와 같은 패턴으로
  * clipboard/document/prompt/setTimeout 접근을 주입한다 — 생략하면 실제 전역을 쓴다.
  *
- * title/aria-label 렌더링은 손대지 않는다 — 버튼의 보이는 텍스트(목록 행에서는 맨숫자,
- * 드로어에서는 전체 ref)만으로는 스크린리더가 제대로 안내하지 못한다는 과거 리뷰
- * 지적으로 각 호출부가 이미 명시적
- * `aria-label` 을 달아 두었고, 그건 이 헬퍼가 반환하는 `copied` 상태를 그대로 읽는
+ * title/aria-label 렌더링은 손대지 않는다 — 이 헬퍼가 반환하는 `copied` 상태를 그대로 읽는
  * 호출부(JSX)의 책임으로 남긴다.
  */
 export async function copyRefWithFeedback(
@@ -267,82 +156,6 @@ export async function copyRefWithFeedback(
   env.prompt?.(CLIPBOARD_UNAVAILABLE_MESSAGE, ref);
 }
 
-/** 링크 URL → 짧은 출처 라벨 (github.com/owner/repo#12, todoist, …). */
-export function linkLabel(url: string): string {
-  try {
-    const u = new URL(url);
-    if (u.hostname === 'github.com') {
-      const [owner, repo, kind, num] = u.pathname.slice(1).split('/');
-      if (owner && repo && (kind === 'issues' || kind === 'pull') && num) {
-        return `${repo}#${num}`;
-      }
-      return `${owner}/${repo ?? ''}`.replace(/\/$/, '');
-    }
-    if (u.hostname.includes('todoist')) {
-      return 'todoist';
-    }
-    return u.hostname.replace(/^www\./, '');
-  } catch {
-    return url;
-  }
-}
-
-/**
- * 이벤트가 편집 중인 요소에서 왔는지 판정한다.
- *
- * 드로어의 전역 Esc 리스너가 입력 중인 Esc 까지 가로채면, 사용자가 기대한 "입력 취소"
- * 대신 드로어가 통째로 닫히며 편집분이 날아간다. 전역 단축키는 이 판정으로 걸러 낸다.
- */
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!target) {
-    return false;
-  }
-  const el = target as { tagName?: string; isContentEditable?: boolean };
-  const tag = el.tagName?.toUpperCase();
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
-}
-
-/** 히스토리 줄과 댓글 카드를 한 줄기로 묶은 타임라인 항목. */
-export type TimelineItem =
-  | { kind: 'history'; at: string; entry: HistoryEntry }
-  | { kind: 'comment'; at: string; comment: Comment }
-  | { kind: 'work'; at: string; work: WorklogEntry };
-
-/**
- * 댓글 계열 히스토리 액션 중 타임라인/상세 화면에서 버리는 것 — 댓글 카드가 여전히
- * 그 사건을 대표하는 두 가지(작성/본문 수정)만 뺀다.
- *
- * 댓글 mutation 은 부모 todo 의 히스토리로도 기록된다(SSE·훅 주입 경로를 타기 위해서다).
- * `comment`/`comment-edit` 을 그대로 두면 같은 사건이 댓글 카드와 히스토리 한 줄로 두 번
- * 보인다. `comment-archive`/`comment-unarchive` 는 빼지 않는다 — 보관되면 카드 자체가
- * 사라지므로(대표하는 화면 요소가 없어짐) 타임라인에 흔적이 남아야 한다.
- *
- * `src/store.ts` 의 `DETAIL_HISTORY_EXCLUDED` 와 같은 값 쌍이다 — 여기서 별도로 export
- * 하는 이유는 이 파일이 브라우저에 번들되는 UI 코드라서다: `store.ts` 를 런타임으로
- * import 하면 `bun:sqlite` 가 클라이언트 번들 그래프에 끌려온다(기존 `import type`
- * 은 타입만 지워지니 안전하지만, 값 import 는 안 된다). 값이 둘로 나뉘어 있는 만큼
- * `src/ui/lib.test.ts` 가 두 목록의 내용이 같은지 회귀 테스트로 고정한다 — 셋째 액션이
- * 생기면 여기와 `src/store.ts` 양쪽을 함께 고쳐야 한다.
- */
-export const DETAIL_HISTORY_EXCLUDED: readonly string[] = ['comment', 'comment-edit'];
-
-const COMMENT_HISTORY_ACTIONS: ReadonlySet<string> = new Set(DETAIL_HISTORY_EXCLUDED);
-
-/**
- * 히스토리와 댓글을 시간순(**최신 우선**)으로 병합한다. 드로어의 기존 히스토리 렌더가
- * 최신 우선이라 그 방향을 유지한다.
- */
-export function mergeTimeline(history: HistoryEntry[], comments: Comment[]): TimelineItem[] {
-  const items: TimelineItem[] = [
-    ...history
-      .filter((entry) => !COMMENT_HISTORY_ACTIONS.has(entry.action))
-      .map((entry) => ({ kind: 'history' as const, at: entry.at, entry })),
-    ...comments.map((comment) => ({ kind: 'comment' as const, at: comment.createdAt, comment })),
-  ];
-  // 동률은 0 을 돌려 안정 정렬을 유지한다 (같은 밀리초의 두 항목이 뒤바뀌지 않게).
-  return items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-}
-
 /**
  * 절대 작성 시각 — 오늘이면 `HH:MM`, 다른 날이면 `MM-DD HH:MM` (브라우저 로컬 타임존).
  * 상대 시각(`formatElapsed`)은 "언제 썼는지"를 정확히 못 알려줘 댓글에는 쓰지 않는다.
@@ -356,137 +169,6 @@ export function formatStamp(iso: string, now = new Date()): string {
     at.getMonth() === now.getMonth() &&
     at.getDate() === now.getDate();
   return sameDay ? hm : `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${hm}`;
-}
-
-/** localStorage 의 최소 계약 — 테스트에서 인메모리 대역을 넣기 위해 좁혀 둔다. */
-export interface SeenStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
-const SEEN_KEY = 'rocky-seen-comments';
-
-/**
- * todo id → 마지막으로 확인한 댓글 시각(ISO). 깨진 값은 빈 커서로 취급한다.
- *
- * 값까지 문자열인지 검사해 걸러낸다 — localStorage 는 다른 탭·구버전·수동 편집이
- * 무엇이든 써 넣을 수 있고, 숫자/객체가 섞이면 `hasUnreadComments` 의 문자열 비교가
- * 커서를 엉뚱하게 판정한다. 걸러진 항목은 "본 적 없음"(= 미확인)으로 떨어진다.
- */
-export function readSeen(storage: SeenStorage): Record<string, string> {
-  try {
-    const parsed = JSON.parse(storage.getItem(SEEN_KEY) ?? '{}') as unknown;
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
-    }
-    const seen: Record<string, string> = {};
-    for (const [id, at] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof at === 'string') {
-        seen[id] = at;
-      }
-    }
-    return seen;
-  } catch {
-    return {};
-  }
-}
-
-const COLLECT_SEEN_KEY = 'rocky-seen-collect';
-
-/** 피드에서 펼쳐 본 수집함 묶음 — 그때 실려 있던 항목들과 개수. */
-export interface CollectSeen {
-  keys: string[];
-  count: number;
-  /** 데몬이 준 미올림 전체의 지문(`collectToken`) — 있으면 이것만 비교한다. 옛 데몬은 없다. */
-  token?: string;
-}
-
-/** 수집함 항목 하나를 가리키는 키 — 요약은 id 를 싣지 않아 주소(없으면 출처·제목)로 가른다. */
-function collectKey(item: CollectItem): string {
-  return item.url ?? `${item.source}:${item.title}`;
-}
-
-/** 지금 묶음을 본 것으로 적을 값. */
-export function collectSeenOf(
-  count: number,
-  items: CollectItem[] | undefined,
-  token?: string | null,
-): CollectSeen {
-  return { keys: (items ?? []).map(collectKey), count, ...(token ? { token } : {}) };
-}
-
-/**
- * 본 뒤로 새 것이 왔나. 데몬이 미올림 전체의 지문(`token`)을 주면 그것으로 — 하나 빠지고 하나 들어와 개수와 앞쪽
- * 항목이 그대로여도 잡는다. 지문이 없는 옛 데몬이면 실린 항목 중 본 적 없는 것이 있거나 개수가 늘었을 때만.
- * 어느 쪽이든 본 기록이 없으면 늘 새 것.
- */
-export function hasNewCollect(
-  count: number,
-  items: CollectItem[] | undefined,
-  seen: CollectSeen | null | undefined,
-  token?: string | null,
-): boolean {
-  if (!seen) {
-    return true;
-  }
-  if (token && seen.token) {
-    if (token === seen.token) {
-      return false;
-    }
-    // 지문이 바뀌었는데 개수가 줄지 않았다 — 무언가 들어왔다(하나 빠지고 하나 들어온 것 포함). 줄었으면 보드로 옮겨
-    // 빠진 것일 수 있어 아래의 실린 항목 비교로 가른다.
-    if (count >= seen.count) {
-      return true;
-    }
-  }
-  const keys = new Set(seen.keys);
-  return count > seen.count || (items ?? []).some((item) => !keys.has(collectKey(item)));
-}
-
-/** 피드에서 본 수집함 묶음 — 깨진 값은 본 적 없음. */
-export function readCollectSeen(storage: SeenStorage): CollectSeen | null {
-  try {
-    const parsed = JSON.parse(storage.getItem(COLLECT_SEEN_KEY) ?? 'null') as unknown;
-    if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      Array.isArray((parsed as CollectSeen).keys) &&
-      typeof (parsed as CollectSeen).count === 'number'
-    ) {
-      const { keys, count, token } = parsed as CollectSeen;
-      return {
-        keys: keys.filter((k) => typeof k === 'string'),
-        count,
-        ...(typeof token === 'string' ? { token } : {}),
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeCollectSeen(storage: SeenStorage, seen: CollectSeen): void {
-  storage.setItem(COLLECT_SEEN_KEY, JSON.stringify(seen));
-}
-
-/** 이 todo 의 댓글을 `at` 까지 확인했다고 기록한다. */
-export function markSeen(storage: SeenStorage, todoId: string, at: string): void {
-  const seen = readSeen(storage);
-  seen[todoId] = at;
-  storage.setItem(SEEN_KEY, JSON.stringify(seen));
-}
-
-/** 읽음 커서보다 새로운 댓글이 있는지 — 배지 강조 조건. */
-export function hasUnreadComments(
-  todo: { id: string; lastCommentAt?: string },
-  seen: Record<string, string>,
-): boolean {
-  if (!todo.lastCommentAt) {
-    return false;
-  }
-  const at = seen[todo.id];
-  return at === undefined || at < todo.lastCommentAt;
 }
 
 /** 사용자가 고른 테마 의도. `auto` 는 OS 설정을 따른다는 뜻이다. */
@@ -522,396 +204,69 @@ export function resolveTheme(pref: ThemePref, prefersLight: boolean): ResolvedTh
   return pref;
 }
 
-/** 드래그 정렬에서 형제로 인정되는 조건 — 같은 보드·섹션·부모 안에서만 순서를 바꾼다. */
-export interface ReorderSibling {
-  id: string;
-  boardId: string;
-  sectionId?: string;
-  parentId?: string;
-}
+// ── 피드의 "내 차례" — 사람 답을 기다리는 에이전트 ──
 
-/**
- * 드롭 결과를 move API 의 `before` 값으로 바꾼다 (순수 — 단위 테스트 대상).
- *
- * @param siblings 화면 표시 순서의 형제 목록 (드래그 중인 항목 포함)
- * @param dragId   끌고 있는 항목
- * @param overId   포인터가 올라간 항목
- * @param after    포인터가 그 항목의 아래쪽 절반에 있었는가
- * @returns `{ before }` — null 은 맨 끝. **이동이 무의미하면 undefined** (제자리 드롭,
- *   형제가 아닌 대상, 자기 자신).
- */
-export function resolveDropBefore(
-  siblings: ReorderSibling[],
-  dragId: string,
-  overId: string,
-  after: boolean,
-): { before: string | null } | undefined {
-  const drag = siblings.find((s) => s.id === dragId);
-  const over = siblings.find((s) => s.id === overId);
-  if (!drag || !over || dragId === overId) {
-    return undefined;
-  }
-  if (
-    drag.boardId !== over.boardId ||
-    (drag.sectionId ?? null) !== (over.sectionId ?? null) ||
-    (drag.parentId ?? null) !== (over.parentId ?? null)
-  ) {
-    return undefined; // 섹션·부모를 넘는 이동은 정렬이 아니라 소속 변경이다 — 드로어의 몫
-  }
-  const order = siblings.map((s) => s.id);
-  const overIndex = order.indexOf(overId);
-  const beforeId = after ? (order[overIndex + 1] ?? null) : overId;
-  if (beforeId === dragId) {
-    return undefined; // 결과가 제자리
-  }
-  // 바로 앞 형제의 "아래"로 놓는 것도 제자리다
-  const dragIndex = order.indexOf(dragId);
-  if (beforeId === null && dragIndex === order.length - 1) {
-    return undefined;
-  }
-  if (beforeId !== null && order.indexOf(beforeId) === dragIndex + 1) {
-    return undefined;
-  }
-  return { before: beforeId };
-}
+export type NowKind = 'agent';
 
-// ── "지금" 표 — 첫 화면이 답할 한 가지: 무슨 일이 돌고 있고, 무엇이 내 차례인가 ──
-
-export type NowKind = 'dead' | 'handoff' | 'doing' | 'unread' | 'collect' | 'pr' | 'agent';
-
-/**
- * 행이 어느 묶음에 가나 — `mine` = 내 차례(사람이 손대야 끝난다), `run` = 돌고 있음(보기만),
- * `more` = 접힌 나머지의 요약 한 줄. `web/DESIGN.md` "Information Priority".
- */
-export type NowGroup = 'mine' | 'run' | 'more';
-
-/** 행 앞 글리프 — 색만으로 말하지 않도록 상태마다 모양이 다르다(DESIGN.md "State Vocabulary"). */
-export type NowGlyph = 'run' | 'mine' | 'dead' | 'unknown';
+/** 행이 어느 묶음에 가나 — `mine` = 내 차례(사람이 손대야 끝난다), `more` = 접힌 나머지의 요약 한 줄. */
+export type NowGroup = 'mine' | 'more';
 
 export interface NowRow {
   key: string;
   kind: NowKind;
   group: NowGroup;
-  glyph: NowGlyph;
-  /** 표시 참조 — todo 는 `acorn-server-28`, 수집함은 `수집함`. */
+  /** 세션 이름. */
   ref: string;
+  /** 세션이 기다리는 것(Claude 가 남긴 요약). */
   title: string;
-  /** 눌러서 열 todo. 수집함·PR 행에는 없다. */
-  todoId?: string;
-  /** 바깥 링크(PR). 있으면 항목이 새 탭으로 열린다. */
-  url?: string;
-  /** 누가 들고 있나 — 색이 아니라 글자로. */
-  who: 'AGENT' | 'YOU' | '—';
   /** 경과의 기준 시각(ISO). 없으면 시각이 빈다. */
   since?: string;
-  /** 진행중 — 1시간 미만이면 초가 흐른다(`formatAge` 의 `live`). */
-  live: boolean;
-  /** 읽지 않은 댓글 수 — 0 이면 표시하지 않는다. */
-  unread: number;
-  /** 상태 글자 — 행의 둘째 줄에 작게. 색은 글리프가 말한다. */
+  /** 상태 글자 — 행의 둘째 줄에 작게. */
   state: string;
   /** 요약 한 줄(`group: 'more'`)이 접어 둔 행 수 — 묶음 머리의 개수가 접힘과 무관하게 남도록. */
   hidden?: number;
-  /** 펼쳐서야 보이는 읽지 않은 댓글 행(요약 줄이 접고 있던 것) — 내 차례 개수에는 넣지 않는다. */
-  extra?: boolean;
 }
 
-/**
- * 내 차례의 순서 = 우선순위. PR 충돌 → 머지 가능 → 세션 없음·멈춤·답 기다리는 에이전트 → 안 집힌 넘김 →
- * 읽지 않은 댓글 → 수집함. 같은 순위 안에서는 오래 방치된 것이 위다.
- */
-const MINE_RANK = {
-  prConflict: 0,
-  prReady: 1,
-  stuck: 2,
-  handoff: 3,
-  unread: 4,
-  collect: 5,
-} as const;
 /** 내 차례에 펼쳐 싣는 행의 상한 — 넘치면 "N 더" 한 줄로 접는다. */
 export const MINE_ROW_MAX = 5;
-/** 읽지 않은 댓글은 이 기간 안에 달린 것만, 이 수까지만 행이 된다. 나머지는 요약 한 줄. */
-export const UNREAD_ROW_MAX = 3;
-export const UNREAD_WINDOW_MS = 3 * 86_400_000;
 
 /**
- * "지금" 의 행을 만든다 — 내 차례(우선순위순, 최대 `MINE_ROW_MAX`) + 돌고 있음. 같은 todo 가
- * 진행중이면서 댓글이 있으면 행 하나에 합친다. `expanded` 면 내 차례를 자르지 않는다.
+ * 피드의 "내 차례" 행 — 사람 답을 기다리는 background 세션(`agentPhase` 가 `blocked`). 오래 기다린 것이 위다.
+ * `expanded` 면 자르지 않는다. 보드(넘김 · 멈춘 진행 · 읽지 않은 댓글 · 수집함)는 2026-11-13 걷어냈다.
  */
-export function nowRows(
-  input: {
-    todos: TodoView[];
-    handoffs: HandoffView[];
-    seen: Record<string, string>;
-    collect?: number | null;
-    /** 요약이 실어 준 미올림 수집함 항목(최대 3개) — 수집함 행을 펼치면 보인다. */
-    collectItems?: CollectItem[];
-    /** 수집함 행을 펼쳤나. */
-    expandCollect?: boolean;
-    /**
-     * 피드에서 펼쳐 본 수집함 묶음 — 그 뒤로 새 것이 없으면 행을 내지 않는다(펼친 동안은 낸다). 보드로 옮기지 않고
-     * 외부 앱에 그대로 두는 항목이 늘 같은 자리에 남아 "내 차례" 를 차지하던 것(2026-10-06 오너).
-     */
-    collectSeen?: CollectSeen | null;
-    /** 데몬이 준 미올림 전체의 지문(`/api/summary` 의 `collectToken`). */
-    collectToken?: string | null;
-    /** 데몬 PR 감시의 열린 PR — 확인·머지 가능한 것과 충돌난 것만 행이 된다. */
-    prs?: PrSnapshot[];
-    /** `claude agents` 세션(에이전트 탭을 켰을 때만) — 사람 답을 기다리는 background 세션이 행이 된다. */
-    agents?: SessionRow[];
-    expanded?: boolean;
-    /** 읽지 않은 댓글 요약 줄을 펼쳤나 — `expanded`(내 차례 5행 제한)와 따로. */
-    expandUnread?: boolean;
-  },
-  now = Date.now(),
-): NowRow[] {
-  const mine: { row: NowRow; rank: number; order: number }[] = [];
-  const run: NowRow[] = [];
-  const handled = new Set<string>();
-  const todoById = new Map(input.todos.map((t) => [t.id, t]));
-  let order = 0;
-  const pushMine = (rank: number, row: NowRow) => mine.push({ row, rank, order: order++ });
-
-  for (const t of input.todos) {
-    if (t.status !== 'doing' || t.archivedAt) {
-      continue;
-    }
-    handled.add(t.id);
-    const warning = doingWarning(t, now);
-    const base = {
-      key: `doing:${t.id}`,
-      kind: (warning?.tone === 'dead' ? 'dead' : 'doing') as NowKind,
-      ref: t.ref,
-      title: t.title,
-      todoId: t.id,
-      who: (t.doingBy ? (isAgentActor(t.doingBy) ? 'AGENT' : 'YOU') : '—') as NowRow['who'],
-      since: t.doingSince,
-      unread: hasUnreadComments(t, input.seen) ? t.commentCount : 0,
-    };
-    if (warning?.tone === 'dead' || warning?.tone === 'idle') {
-      pushMine(MINE_RANK.stuck, {
-        ...base,
-        group: 'mine',
-        glyph: warning.tone === 'dead' ? 'dead' : 'mine',
-        live: false,
-        state: warning.label,
-      });
-      continue;
-    }
-    // 세션 판정이 없으면(unknown) 모른다 — 경고색이 아니라 무채색 글리프로.
-    const known = t.doingState === 'live';
-    run.push({
-      ...base,
-      group: 'run',
-      glyph: known ? 'run' : 'unknown',
-      live: known,
-      state: known ? '진행 중' : '세션 모름',
-    });
-  }
-
-  for (const h of input.handoffs) {
-    // 이미 착수한 배달은 위 진행중 행이 말한다.
-    if ((h.status === 'delivered' && h.acceptedAt) || h.status === 'cancelled') {
-      continue;
-    }
-    const todo = todoById.get(h.todoId);
-    if (todo) {
-      handled.add(todo.id);
-    }
-    pushMine(MINE_RANK.handoff, {
-      key: `handoff:${h.id}`,
-      kind: 'handoff',
-      group: 'mine',
-      glyph: h.status === 'pending' && h.stale ? 'dead' : 'mine',
-      ref: todo?.ref ?? h.todoId,
-      title: todo?.title ?? '(항목)',
-      todoId: h.todoId,
-      who: isAgentActor(h.actor) ? 'AGENT' : 'YOU',
-      since: h.createdAt,
-      live: false,
-      unread: todo && hasUnreadComments(todo, input.seen) ? todo.commentCount : 0,
-      state:
-        h.status === 'pending'
-          ? h.stale
-            ? '넘김 · 세션 없음'
-            : '넘김 · 아직 받지 않음'
-          : '넘김 · 받았지만 착수 전',
-    });
-  }
-
-  // 사람 답을 기다리는 background 세션 — 멈춘 진행과 같은 순위. 진행 중 할 일을 든 세션이면 위의 진행 행(멈춤)이
-  // 이미 말하므로 뺀다. 제목은 그 세션이 기다리는 것(Claude 가 남긴 요약).
-  const held = new Set(
-    input.todos.flatMap((t) =>
-      t.status === 'doing' && t.doingSessionId ? [t.doingSessionId] : [],
-    ),
-  );
+export function nowRows(input: { agents?: SessionRow[]; expanded?: boolean }): NowRow[] {
+  const mine: NowRow[] = [];
   for (const s of input.agents ?? []) {
-    if (agentPhase(s) !== 'blocked' || held.has(s.sessionId) || (s.id && held.has(s.id))) {
+    if (agentPhase(s) !== 'blocked') {
       continue;
     }
-    pushMine(MINE_RANK.stuck, {
+    mine.push({
       key: `agent:${s.sessionId}`,
       kind: 'agent',
       group: 'mine',
-      glyph: 'mine',
       ref: s.name,
       title: s.job?.needs ?? s.job?.detail ?? '답을 기다려요',
-      who: 'AGENT',
       since: s.job?.updatedAt ?? new Date(s.startedAt).toISOString(),
-      live: false,
-      unread: 0,
       state: '답 기다림',
     });
   }
-
-  // PR — 데몬이 판정한 "내 차례": 충돌난 것, 확인·머지해도 되는 것. 대기 중인 것은 잡음이라 뺀다.
-  for (const p of input.prs ?? []) {
-    if (p.state !== 'OPEN' || (!p.ready && p.mergeState !== 'DIRTY')) {
-      continue;
-    }
-    const conflict = p.mergeState === 'DIRTY';
-    pushMine(conflict ? MINE_RANK.prConflict : MINE_RANK.prReady, {
-      key: `pr:${p.repo}#${p.number}`,
-      kind: 'pr',
-      group: 'mine',
-      glyph: conflict ? 'dead' : 'mine',
-      ref: `${p.repo.split('/')[1] ?? p.repo} #${p.number}`,
-      title: p.title,
-      url: p.url,
-      who: 'YOU',
-      since: p.updatedAt,
-      live: false,
-      unread: 0,
-      state: conflict ? 'PR 충돌' : 'PR 머지 후보',
-    });
-  }
-
-  // 읽지 않은 댓글 — 끝난 일의 댓글은 내 차례가 아니다. 최근 것만 몇 행, 나머지(오래된 것 포함)는
-  // 요약 한 줄로 — 새 브라우저는 전부 "안 읽음" 이라 수십 행이 쏟아질 수 있다.
-  const unread = input.todos
-    .filter((t) => !t.archivedAt && t.status !== 'done' && !handled.has(t.id))
-    .filter((t) => hasUnreadComments(t, input.seen))
-    .sort((a, b) => (b.lastCommentAt ?? '').localeCompare(a.lastCommentAt ?? ''));
-  const recent = unread
-    .filter((t) => t.lastCommentAt && now - Date.parse(t.lastCommentAt) <= UNREAD_WINDOW_MS)
-    .slice(0, UNREAD_ROW_MAX);
-  const unreadRow = (t: TodoView): NowRow => ({
-    key: `unread:${t.id}`,
-    kind: 'unread',
-    group: 'mine',
-    glyph: 'mine',
-    ref: t.ref,
-    title: t.title,
-    todoId: t.id,
-    who: '—',
-    since: t.lastCommentAt,
-    live: false,
-    unread: t.commentCount,
-    state: '읽지 않은 댓글',
-  });
-  for (const t of recent) {
-    pushMine(MINE_RANK.unread, unreadRow(t));
-  }
-  const recentIds = new Set(recent.map((t) => t.id));
-  const restUnreadTodos = unread.filter((t) => !recentIds.has(t.id));
-  const restUnread = restUnreadTodos.length;
-
-  if (
-    input.collect &&
-    input.collect > 0 &&
-    (input.expandCollect ||
-      hasNewCollect(input.collect, input.collectItems, input.collectSeen, input.collectToken))
-  ) {
-    pushMine(MINE_RANK.collect, {
-      key: 'collect',
-      kind: 'collect',
-      group: 'mine',
-      glyph: 'mine',
-      ref: '수집함',
-      title: `${collectSources(input.collectItems)}에 보드로 옮기지 않은 항목 ${input.collect}건`,
-      who: 'YOU',
-      live: false,
-      unread: 0,
-      state: input.expandCollect ? '보드로 옮길까요' : '눌러서 보기',
-    });
-  }
-
-  // 순위 → 같은 순위 안에서는 오래된 것부터(가장 오래 방치된 것이 위). 읽지 않은 댓글만은 위에서
-  // 이미 최신순으로 잘라 넣었으므로 넣은 순서를 지킨다.
-  mine.sort((a, b) => {
-    if (a.rank !== b.rank) {
-      return a.rank - b.rank;
-    }
-    if (a.rank === MINE_RANK.unread) {
-      return a.order - b.order;
-    }
-    return (a.row.since ?? '').localeCompare(b.row.since ?? '');
-  });
+  mine.sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''));
   const shown = input.expanded ? mine : mine.slice(0, MINE_ROW_MAX);
-  const rows = shown.map((m) => m.row);
   const hidden = mine.length - shown.length;
-  if (hidden > 0) {
-    rows.push(moreRow('mine:more', `내 차례 ${hidden}개 더`, hidden));
-  }
-  // 요약 줄이 접은 읽지 않은 댓글 — 펼치면(`expandUnread`) 그 자리에 행으로. 내 차례의 5행 제한·개수와는
-  // 따로 간다: "내 차례 N개 더" 를 눌러 오래된 댓글 수십 건이 같이 쏟아지지 않게, 반대도 마찬가지.
-  if (restUnread > 0) {
-    if (input.expandUnread) {
-      rows.push(...restUnreadTodos.map((t) => ({ ...unreadRow(t), extra: true })));
-    } else {
-      rows.push(moreRow('unread:more', `읽지 않은 댓글 ${restUnread}개 더 보기`, restUnread));
-    }
-  }
-  // 수집함 행을 펼치면 바로 밑에 항목을 — 행마다 원래 앱(Todoist 등)으로 간다. 개수에는 넣지 않는다
-  // (수집함은 행 하나로 센다). 요약은 3개까지만 실으니 넘친 수는 한 줄로.
-  const at = rows.findIndex((r) => r.key === 'collect');
-  if (input.expandCollect && at >= 0) {
-    const items = input.collectItems ?? [];
-    const extra: NowRow[] = items.map((item, i) => ({
-      key: `collect:${i}`,
-      kind: 'collect',
-      group: 'mine',
-      glyph: 'mine',
-      ref: item.source,
-      title: item.title,
-      ...(item.url ? { url: item.url } : {}),
-      who: '—',
-      live: false,
-      unread: 0,
-      state: '보드로 옮기지 않음',
-      extra: true,
-    }));
-    const rest = (input.collect ?? 0) - items.length;
-    if (rest > 0) {
-      extra.push(moreRow('collect:more', `외 ${rest}건은 수집함 앱에서 보세요`, rest));
-    }
-    rows.splice(at + 1, 0, ...extra);
-  }
-  run.sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''));
-  return [...rows, ...run];
-}
-
-/** 수집함 행 제목의 출처 — "todoist 수집함" 처럼. 항목을 모르면 그냥 "수집함". */
-function collectSources(items: CollectItem[] | undefined): string {
-  const names = [...new Set((items ?? []).map((i) => i.source))];
-  return names.length > 0 ? `${names.join('·')} 수집함` : '수집함';
-}
-
-function moreRow(key: string, title: string, hidden: number): NowRow {
-  return {
-    key,
-    hidden,
-    kind: 'unread',
-    group: 'more',
-    glyph: 'mine',
-    ref: '',
-    title,
-    who: '—',
-    live: false,
-    unread: 0,
-    state: '',
-  };
+  return hidden > 0
+    ? [
+        ...shown,
+        {
+          key: 'mine:more',
+          kind: 'agent',
+          group: 'more',
+          ref: '',
+          title: `내 차례 ${hidden}개 더`,
+          hidden,
+          state: '',
+        },
+      ]
+    : shown;
 }
 
 /**
@@ -951,48 +306,12 @@ export function formatAge(
   return options.since ? `${date}부터` : date;
 }
 
-/** 1초 틱이 필요한가 — 초가 흐르는 행(1시간 미만의 진행중)이 있을 때만. 나머지는 1분 틱이면 된다. */
-export function needsSecondTick(rows: NowRow[], now = Date.now()): boolean {
-  return rows.some((r) => r.live && r.since !== undefined && now - Date.parse(r.since) < 3_600_000);
-}
-
 /**
  * 묶음 머리 "내 차례 N" 의 N — 펼쳤든 접었든 같은 수여야 한다(접힘은 보여 주는 방식일 뿐 일의 수가
  * 아니다). 펼친 행 + "N개 더" 가 접어 둔 행.
  */
 export function mineCount(rows: NowRow[]): number {
-  return rows.reduce(
-    (n, r) =>
-      r.group === 'mine' && !r.extra ? n + 1 : r.key === 'mine:more' ? n + (r.hidden ?? 0) : n,
-    0,
-  );
-}
-
-/**
- * 노트에 새 소식이 있나 — 노트 보기를 마지막으로 본 뒤에 고쳐진 노트가 하나라도 있으면.
- * 할 일 보기에서 에이전트가 노트를 고친 걸 알 수 있게 전환 버튼에 점을 찍는다.
- */
-export function hasNoteNews(notes: { updatedAt: string }[], seenAt: string): boolean {
-  const seen = Date.parse(seenAt);
-  return notes.some((n) => Date.parse(n.updatedAt) > (Number.isNaN(seen) ? 0 : seen));
-}
-
-/**
- * 노트를 "여기까지 봤다" 의 새 기준 — 지금 기준과 노트들의 `updatedAt`(서버 시각) 중 가장 늦은 것.
- * 브라우저 시계(`new Date()`)를 쓰지 않는 이유: 원격 브라우저는 시계가 어긋나 있어 점이 영영
- * 안 꺼지거나 새 편집을 놓친다. 뒤로 가지 않는다.
- */
-export function advanceSeen(seenAt: string, notes: { updatedAt: string }[]): string {
-  let best = seenAt;
-  let bestMs = Date.parse(seenAt);
-  for (const n of notes) {
-    const ms = Date.parse(n.updatedAt);
-    if (!Number.isNaN(ms) && (Number.isNaN(bestMs) || ms > bestMs)) {
-      best = n.updatedAt;
-      bestMs = ms;
-    }
-  }
-  return best;
+  return rows.reduce((n, r) => (r.group === 'mine' ? n + 1 : n + (r.hidden ?? 0)), 0);
 }
 
 // ── PR 현황 — 이 보드(또는 전 보드)의 열린 PR 전부. 데몬 PR 감시의 스냅숏(`/api/prs?open=true`) ──
@@ -1067,37 +386,6 @@ export function prDetail(p: PrSnapshot, status: PrStatus): string {
     parts.push(`스레드 ${p.unhandled}`);
   }
   return parts.join(' · ');
-}
-
-/** GitHub PR 주소 → `{ repo, number }`. `/files`·`#…`·`?…` 꼬리는 무시한다. PR 이 아니면 null(Rust `parse_pr_url` 과 같은 규칙). */
-export function parsePrUrl(url: string): { repo: string; number: number } | null {
-  const m = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/#?]|$)/.exec(url.trim());
-  if (!m) {
-    return null;
-  }
-  return { repo: `${m[1]}/${m[2]}`, number: Number(m[3]) };
-}
-
-/** 할 일 링크 하나에 붙일 PR 상태 — 데몬이 감시 중(구독·열림)인 PR 만. 감시 밖이면 null(머지된 것은 댓글이 말한다). */
-export function linkedPrStatus(
-  url: string,
-  prs: PrSnapshot[],
-): { status: PrStatus; detail: string } | null {
-  const ref = parsePrUrl(url);
-  if (!ref) {
-    return null;
-  }
-  const p = prs.find(
-    (x) =>
-      x.state === 'OPEN' &&
-      x.number === ref.number &&
-      x.repo.toLowerCase() === ref.repo.toLowerCase(),
-  );
-  if (!p) {
-    return null;
-  }
-  const status = prStatus(p);
-  return { status, detail: prDetail(p, status) };
 }
 
 /**
@@ -1215,46 +503,17 @@ export function alertRows(prs: PrSnapshot[], hidden: readonly string[], now: num
     );
 }
 
-/** 보드 화면이 데몬에서 받아 오는 묶음 — 이벤트가 건드린 것만 다시 받는다. */
-export type Slice = 'boards' | 'todos' | 'notes' | 'sections' | 'handoffs' | 'summary' | 'prs';
-export const ALL_SLICES: readonly Slice[] = [
-  'boards',
-  'todos',
-  'notes',
-  'sections',
-  'handoffs',
-  'summary',
-  'prs',
-];
-
 /**
- * SSE 이벤트(`ChangeEvent` — `{entity, entityId, action, boardId?}`) → 다시 받을 묶음. 예전엔 이벤트 하나마다 9개를 다
- * 받았다(할 일 제목 하나에도). 모르는 모양이면 안전하게 전부.
- *
- * - todo: 할 일 + 핸드오프(넘김·착수가 todo 히스토리로 온다) + 요약(링크가 바뀌면 수집함 "올라감" 이 바뀐다)
- * - note: 노트만
- * - section: 섹션 + 할 일(섹션 이동·이름)
- * - board: PR 감시 전이(`pr-*`)면 PR 만, 그 밖(이름·key·path 등)은 참조가 바뀌니 전부
+ * SSE 이벤트(`ChangeEvent` — `{entity, entityId, action, boardId?}`)가 PR 스냅숏을 바꿨을 수 있나. 보드 · 노트 화면을
+ * 걷어낸 뒤로 웹이 데몬 변경에서 다시 받는 것은 PR 뿐이다 — 할 일 · 섹션 · 노트 이벤트는 건너뛰고, PR 감시 전이(`pr-*`)나
+ * 모르는 모양이면 다시 받는다(맥 앱 `touchesPrs` 와 같은 규칙).
  */
-export function slicesFor(events: readonly unknown[]): Set<Slice> {
-  const out = new Set<Slice>();
-  for (const raw of events) {
-    const event = raw as { entity?: unknown; action?: unknown } | null;
+export function touchesPrs(events: readonly unknown[]): boolean {
+  return events.some((raw) => {
+    const event = raw as { entity?: unknown } | null;
     const entity = typeof event?.entity === 'string' ? event.entity : '';
-    const action = typeof event?.action === 'string' ? event.action : '';
-    if (entity === 'todo') {
-      out.add('todos').add('handoffs').add('summary');
-    } else if (entity === 'note') {
-      out.add('notes');
-    } else if (entity === 'section') {
-      out.add('sections').add('todos');
-    } else if (entity === 'board' && action.startsWith('pr-')) {
-      out.add('prs');
-    } else {
-      return new Set(ALL_SLICES);
-    }
-  }
-  return out;
+    return entity !== 'todo' && entity !== 'note' && entity !== 'section';
+  });
 }
 
 /**
@@ -1332,13 +591,6 @@ export function labelInjected(req: string): string {
     return '(셸 출력)';
   }
   return req;
-}
-
-/** 할 일 타임라인에 작업 기록을 끼운다 — 같은 최신순. 동률은 원래 순서. */
-export function withWork(items: TimelineItem[], work: readonly WorklogEntry[]): TimelineItem[] {
-  return [...items, ...work.map((w) => ({ kind: 'work' as const, at: w.timestamp, work: w }))].sort(
-    (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0),
-  );
 }
 
 /** 느린 표면 — 표본이 `min` 번 이상인 것 중 p95 가 큰 순. 몇 번 안 쓴 것의 한 번 느림에 휘둘리지 않게. */

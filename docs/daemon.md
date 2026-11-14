@@ -166,14 +166,8 @@
   (`NOTE_EDIT_COALESCE_SECS`; 글자마다 한 줄이면 `/api/changes` → 세션 주입까지 잡음이 된다).
   사용 로그는 여는 `GET …/doc`만 남기고 편집·프레즌스·스트림은 모양으로 거른다(`SKIPPED_SHAPES`).
   제목은 CRDT가 아니다(`PATCH` 그대로). 보드 MCP 도구 수는 그대로 5.
-  웹 쪽은 `web/notedoc.ts`(`NoteSync`: 열기·150ms 배치 전송·구독·재접속 시 sv 차분·프레즌스) 아래에 길
-  (`NoteTransport`)이 둘 — `WsTransport`(탭에 하나, `sharedNoteTransport`; 한 번도 못 붙으면 HTTP로) ·
-  `HttpTransport`(폴백·`fetch`/`EventSource` 주입 테스트). 편집기는 `web/codemirror-editor.ts`
-  (CodeMirror 6 + `y-codemirror.next`) 하나다 — 결정 6의 두 후보 중 textarea를 2026-09-30에
-  걷었다. y-protocols `Awareness`를 프레즌스 라우트의 `state`(awareness update의 base64)에 실어
-  나른다(`bridgeAwareness`) — 상대 커서·선택 영역. 편집기 세션은 본문을 누르면(상세는 열자마자) 열고
-  blur 20초 뒤 닫는다(소켓 이전엔 노트마다 SSE 라 호스트당 연결 한도 때문이었고, 지금은 구독·프레즌스를 줄이려고).
-  마크다운(GFM) 꾸밈과 서식 명령(`web/markdown-commands.ts`, ⌘B·⌘I·⌘K·툴바)이 같은 편집기에 붙는다.
+  웹 쪽 편집기(`web/notedoc.ts` · `web/codemirror-editor.ts`, CodeMirror 6 + Yjs)는 2026-11-13 웹 노트 화면과 함께
+  걷어냈다 — 위 라우트·소켓은 데몬 보드 표면을 걷는 PR 4까지 붙는 클라이언트 없이 남는다. 옛 모양은 git 히스토리에 있다.
 - **번호 참조(ref)**: todo/note는 랜덤 id(`921gvwnr`, PK로 유지) 외에 보드별 순번을 갖는다.
   id를 받는 자리는 어디서든 `rocky-12`(보드 접두사) → `12`(현재 보드 컨텍스트 안의
   번호) → id 정확 일치 → id 유일 prefix 순으로 시도해 해석한다(`resolve_ref_id` in

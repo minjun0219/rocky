@@ -2,7 +2,6 @@
  * 반응형 + reduced-motion.
  *
  * ⚠ 이 파일의 위치가 곧 우선순위다 — @import 순서를 바꾸면 렌더가 바뀐다.
- * 아래 3개 파일은 원본에서 이 블록 **뒤**에 있었고, 그 순서를 그대로 보존한다.
  */
 
 /* ── responsive & reduced-motion (베이스 규칙 뒤 — !important 없이 우선) ── */
@@ -10,8 +9,7 @@
 @media (max-width: 900px) {
   /* 좁은 화면은 **문서 스크롤**이다 — 내부 스크롤 컨테이너로 만들면 iOS 의 네이티브
      스크롤 동작(사파리 툴바 자동 숨김, 상태바 탭으로 맨 위, 자연스러운 고무줄)이 전부
-     죽는다. 높이를 뷰포트에 가두지 않고 내용대로 흐르게 두면 문서가 스크롤한다.
-     quick-add 의 sticky 도 문서 스크롤 기준이라 그대로 동작한다. */
+     죽는다. 높이를 뷰포트에 가두지 않고 내용대로 흐르게 두면 문서가 스크롤한다. */
   .app {
     height: auto;
     min-height: 100dvh;
@@ -20,175 +18,7 @@
     display: flex;
     flex-direction: column;
   }
-  .todo-pane {
-    padding: 14px 14px 6px;
-    overflow-y: visible;
-    flex-shrink: 0;
-  }
-  .notes-view {
-    overflow-y: visible;
-    flex-shrink: 0;
-  }
-  /* 문서가 스크롤하니 sticky 머리(.app-head) 밑에 붙는다 — 높이는 main.tsx 가 잰다. */
-  .below-head {
-    top: var(--app-head-h, 0px);
-  }
-  /* 한 항목은 한 덩어리다 — 2행 grid.
-
-       [✓]  7  제목 (길면 감싼다)
-                p2  💬3  링크↗
-
-     이전에는 `flex-wrap: wrap` + `.todo-ref`/`.todo-title` 양쪽의 `min-height: 44px`
-     조합이었는데, 탭 타깃을 맞추려던 그 min-height 가 각자 자기 flex 줄을 44px 로
-     밀어올려 한 항목이 세 줄 120px 로 흩어졌다(390px 실측). 체크박스와 번호만 있는
-     첫 줄이 제목과 떨어져 보이는 것도 그 부작용이다.
-
-     grid 는 배치와 타깃 크기를 분리한다 — 행은 두 줄로 고정하고, 44px 는 각 컨트롤의
-     padding 으로 확보한다. 그래서 칩이 없는 항목은 한 줄(~52px)로 끝난다. */
-  .todo-row {
-    display: grid;
-    /* 핸들 · 체크 · 번호 · 제목. 터치 기기는 핸들을 숨기고 열을 셋으로 줄인다(아래 pointer: coarse) —
-       숨긴 grid 아이템은 칸을 차지하지 않아, 열 수를 그대로 두면 제목이 번호 열로 당겨지고 칩 줄만
-       맨 끝 열로 밀렸다(2026-10-03 iPhone 실측). 제목·칩 줄은 늘 마지막 열에 고정한다. */
-    grid-template-columns: auto auto auto minmax(0, 1fr);
-    column-gap: 8px;
-    row-gap: 2px;
-    align-items: start;
-    padding: 2px 6px;
-  }
-  /* 제목 줄에 맞춘다 — `1 / span 2` 로 두면 메타 행이 없을 때도 2행이 생겨 row-gap 이
-     남고, 제목이 길어질수록 체크박스가 블록 중앙으로 내려가 어느 제목의 것인지 흐려진다. */
-  .todo-check-hit {
-    grid-row: 1;
-    align-self: center;
-  }
-  /* 핸들 — 좁은 화면에선 hover 가 없으니 늘 흐리게 보이고, 탭 타깃을 세로로 채운다 */
-  .drag-handle {
-    grid-row: 1;
-    align-self: stretch;
-    display: inline-flex;
-    align-items: center;
-    min-width: 24px;
-    opacity: 0.35;
-  }
-  /* 손가락 기준의 시각 크기 — 데스크톱 15px 는 폰에서 소심하다(실기기 피드백).
-     히트 영역(44px)은 그대로다. */
-  .todo-check {
-    width: 18px;
-    height: 18px;
-  }
-  .todo-ref {
-    grid-row: 1;
-  }
-  .todo-title {
-    grid-row: 1;
-    grid-column: -2 / -1;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    text-align: left;
-    /* 44px 타깃을 min-height 가 아니라 padding 으로 만든다 — min-height 는 grid 행을
-       늘리지만 padding 은 글자를 감싸므로, 제목이 한 줄이든 두 줄이든 타깃이 따라온다. */
-    padding: 11px 0;
-  }
-  /* 칩 줄. **제목 열에 맞춰** 시작한다 — 번호 열부터 시작하면 제목과 좌측이 어긋나
-     한 항목이 두 덩어리로 읽힌다. */
-  .todo-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    grid-column: -2 / -1;
-    grid-row: 2;
-  }
-  /* 메타 행을 아예 만들지 않아야 하는 두 경우.
-     `:empty` 는 **DOM 에 자식이 없을 때만** 맞는다 — 아래 완료 항목처럼 자식이 있는데
-     전부 `display: none` 인 경우는 잡지 못해 0 높이 박스가 2행을 차지한다(실측 확인). */
-  .todo-meta:empty {
-    display: none;
-  }
-  .is-done .todo-meta:not(:has(.comment-badge)) {
-    display: none;
-  }
-  /* 끝난 항목은 목록에 남되 자리를 덜 차지한다 — 좁은 화면에서 남은 일을 가리는 게
-     가장 큰 비용이라, 완료 항목의 칩 줄은 접어 한 줄로 만든다. 라벨·마감처럼 접히는
-     정보는 이미 끝난 일에 대한 것이고, 필요하면 눌러서 드로어에서 본다.
-     댓글은 예외다 — 완료 뒤에 달린 논의가 오히려 읽어야 할 것이라 남긴다. */
-  .is-done .todo-meta > :not(.comment-badge) {
-    display: none;
-  }
-  /* 터치 타깃 44×44 — 손가락으로 누르는 컨트롤은 시각 크기와 무관하게 히트 영역을 확보한다.
-     예전엔 건드리는 컨트롤마다 그때그때 더해 왔는데, 한 번에 모아 정리했다. */
-  .todo-check-hit {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    min-height: 44px;
-    /* 늘어난 히트 영역이 행 높이와 좌측 정렬을 밀지 않게 상쇄한다 — 시각 밀도는 그대로. */
-    margin: -8px 0 -8px -8px;
-  }
-  /* 번호는 한두 자리라 44px 를 시각 폭으로 주면 제목이 그만큼 밀린다. 히트 영역만
-     가상 요소로 넓혀 레이아웃을 건드리지 않고 44×44 를 만든다. */
-  .todo-ref {
-    position: relative;
-    min-height: 44px;
-    /* 32px 예약 폭이 폰에서는 체크박스와 번호 사이 빈 공터로 보였다(실기기 피드백).
-       2ch 면 두 자리까지 우정렬이 유지되면서 번호가 체크박스 옆에 붙는다. */
-    min-width: 2ch;
-  }
-  .todo-ref::after {
-    content: "";
-    position: absolute;
-    /* 예약 폭이 준 만큼 히트 영역을 좌우로 더 벌린다. */
-    inset: 0 -12px;
-  }
-  .drawer-ref {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-    min-width: 44px;
-  }
-  .note-action {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  /* 닫기는 시트 바닥에 붙는 전폭 "닫기" 줄이다 — 우상단 ✕ 는 한 손 파지에서 못 닿는다. 예전엔 viewport 에
-     고정한 둥근 버튼이었는데, 스크롤하는 내용 위에 떠서 댓글 입력칸·"등록" 을 가렸다(2026-10-03 E2E).
-     sticky 줄은 불투명 배경이라 내용이 그 밑으로 지나갈 뿐 겹쳐 보이지 않고, 시트 끝에서는 제자리에 놓인다. */
-  .drawer-close {
-    position: sticky;
-    top: auto;
-    right: auto;
-    bottom: 0;
-    z-index: 1;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    justify-content: center;
-    width: calc(100% + 2 * var(--drawer-pad-x));
-    min-height: 52px;
-    margin: 16px calc(-1 * var(--drawer-pad-x)) 0;
-    padding-bottom: env(safe-area-inset-bottom);
-    background: var(--surface);
-    border: 0;
-    border-top: 1px solid var(--line);
-    border-radius: 0;
-    color: var(--text);
-    font-size: 15px;
-  }
-  .drawer-close-label {
-    display: inline;
-  }
-  .comment-tool {
-    min-height: 44px;
-    padding: 0 8px;
-  }
-  /* 메타 칩 전반(`.comment-badge`, `.chip-link` 등)은 여기서 제외한다 — `.todo-row` 가
-     줄바꿈되면 이들은 두 번째 줄에 놓이는데, 여기에 44px 바닥을 주면 그 줄 전체가 44px 로
-     늘어나 행 높이가 두 배가 된다. 배지·링크가 여는 대상(드로어·이슈)은 이미 44px 바닥을
-     가진 `.todo-title`/`.todo-ref` 나 드로어 안에서도 도달할 수 있다. 칩 자체를 접어
-     줄바꿈을 없애는 건 별도 백로그 — 그게 되면 여기 바닥을 되살린다. */
-  /* `.drawer-btn` 은 버튼뿐 아니라 `<a>`("이슈 열기 ↗")에도 쓰인다. `<a>` 는 인라인이라
+  /* `.drawer-btn` 은 버튼뿐 아니라 `<a>` 에도 쓰인다. `<a>` 는 인라인이라
      min-height 가 먹지 않으므로 display 를 함께 준다. */
   .drawer-btn {
     display: inline-flex;
@@ -196,58 +26,13 @@
     justify-content: center;
     min-height: 44px;
   }
-  /* 버튼이 44px 로 커지면 8px 간격이 다닥다닥해 보인다(실기기 제보 2회) —
-     가로·세로 모두 12px 로 벌린다. 데스크톱(작은 버튼)은 8px 그대로. */
-  .drawer-actions {
-    gap: 12px;
-  }
-  .notes-view .notes-add {
-    min-height: 44px;
-    padding-inline: 12px;
-  }
-
-  /* 좁은 화면에선 옆이 아니라 **아래에서 올라오는 시트**다. 전폭 오버레이 + 우상단 ✕ 는
-     엄지 도달 범위 밖이었다 (보드 항목: 모바일 드로어를 바텀시트로). 닫기는 스크림 띠
-     탭·Esc·우하단 pill. 그랩바는 뺐다 — 스와이프 닫기를 안 만들었으므로 그 신호는
-     거짓 어포던스다(실기기 제보). */
-  .drawer {
-    top: auto;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    /* base(중앙 모달)의 자동 중앙정렬·높이 상한을 시트에 맞게 되돌린다 */
-    margin: 0;
-    max-height: none;
-    border: none;
-    width: 100vw;
-    /* 위에 남기는 틈은 "탭해서 닫기 + 레이어 맥락" 신호까지만 — 32px 스크림 띠.
-       12dvh 처럼 크게 남기면 그 틈으로 상단 바가 통째로 보이는데, 시트가 열린 동안
-       그 바는 아무 역할이 없다(실기기 제보). */
-    height: calc(100dvh - 32px);
-    border-left: none;
-    border-top: 1px solid var(--line);
-    border-radius: 14px 14px 0 0;
-    /* 바닥은 sticky "닫기" 줄이 채운다 — 여백 없이 시트 끝에 붙게. */
-    padding-bottom: 0;
-    animation: rt-sheet-up 0.22s ease-out;
-  }
-  @keyframes rt-sheet-up {
-    from {
-      transform: translateY(24px);
-      opacity: 0.6;
-    }
-  }
   /* iOS Safari: 16px 미만 입력 필드 포커스 시 자동 확대 방지 */
-  .quick-add-input,
-  .note-title,
-  .note-content,
-  .actor-input,
-  .drawer-desc-cm .cm-editor {
+  .actor-input {
     font-size: 16px;
   }
 }
 
-/* "지금" 행 제목 — 두 줄까지 줄바꿈, 한글은 어절 단위로(`web/DESIGN.md` "Typography").
+/* "내 차례" 행 제목 — 두 줄까지 줄바꿈, 한글은 어절 단위로(`web/DESIGN.md` "Typography").
    한 줄 말줄임이면 360px 에서 한국어 제목이 거의 다 잘린다. */
 .now-title {
   display: -webkit-box;
@@ -260,23 +45,15 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .doing-pulse,
-  .drawer,
-  .status-dot-badge * {
-    animation: none;
-  }
   /* tokens.css 의 공통 전이도 끈다. */
   a,
   button,
   input,
-  .todo-row,
   .chip {
     transition: none;
   }
 }
 
-/* 터치 기기에는 드래그 핸들을 두지 않는다 — HTML5 DnD 가 터치에서 안 돌아 잡을 수 없는
-   핸들이 첫 열을 24px 씩 먹고 있었다. 순서 이동은 드로어의 보드/섹션 이동과 CLI `move` 가 맡는다. */
 @media (pointer: coarse) {
   /* 머리줄 메뉴 — 터치에서만 손가락 타깃 44px. 마우스로 보는 좁은 패널(cmux)에서는 머리줄을
      한 줄 40px 로 지킨다(DESIGN.md "Layout"). */
@@ -284,21 +61,15 @@
     min-width: 44px;
     min-height: 44px;
   }
-  .drag-handle {
-    display: none;
-  }
-  /* 글자만 있는 작은 버튼·링크(보드 "편집", 레포 링크, 수집함·세션 전달의 "새로고침"·"설정", "열린 PR") —
+  /* 글자만 있는 작은 버튼·링크(레포 링크, 세션 전달의 "새로고침"·"설정", "열린 PR") —
      손가락 타깃 44px. 마우스로 보는 좁은 패널(cmux)은 글자 크기 그대로 둔다. */
   .tap {
     display: inline-flex;
     align-items: center;
-    /* 두 글자 버튼("편집"·"설정")은 높이만 44px 면 폭이 21px 라 여전히 좁다 — 폭도 바닥을 둔다. 정렬은
+    /* 두 글자 버튼("설정")은 높이만 44px 면 폭이 21px 라 여전히 좁다 — 폭도 바닥을 둔다. 정렬은
        시작 그대로 — 가운데로 두면 줄어드는 긴 레포 링크의 앞부분이 잘린다. */
     min-width: 44px;
     min-height: 44px;
-  }
-  .todo-row {
-    grid-template-columns: auto auto minmax(0, 1fr);
   }
 }
 

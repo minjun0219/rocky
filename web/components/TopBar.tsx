@@ -2,9 +2,8 @@ import { MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { rcVisible, type ThemePref } from '../lib';
 import { useUiStore } from '../store';
-import { clearBoardReplica } from '../sync/boot';
 import { logUsage } from '../usage';
-import { BoardSwitcher } from './BoardSwitcher';
+import { ViewSwitch } from './ViewSwitch';
 
 const THEME_LABEL: Record<ThemePref, string> = {
   auto: '자동',
@@ -12,24 +11,19 @@ const THEME_LABEL: Record<ThemePref, string> = {
   dark: '다크',
 };
 
-import { useNowRows } from './NowTable';
-import { ViewSwitch } from './ViewSwitch';
-
 /**
  * 머리줄 — 42px 초슬림 단일 바.
- * 보드 스위처 · 세그먼트 탭(ViewSwitch) · 실시간 에이전트 인디케이터 · (끊겼을 때만) 연결 표시 · `⋯` 메뉴 통합.
+ * 이름 · 세그먼트 탭(ViewSwitch) · (끊겼을 때만) 연결 표시 · `⋯` 메뉴 통합.
  */
 export function TopBar() {
   const connected = useUiStore((s) => s.connected);
-  const nowRows = useNowRows();
-  const runCount = nowRows.filter((r) => r.group === 'run').length;
 
   return (
     <header className="topbar relative w-full max-w-full min-w-0 border-b border-line bg-surface/95 select-none backdrop-blur-xs">
-      {/* 1행: 데스크톱에서는 3개 슬롯(좌-중-우), 모바일에서는 좌(보드)-우(메뉴) 상단 바 */}
+      {/* 1행: 데스크톱에서는 3개 슬롯(좌-중-우), 모바일에서는 좌(이름)-우(메뉴) 상단 바 */}
       <div className="flex h-10 w-full min-w-0 items-center justify-between px-3">
         <div className="flex shrink-0 items-center">
-          <BoardSwitcher />
+          <span className="font-mono text-meta font-semibold text-text">rocky</span>
         </div>
 
         {/* 데스크톱 세그먼트 탭 (>= 640px) */}
@@ -37,17 +31,8 @@ export function TopBar() {
           <ViewSwitch />
         </div>
 
-        {/* 우측 슬롯 (모바일/데스크톱 공통: 에이전트 인디케이터 + 연결 상태 + 메뉴) */}
+        {/* 우측 슬롯 (모바일/데스크톱 공통: 연결 상태 + 메뉴) */}
         <div className="flex shrink-0 items-center gap-1.5">
-          {runCount > 0 ? (
-            <span
-              className="status-dot-badge inline-flex items-center gap-1.5 rounded-[5px] bg-run-soft px-2 py-0.5 font-mono text-chip font-semibold tabular-nums text-run"
-              title={`실행 중인 에이전트 ${runCount}개`}
-            >
-              <span className="size-1.5 rounded-full bg-run" aria-hidden />
-              {runCount}
-            </span>
-          ) : null}
           {connected ? null : (
             <span
               className="link-status inline-flex items-center gap-1 font-mono text-chip text-dead"
@@ -71,14 +56,12 @@ export function TopBar() {
 }
 
 /**
- * `⋯` 메뉴 — 자주 안 쓰는 것들: 테마, 보관된 항목 보기, 편집자 이름, 새로고침·전체 보기
- * (cmux Dock 에 주소창 없이 띄우면 브라우저의 새로고침·홈이 없다 — DESIGN.md "Environment").
+ * `⋯` 메뉴 — 자주 안 쓰는 것들: 테마, 탭 켜고 끄기, 편집자 이름, 새로고침
+ * (cmux Dock 에 주소창 없이 띄우면 브라우저의 새로고침이 없다 — DESIGN.md "Environment").
  */
 function HeaderMenu() {
   const actor = useUiStore((s) => s.actor);
   const setActor = useUiStore((s) => s.setActor);
-  const showArchived = useUiStore((s) => s.showArchived);
-  const setShowArchived = useUiStore((s) => s.setShowArchived);
   const showGithub = useUiStore((s) => s.showGithub);
   const setShowGithub = useUiStore((s) => s.setShowGithub);
   const showRc = useUiStore((s) => s.showRc);
@@ -88,7 +71,6 @@ function HeaderMenu() {
   const setShowAgents = useUiStore((s) => s.setShowAgents);
   const themePref = useUiStore((s) => s.themePref);
   const setThemePref = useUiStore((s) => s.setThemePref);
-  const setSelected = useUiStore((s) => s.setSelected);
   const accessUser = useUiStore((s) => s.accessUser);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(actor);
@@ -168,14 +150,6 @@ function HeaderMenu() {
           <label className="flex min-h-8 cursor-pointer items-center gap-2 text-text">
             <input
               type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-            />
-            보관된 항목도 보기
-          </label>
-          <label className="flex min-h-8 cursor-pointer items-center gap-2 text-text">
-            <input
-              type="checkbox"
               checked={showGithub}
               onChange={(e) => setShowGithub(e.target.checked)}
             />
@@ -201,7 +175,7 @@ function HeaderMenu() {
           ) : null}
           <label className="flex flex-col gap-1">
             <span className="font-mono text-chip text-faint">
-              편집자 이름. 웹에서 고친 내용은 이 이름으로 기록돼요
+              편집자 이름. 웹에서 한 일은 이 이름으로 기록돼요
             </span>
             <input
               aria-label="편집자 이름"
@@ -217,17 +191,6 @@ function HeaderMenu() {
             />
           </label>
           <div className="flex gap-2 border-t border-line pt-2">
-            <button
-              type="button"
-              role="menuitem"
-              className="min-h-8 flex-1 rounded-md px-2 text-muted hover:bg-surface-2 hover:text-text"
-              onClick={() => {
-                setOpen(false);
-                setSelected('all');
-              }}
-            >
-              전체 보기
-            </button>
             <button
               type="button"
               role="menuitem"
@@ -250,19 +213,7 @@ function HeaderMenu() {
                 role="menuitem"
                 href="/cdn-cgi/access/logout"
                 className="inline-flex min-h-8 items-center rounded-md px-2 text-muted no-underline hover:bg-surface-2 hover:text-text"
-                onClick={(e) => {
-                  logUsage('web:access-logout');
-                  // 이 브라우저에 남은 보드 사본부터 지운다 — 폰에 보드가 남지 않게. 지우기를 기다린 뒤에 나간다.
-                  e.preventDefault();
-                  const href = e.currentTarget.href;
-                  void clearBoardReplica().then(() => window.location.assign(href));
-                }}
-                onAuxClick={(e) => {
-                  // 가운데 클릭(새 탭)도 이 탭에서 사본을 지우고 나간다 — 새 탭으로만 나가면 사본이 남는다.
-                  e.preventDefault();
-                  const href = e.currentTarget.href;
-                  void clearBoardReplica().then(() => window.location.assign(href));
-                }}
+                onClick={() => logUsage('web:access-logout')}
               >
                 로그아웃
               </a>
