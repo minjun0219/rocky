@@ -60,6 +60,8 @@
 - **맥 앱**(`mac/`, Swift · SwiftUI · SwiftPM) — 메뉴 막대에 머지 후보 PR,
   떠 있는 로키 아바타와 메뉴의 에이전트 칸이 세션 상태(`/api/sessions`)를 알린다.
   웹과 같은 데몬 REST/SSE 클라이언트(`x-rocky-client: mac`)이고 데몬은 고치지 않는다(`docs/features/mac.md`).
+  선택 사항이다 — 릴리스·main·nightly 업데이트는 `Rocky.app` 을 버전 폴더(`current/`)에 담기만 하고 깔거나 띄우지 않는다.
+  필요할 때 `rocky app` 으로 띄우고(서명 이름이 바뀌었으면 그 자리에서 다시 서명) `rocky app --quit` 으로 내린다.
 
 > **v0.23에서 제거**: `openapi_*`(7), `seo_validate`, `notion_*`(4), 독립 CLI `openapi-mcp`. 39개 레포 ·
 > 5,216 턴 로그를 세어 보니 호출이 0이었다. git 히스토리에만 있다 — *범위 → 밖* 참고.
@@ -89,7 +91,7 @@ rocky/                          단일 패키지 — @minjun0219/rocky
 │                                 **UI 를 고치기 전에 `web/DESIGN.md` 를 읽는다**(토큰·정보 우선순위·좁은 패널 규칙의 정본).
 │                                 데몬이 바이너리 옆 dist/ 를 `/` 에 서빙한다. types.ts 는 Rust 응답 타입의 사본.
 ├── mac/                        맥 앱(SwiftUI 메뉴 막대 + 아바타) — SwiftPM 패키지. RockyKit(순수, `swift test`) + RockyMac(화면).
-│                                 `mac/scripts/bundle.sh` → mac/build/Rocky.app(gitignore), ROCKY_MAC_SIGN_IDENTITY 로 codesign. 규칙은 docs/features/mac.md
+│                                 `mac/scripts/bundle.sh` → mac/build/Rocky.app(gitignore), ROCKY_MAC_SIGN_IDENTITY 로 codesign. 띄우기는 `rocky app`. 규칙은 docs/features/mac.md
 ├── antigravity/                Antigravity(`agy`) 플러그인 번들 — 보드·워크로그(`--roots`) MCP + board·worklog 스킬(plugin/ 의 링크)
 │                                 + 규칙 + 훅(`PreInvocation` → `rocky hook notify-todo agy`, `Stop` → `hook log-turn agy`).
 │                                 `agy plugin install` 이 복사한다(링크는 풀림). 근거는 docs/antigravity.md

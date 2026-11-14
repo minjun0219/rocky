@@ -1677,13 +1677,8 @@ pub fn cmd_update(ctx: &CliContext, check: bool) -> Result<(), String> {
     if check {
         return Ok(());
     }
-    // 그 버전 tarball 을 푼 자리 — 맥 앱(`Rocky.app`)도 여기서 꺼내 깐다.
-    let unpacked = crate::config_cmd::data_home()
-        .join("rocky")
-        .join(format!("v{latest}"));
     if here == latest && running.as_deref() == Some(latest.as_str()) {
         println!("✓ 이미 최신이다");
-        crate::mac_app::sync_and_report(&unpacked, false);
         return Ok(());
     }
     run_claude(&["plugin", "marketplace", "update", "rocky-marketplace"])?;
@@ -1708,10 +1703,10 @@ pub fn cmd_update(ctx: &CliContext, check: bool) -> Result<(), String> {
         running.as_deref().unwrap_or("(없음)"),
         after.as_deref().unwrap_or("(없음)")
     );
-    crate::mac_app::sync_and_report(&unpacked, false);
     println!(
         "  열려 있는 세션은 /reload-plugins 또는 재시작해야 새 플러그인(훅·커맨드)이 적용된다."
     );
+    crate::mac_app::report_stale();
     Ok(())
 }
 

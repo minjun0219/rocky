@@ -42,7 +42,7 @@
    Antigravity 번들도 사본(`marketplace/antigravity`)에서. 옛 `main-src` 마켓플레이스는 다음 업데이트에서 한 번 확인받고 옮긴다.
 3c. **릴리스 모드도**(뒤로) — 릴리스 모드는 GitHub 마켓플레이스가 입구이고 부트스트랩이 플러그인 버전으로 tarball 을 고른다. 폴더로
    옮기려면 `rocky update` 가 최신 릴리스 tarball 을 플러그인 없이 직접 받아야 한다(nightly 의 `install_nightly` 와 같은 길).
-3b. **맥 앱을 CLI 로** — `rocky update` 의 앱 깔기·다시 띄우기를 빼고 `rocky app [--quit]` 을 더한다. 앱의 첫 실행 로그인 항목 등록(`LoginItem.swift`)을 끈다.
+3b. **맥 앱을 CLI 로** — `rocky update` 의 앱 깔기·다시 띄우기를 빼고 `rocky app [--quit]` 을 더한다. 앱의 첫 실행 로그인 항목 등록(`LoginItem.swift`)을 끈다. 예전에 `/Applications` 에 깔린 앱은 지우지 않고 업데이트 끝에 알린다(오너 확인 2026-11-12 "제안대로" — 메뉴의 로그인 항목 토글은 남긴다).
 4. **nightly 자동 받기**(nightly 설계 8번) — Mac Studio 의 `--main` 자동 배포를 옮긴다.
 
 ## 처음 안과 실측(기록)
